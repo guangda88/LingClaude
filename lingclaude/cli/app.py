@@ -18,7 +18,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         result = runtime.execute_tool("bash", command=f"echo 'Prompt received: {args.prompt}'")
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
-        print("灵克 v0.1.0 — Self-optimizing AI runtime")
+        print("灵克 v0.1.0 — 开源 AI 编程助手")
         print(f"Config: {args.config or 'default'}")
         print(f"Tools: {len(runtime.registry.list_tools())} registered")
     return 0

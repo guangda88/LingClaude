@@ -1,5 +1,7 @@
 # AGENTS.md — 灵克 (LingClaude) Agent Guide
 
+> 开源 AI 编程助手，对标 Claude Code，差异化优势：内置自优化。
+
 ## Project Structure
 
 ```

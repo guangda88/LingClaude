@@ -1,4 +1,4 @@
-"""灵克 (LingClaude) — 自优化AI运行时"""
+"""灵克 (LingClaude) — 开源 AI 编程助手，内置自优化能力"""
 
 from lingclaude.core.types import Result
 from lingclaude.core.config import LingClaudeConfig, load_config
