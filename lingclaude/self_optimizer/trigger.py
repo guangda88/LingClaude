@@ -7,7 +7,7 @@ from typing import Any
 from lingclaude.core.config import TriggerConfig
 
 
-@dataclass
+@dataclass(frozen=True)
 class TriggerInfo:
     type: str
     reason: str

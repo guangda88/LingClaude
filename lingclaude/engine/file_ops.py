@@ -7,7 +7,7 @@ from typing import Any
 from lingclaude.core.types import Result
 
 
-@dataclass
+@dataclass(frozen=True)
 class FileInfo:
     path: str
     content: str

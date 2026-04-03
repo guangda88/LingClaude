@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=True)
 class BashResult:
     exit_code: int
     stdout: str
@@ -18,6 +18,16 @@ class BashResult:
     @property
     def success(self) -> bool:
         return self.exit_code == 0
+
+
+_ALWAYS_BLOCKED = frozenset([
+    "rm -rf /",
+    "sudo",
+    "su",
+    "mkfs",
+    "dd if=",
+    ":(){ :|:& };:",
+])
 
 
 class BashExecutor:
@@ -31,14 +41,8 @@ class BashExecutor:
         self.working_dir = working_dir
         self.timeout = timeout
         self.allowed_commands = allowed_commands
-        self.blocked_commands = blocked_commands or [
-            "rm -rf /",
-            "sudo",
-            "su",
-            "mkfs",
-            "dd if=",
-            ":(){ :|:& };:",
-        ]
+        extra_blocked = blocked_commands or []
+        self.blocked_commands = _ALWAYS_BLOCKED | frozenset(extra_blocked)
 
     def run(self, command: str, timeout: int | None = None) -> BashResult:
         effective_timeout = timeout or self.timeout
@@ -93,7 +97,7 @@ class BashExecutor:
         cmd_lower = command.lower().strip()
 
         for blocked in self.blocked_commands:
-            if blocked.lower() in cmd_lower:
+            if blocked in cmd_lower:
                 return False
 
         if self.allowed_commands is not None:

@@ -158,7 +158,7 @@ class KnowledgeBase:
         except Exception:
             return []
 
-    def search_rules(self, keyword: str, limit: int = 20) -> list[LearnedRule]:
+    def search_rules(self, keyword: str, limit: int = 20) -> tuple[LearnedRule, ...]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
@@ -172,9 +172,9 @@ class KnowledgeBase:
             """,
                 (pattern, pattern, limit),
             )
-            return [self._row_to_rule(row) for row in cursor.fetchall()]
+            return tuple(self._row_to_rule(row) for row in cursor.fetchall())
         except Exception:
-            return []
+            return ()
 
     def update_rule_status(self, rule_id: str, status: str) -> bool:
         try:
@@ -237,11 +237,11 @@ class KnowledgeBase:
     def _row_to_rule(self, row: sqlite3.Row) -> LearnedRule:
         pattern_data = json.loads(row["pattern_json"])
         pattern = Pattern(
-            file_patterns=pattern_data.get("file_patterns", []),
-            code_patterns=pattern_data.get("code_patterns", []),
-            context_keywords=pattern_data.get("context_keywords", []),
+            file_patterns=tuple(pattern_data.get("file_patterns", [])),
+            code_patterns=tuple(pattern_data.get("code_patterns", [])),
+            context_keywords=tuple(pattern_data.get("context_keywords", [])),
             severity_distribution=pattern_data.get("severity_distribution", {}),
-            tool_support=pattern_data.get("tool_support", []),
+            tool_support=tuple(pattern_data.get("tool_support", [])),
         )
 
         return LearnedRule(
@@ -250,7 +250,7 @@ class KnowledgeBase:
             description=row["description"],
             category=FeedbackCategory(row["category"]),
             pattern=pattern,
-            tools=json.loads(row["tools_json"]),
+            tools=tuple(json.loads(row["tools_json"])),
             frequency=row["frequency"],
             confidence=row["confidence"],
             quality_score=row["quality_score"],
@@ -288,27 +288,40 @@ class InMemoryKnowledgeBase(KnowledgeBase):
         category: FeedbackCategory | None = None,
         status: str | None = None,
         limit: int = 100,
-    ) -> list[LearnedRule]:
+    ) -> tuple[LearnedRule, ...]:
         rules = list(self._rules.values())
         if category:
             rules = [r for r in rules if r.category == category]
         if status:
             rules = [r for r in rules if r.status == status]
         rules.sort(key=lambda r: r.quality_score, reverse=True)
-        return rules[:limit]
+        return tuple(rules[:limit])
 
-    def search_rules(self, keyword: str, limit: int = 20) -> list[LearnedRule]:
+    def search_rules(self, keyword: str, limit: int = 20) -> tuple[LearnedRule, ...]:
         kw = keyword.lower()
         rules = [
             r for r in self._rules.values()
             if kw in r.name.lower() or kw in r.description.lower()
         ]
         rules.sort(key=lambda r: r.quality_score, reverse=True)
-        return rules[:limit]
+        return tuple(rules[:limit])
 
     def update_rule_status(self, rule_id: str, status: str) -> bool:
         if rule_id in self._rules:
-            self._rules[rule_id].status = status
+            old = self._rules[rule_id]
+            self._rules[rule_id] = LearnedRule(
+                id=old.id,
+                name=old.name,
+                description=old.description,
+                category=old.category,
+                pattern=old.pattern,
+                tools=old.tools,
+                frequency=old.frequency,
+                confidence=old.confidence,
+                quality_score=old.quality_score,
+                status=status,
+                created_at=old.created_at,
+            )
             return True
         return False
 
