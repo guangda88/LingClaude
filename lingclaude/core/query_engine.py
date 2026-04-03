@@ -72,6 +72,15 @@ class QueryEngine:
         self._intel_collector = IntelCollector()
         self._intel_relay: IntelRelay | None = None
         self._session_history_path: Path = Path("data/session_history.json")
+        self._mailbox: Any | None = None
+
+    def init_mailbox(self, mailbox: Any) -> None:
+        self._mailbox = mailbox
+
+    def read_lingmessage_threads(self) -> tuple[Any, ...]:
+        if self._mailbox is None:
+            return ()
+        return self._mailbox.list_threads()
 
     @property
     def behavior_metrics(self) -> BehaviorMetrics:
