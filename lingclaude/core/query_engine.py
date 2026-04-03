@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import Session, SessionManager
+from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent, detect_emotion, detect_intent, is_tool_intent
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,11 @@ class QueryEngine:
         self._transcript: list[str] = []
         self._provider = model_provider
         self._runtime = runtime
+        self._behavior = BehaviorMetrics()
+
+    @property
+    def behavior_metrics(self) -> BehaviorMetrics:
+        return self._behavior
 
     @classmethod
     def from_config_file(cls, config_path: str | None = None) -> QueryEngine:
@@ -114,6 +120,9 @@ class QueryEngine:
             )
 
         output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
+
+        self._track_behavior(prompt, output)
+
         projected = self._usage.add_turn(prompt, output)
         stop_reason = StopReason.COMPLETED
         if projected.input_tokens + projected.output_tokens > self.config.max_budget_tokens:
@@ -221,6 +230,26 @@ class QueryEngine:
             context_parts.append(f"权限拒绝: {len(denied_tools)} 个工具被拒绝")
         return self._format_output(context_parts)
 
+    def _track_behavior(self, prompt: str, output: str) -> None:
+        emotion = detect_emotion(prompt)
+        intent = detect_intent(prompt)
+
+        self._behavior.total_turns += 1
+        self._behavior.emotions_detected.append(emotion)
+
+        if emotion == Emotion.FRUSTRATED:
+            self._behavior.frustration_count += 1
+
+        if intent == Intent.CORRECTION:
+            self._behavior.corrections_received += 1
+
+    def _track_tool_usage(self, used_tools: bool, prompt: str) -> None:
+        intent = detect_intent(prompt)
+        if used_tools:
+            self._behavior.turns_with_tools += 1
+        elif is_tool_intent(intent):
+            self._behavior.turns_without_tools_but_needed += 1
+
     def _call_model(self, prompt: str) -> str:
         from lingclaude.model.types import ModelMessage, MessageRole
 
@@ -230,16 +259,23 @@ class QueryEngine:
         messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
 
         tools = self._build_openai_tools()
+        used_tools = False
+        response = None
 
         for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
             result = self._provider.complete(tuple(messages), tools=tools)
             if result.is_error:
+                self._track_tool_usage(False, prompt)
                 return f"[模型调用失败] {result.error}"
 
             response = result.data
 
             if not response.tool_calls:
+                self._track_tool_usage(used_tools, prompt)
                 return response.content
+
+            used_tools = True
+            self._behavior.tool_call_count += len(response.tool_calls)
 
             messages.append(ModelMessage(
                 role=MessageRole.ASSISTANT,
@@ -249,6 +285,8 @@ class QueryEngine:
 
             for tc in response.tool_calls:
                 tool_output = self._execute_tool(tc.name, tc.arguments)
+                if '"error"' in tool_output:
+                    self._behavior.tool_error_count += 1
                 messages.append(ModelMessage(
                     role=MessageRole.TOOL,
                     content=tool_output,
@@ -256,7 +294,8 @@ class QueryEngine:
                     tool_call_id=tc.id,
                 ))
 
-        return response.content if response.content else "[达到最大工具调用轮次]"
+        self._track_tool_usage(used_tools, prompt)
+        return response.content if response and response.content else "[达到最大工具调用轮次]"
 
     def _build_openai_tools(self) -> tuple[dict[str, Any], ...] | None:
         if self._runtime is None:
