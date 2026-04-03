@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lingclaude"
 version = "0.1.0"
-description = "自用AI模型 — 基于灵芝系统硬件条件的自优化Claude运行时"
+description = "灵克 (LingClaude) — 自优化AI运行时"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

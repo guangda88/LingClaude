@@ -14,11 +14,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
     runtime = CodingRuntime(config)
 
     if args.prompt:
-        print(f"LingClaude> {args.prompt}")
+        print(f"灵克> {args.prompt}")
         result = runtime.execute_tool("bash", command=f"echo 'Prompt received: {args.prompt}'")
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
-        print("LingClaude v0.1.0 — Self-optimizing AI runtime")
+        print("灵克 v0.1.0 — Self-optimizing AI runtime")
         print(f"Config: {args.config or 'default'}")
         print(f"Tools: {len(runtime.registry.list_tools())} registered")
     return 0

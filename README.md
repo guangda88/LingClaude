@@ -1,6 +1,6 @@
-# LingClaude
+# 灵克 (LingClaude)
 
-> Self-optimizing AI model runtime for personal use, built on the LingFlow (灵芝系统) framework.
+> 自优化AI模型运行时，基于 LingFlow (灵芝系统) 框架。
 
 **Version**: 0.1.0
 **Python**: >=3.10

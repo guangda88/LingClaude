@@ -1,4 +1,4 @@
-# AGENTS.md — LingClaude Agent Guide
+# AGENTS.md — 灵克 (LingClaude) Agent Guide
 
 ## Project Structure
 
