@@ -137,11 +137,19 @@ class SynchronousOptimizer:
                 )
 
             except ImportError:
+                grid_start = time.monotonic()
                 result = _grid_search(
                     search_space, request.target, max_experiments
                 )
-                result.duration = time.monotonic() - start
-                return result
+                elapsed = time.monotonic() - grid_start
+                return OptimizationResult(
+                    success=result.success,
+                    best_params=result.best_params,
+                    best_score=result.best_score,
+                    experiments=result.experiments,
+                    duration=elapsed,
+                    history=result.history,
+                )
 
         except Exception as e:
             return OptimizationResult(

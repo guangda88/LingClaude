@@ -126,5 +126,7 @@ def load_config(path: Path | None = None) -> LingClaudeConfig:
     target = path or DEFAULT_CONFIG_PATH
     if target.exists():
         raw = yaml.safe_load(target.read_text())
+        if raw is None:
+            return LingClaudeConfig()
         return LingClaudeConfig.from_dict(raw)
     return LingClaudeConfig()

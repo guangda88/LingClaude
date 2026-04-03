@@ -160,16 +160,16 @@ class FileOps:
             resolved = (self.base_dir / p).resolve()
 
         if self.allow_escape:
-            resolved_str = str(resolved)
             for protected in _PROTECTED_PATHS:
-                if resolved_str.startswith(protected):
+                prot_path = Path(protected)
+                if resolved.is_relative_to(prot_path):
                     return Result.fail(
                         f"敏感路径被保护: {path}（{resolved} 在受保护目录 {protected} 下）。"
                         f"此路径始终不可访问，即使启用了 allow_escape"
                     )
             return Result.ok(resolved)
 
-        if not str(resolved).startswith(str(self.base_dir)):
+        if not resolved.is_relative_to(self.base_dir):
             return Result.fail(
                 f"路径超出项目范围: {path}（解析到 {resolved}，"
                 f"允许范围 {self.base_dir}）。如需访问项目外文件，"

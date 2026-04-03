@@ -9,6 +9,7 @@ from lingclaude.self_optimizer.optimizer import (
     OptimizationResult,
 )
 from lingclaude.self_optimizer.advisor import OptimizationAdvisor
+from lingclaude.self_optimizer.daemon import OptimizationDaemon, DaemonState, OptimizationCycle
 
 __all__ = [
     "OptimizationTrigger",
@@ -21,6 +22,9 @@ __all__ = [
     "OptimizationRequest",
     "OptimizationResult",
     "OptimizationAdvisor",
+    "OptimizationDaemon",
+    "DaemonState",
+    "OptimizationCycle",
 ]
 
 

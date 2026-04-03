@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,8 @@ from lingclaude.self_optimizer.learner.models import (
     LearnedRule,
     Pattern,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeBase:
@@ -109,6 +112,7 @@ class KnowledgeBase:
             conn.commit()
             return True
         except Exception:
+            logger.warning("添加规则失败: %s", rule.id, exc_info=True)
             return False
 
     def add_rules_batch(self, rules: list[LearnedRule]) -> int:
@@ -128,6 +132,7 @@ class KnowledgeBase:
                 return self._row_to_rule(row)
             return None
         except Exception:
+            logger.warning("获取规则失败: %s", rule_id, exc_info=True)
             return None
 
     def get_all_rules(
@@ -156,6 +161,7 @@ class KnowledgeBase:
             cursor.execute(query, params)
             return [self._row_to_rule(row) for row in cursor.fetchall()]
         except Exception:
+            logger.warning("获取规则列表失败", exc_info=True)
             return []
 
     def search_rules(self, keyword: str, limit: int = 20) -> tuple[LearnedRule, ...]:
@@ -174,6 +180,7 @@ class KnowledgeBase:
             )
             return tuple(self._row_to_rule(row) for row in cursor.fetchall())
         except Exception:
+            logger.warning("搜索规则失败: %s", keyword, exc_info=True)
             return ()
 
     def update_rule_status(self, rule_id: str, status: str) -> bool:
@@ -187,6 +194,7 @@ class KnowledgeBase:
             conn.commit()
             return cursor.rowcount > 0
         except Exception:
+            logger.warning("更新规则状态失败: %s", rule_id, exc_info=True)
             return False
 
     def delete_rule(self, rule_id: str) -> bool:
@@ -197,6 +205,7 @@ class KnowledgeBase:
             conn.commit()
             return cursor.rowcount > 0
         except Exception:
+            logger.warning("删除规则失败: %s", rule_id, exc_info=True)
             return False
 
     def get_statistics(self) -> dict[str, Any]:
@@ -227,6 +236,7 @@ class KnowledgeBase:
                 "average_quality": round(avg_quality, 2),
             }
         except Exception:
+            logger.warning("获取统计信息失败", exc_info=True)
             return {
                 "total_rules": 0,
                 "by_category": {},
