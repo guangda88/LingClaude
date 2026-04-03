@@ -8,7 +8,7 @@
 /home/ai/LingClaude/
 ├── lingclaude/
 │   ├── __init__.py          # Exports core types, version
-│   ├── core/                # Foundation: types, config, session, permissions, query engine
+│   ├── core/                # Foundation: types, config, session, permissions, query engine, intel
 │   ├── model/               # Model abstraction: provider ABC, OpenAI, Anthropic, factory
 │   ├── engine/              # Tool execution: bash, file ops, tool registry, coding runtime
 │   ├── self_optimizer/      # Optimization framework: trigger, evaluator, optimizer, advisor
@@ -23,10 +23,11 @@
 │   ├── test_adaptive.py       # Adaptive query engine (routing, retry, compaction)
 │   ├── test_daemon.py         # Optimization daemon lifecycle
 │   ├── test_daemon_extras.py  # Daemon edge cases
+│   ├── test_intel.py          # Intelligence system (collector, digest, relay, LingYi integration)
 │   └── test_strict.py         # Config edge cases, provider errors, file ops
 ├── config.yaml              # Runtime configuration
 ├── pyproject.toml           # Build config, dependencies, CLI entry point
-└── VERSION                  # Current: 0.2.0
+└── VERSION                  # Current: 0.2.1
 ```
 
 ## Commands
@@ -149,10 +150,33 @@ Config loaded from `config.yaml` via `LingClaudeConfig` dataclass hierarchy:
 - `TriggerConfig` — quality/structure/performance/behavior thresholds
 - `OptimizerConfig` — max_trials, method
 - `SessionConfig` — save_dir, max_history
+- `IntelConfig` — enabled, output_dir, session_history_path, auto_collect_behavior, auto_relay, relay_target, digest_hour
+
+## Intelligence System (情报系统)
+
+```
+1. IntelCollector.from_behavior() / from_file_change() / from_pattern() / ...
+   → 8 categories: FILE_CHANGE, CODE_PATTERN, BEHAVIOR, ERROR, OPTIMIZATION, STRUCTURE, QUALITY, SECURITY
+   → 3 priority levels: INFO, WARNING, CRITICAL
+   → In-memory accumulation, cleared after digest
+
+2. DailyDigestGenerator.generate(items)
+   → Aggregates items into DailyDigest with key_findings, recommendations
+   → Category/priority counts
+
+3. IntelRelay.relay(digest)
+   → Writes JSON + Markdown + manifest to .lingclaude/intel/
+   → Public methods return Result[T]
+
+4. session_history.json
+   → Auto-generated on every submit() call
+   → Format: [{query, title, timestamp, created_at, session_id}]
+   → Consumed by LingYi (灵依) briefing.py:collect_lingclaude()
+```
 
 ## Test Coverage
 
-217 tests across 9 files:
+260 tests across 10 files:
 - `TestResult` (3) — ok/fail factories, error codes
 - `TestConfig` (4) — defaults, from_dict, file loading, missing file
 - `TestSession` (2) — creation, roundtrip save/load
@@ -172,3 +196,4 @@ Config loaded from `config.yaml` via `LingClaudeConfig` dataclass hierarchy:
 - `TestDaemon` (8) — daemon lifecycle, state persistence
 - `TestDaemonExtras` (6) — daemon edge cases
 - `TestConfigEdgeCases` (4), `TestQueryEngineEdgeCases` (6), `TestModelProviderEdgeCases` (7), `TestFileOpsEdgeCases` (4), `TestOptimizerEdgeCases` (2), `TestSessionEdgeCases` (2) — strict edge cases
+- `TestIntelItem` (4), `TestIntelCollectorFromBehavior` (7), `TestIntelCollectorFromSources` (12), `TestDailyDigest` (7), `TestIntelRelay` (6), `TestEndToEndIntelPipeline` (1), `TestSessionHistoryForLingYi` (5), `TestIntelCollectorIntegration` (3) — intelligence system
