@@ -1,6 +1,6 @@
 # 灵克 (LingClaude)
 
-> 自优化AI模型运行时，基于 LingFlow (灵芝系统) 框架。
+> 自优化AI模型运行时，基于 灵通 (LingFlow) 框架。
 
 **Version**: 0.1.0
 **Python**: >=3.10
