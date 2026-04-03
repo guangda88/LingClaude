@@ -3,6 +3,14 @@ engine:
   max_budget_tokens: 200000
   max_turns: 8
   structured_output: false
+intel:
+  auto_collect_behavior: true
+  auto_relay: true
+  digest_hour: 23
+  enabled: true
+  output_dir: .lingclaude/intel/
+  relay_target: lingyi
+  session_history_path: data/session_history.json
 model:
   api_key: ''
   base_url: https://api.deepseek.com/v1
