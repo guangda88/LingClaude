@@ -13,6 +13,8 @@ from lingclaude.engine.coding import CodingRuntime
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     engine = QueryEngine.from_config_file(args.config)
+    runtime = CodingRuntime(config)
+    engine.set_runtime(runtime)
 
     if args.prompt:
         if args.interactive:

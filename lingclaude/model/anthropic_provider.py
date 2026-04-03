@@ -23,6 +23,7 @@ class AnthropicProvider(ModelProvider):
         self,
         messages: tuple[ModelMessage, ...],
         config: ModelConfig | None = None,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         cfg = config or self._config
         if not cfg.api_key:
@@ -36,6 +37,7 @@ class AnthropicProvider(ModelProvider):
         self,
         messages: tuple[ModelMessage, ...],
         config: ModelConfig | None = None,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         cfg = config or self._config
         if not cfg.api_key:
