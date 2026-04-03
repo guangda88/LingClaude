@@ -76,7 +76,8 @@ class OpenAIProvider(ModelProvider):
     def _call_api_sync(
         self, messages: tuple[ModelMessage, ...], cfg: ModelConfig
     ) -> Result[ModelResponse]:
-        url = cfg.base_url or "https://api.openai.com/v1/chat/completions"
+        base = cfg.base_url or "https://api.openai.com/v1"
+        url = base.rstrip("/") + "/chat/completions"
         body = self._build_request_body(messages, cfg)
         headers = {
             "Authorization": f"Bearer {cfg.api_key}",
@@ -105,7 +106,8 @@ class OpenAIProvider(ModelProvider):
     ) -> Result[ModelResponse]:
         import aiohttp
 
-        url = cfg.base_url or "https://api.openai.com/v1/chat/completions"
+        base = cfg.base_url or "https://api.openai.com/v1"
+        url = base.rstrip("/") + "/chat/completions"
         body = self._build_request_body(messages, cfg)
         headers = {
             "Authorization": f"Bearer {cfg.api_key}",
