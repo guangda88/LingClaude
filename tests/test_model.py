@@ -531,8 +531,9 @@ class TestQueryEngineWithProvider:
     def test_from_config_file_no_provider(self) -> None:
         from lingclaude.core.query_engine import QueryEngine
 
-        engine = QueryEngine.from_config_file()
-        result = engine.submit("hello")
+        engine_result = QueryEngine.from_config_file()
+        assert engine_result.is_ok
+        result = engine_result.data.submit("hello")
         assert result.stop_reason.value == "completed"
 
     def test_from_config_file_with_model_config(self, tmp_path: object) -> None:
@@ -551,5 +552,6 @@ model:
         cfg_path = pathlib.Path(str(tmp_path)) / "config.yaml"
         cfg_path.write_text(config_content)
 
-        engine = QueryEngine.from_config_file(str(cfg_path))
-        assert engine.config.max_turns == 4
+        engine_result = QueryEngine.from_config_file(str(cfg_path))
+        assert engine_result.is_ok
+        assert engine_result.data.config.max_turns == 4

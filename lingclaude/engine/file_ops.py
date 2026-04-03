@@ -94,39 +94,49 @@ class FileOps:
         write_result = self.write(path, new_content)
         return write_result
 
-    def glob(self, pattern: str) -> Result[list[str]]:
-        matches = sorted(self.base_dir.glob(pattern))
-        return Result.ok([str(m.relative_to(self.base_dir)) for m in matches if m.is_file()])
+    def glob(self, pattern: str) -> Result[tuple[str, ...]]:
+        try:
+            matches = sorted(self.base_dir.glob(pattern))
+            return Result.ok(tuple(str(m.relative_to(self.base_dir)) for m in matches if m.is_file()))
+        except Exception as e:
+            return Result.fail(f"Glob error: {e}")
 
     def grep(
         self, pattern: str, include: str = "*.py"
-    ) -> Result[list[dict[str, Any]]]:
+    ) -> Result[tuple[dict[str, Any], ...]]:
         import re
 
-        regex = re.compile(pattern)
+        try:
+            regex = re.compile(pattern)
+        except re.error as e:
+            return Result.fail(f"Invalid regex pattern: {e}")
+
         results: list[dict[str, Any]] = []
 
-        for file_path in self.base_dir.rglob(include):
-            if not file_path.is_file():
-                continue
-            try:
-                for i, line in enumerate(
-                    file_path.read_text(encoding="utf-8").splitlines(), 1
-                ):
-                    if regex.search(line):
-                        results.append(
-                            {
-                                "file": str(
-                                    file_path.relative_to(self.base_dir)
-                                ),
-                                "line": i,
-                                "content": line.strip(),
-                            }
-                        )
-            except Exception:
-                continue
+        try:
+            for file_path in self.base_dir.rglob(include):
+                if not file_path.is_file():
+                    continue
+                try:
+                    for i, line in enumerate(
+                        file_path.read_text(encoding="utf-8").splitlines(), 1
+                    ):
+                        if regex.search(line):
+                            results.append(
+                                {
+                                    "file": str(
+                                        file_path.relative_to(self.base_dir)
+                                    ),
+                                    "line": i,
+                                    "content": line.strip(),
+                                }
+                            )
+                except Exception:
+                    continue
+        except Exception as e:
+            return Result.fail(f"Grep error: {e}")
 
-        return Result.ok(results)
+        return Result.ok(tuple(results))
 
     def exists(self, path: str) -> bool:
         result = self._resolve(path)

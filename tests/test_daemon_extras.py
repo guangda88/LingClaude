@@ -62,7 +62,8 @@ class TestBehaviorHistory:
             daemon = OptimizationDaemon.__new__(OptimizationDaemon)
             daemon.state_dir = tmp_path
             result = daemon.load_behavior_history()
-            assert result["total_turns"] == 0
+            assert result.is_ok
+            assert result.data["total_turns"] == 0
 
     def test_save_accumulates(self, tmp_path):
         with patch.object(OptimizationDaemon, "__init__", lambda self, *a, **kw: None):
@@ -80,7 +81,9 @@ class TestBehaviorHistory:
                 "corrections_received": 0,
                 "tool_error_count": 1,
             })
-            history = daemon.load_behavior_history()
+            history_result = daemon.load_behavior_history()
+            assert history_result.is_ok
+            history = history_result.data
             assert history["total_turns"] == 8
             assert history["total_frustration"] == 3
             assert history["total_corrections"] == 1

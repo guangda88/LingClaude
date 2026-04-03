@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +42,7 @@ class CodingRuntime:
                 description="Execute bash commands",
                 parameters={"command": {"type": "string"}},
                 handler=self._bash_handler,
+                security_scope="execute",
             )
         )
         self.registry.register(
@@ -51,6 +51,7 @@ class CodingRuntime:
                 description="Read file contents",
                 parameters={"path": {"type": "string"}},
                 handler=self._read_handler,
+                security_scope="read",
             )
         )
         self.registry.register(
@@ -62,6 +63,7 @@ class CodingRuntime:
                     "content": {"type": "string"},
                 },
                 handler=self._write_handler,
+                security_scope="write",
             )
         )
         self.registry.register(
@@ -74,6 +76,7 @@ class CodingRuntime:
                     "new_text": {"type": "string"},
                 },
                 handler=self._edit_handler,
+                security_scope="write",
             )
         )
         self.registry.register(
@@ -82,6 +85,7 @@ class CodingRuntime:
                 description="Find files by pattern",
                 parameters={"pattern": {"type": "string"}},
                 handler=self._glob_handler,
+                security_scope="read",
             )
         )
         self.registry.register(
@@ -90,6 +94,7 @@ class CodingRuntime:
                 description="Search file contents",
                 parameters={"pattern": {"type": "string"}},
                 handler=self._grep_handler,
+                security_scope="read",
             )
         )
 
@@ -144,11 +149,11 @@ class CodingRuntime:
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         if self.permissions.blocks(name):
             return {"error": f"Tool blocked by permissions: {name}"}
-        try:
-            result = self.registry.execute(name, **kwargs)
-            return result if isinstance(result, dict) else {"result": result}
-        except Exception as e:
-            return {"error": str(e)}
+        result = self.registry.execute(name, **kwargs)
+        if result.is_error:
+            return {"error": result.error}
+        data = result.data
+        return data if isinstance(data, dict) else {"result": data}
 
     def analyze(self, target: str = ".") -> dict[str, Any]:
         self.evaluator = StructureEvaluator(target)

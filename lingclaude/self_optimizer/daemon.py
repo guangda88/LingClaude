@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.types import Result
 from lingclaude.core.config import LingClaudeConfig, TriggerConfig, load_config
 from lingclaude.self_optimizer.advisor import OptimizationAdvisor
 from lingclaude.self_optimizer.evaluator import StructureEvaluator
@@ -63,8 +64,11 @@ class DaemonState:
         return cls()
 
     def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
+        resolved = path.resolve()
+        if not resolved.is_relative_to(Path.cwd()):
+            resolved = (Path.cwd() / path).resolve()
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(
             json.dumps(asdict(self), indent=2, ensure_ascii=False, default=str),
             encoding="utf-8",
         )
@@ -90,10 +94,13 @@ class OptimizationDaemon:
         self.state = DaemonState.load(self.state_path)
         self._behavior_snapshot: dict[str, Any] = {}
 
-    def collect_metrics(self) -> dict[str, Any]:
-        metrics = self.evaluator.get_current_metrics()
-        metrics["last_optimization_time"] = self.state.last_optimization_time
-        return metrics
+    def collect_metrics(self) -> Result[dict[str, Any]]:
+        try:
+            metrics = self.evaluator.get_current_metrics()
+            metrics["last_optimization_time"] = self.state.last_optimization_time
+            return Result.ok(metrics)
+        except Exception as e:
+            return Result.fail(f"Failed to collect metrics: {e}", code="METRIC_ERROR")
 
     def build_context(self, metrics: dict[str, Any], user_triggered: bool = False) -> dict[str, Any]:
         ctx: dict[str, Any] = dict(metrics)
@@ -103,7 +110,8 @@ class OptimizationDaemon:
         ctx["frustration_rate"] = self._behavior_snapshot.get("frustration_rate", 0)
         ctx["tool_error_rate"] = self._behavior_snapshot.get("tool_error_rate", 0)
         ctx["corrections_received"] = self._behavior_snapshot.get("corrections_received", 0)
-        history = self.load_behavior_history()
+        history_result = self.load_behavior_history()
+        history = history_result.data if history_result.is_ok else {}
         ctx["cumulative_frustration"] = history.get("total_frustration", 0)
         ctx["cumulative_corrections"] = history.get("total_corrections", 0)
         return ctx
@@ -111,14 +119,17 @@ class OptimizationDaemon:
     def update_behavior(self, behavior: dict[str, Any]) -> None:
         self._behavior_snapshot = behavior
 
-    def run_cycle(self, user_triggered: bool = False) -> OptimizationCycle | None:
-        metrics = self.collect_metrics()
+    def run_cycle(self, user_triggered: bool = False) -> Result[OptimizationCycle | None]:
+        metrics_result = self.collect_metrics()
+        if metrics_result.is_error:
+            return metrics_result  # type: ignore[return-value]
+        metrics = metrics_result.data
         context = self.build_context(metrics, user_triggered=user_triggered)
 
         should_trigger, trigger_info = self.trigger.check_all_conditions(context)
         if not should_trigger:
             logger.info("无触发条件，跳过本轮")
-            return None
+            return Result.ok(None)
 
         logger.info(
             "触发优化: type=%s reason=%s priority=%s",
@@ -141,7 +152,7 @@ class OptimizationDaemon:
 
         if not result.success:
             logger.error("优化失败: %s", result.error)
-            return None
+            return Result.ok(None)
 
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         report_name = f"cycle_{self.state.total_cycles + 1:04d}.md"
@@ -182,7 +193,7 @@ class OptimizationDaemon:
             cycle.duration_seconds,
             report_path,
         )
-        return cycle
+        return Result.ok(cycle)
 
     def run_watch(self, interval_seconds: int = 300) -> None:
         logger.info(
@@ -193,8 +204,9 @@ class OptimizationDaemon:
         logger.info("按 Ctrl+C 停止")
         try:
             while True:
-                cycle = self.run_cycle()
-                if cycle:
+                cycle_result = self.run_cycle()
+                if cycle_result.is_ok and cycle_result.data is not None:
+                    cycle = cycle_result.data
                     self._write_cycle_to_knowledge(cycle)
                     print(
                         f"[{cycle.triggered_at}] Cycle #{cycle.cycle_id}: "
@@ -207,12 +219,12 @@ class OptimizationDaemon:
             logger.info("自由化框架已停止")
             print("\n自由化框架已停止")
 
-    def run_once(self) -> OptimizationCycle | None:
+    def run_once(self) -> Result[OptimizationCycle | None]:
         logger.info("自由化框架单次运行 (target=%s)", self.target)
-        cycle = self.run_cycle(user_triggered=True)
-        if cycle:
-            self._write_cycle_to_knowledge(cycle)
-        return cycle
+        cycle_result = self.run_cycle(user_triggered=True)
+        if cycle_result.is_ok and cycle_result.data is not None:
+            self._write_cycle_to_knowledge(cycle_result.data)
+        return cycle_result
 
     def _apply_params(self, params: dict[str, Any]) -> None:
         config_path = Path("config.yaml")
@@ -319,22 +331,27 @@ class OptimizationDaemon:
         except Exception:
             logger.warning("写入知识库失败", exc_info=True)
 
-    def load_behavior_history(self) -> dict[str, Any]:
+    def load_behavior_history(self) -> Result[dict[str, Any]]:
         behavior_path = self.state_dir / "behavior_history.json"
         if behavior_path.exists():
             try:
-                return json.loads(behavior_path.read_text(encoding="utf-8"))
+                return Result.ok(json.loads(behavior_path.read_text(encoding="utf-8")))
             except (json.JSONDecodeError, KeyError):
                 pass
-        return {"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0}
+        return Result.ok({"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0})
 
-    def save_behavior_history(self, behavior: dict[str, Any]) -> None:
-        history = self.load_behavior_history()
-        history["total_turns"] = history.get("total_turns", 0) + behavior.get("total_turns", 0)
-        history["total_frustration"] = history.get("total_frustration", 0) + behavior.get("frustration_count", 0)
-        history["total_corrections"] = history.get("total_corrections", 0) + behavior.get("corrections_received", 0)
-        history["total_tool_errors"] = history.get("total_tool_errors", 0) + behavior.get("tool_error_count", 0)
-        history["last_updated"] = datetime.now().isoformat()
-        behavior_path = self.state_dir / "behavior_history.json"
-        behavior_path.parent.mkdir(parents=True, exist_ok=True)
-        behavior_path.write_text(json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
+    def save_behavior_history(self, behavior: dict[str, Any]) -> Result[None]:
+        try:
+            history_result = self.load_behavior_history()
+            history = history_result.data if history_result.is_ok else {"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0}
+            history["total_turns"] = history.get("total_turns", 0) + behavior.get("total_turns", 0)
+            history["total_frustration"] = history.get("total_frustration", 0) + behavior.get("frustration_count", 0)
+            history["total_corrections"] = history.get("total_corrections", 0) + behavior.get("corrections_received", 0)
+            history["total_tool_errors"] = history.get("total_tool_errors", 0) + behavior.get("tool_error_count", 0)
+            history["last_updated"] = datetime.now().isoformat()
+            behavior_path = self.state_dir / "behavior_history.json"
+            behavior_path.parent.mkdir(parents=True, exist_ok=True)
+            behavior_path.write_text(json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
+            return Result.ok(None)
+        except Exception as e:
+            return Result.fail(f"Failed to save behavior history: {e}", code="IO_ERROR")

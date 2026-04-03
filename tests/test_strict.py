@@ -110,8 +110,9 @@ class TestQueryEngineEdgeCases:
         engine = QueryEngine(session_manager=mgr)
         engine.submit("test message")
 
-        path = engine.persist_session()
-        assert pathlib.Path(path).exists()
+        path_result = engine.persist_session()
+        assert path_result.is_ok
+        assert pathlib.Path(path_result.data).exists()
 
         engine2 = QueryEngine(session_manager=mgr)
         loaded = engine2.load_session(engine.session_id)
@@ -304,8 +305,8 @@ class TestSessionEdgeCases:
 
         with __import__("tempfile").TemporaryDirectory() as tmp:
             mgr = SessionManager(pathlib.Path(tmp))
-            session = mgr.load("nonexistent_id")
-            assert session is None
+            session_result = mgr.load("nonexistent_id")
+            assert session_result.is_error
 
     def test_delete_nonexistent_session(self) -> None:
         from lingclaude.core.session import SessionManager
@@ -313,4 +314,4 @@ class TestSessionEdgeCases:
         with __import__("tempfile").TemporaryDirectory() as tmp:
             mgr = SessionManager(pathlib.Path(tmp))
             result = mgr.delete("nonexistent_id")
-            assert result is False
+            assert result.is_error

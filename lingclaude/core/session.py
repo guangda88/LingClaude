@@ -1,10 +1,26 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+
+from lingclaude.core.types import Result
+
+_SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(api[_-]?key|apikey|token|secret|password|auth[_-]?header)\s*[:=]\s*\S+", re.IGNORECASE),
+    re.compile(r"sk-[a-zA-Z0-9]{20,}"),
+    re.compile(r"sk-ant-[a-zA-Z0-9]{20,}"),
+    re.compile(r"AKIA[A-Z0-9]{16}"),
+)
+
+
+def _redact_message(msg: str) -> str:
+    for pattern in _SENSITIVE_PATTERNS:
+        msg = pattern.sub("[REDACTED]", msg)
+    return msg
 
 
 @dataclass(frozen=True)
@@ -18,29 +34,45 @@ class Session:
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
+    def to_dict_redacted(self) -> dict[str, object]:
+        return {
+            "session_id": self.session_id,
+            "messages": tuple(_redact_message(m) for m in self.messages),
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "created_at": self.created_at,
+        }
+
 
 class SessionManager:
-    def __init__(self, save_dir: Path | None = None):
+    def __init__(self, save_dir: Path | None = None) -> None:
         self.save_dir = save_dir or Path(".lingclaude/sessions")
 
-    def save(self, session: Session) -> Path:
-        self.save_dir.mkdir(parents=True, exist_ok=True)
-        path = self.save_dir / f"{session.session_id}.json"
-        path.write_text(json.dumps(session.to_dict(), indent=2, ensure_ascii=False))
-        return path
+    def save(self, session: Session) -> Result[Path]:
+        try:
+            self.save_dir.mkdir(parents=True, exist_ok=True)
+            path = self.save_dir / f"{session.session_id}.json"
+            path.write_text(json.dumps(session.to_dict_redacted(), indent=2, ensure_ascii=False))
+            return Result.ok(path)
+        except Exception as e:
+            return Result.fail(f"Failed to save session: {e}", code="SAVE_ERROR")
 
-    def load(self, session_id: str) -> Session | None:
+    def load(self, session_id: str) -> Result[Session]:
         path = self.save_dir / f"{session_id}.json"
         if not path.exists():
-            return None
-        data = json.loads(path.read_text())
-        return Session(
-            session_id=data["session_id"],
-            messages=tuple(data["messages"]),
-            input_tokens=data["input_tokens"],
-            output_tokens=data["output_tokens"],
-            created_at=data.get("created_at", ""),
-        )
+            return Result.fail(f"Session not found: {session_id}", code="NOT_FOUND")
+        try:
+            data = json.loads(path.read_text())
+            session = Session(
+                session_id=data["session_id"],
+                messages=tuple(data.get("messages", ())),
+                input_tokens=data.get("input_tokens", 0),
+                output_tokens=data.get("output_tokens", 0),
+                created_at=data.get("created_at", ""),
+            )
+            return Result.ok(session)
+        except Exception as e:
+            return Result.fail(f"Failed to load session: {e}", code="LOAD_ERROR")
 
     def create(self, messages: tuple[str, ...] = (), input_tokens: int = 0, output_tokens: int = 0) -> Session:
         return Session(
@@ -55,9 +87,12 @@ class SessionManager:
             return ()
         return tuple(p.stem for p in self.save_dir.glob("*.json"))
 
-    def delete(self, session_id: str) -> bool:
+    def delete(self, session_id: str) -> Result[bool]:
         path = self.save_dir / f"{session_id}.json"
-        if path.exists():
+        if not path.exists():
+            return Result.fail(f"Session not found: {session_id}", code="NOT_FOUND")
+        try:
             path.unlink()
-            return True
-        return False
+            return Result.ok(True)
+        except Exception as e:
+            return Result.fail(f"Failed to delete session: {e}", code="DELETE_ERROR")

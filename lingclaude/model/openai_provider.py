@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -67,7 +66,8 @@ class OpenAIProvider(ModelProvider):
         tools: tuple[dict[str, Any], ...] | None = None,
     ) -> dict[str, Any]:
         msg_dicts: list[dict[str, Any]] = []
-        if cfg.system_prompt:
+        has_system = any(m.role.value == "system" for m in messages)
+        if cfg.system_prompt and not has_system:
             msg_dicts.append({"role": "system", "content": cfg.system_prompt})
         for m in messages:
             msg_dicts.append(m.to_dict())

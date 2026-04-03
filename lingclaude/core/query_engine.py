@@ -4,12 +4,15 @@ import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent, detect_emotion, detect_intent, is_tool_intent
+
+from lingclaude.core.types import Result
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,6 @@ class StopReason(str, Enum):
     COMPLETED = "completed"
     MAX_TURNS_REACHED = "max_turns_reached"
     MAX_BUDGET_REACHED = "max_budget_reached"
-    USER_CANCELLED = "user_cancelled"
     ERROR = "error"
 
 
@@ -62,41 +64,50 @@ class QueryEngine:
         self._provider = model_provider
         self._runtime = runtime
         self._behavior = BehaviorMetrics()
+        self._project_index: dict[str, Any] = {}
+        self._model_config: Any = None
+        self._model_router: Any = None
 
     @property
     def behavior_metrics(self) -> BehaviorMetrics:
         return self._behavior
 
     @classmethod
-    def from_config_file(cls, config_path: str | None = None) -> QueryEngine:
+    def from_config_file(cls, config_path: str | None = None) -> Result[QueryEngine]:
         from lingclaude.core.config import load_config
         from lingclaude.model.factory import create_provider
         from lingclaude.model.types import ModelConfig
         from pathlib import Path as _Path
 
-        cfg = load_config(config_path and _Path(config_path))
-        engine_cfg = QueryEngineConfig(
-            max_turns=cfg.engine.max_turns,
-            max_budget_tokens=cfg.engine.max_budget_tokens,
-            compact_after_turns=cfg.engine.compact_after_turns,
-            structured_output=cfg.engine.structured_output,
-        )
+        try:
+            cfg = load_config(config_path and _Path(config_path))
+            engine_cfg = QueryEngineConfig(
+                max_turns=cfg.engine.max_turns,
+                max_budget_tokens=cfg.engine.max_budget_tokens,
+                compact_after_turns=cfg.engine.compact_after_turns,
+                structured_output=cfg.engine.structured_output,
+            )
 
-        provider = None
-        mc = cfg.model
-        model_cfg = ModelConfig(
-            model=mc.model,
-            api_key=mc.api_key,
-            base_url=mc.base_url,
-            max_tokens=mc.max_tokens,
-            temperature=mc.temperature,
-            system_prompt=mc.system_prompt,
-        )
-        provider_result = create_provider(config=model_cfg, provider_name=mc.provider)
-        if provider_result.is_ok:
-            provider = provider_result.data
+            provider = None
+            mc = cfg.model
+            model_cfg = ModelConfig(
+                model=mc.model,
+                api_key=mc.api_key,
+                base_url=mc.base_url,
+                max_tokens=mc.max_tokens,
+                temperature=mc.temperature,
+                system_prompt=mc.system_prompt,
+            )
+            provider_result = create_provider(config=model_cfg, provider_name=mc.provider)
+            if provider_result.is_ok:
+                provider = provider_result.data
 
-        return cls(config=engine_cfg, model_provider=provider, runtime=None)
+            engine = cls(config=engine_cfg, model_provider=provider, runtime=None)
+            engine._model_config = model_cfg
+            engine._model_router = cfg.model_router
+            return Result.ok(engine)
+        except Exception as e:
+            return Result.fail(f"Failed to create engine from config: {e}", code="CONFIG_ERROR")
 
     def set_runtime(self, runtime: Any) -> None:
         self._runtime = runtime
@@ -120,8 +131,6 @@ class QueryEngine:
             )
 
         output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
-
-        self._track_behavior(prompt, output)
 
         projected = self._usage.add_turn(prompt, output)
         stop_reason = StopReason.COMPLETED
@@ -167,20 +176,23 @@ class QueryEngine:
             "transcript_size": len(self._transcript),
         }
 
-    def persist_session(self) -> str:
+    def persist_session(self) -> Result[str]:
         session = Session(
             session_id=self.session_id,
             messages=tuple(self._messages),
             input_tokens=self._usage.input_tokens,
             output_tokens=self._usage.output_tokens,
         )
-        path = self.session_manager.save(session)
-        return str(path)
+        result = self.session_manager.save(session)
+        if result.is_error:
+            return result  # type: ignore[return-value]
+        return Result.ok(str(result.data))
 
     def load_session(self, session_id: str) -> bool:
-        session = self.session_manager.load(session_id)
-        if session is None:
+        result = self.session_manager.load(session_id)
+        if result.is_error:
             return False
+        session = result.data
         self.session_id = session.session_id
         self._messages = list(session.messages)
         self._usage = UsageSummary(session.input_tokens, session.output_tokens)
@@ -230,44 +242,43 @@ class QueryEngine:
             context_parts.append(f"权限拒绝: {len(denied_tools)} 个工具被拒绝")
         return self._format_output(context_parts)
 
-    def _track_behavior(self, prompt: str, output: str) -> None:
+    def _track_behavior(self, prompt: str, output: str, used_tools: bool = False) -> None:
         emotion = detect_emotion(prompt)
         intent = detect_intent(prompt)
-
-        self._behavior.total_turns += 1
-        self._behavior.emotions_detected.append(emotion)
-
-        if emotion == Emotion.FRUSTRATED:
-            self._behavior.frustration_count += 1
-
-        if intent == Intent.CORRECTION:
-            self._behavior.corrections_received += 1
-
-    def _track_tool_usage(self, used_tools: bool, prompt: str) -> None:
-        intent = detect_intent(prompt)
-        if used_tools:
-            self._behavior.turns_with_tools += 1
-        elif is_tool_intent(intent):
-            self._behavior.turns_without_tools_but_needed += 1
+        self._behavior = self._behavior.record_turn(
+            emotion=emotion,
+            is_correction=intent == Intent.CORRECTION,
+            is_frustrated=emotion == Emotion.FRUSTRATED,
+            used_tools=used_tools,
+            needed_tools=not used_tools and is_tool_intent(intent),
+        )
 
     def _call_model(self, prompt: str) -> str:
-        from lingclaude.model.types import ModelMessage, MessageRole
+        from lingclaude.model.types import ModelMessage, MessageRole, ModelConfig
 
         messages: list[ModelMessage] = []
+
+        system_prompt = self._build_adaptive_system_prompt()
+        if system_prompt:
+            messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
+
         for prev in self._messages:
             messages.append(ModelMessage(role=MessageRole.USER, content=prev))
         messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
 
         tools = self._build_openai_tools()
+        resolved_config = self._resolve_model_config(prompt)
         used_tools = False
         response = None
         total_input = 0
         total_output = 0
 
         for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
-            result = self._provider.complete(tuple(messages), tools=tools)
+            result = self._provider.complete(
+                tuple(messages), config=resolved_config, tools=tools,
+            )
             if result.is_error:
-                self._track_tool_usage(False, prompt)
+                self._track_behavior(prompt, f"[模型调用失败] {result.error}", used_tools=False)
                 return f"[模型调用失败] {result.error}"
 
             response = result.data
@@ -275,12 +286,12 @@ class QueryEngine:
             total_output += response.usage.output_tokens
 
             if not response.tool_calls:
-                self._track_tool_usage(used_tools, prompt)
+                self._track_behavior(prompt, response.content, used_tools=used_tools)
                 self._usage = self._usage.add_usage(response.usage.input_tokens, response.usage.output_tokens)
                 return response.content
 
             used_tools = True
-            self._behavior.tool_call_count += len(response.tool_calls)
+            self._behavior = self._behavior.record_tool_calls(count=len(response.tool_calls))
 
             messages.append(ModelMessage(
                 role=MessageRole.ASSISTANT,
@@ -289,9 +300,9 @@ class QueryEngine:
             ))
 
             for tc in response.tool_calls:
-                tool_output = self._execute_tool(tc.name, tc.arguments)
+                tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
                 if '"error"' in tool_output:
-                    self._behavior.tool_error_count += 1
+                    self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
                 messages.append(ModelMessage(
                     role=MessageRole.TOOL,
                     content=tool_output,
@@ -299,7 +310,7 @@ class QueryEngine:
                     tool_call_id=tc.id,
                 ))
 
-        self._track_tool_usage(used_tools, prompt)
+        self._track_behavior(prompt, response.content if response else "", used_tools=used_tools)
         if response:
             self._usage = self._usage.add_usage(total_input, total_output)
         return response.content if response and response.content else "[达到最大工具调用轮次]"
@@ -339,9 +350,145 @@ class QueryEngine:
 
     def _compact_if_needed(self) -> None:
         if len(self._messages) > self.config.compact_after_turns:
-            self._messages[:] = self._messages[-self.config.compact_after_turns:]
+            half = self.config.compact_after_turns // 2
+            kept = self._messages[-half:]
+            summary = f"[前 {len(self._messages) - half} 轮对话已压缩]"
+            self._messages[:] = [summary] + kept
         if len(self._transcript) > self.config.compact_after_turns:
             self._transcript[:] = self._transcript[-self.config.compact_after_turns:]
+
+    def _resolve_model_config(self, prompt: str) -> ModelConfig | None:
+        if self._model_config is None:
+            return None
+        from lingclaude.core.behavior import Intent
+        intent = detect_intent(prompt)
+        is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
+        cfg = self._model_config
+        router = self._model_router
+        if router is None or not router.enabled:
+            return None
+        target_model = router.code_model if is_code else router.chat_model
+        if not target_model:
+            return None
+        from lingclaude.model.types import ModelConfig
+        return ModelConfig(
+            model=target_model,
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            max_tokens=cfg.max_tokens,
+            temperature=cfg.temperature,
+            system_prompt="",
+        )
+
+    def _build_adaptive_system_prompt(self) -> str:
+        base = (
+            "你是灵克，一个会自我进化的开源 AI 编程助手。\n"
+            "\n"
+            "核心规则:\n"
+            "1. 回答代码相关问题时，必须先用工具（read/grep/glob）读取源码，不要猜测。\n"
+            "2. 如果用户指出你胡说或没读代码，立即使用工具重新阅读相关文件。\n"
+            "3. 你擅长代码理解、编辑、终端操作，并通过自优化持续提升能力。\n"
+            "4. 用中文回答，代码保持原样。"
+        )
+
+        extras: list[str] = []
+        bm = self._behavior
+
+        if bm.hallucination_risk > 0.3:
+            extras.append(
+                "\n⚠ 行为警告: 你近期幻觉风险较高({:.0%})。回答任何代码问题前必须先调用工具读取文件，绝对不能凭记忆猜测代码内容。".format(bm.hallucination_risk)
+            )
+
+        if bm.frustration_rate > 0.2:
+            extras.append(
+                "\n⚠ 用户状态: 用户近期频繁表现出沮丧({:.0%})。请格外仔细，先读代码再回答，避免猜测。".format(bm.frustration_rate)
+            )
+
+        if bm.tool_error_rate > 0.3:
+            extras.append(
+                "\n⚠ 工具问题: 近期工具调用失败率较高({:.0%})。请检查参数格式，确保文件路径正确。".format(bm.tool_error_rate)
+            )
+
+        if bm.corrections_received >= 2:
+            extras.append(
+                "\n⚠ 纠正记录: 已收到 {} 次用户纠正。请更加谨慎，确认信息准确后再回答。".format(bm.corrections_received)
+            )
+
+        if bm.total_turns > 2 and bm.tool_use_rate < 0.2:
+            extras.append(
+                "\n💡 提醒: 你近期工具使用率较低({:.0%})。面对代码相关问题请积极使用工具。".format(bm.tool_use_rate)
+            )
+
+        project_index = self._project_index
+        if project_index:
+            pkg_summary = "\n".join(
+                f"- {pkg}/: {', '.join(sorted(files[:5]))}"
+                for pkg, files in sorted(project_index.items())
+                if pkg != "."
+            )
+            if pkg_summary:
+                extras.append(
+                    "\n📁 当前项目结构:\n" + pkg_summary
+                )
+
+        return base + "".join(extras)
+
+    def _execute_tool_with_retry(self, name: str, arguments_json: str) -> str:
+        result = self._execute_tool(name, arguments_json)
+        if '"error"' not in result:
+            return result
+
+        retry_args = self._fix_tool_arguments(name, arguments_json, result)
+        if retry_args is not None:
+            self._behavior = self._behavior.record_tool_calls(count=1)
+            return self._execute_tool(name, retry_args)
+
+        return result
+
+    def _fix_tool_arguments(self, name: str, args_json: str, error_result: str) -> str | None:
+        try:
+            kwargs = json.loads(args_json)
+        except json.JSONDecodeError:
+            return None
+
+        if name == "read" and "path" in kwargs:
+            path = kwargs["path"]
+            if not Path(path).exists():
+                for candidate in Path(".").rglob(Path(path).name):
+                    kwargs["path"] = str(candidate)
+                    return json.dumps(kwargs, ensure_ascii=False)
+
+        if name in ("grep", "glob") and "pattern" in kwargs:
+            if "*" not in kwargs["pattern"] and name == "glob":
+                kwargs["pattern"] = f"**/{kwargs['pattern']}"
+                return json.dumps(kwargs, ensure_ascii=False)
+
+        return None
+
+    def _index_project(self) -> dict[str, Any]:
+        if self._runtime is None:
+            return {}
+        if self._project_index:
+            return self._project_index
+        try:
+            result = self._runtime.execute_tool("glob", pattern="**/*.py")
+            if not isinstance(result, dict) or "files" not in result:
+                return {}
+            files = result.get("files", [])
+            if not files:
+                return {}
+            structure: dict[str, list[str]] = {}
+            for f in files:
+                parts = Path(f).parts
+                if len(parts) > 1:
+                    pkg = parts[0]
+                    structure.setdefault(pkg, []).append("/".join(parts[1:]))
+                else:
+                    structure.setdefault(".", []).append(parts[0])
+            self._project_index = structure
+            return structure
+        except Exception:
+            return {}
 
     def _format_output(self, lines: list[str]) -> str:
         if self.config.structured_output:

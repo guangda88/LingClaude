@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from lingclaude.core.config import LingClaudeConfig, EngineConfig, TriggerConfig, load_config
-from lingclaude.core.models import ToolDefinition, Subsystem
 from lingclaude.core.permissions import PermissionContext
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.types import Result
@@ -80,19 +79,21 @@ class TestSession:
         assert s.session_id
         assert s.messages == ("hello",)
 
-        saved_path = mgr.save(s)
-        assert saved_path.exists()
+        saved_result = mgr.save(s)
+        assert saved_result.is_ok
+        assert saved_result.data.exists()
 
-        loaded = mgr.load(s.session_id)
-        assert loaded is not None
-        assert loaded.session_id == s.session_id
-        assert loaded.input_tokens == 5
+        loaded_result = mgr.load(s.session_id)
+        assert loaded_result.is_ok
+        assert loaded_result.data.session_id == s.session_id
+        assert loaded_result.data.input_tokens == 5
 
         sessions = mgr.list_sessions()
         assert len(sessions) == 1
 
-        mgr.delete(s.session_id)
-        assert mgr.load(s.session_id) is None
+        delete_result = mgr.delete(s.session_id)
+        assert delete_result.is_ok
+        assert mgr.load(s.session_id).is_error
 
 
 class TestPermissions:
@@ -119,12 +120,14 @@ class TestToolRegistry:
         registry.register(td)
         assert registry.has_tool("echo")
         result = registry.execute("echo", text="hello")
-        assert result == "hello"
+        assert result.is_ok
+        assert result.data == "hello"
 
     def test_missing_tool(self) -> None:
         registry = __import__("lingclaude.engine.tools", fromlist=["ToolRegistry"]).ToolRegistry()
-        with pytest.raises(ValueError, match="not found"):
-            registry.execute("nonexistent")
+        result = registry.execute("nonexistent")
+        assert result.is_error
+        assert "not found" in result.error
 
 
 class TestOptimizationTrigger:
@@ -253,18 +256,19 @@ class TestKnowledgeBase:
             quality_score=0.85,
         )
 
-        assert kb.add_rule(rule)
-        assert kb.get_rule("rule-1") is not None
-        assert kb.get_rule("nonexistent") is None
+        assert kb.add_rule(rule).is_ok
+        assert kb.get_rule("rule-1").is_ok
+        assert kb.get_rule("nonexistent").is_error
 
-        rules = kb.get_all_rules()
-        assert len(rules) == 1
+        rules_result = kb.get_all_rules()
+        assert rules_result.is_ok
+        assert len(rules_result.data) == 1
 
-        assert kb.update_rule_status("rule-1", "active")
-        assert kb.get_rule("rule-1").status == "active"
+        assert kb.update_rule_status("rule-1", "active").is_ok
+        assert kb.get_rule("rule-1").data.status == "active"
 
-        assert kb.delete_rule("rule-1")
-        assert kb.get_rule("rule-1") is None
+        assert kb.delete_rule("rule-1").is_ok
+        assert kb.get_rule("rule-1").is_error
 
     def test_search(self) -> None:
         from lingclaude.self_optimizer.learner.knowledge import InMemoryKnowledgeBase
@@ -287,10 +291,12 @@ class TestKnowledgeBase:
         kb.add_rule(rule)
 
         results = kb.search_rules("sql")
-        assert len(results) == 1
+        assert results.is_ok
+        assert len(results.data) == 1
 
         results = kb.search_rules("nonexistent")
-        assert len(results) == 0
+        assert results.is_ok
+        assert len(results.data) == 0
 
     def test_statistics(self) -> None:
         from lingclaude.self_optimizer.learner.knowledge import InMemoryKnowledgeBase
@@ -300,7 +306,8 @@ class TestKnowledgeBase:
 
         kb = InMemoryKnowledgeBase()
         stats = kb.get_statistics()
-        assert stats["total_rules"] == 0
+        assert stats.is_ok
+        assert stats.data["total_rules"] == 0
 
         kb.add_rule(
             LearnedRule(
@@ -316,7 +323,8 @@ class TestKnowledgeBase:
             )
         )
         stats = kb.get_statistics()
-        assert stats["total_rules"] == 1
+        assert stats.is_ok
+        assert stats.data["total_rules"] == 1
 
     def test_sqlite_knowledge_base(self, tmp_path: Path) -> None:
         from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
@@ -339,14 +347,15 @@ class TestKnowledgeBase:
             quality_score=0.75,
         )
 
-        assert kb.add_rule(rule)
-        fetched = kb.get_rule("sql-rule-1")
-        assert fetched is not None
-        assert fetched.name == "SQL Rule"
-        assert fetched.category == FeedbackCategory.SECURITY
+        assert kb.add_rule(rule).is_ok
+        fetched_result = kb.get_rule("sql-rule-1")
+        assert fetched_result.is_ok
+        assert fetched_result.data.name == "SQL Rule"
+        assert fetched_result.data.category == FeedbackCategory.SECURITY
 
         stats = kb.get_statistics()
-        assert stats["total_rules"] == 1
+        assert stats.is_ok
+        assert stats.data["total_rules"] == 1
 
         kb.close()
 

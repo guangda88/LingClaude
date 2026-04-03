@@ -29,14 +29,14 @@ class Intent(str, Enum):
     UNKNOWN = "unknown"
 
 
-@dataclass
+@dataclass(frozen=True)
 class BehaviorMetrics:
     total_turns: int = 0
     turns_with_tools: int = 0
     turns_without_tools_but_needed: int = 0
     tool_call_count: int = 0
     tool_error_count: int = 0
-    emotions_detected: list[Emotion] = field(default_factory=list)
+    emotions_detected: tuple[Emotion, ...] = ()
     corrections_received: int = 0
     frustration_count: int = 0
 
@@ -65,7 +65,41 @@ class BehaviorMetrics:
             return 0.0
         return self.tool_error_count / self.tool_call_count
 
-    def to_dict(self) -> dict[str, Any]:
+    def record_turn(
+        self,
+        *,
+        emotion: Emotion | None = None,
+        is_correction: bool = False,
+        is_frustrated: bool = False,
+        used_tools: bool = False,
+        needed_tools: bool = False,
+        tool_calls: int = 0,
+        tool_errors: int = 0,
+    ) -> BehaviorMetrics:
+        return BehaviorMetrics(
+            total_turns=self.total_turns + 1,
+            turns_with_tools=self.turns_with_tools + (1 if used_tools else 0),
+            turns_without_tools_but_needed=self.turns_without_tools_but_needed + (1 if needed_tools else 0),
+            tool_call_count=self.tool_call_count + tool_calls,
+            tool_error_count=self.tool_error_count + tool_errors,
+            emotions_detected=self.emotions_detected + ((emotion,) if emotion else ()),
+            corrections_received=self.corrections_received + (1 if is_correction else 0),
+            frustration_count=self.frustration_count + (1 if is_frustrated else 0),
+        )
+
+    def record_tool_calls(self, count: int = 1, errors: int = 0) -> BehaviorMetrics:
+        return BehaviorMetrics(
+            total_turns=self.total_turns,
+            turns_with_tools=self.turns_with_tools,
+            turns_without_tools_but_needed=self.turns_without_tools_but_needed,
+            tool_call_count=self.tool_call_count + count,
+            tool_error_count=self.tool_error_count + errors,
+            emotions_detected=self.emotions_detected,
+            corrections_received=self.corrections_received,
+            frustration_count=self.frustration_count,
+        )
+
+    def to_dict(self) -> dict[str, object]:
         return {
             "total_turns": self.total_turns,
             "tool_use_rate": round(self.tool_use_rate, 3),
