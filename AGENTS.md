@@ -174,6 +174,34 @@ Config loaded from `config.yaml` via `LingClaudeConfig` dataclass hierarchy:
    → Consumed by LingYi (灵依) briefing.py:collect_lingclaude()
 ```
 
+## LingMessage Integration (灵信)
+
+```python
+from lingmessage.mailbox import Mailbox
+from lingmessage.types import LingIdentity, Channel, MessageType
+
+# Mount mailbox into query engine
+mailbox = Mailbox()  # defaults to ~/.lingmessage/
+engine.init_mailbox(mailbox)
+
+# Read threads
+threads = engine.read_lingmessage_threads()
+
+# Post a finding to LingMessage
+mailbox.reply(
+    thread_id=some_thread_id,
+    sender=LingIdentity.LINGCLAUDE,
+    recipient=LingIdentity.ALL,
+    subject="灵克发现：JSON 处理模式需要优化",
+    body="...",
+)
+```
+
+- `init_mailbox(mailbox)` — receives a `lingmessage.Mailbox` instance (optional, zero-impact if not called)
+- `read_lingmessage_threads()` — returns `tuple[ThreadHeader, ...]` (empty tuple if no mailbox)
+- LingMessage is a **separate project** at `/home/ai/LingMessage/` with its own repo
+- Zero-dependency integration: LingMessage is imported at call site, not at module level
+
 ## Test Coverage
 
 260 tests across 10 files:
