@@ -77,7 +77,7 @@ docs: 更新贡献指南
 
 ```
 lingclaude/
-├── core/           # 基础层：类型、配置、会话、权限、查询引擎
+├── core/           # 基础层：类型、配置、会话、权限、查询引擎、行为感知、情报系统
 ├── engine/         # 工具执行层：bash、文件操作、编码运行时
 ├── self_optimizer/ # 自优化框架：触发、评估、优化、学习
 ├── model/          # 模型层：ModelProvider 抽象、OpenAI、Anthropic

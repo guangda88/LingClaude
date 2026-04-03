@@ -2,7 +2,7 @@
 
 > 开源 AI 编程助手，对标 Claude Code，内置自优化能力——越用越懂你。
 
-**Version**: 0.2.0 | **Python**: >=3.10 | **License**: MIT
+**Version**: 0.2.1 | **Python**: >=3.10 | **License**: MIT
 
 ## 为什么做灵克？
 
@@ -67,7 +67,9 @@ python3 -m lingclaude.cli --help
 │   ├── models.py       #   ToolDefinition, PermissionDenial, UsageSummary 等
 │   ├── session.py      #   Session（不可变）+ SessionManager（JSON 持久化）
 │   ├── permissions.py  #   PermissionContext（deny_tools + deny_prefixes）
-│   └── query_engine.py #   QueryEngine：turn循环、流式输出、自动压缩
+│   ├── behavior.py     #   BehaviorMetrics（情绪/意图/幻觉检测 + 行为追踪）
+│   ├── intel.py        #   IntelCollector + DailyDigest + IntelRelay（情报系统）
+│   └── query_engine.py #   QueryEngine：turn循环、流式输出、自动压缩、情报收集
 │
 ├── model/              # 模型抽象层
 │   ├── types.py        #   ModelMessage, ModelResponse, ModelProvider ABC
@@ -82,7 +84,7 @@ python3 -m lingclaude.cli --help
 │   └── coding.py       #   CodingRuntime（工具 + 评估 + 优化 + 模式检测）
 │
 ├── self_optimizer/     # 自优化框架
-│   ├── trigger.py      #   OptimizationTrigger（7类触发条件）
+│   ├── trigger.py      #   OptimizationTrigger（8类触发条件）
 │   ├── evaluator.py    #   StructureEvaluator（AST 分析）
 │   ├── optimizer.py    #   SynchronousOptimizer + SimpleSearchSpace
 │   ├── advisor.py      #   OptimizationAdvisor（Markdown 报告）
@@ -99,14 +101,14 @@ python3 -m lingclaude.cli --help
 ## 自优化流程
 
 ```
-触发（7类条件）→ 评估（AST指标）→ 优化（optuna/网格搜索）→ 报告（Markdown）
+触发（8类条件）→ 评估（AST指标）→ 优化（optuna/网格搜索）→ 报告（Markdown）
                                                                 ↓
                                                          知识库（规则提取 + 模式识别）
 ```
 
-### 7类触发条件
+### 8类触发条件
 
-用户请求 | 质量低于阈值 | 结构违规 | 性能退化 | 规模增长 | 技术债累积 | 定时优化
+用户请求 | 质量低于阈值 | 行为异常 | 结构违规 | 性能退化 | 规模增长 | 技术债累积 | 定时优化
 
 ### 6种模式检测器
 
@@ -170,7 +172,30 @@ self_optimizer:
 session:
   save_dir: .lingclaude/sessions/
   max_history: 100
+
+intel:
+  enabled: true
+  output_dir: .lingclaude/intel/
+  session_history_path: data/session_history.json
+  auto_collect_behavior: true
+  auto_relay: true
+  relay_target: lingyi
+  digest_hour: 23
 ```
+
+## 情报系统
+
+灵克内置情报收集系统，每日自动汇总情报中继给灵依 (LingYi)：
+
+```
+行为感知 → IntelCollector（8类情报）→ DailyDigestGenerator（日报）→ IntelRelay（文件输出）
+                                                              ↓
+                                                     session_history.json（灵依消费）
+```
+
+### 8类情报类别
+
+文件变更 | 代码模式 | 行为异常 | 错误情报 | 优化记录 | 结构情报 | 质量情报 | 安全情报
 
 ## 依赖
 
@@ -181,7 +206,7 @@ session:
 ## 开发
 
 ```bash
-python3 -m pytest tests/ -v          # 217 tests
+python3 -m pytest tests/ -v          # 260 tests
 python3 -c "from lingclaude.model import create_provider; print('OK')"
 ```
 
@@ -193,6 +218,7 @@ python3 -c "from lingclaude.model import create_provider; print('OK')"
 - [x] v0.1.1 — **安全审计**：bash 沙箱加固、文件操作路径包含检查、敏感路径保护
 - [x] v0.1.2 — **开源准备**：贡献指南、Issue/PR 模板
 - [x] v0.2.0 — **模型对接 + 行为感知 + 自适应引擎**：OpenAI/Anthropic API、行为感知系统、自适应查询引擎、Agent Loop
+- [x] v0.2.1 — **情报系统**：情报收集、日报生成、灵依中继、会话历史输出
 - [ ] v1.0.0 — 完整的 AI 编程助手
 
 ## License
