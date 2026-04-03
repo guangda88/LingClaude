@@ -16,15 +16,17 @@ from lingclaude.self_optimizer import (
     SynchronousOptimizer,
     StructureEvaluator,
 )
+from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
 
 
 class CodingRuntime:
     def __init__(self, config: LingClaudeConfig | None = None) -> None:
         self.config = config or LingClaudeConfig()
+        self._pattern_recognizer = PatternRecognizer()
         self._setup_tools()
 
     def _setup_tools(self) -> None:
-        self.bash = BashExecutor(timeout=self.config.engine.max_budget_tokens // 10000 + 30)
+        self.bash = BashExecutor(timeout=self.config.optimizer.timeout_seconds)
         self.file_ops = FileOps()
         self.registry = ToolRegistry()
         self.permissions = PermissionContext.from_config(
@@ -150,7 +152,29 @@ class CodingRuntime:
 
     def analyze(self, target: str = ".") -> dict[str, Any]:
         self.evaluator = StructureEvaluator(target)
-        return self.evaluator.get_current_metrics()
+        metrics = self.evaluator.get_current_metrics()
+
+        findings = self._pattern_recognizer.recognize_from_file(target) if Path(target).is_file() else ()
+        if not findings and Path(target).is_dir():
+            all_findings: list[dict[str, Any]] = []
+            for py_file in Path(target).rglob("*.py"):
+                file_findings = self._pattern_recognizer.recognize_from_file(str(py_file))
+                all_findings.extend(file_findings)
+            findings = tuple(all_findings)
+
+        metrics["pattern_findings"] = len(findings)
+        metrics["findings"] = [
+            {
+                "file": f.get("file", ""),
+                "line": f.get("line", 0),
+                "name": f.get("name", ""),
+                "severity": f.get("severity", ""),
+                "message": f.get("message", ""),
+            }
+            for f in findings
+        ]
+        metrics["detectors"] = self._pattern_recognizer.get_statistics()
+        return metrics
 
     def optimize(
         self, target: str = ".", goal: str = "structure", max_trials: int = 20

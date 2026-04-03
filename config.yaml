@@ -13,6 +13,15 @@ permissions:
   deny_tools: []
   deny_prefixes: []
 
+model:
+  provider: openai
+  model: gpt-4o
+  api_key: ""
+  base_url: null
+  max_tokens: 4096
+  temperature: 0.7
+  system_prompt: "你是灵克，一个 AI 编程助手。"
+
 self_optimizer:
   triggers:
     quality:

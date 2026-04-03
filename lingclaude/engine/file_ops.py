@@ -6,6 +6,17 @@ from typing import Any
 
 from lingclaude.core.types import Result
 
+_PROTECTED_PATHS: tuple[str, ...] = (
+    "/etc/",
+    "/sys/",
+    "/proc/",
+    "/dev/",
+    "/boot/",
+    "/root/",
+    "/var/log/",
+    "/run/",
+)
+
 
 @dataclass(frozen=True)
 class FileInfo:
@@ -23,11 +34,16 @@ class FileInfo:
 
 
 class FileOps:
-    def __init__(self, base_dir: str = ".") -> None:
+    def __init__(self, base_dir: str = ".", allow_escape: bool = False) -> None:
         self.base_dir = Path(base_dir).resolve()
+        self.allow_escape = allow_escape
 
     def read(self, path: str) -> Result[FileInfo]:
-        target = self._resolve(path)
+        target_result = self._resolve(path)
+        if target_result.is_error:
+            return target_result  # type: ignore[return-value]
+        target = target_result.data
+
         if not target.exists():
             return Result.fail(f"File not found: {path}")
         if not target.is_file():
@@ -46,7 +62,11 @@ class FileOps:
             return Result.fail(f"Read error: {e}")
 
     def write(self, path: str, content: str) -> Result[str]:
-        target = self._resolve(path)
+        target_result = self._resolve(path)
+        if target_result.is_error:
+            return target_result  # type: ignore[return-value]
+        target = target_result.data
+
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
@@ -109,10 +129,17 @@ class FileOps:
         return Result.ok(results)
 
     def exists(self, path: str) -> bool:
-        return self._resolve(path).exists()
+        result = self._resolve(path)
+        if result.is_error:
+            return False
+        return result.data.exists()
 
     def delete(self, path: str) -> Result[str]:
-        target = self._resolve(path)
+        target_result = self._resolve(path)
+        if target_result.is_error:
+            return target_result  # type: ignore[return-value]
+        target = target_result.data
+
         if not target.exists():
             return Result.fail(f"Not found: {path}")
         try:
@@ -125,8 +152,34 @@ class FileOps:
         except Exception as e:
             return Result.fail(f"Delete error: {e}")
 
-    def _resolve(self, path: str) -> Path:
+    def _resolve(self, path: str) -> Result[Path]:
         p = Path(path)
         if p.is_absolute():
-            return p
-        return self.base_dir / p
+            resolved = p.resolve()
+        else:
+            resolved = (self.base_dir / p).resolve()
+
+        if self.allow_escape:
+            resolved_str = str(resolved)
+            for protected in _PROTECTED_PATHS:
+                if resolved_str.startswith(protected):
+                    return Result.fail(
+                        f"敏感路径被保护: {path}（{resolved} 在受保护目录 {protected} 下）。"
+                        f"此路径始终不可访问，即使启用了 allow_escape"
+                    )
+            return Result.ok(resolved)
+
+        if not str(resolved).startswith(str(self.base_dir)):
+            return Result.fail(
+                f"路径超出项目范围: {path}（解析到 {resolved}，"
+                f"允许范围 {self.base_dir}）。如需访问项目外文件，"
+                f"请在配置中启用 allow_escape"
+            )
+
+        if resolved != (self.base_dir / p).resolve() and not p.is_absolute():
+            return Result.fail(
+                f"路径遍历被阻止: {path} 包含 '..' 组件，"
+                f"解析到 {resolved}。请使用项目内相对路径"
+            )
+
+        return Result.ok(resolved)

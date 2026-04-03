@@ -6,21 +6,74 @@ import sys
 from pathlib import Path
 
 from lingclaude.core.config import load_config
+from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
-    runtime = CodingRuntime(config)
+    engine = QueryEngine.from_config_file(args.config)
 
     if args.prompt:
+        if args.interactive:
+            return _interactive_loop(engine, args.prompt)
         print(f"灵克> {args.prompt}")
-        result = runtime.execute_tool("bash", command=f"echo 'Prompt received: {args.prompt}'")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        result = engine.submit(args.prompt)
+        print(result.output)
+        if args.verbose:
+            print(f"\n--- 会话统计 ---")
+            stats = engine.get_stats()
+            print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
+            print(f"用量: {stats['usage']}")
     else:
-        print("灵克 v0.1.0 — 开源 AI 编程助手")
+        print("灵克 v0.2.0 — 开源 AI 编程助手")
         print(f"Config: {args.config or 'default'}")
+        print(f"Model: {config.model.provider}/{config.model.model}")
+        provider_status = "已连接" if engine._provider else "未配置（回退模式）"
+        print(f"Provider: {provider_status}")
+        runtime = CodingRuntime(config)
         print(f"Tools: {len(runtime.registry.list_tools())} registered")
+    return 0
+
+
+def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
+    print(f"灵克 v0.2.0 — 交互模式（输入 'exit' 或 'quit' 退出）")
+    print(f"Provider: {'已连接' if engine._provider else '未配置（回退模式）'}")
+    print()
+
+    prompt = first_prompt
+    while True:
+        if not prompt:
+            try:
+                prompt = input("灵克> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n再见！")
+                break
+        if prompt.lower() in ("exit", "quit", "q"):
+            print("再见！")
+            break
+        if not prompt:
+            prompt = ""
+            continue
+
+        result = engine.submit(prompt)
+        print(f"\n{result.output}\n")
+
+        if result.stop_reason.value != "completed":
+            print(f"[会话结束: {result.stop_reason.value}]")
+            break
+
+        prompt = ""
+        try:
+            prompt = input("灵克> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n再见！")
+            break
+
+    stats = engine.get_stats()
+    print(f"\n--- 会话统计 ---")
+    print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
+    print(f"用量: {stats['usage']}")
     return 0
 
 
@@ -128,6 +181,9 @@ def main() -> int:
 
     run_parser = subparsers.add_parser("run", help="Run LingClaude")
     run_parser.add_argument("prompt", nargs="?", help="Prompt to process")
+    run_parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
+    run_parser.add_argument("--verbose", "-v", action="store_true", help="Show usage stats")
+    run_parser.add_argument("--model", "-m", help="Override model name")
 
     opt_parser = subparsers.add_parser("optimize", help="Run self-optimization")
     opt_parser.add_argument("--target", "-t", help="Target path")

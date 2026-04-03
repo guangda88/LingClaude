@@ -442,3 +442,106 @@ class TestOptimizationAdvisor:
         )
         assert "Self-Optimization Report" in report
         assert "structure" in report.lower()
+
+
+class TestFileOpsSecurity:
+    def test_path_traversal_blocked(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        ops = FileOps(base_dir=str(tmp_path))
+        result = ops.read("../../etc/passwd")
+        assert result.is_error
+        assert "遍历" in result.error or "超出" in result.error
+
+    def test_absolute_path_blocked(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        ops = FileOps(base_dir=str(tmp_path))
+        result = ops.read("/etc/passwd")
+        assert result.is_error
+        assert "超出" in result.error
+
+    def test_relative_path_works(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        (tmp_path / "test.txt").write_text("hello")
+        ops = FileOps(base_dir=str(tmp_path))
+        result = ops.read("test.txt")
+        assert result.is_ok
+        assert result.data.content == "hello"
+
+    def test_allow_escape_permits_absolute(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        ops = FileOps(base_dir=str(tmp_path), allow_escape=True)
+        result = ops._resolve("/tmp/test")
+        assert result.is_ok
+
+    def test_exists_returns_false_for_escape(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        ops = FileOps(base_dir=str(tmp_path))
+        assert not ops.exists("/etc/passwd")
+
+    def test_delete_blocked_for_escape(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        ops = FileOps(base_dir=str(tmp_path))
+        result = ops.delete("../../etc/hosts")
+        assert result.is_error
+
+    def test_protected_path_blocked_even_with_escape(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        ops = FileOps(base_dir=str(tmp_path), allow_escape=True)
+        result = ops._resolve("/etc/passwd")
+        assert result.is_error
+        assert "保护" in result.error
+
+    def test_protected_root_paths_blocked(self, tmp_path: Path) -> None:
+        from lingclaude.engine.file_ops import FileOps
+
+        ops = FileOps(base_dir=str(tmp_path), allow_escape=True)
+        for protected in ["/etc/hosts", "/sys/kernel", "/proc/1/status", "/dev/null"]:
+            result = ops._resolve(protected)
+            assert result.is_error, f"{protected} should be blocked"
+
+
+class TestBashSecurity:
+    def test_sudo_blocked(self) -> None:
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor()
+        result = executor.run("sudo ls")
+        assert result.exit_code == 126
+        assert "黑名单" in result.stderr
+
+    def test_case_insensitive_block(self) -> None:
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor()
+        result = executor.run("SUDO ls")
+        assert result.exit_code == 126
+
+    def test_curl_blocked(self) -> None:
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor()
+        result = executor.run("curl http://example.com")
+        assert result.exit_code == 126
+
+    def test_allowed_command_passes(self) -> None:
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor(allowed_commands=["echo"])
+        result = executor.run("echo hello")
+        assert result.success
+        assert "hello" in result.stdout
+
+    def test_blocked_reason_in_message(self) -> None:
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor()
+        result = executor.run("mkfs /dev/sda1")
+        assert result.exit_code == 126
+        assert "黑名单" in result.stderr or "基础命令" in result.stderr
