@@ -1,47 +1,20 @@
-system:
-  name: 灵克
-  hardware_profile: lingzhi
-  log_level: INFO
-
 engine:
-  max_turns: 8
-  max_budget_tokens: 200000
   compact_after_turns: 12
+  max_budget_tokens: 200000
+  max_turns: 8
   structured_output: false
-
-permissions:
-  deny_tools: []
-  deny_prefixes: []
-
 model:
-  provider: openai
-  model: gpt-4o
-  api_key: ""
-  base_url: null
+  api_key: sk-085b43646ce344eb8cd03fbfff04010e
+  base_url: https://api.deepseek.com/v1
   max_tokens: 4096
+  model: deepseek-chat
+  provider: openai
+  system_prompt: 你是灵克，一个会自我进化的开源 AI 编程助手。你擅长代码理解、编辑、终端操作，并通过自优化持续提升能力。
   temperature: 0.7
-  system_prompt: "你是灵克，一个 AI 编程助手。"
-
+permissions:
+  deny_prefixes: []
+  deny_tools: []
 self_optimizer:
-  triggers:
-    quality:
-      enabled: true
-      review_score_threshold: 60
-      coverage_drop_threshold: 0.1
-    structure:
-      enabled: true
-      max_complexity: 15
-      max_class_lines: 300
-      max_method_lines: 50
-    performance:
-      enabled: true
-      max_execution_time: 30.0
-    scale:
-      enabled: true
-      new_lines_threshold: 500
-    time:
-      enabled: true
-      min_interval_hours: 24
   optimization:
     goal: structure
     max_trials: 50
@@ -49,7 +22,30 @@ self_optimizer:
   report:
     format: markdown
     save_path: .lingclaude/reports/
-
+  triggers:
+    max_complexity: 20
+    performance:
+      enabled: true
+      max_execution_time: 30.0
+    quality:
+      coverage_drop_threshold: 0.1
+      enabled: true
+      review_score_threshold: 60
+    scale:
+      enabled: true
+      new_lines_threshold: 500
+    structure:
+      enabled: true
+      max_class_lines: 300
+      max_complexity: 15
+      max_method_lines: 50
+    time:
+      enabled: true
+      min_interval_hours: 24
 session:
-  save_dir: .lingclaude/sessions/
   max_history: 100
+  save_dir: .lingclaude/sessions/
+system:
+  hardware_profile: lingzhi
+  log_level: INFO
+  name: 灵克
