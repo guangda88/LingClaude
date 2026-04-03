@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from lingclaude.core.types import Result
 from lingclaude.core.config import LingClaudeConfig, load_config
 from lingclaude.core.models import (

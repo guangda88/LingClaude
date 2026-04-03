@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass
+@dataclass(frozen=True)
 class OptimizationRequest:
     target: str
     goal: str
@@ -15,7 +15,7 @@ class OptimizationRequest:
     config: dict[str, Any]
 
 
-@dataclass
+@dataclass(frozen=True)
 class OptimizationResult:
     success: bool
     best_params: dict[str, Any]
@@ -23,7 +23,7 @@ class OptimizationResult:
     experiments: int
     duration: float
     error: str = ""
-    history: list[dict[str, Any]] = field(default_factory=list)
+    history: tuple[dict[str, Any], ...] = ()
 
 
 class SimpleSearchSpace:

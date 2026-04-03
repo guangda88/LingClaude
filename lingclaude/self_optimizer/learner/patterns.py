@@ -17,7 +17,7 @@ class PatternDetector:
 
     def detect(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         raise NotImplementedError
 
     def _create_finding(
@@ -391,7 +391,7 @@ class PatternRecognizer:
 
     def recognize_patterns(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         patterns: list[dict[str, Any]] = []
         for detector in self.detectors:
             try:
@@ -400,14 +400,14 @@ class PatternRecognizer:
                 self._detected_count += len(detected)
             except Exception:
                 continue
-        return patterns
+        return tuple(patterns)
 
-    def recognize_from_file(self, file_path: str) -> list[dict[str, Any]]:
+    def recognize_from_file(self, file_path: str) -> tuple[dict[str, Any], ...]:
         try:
             source_code = Path(file_path).read_text(encoding="utf-8")
             return self.recognize_patterns(source_code, file_path)
         except Exception:
-            return []
+            return ()
 
     def get_statistics(self) -> dict[str, Any]:
         return {

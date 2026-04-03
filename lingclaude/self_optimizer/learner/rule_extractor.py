@@ -29,7 +29,7 @@ class RuleExtractor:
         self,
         feedback_items: list[FeedbackItem],
         category: FeedbackCategory | None = None,
-    ) -> list[LearnedRule]:
+    ) -> tuple[LearnedRule, ...]:
         if category:
             feedback_items = [
                 item for item in feedback_items if item.category == category
@@ -51,7 +51,7 @@ class RuleExtractor:
                         break
 
         learned_rules.sort(key=lambda r: r.quality_score, reverse=True)
-        return learned_rules
+        return tuple(learned_rules)
 
     def _normalize_rule_id(self, rule_id: str) -> str:
         rule_id = re.sub(r"[^\w.-]", "_", rule_id)
@@ -75,79 +75,59 @@ class RuleExtractor:
                 description=self._generate_description(items),
                 category=primary_category,
                 pattern=pattern,
-                tools=tool_names,
+                tools=tuple(tool_names),
                 frequency=len(items),
                 confidence=round(avg_confidence, 2),
-                status="draft",
-                created_at=datetime.now(),
             )
-            rule.quality_score = self._calculate_quality_score(rule)
-            return rule
+
+            score = self._calculate_quality_score(rule)
+            return LearnedRule(
+                id=rule.id,
+                name=rule.name,
+                description=rule.description,
+                category=rule.category,
+                pattern=rule.pattern,
+                tools=rule.tools,
+                frequency=rule.frequency,
+                confidence=rule.confidence,
+                quality_score=score,
+                created_at=rule.created_at,
+            )
         except Exception:
             return None
 
     def _build_pattern(self, items: list[FeedbackItem]) -> Pattern:
-        pattern = Pattern()
-
         file_extensions: set[str] = set()
         for item in items:
             if "." in item.file_path:
                 ext = item.file_path.split(".")[-1]
                 file_extensions.add(f"*.{ext}")
-        pattern.file_patterns = list(file_extensions)
 
         seen_patterns: set[str] = set()
         for item in items:
             if item.snippet:
-                normalized = self._normalize_snippet(item.snippet)
-                if normalized and normalized not in seen_patterns:
-                    pattern.code_patterns.append(normalized)
-                    seen_patterns.add(normalized)
+                normalized = re.sub(r"\s+", " ", item.snippet.strip())
+                seen_patterns.add(normalized)
 
-        pattern.context_keywords = self._extract_keywords(items)
-        pattern.severity_distribution = dict(
-            Counter(item.severity.value for item in items)
+        context_keywords: set[str] = set()
+        for item in items:
+            words = re.findall(r"\b[a-zA-Z_]{4,}\b", item.message)
+            context_keywords.update(words[:5])
+
+        severity_dist: dict[str, int] = {}
+        for item in items:
+            sev = item.severity.value
+            severity_dist[sev] = severity_dist.get(sev, 0) + 1
+
+        return Pattern(
+            file_patterns=tuple(sorted(file_extensions)),
+            code_patterns=tuple(sorted(seen_patterns)),
+            context_keywords=tuple(sorted(context_keywords)),
+            severity_distribution=severity_dist,
         )
-        pattern.tool_support = list(set(item.tool_name for item in items))
 
-        return pattern
-
-    def _normalize_snippet(self, snippet: str) -> str | None:
-        try:
-            snippet = re.sub(r"#.*", "", snippet)
-            snippet = re.sub(r'["\'][^"\']*["\']', '""', snippet)
-            lines = [line.strip() for line in snippet.split("\n") if line.strip()]
-            if lines:
-                return lines[0][:100]
-        except Exception:
-            pass
-        return None
-
-    def _extract_keywords(self, items: list[FeedbackItem]) -> list[str]:
-        all_text = " ".join(
-            f"{item.message} {item.rule_name} {item.suggestion or ''}"
-            for item in items
-        ).lower()
-        words = re.findall(r"\b[a-zA-Z_]{4,}\b", all_text)
-        word_counts = Counter(words)
-
-        stop_words = {
-            "this", "that", "with", "from", "have", "been", "will", "can",
-            "are", "were", "should", "could", "would", "their", "there",
-            "where", "which", "about",
-        }
-        keywords = [
-            word
-            for word, count in word_counts.most_common(15)
-            if word not in stop_words and count >= 2
-        ]
-        return keywords[:7]
-
-    def _generate_rule_name(
-        self, rule_id: str, items: list[FeedbackItem]
-    ) -> str:
-        message_counts = Counter(item.message for item in items)
-        base_message = message_counts.most_common(1)[0][0]
+    def _generate_rule_name(self, rule_id: str, items: list[FeedbackItem]) -> str:
+        base_message = items[0].message
         name = base_message.replace("this ", "").replace("the ", "")
         name = re.sub(r"[^\w\s-]", "", name).strip().title()
         return name[:60]
@@ -163,16 +143,12 @@ class RuleExtractor:
         frequency_score = min(rule.frequency / 10.0, 0.3)
         confidence_score = rule.confidence * 0.2
         if len(rule.pattern.file_patterns) == 1:
-            consistency_score = 1.0
-        elif len(rule.pattern.file_patterns) <= 3:
-            consistency_score = 0.8
+            specificity_score = 0.2
+        elif len(rule.pattern.file_patterns) > 3:
+            specificity_score = 0.05
         else:
-            consistency_score = 0.5
-        consistency_score *= 0.2
-        return round(
-            diversity_score + frequency_score + confidence_score + consistency_score,
-            2,
-        )
+            specificity_score = len(rule.pattern.file_patterns) * 0.07
+        return min(diversity_score + frequency_score + confidence_score + specificity_score, 1.0)
 
 
 class SecurityRuleExtractor(RuleExtractor):
@@ -180,40 +156,38 @@ class SecurityRuleExtractor(RuleExtractor):
         self,
         feedback_items: list[FeedbackItem],
         category: FeedbackCategory | None = None,
-    ) -> list[LearnedRule]:
-        security_items = [
-            item for item in feedback_items
-            if item.category == FeedbackCategory.SECURITY
-        ]
-        rules = super().extract_rules(security_items, FeedbackCategory.SECURITY)
-        for rule in rules:
-            rule.status = "security_verified"
-        return rules
+    ) -> tuple[LearnedRule, ...]:
+        if category is None:
+            category = FeedbackCategory.SECURITY
+        return super().extract_rules(feedback_items, category)
 
 
 class RuleDeduplicator:
     def __init__(self, similarity_threshold: float = 0.8) -> None:
         self.similarity_threshold = similarity_threshold
-        self._deduped_count = 0
 
-    def deduplicate(self, rules: list[LearnedRule]) -> list[LearnedRule]:
+    def deduplicate(
+        self, rules: list[LearnedRule]
+    ) -> tuple[LearnedRule, ...]:
+        if not rules:
+            return ()
+
         unique_rules: list[LearnedRule] = []
         seen_hashes: set[str] = set()
 
         for rule in rules:
             rule_hash = self._compute_rule_hash(rule)
             is_duplicate = False
-            for seen_hash in seen_hashes:
-                if self._are_similar(rule_hash, seen_hash):
+            for existing_hash in seen_hashes:
+                if self._are_similar(rule_hash, existing_hash):
                     is_duplicate = True
-                    self._deduped_count += 1
                     break
 
             if not is_duplicate:
                 unique_rules.append(rule)
                 seen_hashes.add(rule_hash)
 
-        return unique_rules
+        return tuple(unique_rules)
 
     def _compute_rule_hash(self, rule: LearnedRule) -> str:
         keywords_str = " ".join(sorted(rule.pattern.context_keywords))
@@ -241,7 +215,7 @@ class RuleDeduplicator:
             current_row = [i + 1]
             for j, c2 in enumerate(s2):
                 insertions = previous_row[j + 1] + 1
-                deletions = current_row[j] + 1
+                deletions = current_row[j + 1]
                 substitutions = previous_row[j] + (c1 != c2)
                 current_row.append(min(insertions, deletions, substitutions))
             previous_row = current_row
@@ -268,5 +242,7 @@ class RuleValidator:
             return False
         return True
 
-    def validate_batch(self, rules: list[LearnedRule]) -> list[LearnedRule]:
-        return [rule for rule in rules if self.validate(rule)]
+    def validate_batch(
+        self, rules: list[LearnedRule]
+    ) -> tuple[LearnedRule, ...]:
+        return tuple(rule for rule in rules if self.validate(rule))

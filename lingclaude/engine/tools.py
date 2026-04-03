@@ -46,5 +46,5 @@ class ToolRegistry:
             raise ValueError(f"Tool has no handler: {name}")
         return tool.handler(**kwargs)
 
-    def get_all_definitions(self) -> list[dict[str, Any]]:
-        return [tool.to_dict() for tool in self._tools.values()]
+    def get_all_definitions(self) -> tuple[dict[str, Any], ...]:
+        return tuple(tool.to_dict() for tool in self._tools.values())

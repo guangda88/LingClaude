@@ -50,10 +50,10 @@ class SessionManager:
             output_tokens=output_tokens,
         )
 
-    def list_sessions(self) -> list[str]:
+    def list_sessions(self) -> tuple[str, ...]:
         if not self.save_dir.exists():
-            return []
-        return [p.stem for p in self.save_dir.glob("*.json")]
+            return ()
+        return tuple(p.stem for p in self.save_dir.glob("*.json"))
 
     def delete(self, session_id: str) -> bool:
         path = self.save_dir / f"{session_id}.json"
