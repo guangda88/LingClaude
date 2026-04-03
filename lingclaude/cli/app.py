@@ -8,6 +8,15 @@ from pathlib import Path
 from lingclaude.core.config import load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
+from lingclaude.self_optimizer.daemon import OptimizationDaemon
+
+
+def _feed_behavior_to_daemon(engine: QueryEngine, config) -> None:
+    try:
+        daemon = OptimizationDaemon(target=".", config=config)
+        daemon.update_behavior(engine.behavior_metrics.to_dict())
+    except Exception:
+        pass
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -22,11 +31,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(f"灵克> {args.prompt}")
         result = engine.submit(args.prompt)
         print(result.output)
+        _feed_behavior_to_daemon(engine, config)
         if args.verbose:
             print(f"\n--- 会话统计 ---")
             stats = engine.get_stats()
             print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
             print(f"用量: {stats['usage']}")
+            bm = engine.behavior_metrics.to_dict()
+            print(f"行为: 幻觉风险={bm['hallucination_risk']:.0%} 沮丧率={bm['frustration_rate']:.0%}")
     else:
         print("灵克 v0.2.0 — 开源 AI 编程助手")
         print(f"Config: {args.config or 'default'}")
@@ -60,6 +72,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
 
         result = engine.submit(prompt)
         print(f"\n{result.output}\n")
+        _feed_behavior_to_daemon(engine, None)
 
         if result.stop_reason.value != "completed":
             print(f"[会话结束: {result.stop_reason.value}]")

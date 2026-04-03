@@ -88,20 +88,29 @@ class OptimizationDaemon:
         self.optimizer = SynchronousOptimizer()
         self.advisor = OptimizationAdvisor()
         self.state = DaemonState.load(self.state_path)
+        self._behavior_snapshot: dict[str, Any] = {}
 
     def collect_metrics(self) -> dict[str, Any]:
         metrics = self.evaluator.get_current_metrics()
         metrics["last_optimization_time"] = self.state.last_optimization_time
         return metrics
 
-    def build_context(self, metrics: dict[str, Any]) -> dict[str, Any]:
+    def build_context(self, metrics: dict[str, Any], user_triggered: bool = False) -> dict[str, Any]:
         ctx: dict[str, Any] = dict(metrics)
         ctx["last_optimization_time"] = self.state.last_optimization_time
+        ctx["user_triggered"] = user_triggered
+        ctx["hallucination_risk"] = self._behavior_snapshot.get("hallucination_risk", 0)
+        ctx["frustration_rate"] = self._behavior_snapshot.get("frustration_rate", 0)
+        ctx["tool_error_rate"] = self._behavior_snapshot.get("tool_error_rate", 0)
+        ctx["corrections_received"] = self._behavior_snapshot.get("corrections_received", 0)
         return ctx
 
-    def run_cycle(self) -> OptimizationCycle | None:
+    def update_behavior(self, behavior: dict[str, Any]) -> None:
+        self._behavior_snapshot = behavior
+
+    def run_cycle(self, user_triggered: bool = False) -> OptimizationCycle | None:
         metrics = self.collect_metrics()
-        context = self.build_context(metrics)
+        context = self.build_context(metrics, user_triggered=user_triggered)
 
         should_trigger, trigger_info = self.trigger.check_all_conditions(context)
         if not should_trigger:
