@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -12,6 +13,7 @@ from lingclaude.model.types import (
     ModelProvider,
     ModelResponse,
     ModelUsage,
+    ToolCall,
 )
 
 try:
@@ -29,12 +31,13 @@ class OpenAIProvider(ModelProvider):
         self,
         messages: tuple[ModelMessage, ...],
         config: ModelConfig | None = None,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         cfg = config or self._config
         if not cfg.api_key:
             return Result.fail("OpenAI API key 未设置。请在 config.yaml 中配置 model.api_key 或设置 OPENAI_API_KEY 环境变量")
         try:
-            return self._call_api_sync(messages, cfg)
+            return self._call_api_sync(messages, cfg, tools)
         except Exception as e:
             return Result.fail(f"OpenAI API 调用失败: {e}")
 
@@ -42,12 +45,13 @@ class OpenAIProvider(ModelProvider):
         self,
         messages: tuple[ModelMessage, ...],
         config: ModelConfig | None = None,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         cfg = config or self._config
         if not cfg.api_key:
             return Result.fail("OpenAI API key 未设置")
         try:
-            return await self._call_api_async(messages, cfg)
+            return await self._call_api_async(messages, cfg, tools)
         except Exception as e:
             return Result.fail(f"OpenAI API 调用失败: {e}")
 
@@ -59,26 +63,33 @@ class OpenAIProvider(ModelProvider):
         return len(text) // 4
 
     def _build_request_body(
-        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig
+        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> dict[str, Any]:
         msg_dicts: list[dict[str, Any]] = []
         if cfg.system_prompt:
             msg_dicts.append({"role": "system", "content": cfg.system_prompt})
         for m in messages:
             msg_dicts.append(m.to_dict())
-        return {
+        body: dict[str, Any] = {
             "model": cfg.model,
             "messages": msg_dicts,
             "max_tokens": cfg.max_tokens,
             "temperature": cfg.temperature,
         }
+        if tools:
+            body["tools"] = [
+                {"type": "function", "function": t} for t in tools
+            ]
+        return body
 
     def _call_api_sync(
-        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig
+        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         base = cfg.base_url or "https://api.openai.com/v1"
         url = base.rstrip("/") + "/chat/completions"
-        body = self._build_request_body(messages, cfg)
+        body = self._build_request_body(messages, cfg, tools)
         headers = {
             "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
@@ -102,13 +113,14 @@ class OpenAIProvider(ModelProvider):
         return self._parse_response(data, cfg.model)
 
     async def _call_api_async(
-        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig
+        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         import aiohttp
 
         base = cfg.base_url or "https://api.openai.com/v1"
         url = base.rstrip("/") + "/chat/completions"
-        body = self._build_request_body(messages, cfg)
+        body = self._build_request_body(messages, cfg, tools)
         headers = {
             "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
@@ -136,8 +148,23 @@ class OpenAIProvider(ModelProvider):
             return Result.fail("OpenAI API 返回空 choices")
 
         choice = choices[0]
-        content = choice.get("message", {}).get("content", "")
+        message = choice.get("message", {})
+        content = message.get("content", "") or ""
         finish_reason = choice.get("finish_reason", "stop")
+
+        raw_tool_calls = message.get("tool_calls")
+        parsed_calls: tuple[ToolCall, ...] = ()
+        if raw_tool_calls:
+            parsed_calls = tuple(
+                ToolCall(
+                    id=tc["id"],
+                    name=tc["function"]["name"],
+                    arguments=tc["function"]["arguments"],
+                )
+                for tc in raw_tool_calls
+            )
+            if not content and parsed_calls:
+                content = ""
 
         usage_raw = data.get("usage", {})
         usage = ModelUsage(
@@ -152,5 +179,6 @@ class OpenAIProvider(ModelProvider):
                 usage=usage,
                 finish_reason=finish_reason,
                 raw=data,
+                tool_calls=parsed_calls,
             )
         )

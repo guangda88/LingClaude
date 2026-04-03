@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -8,6 +9,10 @@ from uuid import uuid4
 
 from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import Session, SessionManager
+
+logger = logging.getLogger(__name__)
+
+AGENT_MAX_TOOL_ROUNDS = 10
 
 
 class StopReason(str, Enum):
@@ -44,6 +49,7 @@ class QueryEngine:
         config: QueryEngineConfig | None = None,
         session_manager: SessionManager | None = None,
         model_provider: Any | None = None,
+        runtime: Any | None = None,
     ) -> None:
         self.config = config or QueryEngineConfig()
         self.session_manager = session_manager or SessionManager()
@@ -53,6 +59,7 @@ class QueryEngine:
         self._usage = UsageSummary()
         self._transcript: list[str] = []
         self._provider = model_provider
+        self._runtime = runtime
 
     @classmethod
     def from_config_file(cls, config_path: str | None = None) -> QueryEngine:
@@ -83,7 +90,10 @@ class QueryEngine:
         if provider_result.is_ok:
             provider = provider_result.data
 
-        return cls(config=engine_cfg, model_provider=provider)
+        return cls(config=engine_cfg, model_provider=provider, runtime=None)
+
+    def set_runtime(self, runtime: Any) -> None:
+        self._runtime = runtime
 
     def submit(
         self,
@@ -219,11 +229,67 @@ class QueryEngine:
             messages.append(ModelMessage(role=MessageRole.USER, content=prev))
         messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
 
-        result = self._provider.complete(tuple(messages))
-        if result.is_error:
-            return f"[模型调用失败] {result.error}"
+        tools = self._build_openai_tools()
 
-        return result.data.content
+        for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
+            result = self._provider.complete(tuple(messages), tools=tools)
+            if result.is_error:
+                return f"[模型调用失败] {result.error}"
+
+            response = result.data
+
+            if not response.tool_calls:
+                return response.content
+
+            messages.append(ModelMessage(
+                role=MessageRole.ASSISTANT,
+                content=response.content,
+                tool_calls=response.tool_calls,
+            ))
+
+            for tc in response.tool_calls:
+                tool_output = self._execute_tool(tc.name, tc.arguments)
+                messages.append(ModelMessage(
+                    role=MessageRole.TOOL,
+                    content=tool_output,
+                    name=tc.name,
+                    tool_call_id=tc.id,
+                ))
+
+        return response.content if response.content else "[达到最大工具调用轮次]"
+
+    def _build_openai_tools(self) -> tuple[dict[str, Any], ...] | None:
+        if self._runtime is None:
+            return None
+        tool_defs = self._runtime.registry.list_tools()
+        if not tool_defs:
+            return None
+        return tuple(
+            {
+                "name": t.name,
+                "description": t.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        k: v for k, v in t.parameters.items()
+                    },
+                    "required": list(t.parameters.keys()),
+                },
+            }
+            for t in tool_defs
+        )
+
+    def _execute_tool(self, name: str, arguments_json: str) -> str:
+        try:
+            kwargs = json.loads(arguments_json)
+        except json.JSONDecodeError:
+            return json.dumps({"error": f"Invalid JSON arguments: {arguments_json}"}, ensure_ascii=False)
+        try:
+            result = self._runtime.execute_tool(name, **kwargs)
+            return json.dumps(result, ensure_ascii=False, default=str)
+        except Exception as e:
+            logger.warning("Tool execution failed: %s.%s -> %s", name, kwargs.keys(), e)
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
 
     def _compact_if_needed(self) -> None:
         if len(self._messages) > self.config.compact_after_turns:
