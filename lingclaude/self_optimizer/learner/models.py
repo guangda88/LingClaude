@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any
 
 
-class FeedbackSeverity(Enum):
+class FeedbackSeverity(str, Enum):
     CRITICAL = "critical"
     HIGH = "high"
     MEDIUM = "medium"
@@ -14,7 +14,7 @@ class FeedbackSeverity(Enum):
     INFO = "info"
 
 
-class FeedbackCategory(Enum):
+class FeedbackCategory(str, Enum):
     SECURITY = "security"
     PERFORMANCE = "performance"
     CODE_QUALITY = "code_quality"
@@ -24,14 +24,14 @@ class FeedbackCategory(Enum):
     ARCHITECTURE = "architecture"
 
 
-class ToolType(Enum):
+class ToolType(str, Enum):
     STATIC_ANALYZER = "static_analyzer"
     CODE_REVIEW = "code_review"
     SECURITY_SCANNER = "security_scanner"
     LINTING = "linting"
 
 
-class PatternType(Enum):
+class PatternType(str, Enum):
     ANTI_PATTERN = "anti_pattern"
     BEST_PRACTICE = "best_practice"
 

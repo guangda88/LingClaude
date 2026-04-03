@@ -171,6 +171,44 @@ def _cmd_knowledge(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_daemon(args: argparse.Namespace) -> int:
+    from lingclaude.self_optimizer.daemon import OptimizationDaemon
+
+    config = load_config(Path(args.config) if args.config else None)
+    target = args.target or "."
+    daemon = OptimizationDaemon(target=target, config=config)
+
+    if args.daemon_action == "status":
+        state = daemon.state
+        print(f"自由化框架状态:")
+        print(f"  总周期: {state.total_cycles}")
+        print(f"  总改进: {state.total_improvements}")
+        print(f"  上次优化: {state.last_optimization_time or '从未运行'}")
+        if state.cycles:
+            last = state.cycles[-1]
+            print(f"  最近: score={last['best_score']:.2f} "
+                  f"violations={last['violations_before']}→{last['violations_after']}")
+    elif args.daemon_action == "run":
+        cycle = daemon.run_once()
+        if cycle:
+            print(f"Cycle #{cycle.cycle_id}: score={cycle.best_score:.2f}")
+            print(f"  触发: {cycle.trigger_reason}")
+            print(f"  违规: {cycle.violations_before}→{cycle.violations_after}")
+            print(f"  耗时: {cycle.duration_seconds}s")
+            if cycle.report_path:
+                print(f"  报告: {cycle.report_path}")
+        else:
+            print("无触发条件，无需优化")
+    elif args.daemon_action == "watch":
+        interval = args.interval or 300
+        daemon.run_watch(interval_seconds=interval)
+    elif args.daemon_action == "reset":
+        daemon.state = DaemonState()
+        daemon.state.save(daemon.state_path)
+        print("状态已重置")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="lingclaude",
@@ -203,6 +241,17 @@ def main() -> int:
     kb_parser.add_argument("--keyword", "-k", help="Search keyword")
     kb_parser.add_argument("--limit", "-l", type=int, help="Result limit")
 
+    daemon_parser = subparsers.add_parser("daemon", help="Self-optimization daemon")
+    daemon_parser.add_argument(
+        "daemon_action",
+        choices=["status", "run", "watch", "reset"],
+        help="Daemon action",
+    )
+    daemon_parser.add_argument("--target", "-t", help="Target path")
+    daemon_parser.add_argument(
+        "--interval", "-i", type=int, default=300, help="Watch interval (seconds)"
+    )
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -215,6 +264,8 @@ def main() -> int:
         return _cmd_session(args)
     elif args.command == "knowledge":
         return _cmd_knowledge(args)
+    elif args.command == "daemon":
+        return _cmd_daemon(args)
     else:
         parser.print_help()
         return 0
