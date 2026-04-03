@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import resource
 import subprocess
 import time
 from dataclasses import dataclass
@@ -20,14 +21,31 @@ class BashResult:
         return self.exit_code == 0
 
 
-_ALWAYS_BLOCKED = frozenset([
-    "rm -rf /",
-    "sudo",
-    "su",
-    "mkfs",
-    "dd if=",
-    ":(){ :|:& };:",
-])
+_ALWAYS_BLOCKED = frozenset({
+    "rm -rf /", "rm -rf /*",
+    "sudo", "su",
+    "mkfs", "dd if=",
+    ":(){ :|:& };:", "fork bomb",
+    "chmod 777", "chown",
+    "curl", "wget", "nc ", "ncat",
+    "ssh", "scp", "telnet",
+    "mount", "umount", "fdisk", "parted",
+    "iptables", "ufw", "firewall-cmd",
+    "systemctl", "service",
+    "apt", "apt-get", "yum", "dnf", "pacman", "pip install",
+    "crontab", "at ",
+})
+
+_BLOCKED_BASE_COMMANDS = frozenset({
+    "sudo", "su", "mkfs", "ssh", "scp", "telnet",
+    "mount", "umount", "fdisk", "parted",
+    "iptables", "ufw", "firewall-cmd",
+    "systemctl", "service",
+    "crontab",
+})
+
+_DEFAULT_MEMORY_LIMIT = 512 * 1024 * 1024  # 512 MB
+_DEFAULT_CPU_LIMIT = 30  # seconds
 
 
 class BashExecutor:
@@ -37,21 +55,26 @@ class BashExecutor:
         timeout: int = 60,
         allowed_commands: list[str] | None = None,
         blocked_commands: list[str] | None = None,
+        memory_limit: int = _DEFAULT_MEMORY_LIMIT,
+        cpu_limit: int = _DEFAULT_CPU_LIMIT,
     ) -> None:
         self.working_dir = working_dir
         self.timeout = timeout
         self.allowed_commands = allowed_commands
         extra_blocked = blocked_commands or []
         self.blocked_commands = _ALWAYS_BLOCKED | frozenset(extra_blocked)
+        self.memory_limit = memory_limit
+        self.cpu_limit = cpu_limit
 
     def run(self, command: str, timeout: int | None = None) -> BashResult:
         effective_timeout = timeout or self.timeout
 
-        if not self._is_allowed(command):
+        blocked_reason = self._check_blocked(command)
+        if blocked_reason:
             return BashResult(
                 exit_code=126,
                 stdout="",
-                stderr=f"Command blocked: {command}",
+                stderr=f"命令被阻止: {command}（原因: {blocked_reason}）",
                 duration=0,
                 command=command,
             )
@@ -65,6 +88,7 @@ class BashExecutor:
                 text=True,
                 timeout=effective_timeout,
                 cwd=self.working_dir,
+                preexec_fn=self._set_resource_limits,
             )
             duration = time.monotonic() - start
             return BashResult(
@@ -79,7 +103,7 @@ class BashExecutor:
             return BashResult(
                 exit_code=124,
                 stdout="",
-                stderr=f"Command timed out after {effective_timeout}s",
+                stderr=f"命令在 {effective_timeout}s 后超时",
                 duration=duration,
                 command=command,
             )
@@ -93,18 +117,40 @@ class BashExecutor:
                 command=command,
             )
 
-    def _is_allowed(self, command: str) -> bool:
-        cmd_lower = command.lower().strip()
+    def _check_blocked(self, command: str) -> str | None:
+        cmd_stripped = command.strip()
+        cmd_lower = cmd_stripped.lower()
 
         for blocked in self.blocked_commands:
-            if blocked in cmd_lower:
-                return False
+            if blocked.lower() in cmd_lower:
+                return f"匹配黑名单规则 '{blocked}'"
+
+        base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
+        base_cmd_name = Path(base_cmd).name
+        if base_cmd_name.lower() in _BLOCKED_BASE_COMMANDS:
+            return f"基础命令 '{base_cmd_name}' 被禁止"
 
         if self.allowed_commands is not None:
-            cmd_base = cmd_lower.split()[0] if cmd_lower.split() else ""
-            return any(
-                cmd_base == allowed.split()[0]
+            if not any(
+                base_cmd_name.lower() == allowed.split()[0].lower()
                 for allowed in self.allowed_commands
-            )
+            ):
+                return f"'{base_cmd_name}' 不在允许列表中"
 
-        return True
+        return None
+
+    def _set_resource_limits(self) -> None:
+        try:
+            resource.setrlimit(
+                resource.RLIMIT_AS,
+                (self.memory_limit, self.memory_limit),
+            )
+        except (ValueError, OSError):
+            pass
+        try:
+            resource.setrlimit(
+                resource.RLIMIT_CPU,
+                (self.cpu_limit, self.cpu_limit),
+            )
+        except (ValueError, OSError):
+            pass

@@ -50,12 +50,24 @@ class SessionConfig:
 
 
 @dataclass
+class ModelProviderConfig:
+    provider: str = "openai"
+    model: str = "gpt-4o"
+    api_key: str = ""
+    base_url: str | None = None
+    max_tokens: int = 4096
+    temperature: float = 0.7
+    system_prompt: str = "你是灵克，一个 AI 编程助手。"
+
+
+@dataclass
 class LingClaudeConfig:
     engine: EngineConfig = field(default_factory=EngineConfig)
     permissions: PermissionConfig = field(default_factory=PermissionConfig)
     triggers: TriggerConfig = field(default_factory=TriggerConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    model: ModelProviderConfig = field(default_factory=ModelProviderConfig)
     log_level: str = "INFO"
 
     @classmethod
@@ -65,6 +77,7 @@ class LingClaudeConfig:
         trig_raw = raw.get("self_optimizer", {}).get("triggers", {})
         opt_raw = raw.get("self_optimizer", {}).get("optimization", {})
         sess_raw = raw.get("session", {})
+        model_raw = raw.get("model", {})
 
         return cls(
             engine=EngineConfig(
@@ -95,6 +108,15 @@ class LingClaudeConfig:
             session=SessionConfig(
                 save_dir=sess_raw.get("save_dir", ".lingclaude/sessions/"),
                 max_history=sess_raw.get("max_history", 100),
+            ),
+            model=ModelProviderConfig(
+                provider=model_raw.get("provider", "openai"),
+                model=model_raw.get("model", "gpt-4o"),
+                api_key=model_raw.get("api_key", ""),
+                base_url=model_raw.get("base_url"),
+                max_tokens=model_raw.get("max_tokens", 4096),
+                temperature=model_raw.get("temperature", 0.7),
+                system_prompt=model_raw.get("system_prompt", "你是灵克，一个 AI 编程助手。"),
             ),
             log_level=raw.get("system", {}).get("log_level", "INFO"),
         )

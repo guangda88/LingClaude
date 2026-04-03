@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 from uuid import uuid4
 
 from lingclaude.core.models import PermissionDenial, UsageSummary
@@ -42,7 +43,8 @@ class QueryEngine:
         self,
         config: QueryEngineConfig | None = None,
         session_manager: SessionManager | None = None,
-    ):
+        model_provider: Any | None = None,
+    ) -> None:
         self.config = config or QueryEngineConfig()
         self.session_manager = session_manager or SessionManager()
         self.session_id: str = uuid4().hex[:16]
@@ -50,19 +52,38 @@ class QueryEngine:
         self._denials: list[PermissionDenial] = []
         self._usage = UsageSummary()
         self._transcript: list[str] = []
+        self._provider = model_provider
 
     @classmethod
     def from_config_file(cls, config_path: str | None = None) -> QueryEngine:
         from lingclaude.core.config import load_config
+        from lingclaude.model.factory import create_provider
+        from lingclaude.model.types import ModelConfig
+        from pathlib import Path as _Path
 
-        cfg = load_config(config_path and __import__("pathlib").Path(config_path))
+        cfg = load_config(config_path and _Path(config_path))
         engine_cfg = QueryEngineConfig(
             max_turns=cfg.engine.max_turns,
             max_budget_tokens=cfg.engine.max_budget_tokens,
             compact_after_turns=cfg.engine.compact_after_turns,
             structured_output=cfg.engine.structured_output,
         )
-        return cls(config=engine_cfg)
+
+        provider = None
+        mc = cfg.model
+        model_cfg = ModelConfig(
+            model=mc.model,
+            api_key=mc.api_key,
+            base_url=mc.base_url,
+            max_tokens=mc.max_tokens,
+            temperature=mc.temperature,
+            system_prompt=mc.system_prompt,
+        )
+        provider_result = create_provider(config=model_cfg, provider_name=mc.provider)
+        if provider_result.is_ok:
+            provider = provider_result.data
+
+        return cls(config=engine_cfg, model_provider=provider)
 
     def submit(
         self,
@@ -74,7 +95,7 @@ class QueryEngine:
         if len(self._messages) >= self.config.max_turns:
             return TurnResult(
                 prompt=prompt,
-                output=f"Max turns ({self.config.max_turns}) reached.",
+                output=f"已达最大轮次 ({self.config.max_turns})。",
                 matched_commands=matched_commands,
                 matched_tools=matched_tools,
                 permission_denials=denied_tools,
@@ -82,14 +103,7 @@ class QueryEngine:
                 stop_reason=StopReason.MAX_TURNS_REACHED,
             )
 
-        summary_lines = [
-            f"Prompt: {prompt}",
-            f"Matched commands: {', '.join(matched_commands) or 'none'}",
-            f"Matched tools: {', '.join(matched_tools) or 'none'}",
-            f"Permission denials: {len(denied_tools)}",
-        ]
-
-        output = self._format_output(summary_lines)
+        output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
         projected = self._usage.add_turn(prompt, output)
         stop_reason = StopReason.COMPLETED
         if projected.input_tokens + projected.output_tokens > self.config.max_budget_tokens:
@@ -117,7 +131,7 @@ class QueryEngine:
         matched_commands: tuple[str, ...] = (),
         matched_tools: tuple[str, ...] = (),
         denied_tools: tuple[PermissionDenial, ...] = (),
-    ):
+    ) -> Any:
         yield {"type": "message_start", "session_id": self.session_id, "prompt": prompt}
         if matched_commands:
             yield {"type": "command_match", "commands": matched_commands}
@@ -177,6 +191,39 @@ class QueryEngine:
             "denials": len(self._denials),
             "transcript_size": len(self._transcript),
         }
+
+    def _generate_response(
+        self,
+        prompt: str,
+        matched_commands: tuple[str, ...],
+        matched_tools: tuple[str, ...],
+        denied_tools: tuple[PermissionDenial, ...],
+    ) -> str:
+        if self._provider is not None:
+            return self._call_model(prompt)
+
+        context_parts = [f"Prompt: {prompt}"]
+        if matched_commands:
+            context_parts.append(f"已匹配命令: {', '.join(matched_commands)}")
+        if matched_tools:
+            context_parts.append(f"已匹配工具: {', '.join(matched_tools)}")
+        if denied_tools:
+            context_parts.append(f"权限拒绝: {len(denied_tools)} 个工具被拒绝")
+        return self._format_output(context_parts)
+
+    def _call_model(self, prompt: str) -> str:
+        from lingclaude.model.types import ModelMessage, MessageRole
+
+        messages: list[ModelMessage] = []
+        for prev in self._messages:
+            messages.append(ModelMessage(role=MessageRole.USER, content=prev))
+        messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
+
+        result = self._provider.complete(tuple(messages))
+        if result.is_error:
+            return f"[模型调用失败] {result.error}"
+
+        return result.data.content
 
     def _compact_if_needed(self) -> None:
         if len(self._messages) > self.config.compact_after_turns:
