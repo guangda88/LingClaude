@@ -261,6 +261,8 @@ class QueryEngine:
         tools = self._build_openai_tools()
         used_tools = False
         response = None
+        total_input = 0
+        total_output = 0
 
         for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
             result = self._provider.complete(tuple(messages), tools=tools)
@@ -269,9 +271,12 @@ class QueryEngine:
                 return f"[模型调用失败] {result.error}"
 
             response = result.data
+            total_input += response.usage.input_tokens
+            total_output += response.usage.output_tokens
 
             if not response.tool_calls:
                 self._track_tool_usage(used_tools, prompt)
+                self._usage = self._usage.add_usage(response.usage.input_tokens, response.usage.output_tokens)
                 return response.content
 
             used_tools = True
@@ -295,6 +300,8 @@ class QueryEngine:
                 ))
 
         self._track_tool_usage(used_tools, prompt)
+        if response:
+            self._usage = self._usage.add_usage(total_input, total_output)
         return response.content if response and response.content else "[达到最大工具调用轮次]"
 
     def _build_openai_tools(self) -> tuple[dict[str, Any], ...] | None:
