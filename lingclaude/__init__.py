@@ -1,8 +1,4 @@
-"""LingClaude — 基于灵芝系统的自优化AI运行时
-
-融合 claude-code-port 引擎架构与 LingFlow 自优化框架，
-构建面向自用的AI模型运行时，支持逐步自动优化。
-"""
+"""灵克 (LingClaude) — 自优化AI运行时"""
 
 from lingclaude.core.types import Result
 from lingclaude.core.config import LingClaudeConfig, load_config

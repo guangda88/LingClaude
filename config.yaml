@@ -1,5 +1,5 @@
 system:
-  name: LingClaude
+  name: 灵克
   hardware_profile: lingzhi
   log_level: INFO
 
