@@ -1,0 +1,46 @@
+system:
+  name: LingClaude
+  hardware_profile: lingzhi
+  log_level: INFO
+
+engine:
+  max_turns: 8
+  max_budget_tokens: 200000
+  compact_after_turns: 12
+  structured_output: false
+
+permissions:
+  deny_tools: []
+  deny_prefixes: []
+
+self_optimizer:
+  triggers:
+    quality:
+      enabled: true
+      review_score_threshold: 60
+      coverage_drop_threshold: 0.1
+    structure:
+      enabled: true
+      max_complexity: 15
+      max_class_lines: 300
+      max_method_lines: 50
+    performance:
+      enabled: true
+      max_execution_time: 30.0
+    scale:
+      enabled: true
+      new_lines_threshold: 500
+    time:
+      enabled: true
+      min_interval_hours: 24
+  optimization:
+    goal: structure
+    max_trials: 50
+    timeout_seconds: 120
+  report:
+    format: markdown
+    save_path: .lingclaude/reports/
+
+session:
+  save_dir: .lingclaude/sessions/
+  max_history: 100
