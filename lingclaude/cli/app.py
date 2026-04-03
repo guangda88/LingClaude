@@ -14,7 +14,14 @@ from lingclaude.self_optimizer.daemon import OptimizationDaemon
 def _feed_behavior_to_daemon(engine: QueryEngine, config) -> None:
     try:
         daemon = OptimizationDaemon(target=".", config=config)
-        daemon.update_behavior(engine.behavior_metrics.to_dict())
+        metrics = engine.behavior_metrics
+        daemon.update_behavior(metrics.to_dict())
+        daemon.save_behavior_history({
+            "total_turns": metrics.total_turns,
+            "frustration_count": metrics.frustration_count,
+            "corrections_received": metrics.corrections_received,
+            "tool_error_count": metrics.tool_error_count,
+        })
     except Exception:
         pass
 

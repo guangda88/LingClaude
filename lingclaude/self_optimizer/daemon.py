@@ -103,6 +103,9 @@ class OptimizationDaemon:
         ctx["frustration_rate"] = self._behavior_snapshot.get("frustration_rate", 0)
         ctx["tool_error_rate"] = self._behavior_snapshot.get("tool_error_rate", 0)
         ctx["corrections_received"] = self._behavior_snapshot.get("corrections_received", 0)
+        history = self.load_behavior_history()
+        ctx["cumulative_frustration"] = history.get("total_frustration", 0)
+        ctx["cumulative_corrections"] = history.get("total_corrections", 0)
         return ctx
 
     def update_behavior(self, behavior: dict[str, Any]) -> None:
@@ -192,6 +195,7 @@ class OptimizationDaemon:
             while True:
                 cycle = self.run_cycle()
                 if cycle:
+                    self._write_cycle_to_knowledge(cycle)
                     print(
                         f"[{cycle.triggered_at}] Cycle #{cycle.cycle_id}: "
                         f"score={cycle.best_score:.2f} "
@@ -205,7 +209,10 @@ class OptimizationDaemon:
 
     def run_once(self) -> OptimizationCycle | None:
         logger.info("自由化框架单次运行 (target=%s)", self.target)
-        return self.run_cycle()
+        cycle = self.run_cycle(user_triggered=True)
+        if cycle:
+            self._write_cycle_to_knowledge(cycle)
+        return cycle
 
     def _apply_params(self, params: dict[str, Any]) -> None:
         config_path = Path("config.yaml")
@@ -278,3 +285,56 @@ class OptimizationDaemon:
         if len(self.state.cycles) > 100:
             self.state.cycles = self.state.cycles[-100:]
         self.state.save(self.state_path)
+
+    def _write_cycle_to_knowledge(self, cycle: OptimizationCycle) -> None:
+        try:
+            from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
+            from lingclaude.self_optimizer.learner.models import (
+                FeedbackCategory,
+                LearnedRule,
+                Pattern,
+            )
+
+            kb = KnowledgeBase()
+            rule_id = f"opt_cycle_{cycle.cycle_id:04d}"
+            improved = cycle.violations_after < cycle.violations_before
+            rule = LearnedRule(
+                id=rule_id,
+                name=f"自优化周期 #{cycle.cycle_id}",
+                description=f"触发: {cycle.trigger_reason} | 结果: score={cycle.best_score:.2f} violations={cycle.violations_before}→{cycle.violations_after}",
+                category=FeedbackCategory.BEST_PRACTICE,
+                pattern=Pattern(
+                    context_keywords=(cycle.trigger_type, cycle.trigger_priority),
+                    severity_distribution={"before": cycle.violations_before, "after": cycle.violations_after},
+                ),
+                tools=("optimizer", "evaluator"),
+                frequency=1,
+                confidence=0.8 if improved else 0.4,
+                quality_score=cycle.best_score / 100 if cycle.best_score > 0 else 0.5,
+                status="active" if improved else "draft",
+            )
+            kb.add_rule(rule)
+            logger.info("已写入知识库: %s", rule_id)
+            kb.close()
+        except Exception:
+            logger.warning("写入知识库失败", exc_info=True)
+
+    def load_behavior_history(self) -> dict[str, Any]:
+        behavior_path = self.state_dir / "behavior_history.json"
+        if behavior_path.exists():
+            try:
+                return json.loads(behavior_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, KeyError):
+                pass
+        return {"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0}
+
+    def save_behavior_history(self, behavior: dict[str, Any]) -> None:
+        history = self.load_behavior_history()
+        history["total_turns"] = history.get("total_turns", 0) + behavior.get("total_turns", 0)
+        history["total_frustration"] = history.get("total_frustration", 0) + behavior.get("frustration_count", 0)
+        history["total_corrections"] = history.get("total_corrections", 0) + behavior.get("corrections_received", 0)
+        history["total_tool_errors"] = history.get("total_tool_errors", 0) + behavior.get("tool_error_count", 0)
+        history["last_updated"] = datetime.now().isoformat()
+        behavior_path = self.state_dir / "behavior_history.json"
+        behavior_path.parent.mkdir(parents=True, exist_ok=True)
+        behavior_path.write_text(json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
