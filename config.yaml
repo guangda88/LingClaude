@@ -4,7 +4,7 @@ engine:
   max_turns: 8
   structured_output: false
 model:
-  api_key: sk-085b43646ce344eb8cd03fbfff04010e
+  api_key: ''
   base_url: https://api.deepseek.com/v1
   max_tokens: 4096
   model: deepseek-chat
@@ -27,40 +27,28 @@ permissions:
   deny_tools: []
 self_optimizer:
   optimization:
-    coupling_limit: 14.01
     goal: structure
-    max_nesting_depth: 6
     max_trials: 50
     timeout_seconds: 120
   report:
     format: markdown
     save_path: .lingclaude/reports/
   triggers:
+    correction_threshold: 2
+    enabled: true
+    frustration_threshold: 0.2
+    hallucination_threshold: 0.3
     max_class_lines: 300
     max_complexity: 20
-    max_method_count: 25
-    performance:
-      enabled: true
-      max_execution_time: 30.0
-    quality:
-      coverage_drop_threshold: 0.1
-      enabled: true
-      review_score_threshold: 60
-    scale:
-      enabled: true
-      new_lines_threshold: 500
-    structure:
-      enabled: true
-      max_class_lines: 300
-      max_complexity: 15
-      max_method_lines: 50
-    time:
-      enabled: true
-      min_interval_hours: 24
+    max_execution_time: 30.0
+    max_method_lines: 50
+    min_interval_hours: 24
+    new_lines_threshold: 500
+    review_score_threshold: 60
+    tool_error_threshold: 0.3
 session:
   max_history: 100
   save_dir: .lingclaude/sessions/
 system:
-  hardware_profile: lingzhi
   log_level: INFO
   name: 灵克

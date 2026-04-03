@@ -10,7 +10,7 @@ import yaml
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 
 
-@dataclass
+@dataclass(frozen=True)
 class EngineConfig:
     max_turns: int = 8
     max_budget_tokens: int = 200000
@@ -18,13 +18,13 @@ class EngineConfig:
     structured_output: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class PermissionConfig:
     deny_tools: list[str] = field(default_factory=list)
     deny_prefixes: list[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(frozen=True)
 class TriggerConfig:
     enabled: bool = True
     review_score_threshold: int = 60
@@ -34,22 +34,26 @@ class TriggerConfig:
     max_execution_time: float = 30.0
     new_lines_threshold: int = 500
     min_interval_hours: int = 24
+    hallucination_threshold: float = 0.3
+    frustration_threshold: float = 0.2
+    tool_error_threshold: float = 0.3
+    correction_threshold: int = 2
 
 
-@dataclass
+@dataclass(frozen=True)
 class OptimizerConfig:
     goal: str = "structure"
     max_trials: int = 50
     timeout_seconds: int = 120
 
 
-@dataclass
+@dataclass(frozen=True)
 class SessionConfig:
     save_dir: str = ".lingclaude/sessions/"
     max_history: int = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModelProviderConfig:
     provider: str = "openai"
     model: str = "gpt-4o"
@@ -60,7 +64,14 @@ class ModelProviderConfig:
     system_prompt: str = "你是灵克，一个 AI 编程助手。"
 
 
-@dataclass
+@dataclass(frozen=True)
+class ModelRouterConfig:
+    code_model: str = ""
+    chat_model: str = ""
+    enabled: bool = False
+
+
+@dataclass(frozen=True)
 class LingClaudeConfig:
     engine: EngineConfig = field(default_factory=EngineConfig)
     permissions: PermissionConfig = field(default_factory=PermissionConfig)
@@ -68,6 +79,7 @@ class LingClaudeConfig:
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     model: ModelProviderConfig = field(default_factory=ModelProviderConfig)
+    model_router: ModelRouterConfig = field(default_factory=ModelRouterConfig)
     log_level: str = "INFO"
 
     @classmethod
@@ -78,6 +90,7 @@ class LingClaudeConfig:
         opt_raw = raw.get("self_optimizer", {}).get("optimization", {})
         sess_raw = raw.get("session", {})
         model_raw = raw.get("model", {})
+        router_raw = raw.get("model_router", {})
 
         return cls(
             engine=EngineConfig(
@@ -99,6 +112,10 @@ class LingClaudeConfig:
                 max_execution_time=trig_raw.get("max_execution_time", 30.0),
                 new_lines_threshold=trig_raw.get("new_lines_threshold", 500),
                 min_interval_hours=trig_raw.get("min_interval_hours", 24),
+                hallucination_threshold=trig_raw.get("hallucination_threshold", 0.3),
+                frustration_threshold=trig_raw.get("frustration_threshold", 0.2),
+                tool_error_threshold=trig_raw.get("tool_error_threshold", 0.3),
+                correction_threshold=trig_raw.get("correction_threshold", 2),
             ),
             optimizer=OptimizerConfig(
                 goal=opt_raw.get("goal", "structure"),
@@ -117,6 +134,11 @@ class LingClaudeConfig:
                 max_tokens=model_raw.get("max_tokens", 4096),
                 temperature=model_raw.get("temperature", 0.7),
                 system_prompt=model_raw.get("system_prompt", "你是灵克，一个 AI 编程助手。"),
+            ),
+            model_router=ModelRouterConfig(
+                code_model=router_raw.get("code_model", ""),
+                chat_model=router_raw.get("chat_model", ""),
+                enabled=router_raw.get("enabled", False),
             ),
             log_level=raw.get("system", {}).get("log_level", "INFO"),
         )

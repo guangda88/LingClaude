@@ -11,7 +11,7 @@ Claude Code 很强，但它是闭源的、云端的、不可定制的。
 灵克的答案是：**一个你可以完全掌控的 AI 编程助手。**
 
 - 本地运行，数据不出你的机器
-- 内置自优化框架（灵通 LingFlow），不是静态工具，会持续自我进化
+- 内置自优化框架，不是静态工具，会持续自我进化
 - 开源，社区驱动，你可以改任何东西
 
 ## 灵克 vs Claude Code
@@ -64,7 +64,7 @@ python3 -m lingclaude.cli --help
 ├── core/               # 基础层
 │   ├── types.py        #   Result[T] 单子（ok/fail 工厂方法）
 │   ├── config.py       #   YAML 配置 → dataclass
-│   ├── models.py       #   Subsystem, ToolDefinition, PermissionDenial 等
+│   ├── models.py       #   ToolDefinition, PermissionDenial, UsageSummary 等
 │   ├── session.py      #   Session（不可变）+ SessionManager（JSON 持久化）
 │   ├── permissions.py  #   PermissionContext（deny_tools + deny_prefixes）
 │   └── query_engine.py #   QueryEngine：turn循环、流式输出、自动压缩
@@ -81,7 +81,7 @@ python3 -m lingclaude.cli --help
 │   ├── file_ops.py     #   FileOps（读写/编辑/搜索 + 路径包含检查）
 │   └── coding.py       #   CodingRuntime（工具 + 评估 + 优化 + 模式检测）
 │
-├── self_optimizer/     # 自优化框架（来自灵通 LingFlow）
+├── self_optimizer/     # 自优化框架
 │   ├── trigger.py      #   OptimizationTrigger（7类触发条件）
 │   ├── evaluator.py    #   StructureEvaluator（AST 分析）
 │   ├── optimizer.py    #   SynchronousOptimizer + SimpleSearchSpace
@@ -141,7 +141,6 @@ model:
 ```yaml
 system:
   name: 灵克
-  hardware_profile: lingzhi
   log_level: INFO
 
 engine:
@@ -182,7 +181,7 @@ session:
 ## 开发
 
 ```bash
-python3 -m pytest tests/ -v          # 98 tests
+python3 -m pytest tests/ -v          # 217 tests
 python3 -c "from lingclaude.model import create_provider; print('OK')"
 ```
 
@@ -193,7 +192,7 @@ python3 -c "from lingclaude.model import create_provider; print('OK')"
 - [x] v0.1.0 — 核心框架：查询引擎、会话、权限、工具执行、自优化、自学习
 - [x] v0.1.1 — **安全审计**：bash 沙箱加固、文件操作路径包含检查、敏感路径保护
 - [x] v0.1.2 — **开源准备**：贡献指南、Issue/PR 模板
-- [x] v0.2.0 — **模型对接**：OpenAI/Anthropic API、对话式编程、交互模式
+- [x] v0.2.0 — **模型对接 + 行为感知 + 自适应引擎**：OpenAI/Anthropic API、行为感知系统、自适应查询引擎、Agent Loop
 - [ ] v1.0.0 — 完整的 AI 编程助手
 
 ## License

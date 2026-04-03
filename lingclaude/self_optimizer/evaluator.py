@@ -131,8 +131,3 @@ class StructureEvaluator:
             "total_classes": metrics.total_classes,
             "total_methods": metrics.total_methods,
         }
-
-
-def fallback_evaluate(params: dict[str, Any], target_path: str = ".") -> float:
-    evaluator = StructureEvaluator(target_path)
-    return evaluator.evaluate(params)

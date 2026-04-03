@@ -188,5 +188,11 @@ class OptimizationAdvisor:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_path = f"lingclaude_optimization_report_{timestamp}.md"
 
-        Path(output_path).write_text(report, encoding="utf-8")
+        target = Path(output_path).resolve()
+        for prefix in (Path("/etc"), Path("/sys"), Path("/proc"), Path("/dev"), Path("/boot"), Path("/root")):
+            if target.is_relative_to(prefix):
+                raise ValueError(f"不允许写入受保护路径: {target}")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(report, encoding="utf-8")
         return output_path

@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.types import Result
 from lingclaude.self_optimizer.learner.models import (
     FeedbackCategory,
     LearnedRule,
@@ -70,7 +71,7 @@ class KnowledgeBase:
             self._conn.close()
             self._conn = None
 
-    def add_rule(self, rule: LearnedRule) -> bool:
+    def add_rule(self, rule: LearnedRule) -> Result[bool]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
@@ -110,37 +111,38 @@ class KnowledgeBase:
                 ),
             )
             conn.commit()
-            return True
-        except Exception:
+            return Result.ok(True)
+        except Exception as e:
             logger.warning("添加规则失败: %s", rule.id, exc_info=True)
-            return False
+            return Result.fail(f"Failed to add rule: {e}", code="DB_ERROR")
 
-    def add_rules_batch(self, rules: list[LearnedRule]) -> int:
+    def add_rules_batch(self, rules: list[LearnedRule]) -> Result[int]:
         count = 0
         for rule in rules:
-            if self.add_rule(rule):
+            r = self.add_rule(rule)
+            if r.is_ok:
                 count += 1
-        return count
+        return Result.ok(count)
 
-    def get_rule(self, rule_id: str) -> LearnedRule | None:
+    def get_rule(self, rule_id: str) -> Result[LearnedRule]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM rules WHERE id = ?", (rule_id,))
             row = cursor.fetchone()
             if row:
-                return self._row_to_rule(row)
-            return None
-        except Exception:
+                return Result.ok(self._row_to_rule(row))
+            return Result.fail(f"Rule not found: {rule_id}", code="NOT_FOUND")
+        except Exception as e:
             logger.warning("获取规则失败: %s", rule_id, exc_info=True)
-            return None
+            return Result.fail(f"Failed to get rule: {e}", code="DB_ERROR")
 
     def get_all_rules(
         self,
         category: FeedbackCategory | None = None,
         status: str | None = None,
         limit: int = 100,
-    ) -> list[LearnedRule]:
+    ) -> Result[tuple[LearnedRule, ...]]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
@@ -159,12 +161,12 @@ class KnowledgeBase:
             params.append(limit)
 
             cursor.execute(query, params)
-            return [self._row_to_rule(row) for row in cursor.fetchall()]
-        except Exception:
+            return Result.ok(tuple(self._row_to_rule(row) for row in cursor.fetchall()))
+        except Exception as e:
             logger.warning("获取规则列表失败", exc_info=True)
-            return []
+            return Result.fail(f"Failed to get rules: {e}", code="DB_ERROR")
 
-    def search_rules(self, keyword: str, limit: int = 20) -> tuple[LearnedRule, ...]:
+    def search_rules(self, keyword: str, limit: int = 20) -> Result[tuple[LearnedRule, ...]]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
@@ -178,12 +180,12 @@ class KnowledgeBase:
             """,
                 (pattern, pattern, limit),
             )
-            return tuple(self._row_to_rule(row) for row in cursor.fetchall())
-        except Exception:
+            return Result.ok(tuple(self._row_to_rule(row) for row in cursor.fetchall()))
+        except Exception as e:
             logger.warning("搜索规则失败: %s", keyword, exc_info=True)
-            return ()
+            return Result.fail(f"Failed to search rules: {e}", code="DB_ERROR")
 
-    def update_rule_status(self, rule_id: str, status: str) -> bool:
+    def update_rule_status(self, rule_id: str, status: str) -> Result[bool]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
@@ -192,23 +194,23 @@ class KnowledgeBase:
                 (status, datetime.now().isoformat(), rule_id),
             )
             conn.commit()
-            return cursor.rowcount > 0
-        except Exception:
+            return Result.ok(cursor.rowcount > 0)
+        except Exception as e:
             logger.warning("更新规则状态失败: %s", rule_id, exc_info=True)
-            return False
+            return Result.fail(f"Failed to update rule status: {e}", code="DB_ERROR")
 
-    def delete_rule(self, rule_id: str) -> bool:
+    def delete_rule(self, rule_id: str) -> Result[bool]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
             conn.commit()
-            return cursor.rowcount > 0
-        except Exception:
+            return Result.ok(cursor.rowcount > 0)
+        except Exception as e:
             logger.warning("删除规则失败: %s", rule_id, exc_info=True)
-            return False
+            return Result.fail(f"Failed to delete rule: {e}", code="DB_ERROR")
 
-    def get_statistics(self) -> dict[str, Any]:
+    def get_statistics(self) -> Result[dict[str, Any]]:
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
@@ -229,20 +231,15 @@ class KnowledgeBase:
             cursor.execute("SELECT AVG(quality_score) FROM rules")
             avg_quality = cursor.fetchone()[0] or 0.0
 
-            return {
+            return Result.ok({
                 "total_rules": total,
                 "by_category": by_category,
                 "by_status": by_status,
                 "average_quality": round(avg_quality, 2),
-            }
-        except Exception:
+            })
+        except Exception as e:
             logger.warning("获取统计信息失败", exc_info=True)
-            return {
-                "total_rules": 0,
-                "by_category": {},
-                "by_status": {},
-                "average_quality": 0.0,
-            }
+            return Result.fail(f"Failed to get statistics: {e}", code="DB_ERROR")
 
     def _row_to_rule(self, row: sqlite3.Row) -> LearnedRule:
         pattern_data = json.loads(row["pattern_json"])
@@ -279,44 +276,47 @@ class InMemoryKnowledgeBase(KnowledgeBase):
     def _get_connection(self) -> sqlite3.Connection:
         raise NotImplementedError("InMemoryKnowledgeBase does not use SQLite")
 
-    def add_rule(self, rule: LearnedRule) -> bool:
+    def add_rule(self, rule: LearnedRule) -> Result[bool]:
         self._rules[rule.id] = rule
-        return True
+        return Result.ok(True)
 
-    def add_rules_batch(self, rules: list[LearnedRule]) -> int:
+    def add_rules_batch(self, rules: list[LearnedRule]) -> Result[int]:
         count = 0
         for rule in rules:
             self._rules[rule.id] = rule
             count += 1
-        return count
+        return Result.ok(count)
 
-    def get_rule(self, rule_id: str) -> LearnedRule | None:
-        return self._rules.get(rule_id)
+    def get_rule(self, rule_id: str) -> Result[LearnedRule]:
+        rule = self._rules.get(rule_id)
+        if rule is None:
+            return Result.fail(f"Rule not found: {rule_id}", code="NOT_FOUND")
+        return Result.ok(rule)
 
     def get_all_rules(
         self,
         category: FeedbackCategory | None = None,
         status: str | None = None,
         limit: int = 100,
-    ) -> tuple[LearnedRule, ...]:
+    ) -> Result[tuple[LearnedRule, ...]]:
         rules = list(self._rules.values())
         if category:
             rules = [r for r in rules if r.category == category]
         if status:
             rules = [r for r in rules if r.status == status]
         rules.sort(key=lambda r: r.quality_score, reverse=True)
-        return tuple(rules[:limit])
+        return Result.ok(tuple(rules[:limit]))
 
-    def search_rules(self, keyword: str, limit: int = 20) -> tuple[LearnedRule, ...]:
+    def search_rules(self, keyword: str, limit: int = 20) -> Result[tuple[LearnedRule, ...]]:
         kw = keyword.lower()
         rules = [
             r for r in self._rules.values()
             if kw in r.name.lower() or kw in r.description.lower()
         ]
         rules.sort(key=lambda r: r.quality_score, reverse=True)
-        return tuple(rules[:limit])
+        return Result.ok(tuple(rules[:limit]))
 
-    def update_rule_status(self, rule_id: str, status: str) -> bool:
+    def update_rule_status(self, rule_id: str, status: str) -> Result[bool]:
         if rule_id in self._rules:
             old = self._rules[rule_id]
             self._rules[rule_id] = LearnedRule(
@@ -332,16 +332,16 @@ class InMemoryKnowledgeBase(KnowledgeBase):
                 status=status,
                 created_at=old.created_at,
             )
-            return True
-        return False
+            return Result.ok(True)
+        return Result.fail(f"Rule not found: {rule_id}", code="NOT_FOUND")
 
-    def delete_rule(self, rule_id: str) -> bool:
+    def delete_rule(self, rule_id: str) -> Result[bool]:
         if rule_id in self._rules:
             del self._rules[rule_id]
-            return True
-        return False
+            return Result.ok(True)
+        return Result.fail(f"Rule not found: {rule_id}", code="NOT_FOUND")
 
-    def get_statistics(self) -> dict[str, Any]:
+    def get_statistics(self) -> Result[dict[str, Any]]:
         total = len(self._rules)
         by_category: dict[str, int] = {}
         by_status: dict[str, int] = {}
@@ -353,12 +353,12 @@ class InMemoryKnowledgeBase(KnowledgeBase):
             by_status[rule.status] = by_status.get(rule.status, 0) + 1
             total_quality += rule.quality_score
 
-        return {
+        return Result.ok({
             "total_rules": total,
             "by_category": by_category,
             "by_status": by_status,
             "average_quality": round(total_quality / total, 2) if total > 0 else 0.0,
-        }
+        })
 
     def close(self) -> None:
         pass

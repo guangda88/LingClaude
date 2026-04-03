@@ -218,46 +218,50 @@ class OptimizationTrigger:
 
     def _check_behavior(self, context: dict[str, Any]) -> TriggerInfo | None:
         hallucination_risk = context.get("hallucination_risk", 0)
-        if hallucination_risk > 0.3:
+        ht = self.config.hallucination_threshold
+        if hallucination_risk > ht:
             return TriggerInfo(
                 type="behavior",
                 reason=f"幻觉风险过高 ({hallucination_risk:.0%}) — 回答代码问题时未使用工具",
-                priority="high" if hallucination_risk > 0.5 else "medium",
+                priority="high" if hallucination_risk > ht * 1.67 else "medium",
                 current_value=hallucination_risk,
-                threshold=0.3,
+                threshold=ht,
                 metrics={"hallucination_risk": hallucination_risk},
             )
 
         frustration_rate = context.get("frustration_rate", 0)
-        if frustration_rate > 0.2:
+        ft = self.config.frustration_threshold
+        if frustration_rate > ft:
             return TriggerInfo(
                 type="behavior",
                 reason=f"用户沮丧率过高 ({frustration_rate:.0%}) — 可能存在幻觉或不准确回答",
                 priority="high",
                 current_value=frustration_rate,
-                threshold=0.2,
+                threshold=ft,
                 metrics={"frustration_rate": frustration_rate},
             )
 
         corrections = context.get("corrections_received", 0)
-        if corrections >= 2:
+        ct = self.config.correction_threshold
+        if corrections >= ct:
             return TriggerInfo(
                 type="behavior",
                 reason=f"收到 {corrections} 次用户纠正 — 需要优化回答质量",
                 priority="medium",
                 current_value=corrections,
-                threshold=2,
+                threshold=ct,
                 metrics={"corrections_received": corrections},
             )
 
         tool_error_rate = context.get("tool_error_rate", 0)
-        if tool_error_rate > 0.3:
+        tet = self.config.tool_error_threshold
+        if tool_error_rate > tet:
             return TriggerInfo(
                 type="behavior",
                 reason=f"工具调用失败率过高 ({tool_error_rate:.0%})",
                 priority="medium",
                 current_value=tool_error_rate,
-                threshold=0.3,
+                threshold=tet,
                 metrics={"tool_error_rate": tool_error_rate},
             )
 

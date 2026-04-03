@@ -1,30 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
-
-@dataclass(frozen=True)
-class Subsystem:
-    name: str
-    path: str
-    file_count: int
-    notes: str
-
-
-@dataclass(frozen=True)
-class ModuleEntry:
-    name: str
-    responsibility: str
-    source_hint: str
-    status: str = "planned"
-
-
-@dataclass(frozen=True)
-class ToolDefinition:
-    name: str
-    description: str
-    input_schema: dict[str, object] = field(default_factory=dict)
-    status: str = "mirrored"
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -33,7 +9,7 @@ class PermissionDenial:
     reason: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class UsageSummary:
     input_tokens: int = 0
     output_tokens: int = 0
@@ -54,9 +30,3 @@ class UsageSummary:
         return {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
 
 
-@dataclass(frozen=True)
-class RoutedMatch:
-    kind: str
-    name: str
-    source_hint: str
-    score: int

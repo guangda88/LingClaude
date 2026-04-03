@@ -52,7 +52,7 @@ class LongMethodDetector(PatternDetector):
 
     def detect(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         patterns: list[dict[str, Any]] = []
         try:
             tree = ast.parse(source_code)
@@ -76,7 +76,7 @@ class LongMethodDetector(PatternDetector):
                         )
         except SyntaxError:
             patterns.extend(self._simple_detection(source_code, file_path))
-        return patterns
+        return tuple(patterns)
 
     def _simple_detection(
         self, source_code: str, file_path: str
@@ -128,7 +128,7 @@ class UnusedVariableDetector(PatternDetector):
 
     def detect(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         patterns: list[dict[str, Any]] = []
         try:
             tree = ast.parse(source_code)
@@ -169,7 +169,7 @@ class UnusedVariableDetector(PatternDetector):
                     )
         except SyntaxError:
             pass
-        return patterns[:10]
+        return tuple(patterns[:10])
 
 
 class HardcodedSecretDetector(PatternDetector):
@@ -186,7 +186,7 @@ class HardcodedSecretDetector(PatternDetector):
 
     def detect(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         patterns: list[dict[str, Any]] = []
         for secret_name, pattern in self.secret_patterns.items():
             for match in re.finditer(pattern, source_code, re.IGNORECASE):
@@ -200,7 +200,7 @@ class HardcodedSecretDetector(PatternDetector):
                         extra={"secret_type": secret_name},
                     )
                 )
-        return patterns
+        return tuple(patterns)
 
 
 class DuplicateCodeDetector(PatternDetector):
@@ -212,7 +212,7 @@ class DuplicateCodeDetector(PatternDetector):
 
     def detect(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         patterns: list[dict[str, Any]] = []
         lines = source_code.split("\n")
         code_blocks: dict[str, list[int]] = {}
@@ -242,7 +242,7 @@ class DuplicateCodeDetector(PatternDetector):
                             extra={"duplicate_of": locations[0]},
                         )
                     )
-        return patterns[:5]
+        return tuple(patterns[:5])
 
     def _normalize_block(self, block: list[str]) -> str | None:
         try:
@@ -264,7 +264,7 @@ class EmptyBlockDetector(PatternDetector):
 
     def detect(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         patterns: list[dict[str, Any]] = []
         try:
             tree = ast.parse(source_code)
@@ -302,7 +302,7 @@ class EmptyBlockDetector(PatternDetector):
                         )
         except SyntaxError:
             patterns.extend(self._simple_detection(source_code, file_path))
-        return patterns
+        return tuple(patterns)
 
     def _simple_detection(
         self, source_code: str, file_path: str
@@ -333,7 +333,7 @@ class ComplexityDetector(PatternDetector):
 
     def detect(
         self, source_code: str, file_path: str
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[dict[str, Any], ...]:
         patterns: list[dict[str, Any]] = []
         try:
             tree = ast.parse(source_code)
@@ -355,7 +355,7 @@ class ComplexityDetector(PatternDetector):
                         )
         except SyntaxError:
             pass
-        return patterns
+        return tuple(patterns)
 
     def _calculate_complexity(self, node: ast.AST) -> int:
         complexity = 1

@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
-from lingclaude.core.config import load_config
+from lingclaude.core.config import LingClaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
-from lingclaude.self_optimizer.daemon import OptimizationDaemon
+from lingclaude.self_optimizer.daemon import OptimizationDaemon, DaemonState
+
+_logger = logging.getLogger(__name__)
 
 
-def _feed_behavior_to_daemon(engine: QueryEngine, config) -> None:
+def _feed_behavior_to_daemon(engine: QueryEngine, config: LingClaudeConfig | None) -> None:
     try:
-        daemon = OptimizationDaemon(target=".", config=config)
+        cfg = config or load_config(None)
+        daemon = OptimizationDaemon(target=".", config=cfg)
         metrics = engine.behavior_metrics
         daemon.update_behavior(metrics.to_dict())
         daemon.save_behavior_history({
@@ -23,12 +27,16 @@ def _feed_behavior_to_daemon(engine: QueryEngine, config) -> None:
             "tool_error_count": metrics.tool_error_count,
         })
     except Exception:
-        pass
+        _logger.warning("行为数据写入守护进程失败", exc_info=True)
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
-    engine = QueryEngine.from_config_file(args.config)
+    engine_result = QueryEngine.from_config_file(args.config)
+    if engine_result.is_error:
+        print(f"错误: {engine_result.error}")
+        return 1
+    engine = engine_result.data
     runtime = CodingRuntime(config)
     engine.set_runtime(runtime)
 
@@ -172,17 +180,22 @@ def _cmd_knowledge(args: argparse.Namespace) -> int:
     kb = KnowledgeBase()
 
     if args.kb_action == "stats":
-        stats = kb.get_statistics()
-        print(json.dumps(stats, indent=2, ensure_ascii=False))
+        stats_result = kb.get_statistics()
+        if stats_result.is_ok:
+            print(json.dumps(stats_result.data, indent=2, ensure_ascii=False))
+        else:
+            print(f"Error: {stats_result.error}")
     elif args.kb_action == "search":
         if not args.keyword:
             print("Error: --keyword required for search")
             return 1
-        rules = kb.search_rules(args.keyword)
+        rules_result = kb.search_rules(args.keyword)
+        rules = rules_result.data if rules_result.is_ok else ()
         for rule in rules:
             print(f"  [{rule.id}] {rule.name} (score: {rule.quality_score:.2f})")
     elif args.kb_action == "list":
-        rules = kb.get_all_rules(limit=args.limit or 50)
+        rules_result = kb.get_all_rules(limit=args.limit or 50)
+        rules = rules_result.data if rules_result.is_ok else ()
         for rule in rules:
             print(f"  [{rule.id}] {rule.name} (score: {rule.quality_score:.2f}, status: {rule.status})")
     else:

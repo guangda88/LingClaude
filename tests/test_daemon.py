@@ -86,8 +86,9 @@ class TestOptimizationDaemon:
 
     def test_collect_metrics(self, tmp_path):
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
-        metrics = daemon.collect_metrics()
-        assert "structure_violations" in metrics
+        metrics_result = daemon.collect_metrics()
+        assert metrics_result.is_ok
+        assert "structure_violations" in metrics_result.data
 
     def test_build_context(self, tmp_path):
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
@@ -98,7 +99,8 @@ class TestOptimizationDaemon:
     def test_run_cycle_no_trigger(self, tmp_path):
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
         result = daemon.run_cycle()
-        assert result is None
+        assert result.is_ok
+        assert result.data is None
 
     def test_run_cycle_user_trigger(self, tmp_path):
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
@@ -127,9 +129,11 @@ class TestOptimizationDaemon:
                 ),
             )
             with patch.object(daemon.optimizer, "optimize", return_value=mock_result):
-                cycle = daemon.run_cycle()
+                cycle_result = daemon.run_cycle()
 
-        assert cycle is not None
+        assert cycle_result.is_ok
+        assert cycle_result.data is not None
+        cycle = cycle_result.data
         assert cycle.cycle_id == 1
         assert cycle.best_score == 0.0
         assert daemon.state.total_cycles == 1
@@ -181,11 +185,13 @@ class TestOptimizationDaemon:
             cycle.cycle_id = 2
 
     def test_run_once_delegates(self, tmp_path):
+        from lingclaude.core.types import Result
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
-        with patch.object(daemon, "run_cycle", return_value=None) as mock:
+        with patch.object(daemon, "run_cycle", return_value=Result.ok(None)) as mock:
             result = daemon.run_once()
         mock.assert_called_once()
-        assert result is None
+        assert result.is_ok
+        assert result.data is None
 
     def test_report_generated(self, tmp_path):
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
@@ -214,9 +220,11 @@ class TestOptimizationDaemon:
                 ),
             )
             with patch.object(daemon.optimizer, "optimize", return_value=mock_result):
-                cycle = daemon.run_cycle()
+                cycle_result = daemon.run_cycle()
 
-        assert cycle is not None
+        assert cycle_result.is_ok
+        assert cycle_result.data is not None
+        cycle = cycle_result.data
         assert cycle.report_path is not None
         report_path = Path(cycle.report_path)
         assert report_path.exists()
