@@ -9,7 +9,6 @@ build/
 *.db
 .port_sessions/
 .lingclaude/sessions/
-.lingclaude/sessions/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
@@ -17,4 +16,8 @@ build/
 htmlcov/
 target/
 archive/
-.lingclaude/sessions/
+
+# 运行时数据
+.lingclaude/behavior_history.json
+.lingclaude/daemon_state.json
+data/
