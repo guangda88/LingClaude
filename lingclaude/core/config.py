@@ -72,6 +72,17 @@ class ModelRouterConfig:
 
 
 @dataclass(frozen=True)
+class IntelConfig:
+    enabled: bool = True
+    output_dir: str = ".lingclaude/intel/"
+    session_history_path: str = "data/session_history.json"
+    auto_collect_behavior: bool = True
+    auto_relay: bool = True
+    relay_target: str = "lingyi"
+    digest_hour: int = 23
+
+
+@dataclass(frozen=True)
 class LingClaudeConfig:
     engine: EngineConfig = field(default_factory=EngineConfig)
     permissions: PermissionConfig = field(default_factory=PermissionConfig)
@@ -80,6 +91,7 @@ class LingClaudeConfig:
     session: SessionConfig = field(default_factory=SessionConfig)
     model: ModelProviderConfig = field(default_factory=ModelProviderConfig)
     model_router: ModelRouterConfig = field(default_factory=ModelRouterConfig)
+    intel: IntelConfig = field(default_factory=IntelConfig)
     log_level: str = "INFO"
 
     @classmethod
@@ -91,6 +103,8 @@ class LingClaudeConfig:
         sess_raw = raw.get("session", {})
         model_raw = raw.get("model", {})
         router_raw = raw.get("model_router", {})
+
+        intel_raw = raw.get("intel", {})
 
         return cls(
             engine=EngineConfig(
@@ -139,6 +153,15 @@ class LingClaudeConfig:
                 code_model=router_raw.get("code_model", ""),
                 chat_model=router_raw.get("chat_model", ""),
                 enabled=router_raw.get("enabled", False),
+            ),
+            intel=IntelConfig(
+                enabled=intel_raw.get("enabled", True),
+                output_dir=intel_raw.get("output_dir", ".lingclaude/intel/"),
+                session_history_path=intel_raw.get("session_history_path", "data/session_history.json"),
+                auto_collect_behavior=intel_raw.get("auto_collect_behavior", True),
+                auto_relay=intel_raw.get("auto_relay", True),
+                relay_target=intel_raw.get("relay_target", "lingyi"),
+                digest_hour=intel_raw.get("digest_hour", 23),
             ),
             log_level=raw.get("system", {}).get("log_level", "INFO"),
         )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from uuid import uuid4
 from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent, detect_emotion, detect_intent, is_tool_intent
+from lingclaude.core.intel import IntelCollector, DailyDigest, DailyDigestGenerator, IntelRelay
 
 from lingclaude.core.types import Result
 
@@ -67,6 +69,9 @@ class QueryEngine:
         self._project_index: dict[str, Any] = {}
         self._model_config: Any = None
         self._model_router: Any = None
+        self._intel_collector = IntelCollector()
+        self._intel_relay: IntelRelay | None = None
+        self._session_history_path: Path = Path("data/session_history.json")
 
     @property
     def behavior_metrics(self) -> BehaviorMetrics:
@@ -112,6 +117,9 @@ class QueryEngine:
     def set_runtime(self, runtime: Any) -> None:
         self._runtime = runtime
 
+    def init_intel(self, output_dir: Path | None = None) -> None:
+        self._intel_relay = IntelRelay(output_dir=output_dir or Path(".lingclaude/intel"))
+
     def submit(
         self,
         prompt: str,
@@ -142,6 +150,7 @@ class QueryEngine:
         self._denials.extend(denied_tools)
         self._usage = projected
         self._compact_if_needed()
+        self._append_to_session_history(prompt, output)
 
         return TurnResult(
             prompt=prompt,
@@ -252,6 +261,7 @@ class QueryEngine:
             used_tools=used_tools,
             needed_tools=not used_tools and is_tool_intent(intent),
         )
+        self._collect_behavior_intel()
 
     def _call_model(self, prompt: str) -> str:
         from lingclaude.model.types import ModelMessage, MessageRole, ModelConfig
@@ -464,6 +474,44 @@ class QueryEngine:
                 return json.dumps(kwargs, ensure_ascii=False)
 
         return None
+
+    def collect_daily_digest(self, report_date: str | None = None) -> Result[DailyDigest]:
+        items = self._intel_collector.collect_all()
+        digest = DailyDigestGenerator.generate(items, report_date)
+        if self._intel_relay is not None:
+            relay_result = self._intel_relay.relay(digest)
+            if relay_result.is_error:
+                return relay_result  # type: ignore[return-value]
+        self._intel_collector.clear()
+        return Result.ok(digest)
+
+    def set_session_history_path(self, path: Path) -> None:
+        self._session_history_path = path
+
+    def _append_to_session_history(self, query: str, response: str) -> None:
+        try:
+            self._session_history_path.parent.mkdir(parents=True, exist_ok=True)
+            history: list[dict[str, str]] = []
+            if self._session_history_path.exists():
+                raw = json.loads(self._session_history_path.read_text(encoding="utf-8"))
+                if isinstance(raw, list):
+                    history = raw
+            history.append({
+                "query": query[:200],
+                "title": query[:80],
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "session_id": self.session_id,
+            })
+            self._session_history_path.write_text(
+                json.dumps(history, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning("Session history write failed: %s", e)
+
+    def _collect_behavior_intel(self) -> None:
+        self._intel_collector.from_behavior(self._behavior.to_dict())
 
     def _index_project(self) -> dict[str, Any]:
         if self._runtime is None:

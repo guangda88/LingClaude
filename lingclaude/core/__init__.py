@@ -8,6 +8,15 @@ from lingclaude.core.models import (
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.permissions import PermissionContext
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, TurnResult, StopReason
+from lingclaude.core.intel import (
+    IntelCategory,
+    IntelPriority,
+    IntelItem,
+    IntelCollector,
+    DailyDigest,
+    DailyDigestGenerator,
+    IntelRelay,
+)
 
 __all__ = [
     "Result",
@@ -21,4 +30,11 @@ __all__ = [
     "QueryEngineConfig",
     "TurnResult",
     "StopReason",
+    "IntelCategory",
+    "IntelPriority",
+    "IntelItem",
+    "IntelCollector",
+    "DailyDigest",
+    "DailyDigestGenerator",
+    "IntelRelay",
 ]
