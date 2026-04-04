@@ -19,6 +19,7 @@ from lingclaude.self_optimizer import (
     StructureEvaluator,
 )
 from lingclaude.engine.git import git_blame, git_diff, git_log, git_status
+from lingclaude.engine.indexer import index_project
 from lingclaude.engine.stt import STTEngine
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
 
@@ -229,6 +230,18 @@ class CodingRuntime:
                 security_scope="read",
             )
         )
+        self.registry.register(
+            ToolDefinition(
+                name="index_project",
+                description="Scan Python project and build symbol table (classes, functions, imports)",
+                parameters={
+                    "path": {"type": "string", "description": "Project root directory"},
+                    "max_files": {"type": "integer", "description": "Max files to scan (default 200)"},
+                },
+                handler=self._index_project_handler,
+                security_scope="read",
+            )
+        )
 
     def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
         result = self.bash.run(command)
@@ -387,6 +400,17 @@ class CodingRuntime:
         if result.is_error:
             return {"error": result.error}
         return result.data
+
+    def _index_project_handler(
+        self,
+        path: str = ".",
+        max_files: int = 200,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        result = index_project(path, max_files=max_files)
+        if result.is_error:
+            return {"error": result.error}
+        return result.data.to_dict()
 
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         if self.permissions.blocks(name):
