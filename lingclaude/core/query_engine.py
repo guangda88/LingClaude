@@ -305,6 +305,11 @@ class QueryEngine:
             total_output += response.usage.output_tokens
 
             if not response.tool_calls:
+                content = response.content
+                if self._should_hallucination_correct(prompt, used_tools):
+                    content = self._hallucination_correction(messages, content, tools, resolved_config)
+                    if content:
+                        return content
                 self._track_behavior(prompt, response.content, used_tools=used_tools)
                 self._usage = self._usage.add_usage(response.usage.input_tokens, response.usage.output_tokens)
                 return response.content
@@ -333,6 +338,68 @@ class QueryEngine:
         if response:
             self._usage = self._usage.add_usage(total_input, total_output)
         return response.content if response and response.content else "[达到最大工具调用轮次]"
+
+    def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
+        bm = self._behavior
+        if bm.hallucination_risk < 0.3:
+            return False
+        if used_tools:
+            return False
+        intent = detect_intent(prompt)
+        return is_tool_intent(intent)
+
+    def _hallucination_correction(
+        self,
+        messages: list,
+        original_response: str,
+        tools: tuple[dict[str, Any], ...] | None,
+        config: Any,
+    ) -> str | None:
+        from lingclaude.model.types import ModelMessage, MessageRole
+
+        bm = self._behavior
+        logger.info(
+            "幻觉闭环触发: risk=%.0f%%, turns=%d",
+            bm.hallucination_risk * 100,
+            bm.total_turns,
+        )
+
+        correction_prompt = (
+            "⚠ 系统干预: 你的幻觉风险较高，但你刚才没有使用任何工具就直接回答了代码相关问题。"
+            "这是不允许的。请立即使用 read/grep/glob 工具读取相关源码，然后基于工具结果重新回答。"
+        )
+        messages.append(ModelMessage(role=MessageRole.ASSISTANT, content=original_response))
+        messages.append(ModelMessage(role=MessageRole.USER, content=correction_prompt))
+
+        if self._provider is None or tools is None:
+            return None
+
+        result = self._provider.complete(tuple(messages), config=config, tools=tools)
+        if result.is_error:
+            return None
+
+        response = result.data
+        if response.tool_calls:
+            for tc in response.tool_calls:
+                tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
+                messages.append(ModelMessage(
+                    role=MessageRole.ASSISTANT,
+                    content=response.content,
+                    tool_calls=response.tool_calls,
+                ))
+                messages.append(ModelMessage(
+                    role=MessageRole.TOOL,
+                    content=tool_output,
+                    name=tc.name,
+                    tool_call_id=tc.id,
+                ))
+            final = self._provider.complete(tuple(messages), config=config, tools=tools)
+            if final.is_ok and final.data.content:
+                self._behavior = self._behavior.record_tool_calls(count=len(response.tool_calls))
+                return final.data.content
+            return None
+
+        return response.content if response.content else None
 
     def _build_openai_tools(self) -> tuple[dict[str, Any], ...] | None:
         if self._runtime is None:
