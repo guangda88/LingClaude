@@ -20,6 +20,7 @@ from lingclaude.self_optimizer import (
 )
 from lingclaude.engine.git import git_blame, git_diff, git_log, git_status
 from lingclaude.engine.indexer import index_project
+from lingclaude.engine.ast_edit import list_functions, replace_function_body
 from lingclaude.engine.stt import STTEngine
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
 
@@ -242,6 +243,32 @@ class CodingRuntime:
                 security_scope="read",
             )
         )
+        self.registry.register(
+            ToolDefinition(
+                name="ast_replace",
+                description="Replace function/method body at AST level (no text matching needed)",
+                parameters={
+                    "file_path": {"type": "string", "description": "Python file path"},
+                    "function_name": {"type": "string", "description": "Function or method name"},
+                    "new_body": {"type": "string", "description": "New function body (without def line)"},
+                    "class_name": {"type": "string", "description": "Class name (for methods)"},
+                    "occurrence": {"type": "integer", "description": "Which occurrence (default 1)"},
+                },
+                handler=self._ast_replace_handler,
+                security_scope="write",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="list_functions",
+                description="List all functions and methods in a Python file with line ranges",
+                parameters={
+                    "file_path": {"type": "string", "description": "Python file path"},
+                },
+                handler=self._list_functions_handler,
+                security_scope="read",
+            )
+        )
 
     def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
         result = self.bash.run(command)
@@ -411,6 +438,33 @@ class CodingRuntime:
         if result.is_error:
             return {"error": result.error}
         return result.data.to_dict()
+
+    def _ast_replace_handler(
+        self,
+        file_path: str,
+        function_name: str,
+        new_body: str,
+        class_name: str | None = None,
+        occurrence: int = 1,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        result = replace_function_body(
+            file_path, function_name, new_body,
+            class_name=class_name, occurrence=occurrence,
+        )
+        if result.is_error:
+            return {"error": result.error}
+        return result.data.to_dict()
+
+    def _list_functions_handler(
+        self,
+        file_path: str,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        result = list_functions(file_path)
+        if result.is_error:
+            return {"error": result.error}
+        return {"functions": result.data}
 
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         if self.permissions.blocks(name):
