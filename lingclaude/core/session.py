@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
 
 from lingclaude.core.types import Result
 
@@ -30,6 +30,7 @@ class Session:
     input_tokens: int
     output_tokens: int
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    expires_at: str = field(default_factory=lambda: (datetime.now() + timedelta(hours=24)).isoformat())
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -76,7 +77,7 @@ class SessionManager:
 
     def create(self, messages: tuple[str, ...] = (), input_tokens: int = 0, output_tokens: int = 0) -> Session:
         return Session(
-            session_id=uuid4().hex[:16],
+            session_id=secrets.token_hex(16),
             messages=messages,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -96,3 +97,29 @@ class SessionManager:
             return Result.ok(True)
         except Exception as e:
             return Result.fail(f"Failed to delete session: {e}", code="DELETE_ERROR")
+
+    def cleanup_expired_sessions(self, max_age_hours: int = 24) -> Result[int]:
+        """清理过期的会话"""
+        if not self.save_dir.exists():
+            return Result.ok(0)
+
+        try:
+            count = 0
+            cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+
+            for session_file in self.save_dir.glob("*.json"):
+                try:
+                    data = json.loads(session_file.read_text())
+                    expires_at_str = data.get("expires_at", "")
+
+                    if expires_at_str:
+                        expires_at = datetime.fromisoformat(expires_at_str)
+                        if expires_at < cutoff_time:
+                            session_file.unlink()
+                            count += 1
+                except Exception:
+                    continue
+
+            return Result.ok(count)
+        except Exception as e:
+            return Result.fail(f"Failed to cleanup sessions: {e}", code="CLEANUP_ERROR")

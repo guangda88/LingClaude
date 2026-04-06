@@ -354,14 +354,21 @@ class QueryEngine:
         original_response: str,
         tools: tuple[dict[str, Any], ...] | None,
         config: Any,
+        depth: int = 0,
     ) -> str | None:
+        MAX_CORRECTION_DEPTH = 2
+        if depth >= MAX_CORRECTION_DEPTH:
+            logger.warning("幻觉闭环达到最大递归深度，放弃修正")
+            return None
+
         from lingclaude.model.types import ModelMessage, MessageRole
 
         bm = self._behavior
         logger.info(
-            "幻觉闭环触发: risk=%.0f%%, turns=%d",
+            "幻觉闭环触发: risk=%.0f%%, turns=%d, depth=%d",
             bm.hallucination_risk * 100,
             bm.total_turns,
+            depth,
         )
 
         correction_prompt = (
