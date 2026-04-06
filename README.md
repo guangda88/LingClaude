@@ -53,6 +53,16 @@ lingclaude optimize -t <项目路径> -g "降低复杂度"
 lingclaude session list
 lingclaude knowledge stats
 
+# HTTP API服务（需设置环境变量 LINGCLAUDE_API_KEYS）
+export LINGCLAUDE_API_KEYS="your-api-key-1,your-api-key-2"
+python3 -m lingclaude.api
+
+# API端点（认证通过 X-API-Key 头）
+curl -X POST http://localhost:8000/v1/submit \
+  -H "X-API-Key: your-api-key-1" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "解释这段代码"}'
+
 # 或不安装直接运行
 python3 -m lingclaude.cli --help
 ```
@@ -81,7 +91,14 @@ python3 -m lingclaude.cli --help
 │   ├── tools.py        #   ToolRegistry（注册/注销/执行）
 │   ├── bash.py         #   BashExecutor（黑名单 + 资源限制 + 超时）
 │   ├── file_ops.py     #   FileOps（读写/编辑/搜索 + 路径包含检查）
+│   ├── file_read.py    #   FileReadTool（文件读取工具 + 路径遍历防护）
+│   ├── file_edit.py    #   FileEditTool（文件编辑工具 + 路径遍历防护）
+│   ├── grep.py         #   GrepTool（代码搜索工具）
+│   ├── stt.py          #   STTEngine（语音转文字引擎）
 │   └── coding.py       #   CodingRuntime（工具 + 评估 + 优化 + 模式检测）
+│
+├── api/                # HTTP API层
+│   └── api.py          #   FastAPI HTTP服务（认证、路径遍历防护、文件操作）
 │
 ├── self_optimizer/     # 自优化框架
 │   ├── trigger.py      #   OptimizationTrigger（8类触发条件）
@@ -197,11 +214,42 @@ intel:
 
 文件变更 | 代码模式 | 行为异常 | 错误情报 | 优化记录 | 结构情报 | 质量情报 | 安全情报
 
+## HTTP API
+
+灵克提供FastAPI HTTP服务，支持远程调用和集成：
+
+### 启动服务
+
+```bash
+export LINGCLAUDE_API_KEYS="key1,key2,key3"
+python3 -m lingclaude.api --host 0.0.0.0 --port 8000
+```
+
+### API端点
+
+| 端点 | 方法 | 说明 | 认证 |
+|------|------|------|------|
+| `/v1/submit` | POST | 提交查询 | `X-API-Key` 头 |
+| `/v1/sessions` | GET | 列出会话 | `X-API-Key` 头 |
+| `/v1/sessions/{id}` | GET | 获取会话详情 | `X-API-Key` 头 |
+| `/v1/read-file` | POST | 读取文件 | `X-API-Key` 头 + 路径验证 |
+| `/v1/write-file` | POST | 写入文件 | `X-API-Key` 头 + 路径验证 |
+| `/health` | GET | 健康检查 | 无需认证 |
+
+### 安全特性
+
+- API Key认证（禁止空密钥）
+- 路径遍历防护（禁止访问项目目录外文件）
+- 文件操作白名单
+- Session ID使用加密安全随机数生成器
+
+详细API文档见：[docs/AUDIT_REPORT_2026-04-06.md](docs/AUDIT_REPORT_2026-04-06.md)
+
 ## 依赖
 
-**必须**: tiktoken, aiohttp, pyyaml
+**必须**: tiktoken, aiohttp, pyyaml, fastapi, uvicorn
 
-**可选**: optuna（高级优化）, psutil（系统指标）
+**可选**: optuna（高级优化）, psutil（系统指标）, openai（语音识别）
 
 ## 开发
 
@@ -218,7 +266,7 @@ python3 -c "from lingclaude.model import create_provider; print('OK')"
 - [x] v0.1.1 — **安全审计**：bash 沙箱加固、文件操作路径包含检查、敏感路径保护
 - [x] v0.1.2 — **开源准备**：贡献指南、Issue/PR 模板
 - [x] v0.2.0 — **模型对接 + 行为感知 + 自适应引擎**：OpenAI/Anthropic API、行为感知系统、自适应查询引擎、Agent Loop
-- [x] v0.2.1 — **情报系统**：情报收集、日报生成、灵依中继、会话历史输出
+- [x] v0.2.1 — **情报系统 + HTTP API + 安全审计**：情报收集、日报生成、灵依中继、会话历史输出；FastAPI HTTP服务；安全漏洞修复（认证绕过、路径遍历、会话管理）
 - [ ] v1.0.0 — 完整的 AI 编程助手
 
 ## License
