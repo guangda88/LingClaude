@@ -132,6 +132,15 @@ class QueryEngine:
             provider_result = create_provider(config=model_cfg, provider_name=mc.provider)
             if provider_result.is_ok:
                 provider = provider_result.data
+                if not model_cfg.api_key and provider._config.api_key:
+                    model_cfg = ModelConfig(
+                        model=model_cfg.model,
+                        api_key=provider._config.api_key,
+                        base_url=model_cfg.base_url,
+                        max_tokens=model_cfg.max_tokens,
+                        temperature=model_cfg.temperature,
+                        system_prompt=model_cfg.system_prompt,
+                    )
 
             engine = cls(config=engine_cfg, model_provider=provider, runtime=None)
             engine._model_config = model_cfg
