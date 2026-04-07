@@ -9,6 +9,14 @@ import yaml
 
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 
+_CONFIG_SEARCH_PATHS: list[Path] = [
+    Path("config.yaml"),
+    Path.home() / ".lingclaude" / "config.yaml",
+    Path(__file__).resolve().parent.parent.parent / "config.yaml",
+]
+
+
+
 
 @dataclass(frozen=True)
 class EngineConfig:
@@ -169,8 +177,18 @@ class LingClaudeConfig:
         )
 
 
+def find_config_path() -> Path | None:
+    for p in _CONFIG_SEARCH_PATHS:
+        if p.exists():
+            return p
+    return None
+
+
 def load_config(path: Path | None = None) -> LingClaudeConfig:
-    target = path or DEFAULT_CONFIG_PATH
+    if path is not None:
+        target = path
+    else:
+        target = find_config_path() or DEFAULT_CONFIG_PATH
     if target.exists():
         raw = yaml.safe_load(target.read_text())
         if raw is None:

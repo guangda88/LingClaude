@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Generator
 from uuid import uuid4
 
 from lingclaude.core.models import PermissionDenial, UsageSummary
@@ -65,6 +65,7 @@ class QueryEngine:
         self.session_manager = session_manager or SessionManager()
         self.session_id: str = uuid4().hex[:16]
         self._messages: list[str] = []
+        self._conversation: list[tuple[str, str]] = []
         self._denials: list[PermissionDenial] = []
         self._usage = UsageSummary()
         self._transcript: list[str] = []
@@ -97,13 +98,20 @@ class QueryEngine:
 
     @classmethod
     def from_config_file(cls, config_path: str | None = None) -> Result[QueryEngine]:
-        from lingclaude.core.config import load_config
+        from lingclaude.core.config import load_config, find_config_path
         from lingclaude.model.factory import create_provider
         from lingclaude.model.types import ModelConfig
         from pathlib import Path as _Path
 
         try:
             cfg = load_config(config_path and _Path(config_path))
+
+            if config_path:
+                project_root = _Path(config_path).resolve().parent
+            else:
+                found = find_config_path()
+                project_root = found.resolve().parent if found else Path.cwd()
+
             engine_cfg = QueryEngineConfig(
                 max_turns=cfg.engine.max_turns,
                 max_budget_tokens=cfg.engine.max_budget_tokens,
@@ -128,6 +136,8 @@ class QueryEngine:
             engine = cls(config=engine_cfg, model_provider=provider, runtime=None)
             engine._model_config = model_cfg
             engine._model_router = cfg.model_router
+            engine._session_history_path = project_root / cfg.intel.session_history_path
+            engine.init_intel(output_dir=project_root / cfg.intel.output_dir)
             return Result.ok(engine)
         except Exception as e:
             return Result.fail(f"Failed to create engine from config: {e}", code="CONFIG_ERROR")
@@ -229,6 +239,7 @@ class QueryEngine:
     def reset(self) -> None:
         self.session_id = uuid4().hex[:16]
         self._messages.clear()
+        self._conversation.clear()
         self._denials.clear()
         self._usage = UsageSummary()
         self._transcript.clear()
@@ -293,8 +304,8 @@ class QueryEngine:
         if system_prompt:
             messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
 
-        for prev in self._messages:
-            messages.append(ModelMessage(role=MessageRole.USER, content=prev))
+        for role, content in self._conversation:
+            messages.append(ModelMessage(role=MessageRole(role), content=content))
         messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
 
         tools = self._build_openai_tools()
@@ -331,6 +342,8 @@ class QueryEngine:
                     input_tokens=response.usage.input_tokens,
                     output_tokens=response.usage.output_tokens,
                 )
+                self._conversation.append(("user", prompt))
+                self._conversation.append(("assistant", response.content))
                 return response.content
 
             used_tools = True
@@ -364,6 +377,107 @@ class QueryEngine:
                 output_tokens=total_output,
             )
         return response.content if response and response.content else "[达到最大工具调用轮次]"
+
+    def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
+        from lingclaude.model.types import ModelMessage, MessageRole, ModelUsage, ToolCall
+
+        messages: list[ModelMessage] = []
+
+        system_prompt = self._build_adaptive_system_prompt()
+        if system_prompt:
+            messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
+
+        for role, content in self._conversation:
+            messages.append(ModelMessage(role=MessageRole(role), content=content))
+        messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
+
+        tools = self._build_openai_tools()
+        resolved_config, _ = self._resolve_model_config(prompt)
+        used_tools = False
+        response_content = ""
+        total_input = 0
+        total_output = 0
+
+        for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
+            round_text_parts: list[str] = []
+            round_tool_calls: list[ToolCall] = []
+
+            for event in self._provider.stream_complete(
+                tuple(messages), config=resolved_config, tools=tools,
+            ):
+                if event["type"] == "text_delta":
+                    round_text_parts.append(event["text"])
+                    yield {"type": "text_delta", "text": event["text"]}
+                elif event["type"] == "tool_call_complete":
+                    tc = ToolCall(
+                        id=event["id"],
+                        name=event["name"],
+                        arguments=event["arguments"],
+                    )
+                    round_tool_calls.append(tc)
+                elif event["type"] == "finish":
+                    total_input += event.get("usage", ModelUsage()).input_tokens
+                    total_output += event.get("usage", ModelUsage()).output_tokens
+                elif event["type"] == "error":
+                    self._track_behavior(prompt, f"[模型调用失败] {event['error']}", used_tools=False)
+                    yield {"type": "error", "error": event["error"]}
+                    return
+
+            round_content = "".join(round_text_parts)
+
+            if not round_tool_calls:
+                content = round_content
+                if self._should_hallucination_correct(prompt, used_tools):
+                    yield {"type": "status", "message": "幻觉闭环修正中..."}
+                    corrected = self._hallucination_correction(
+                        messages, content, tools, resolved_config,
+                    )
+                    if corrected:
+                        yield {"type": "text_delta", "text": corrected}
+                        content = corrected
+                self._track_behavior(prompt, content, used_tools=used_tools)
+                self._usage = self._usage.add_usage(total_input, total_output)
+                response_content = content
+                self._conversation.append(("user", prompt))
+                self._conversation.append(("assistant", content))
+                yield {"type": "done", "content": content}
+                return
+
+            used_tools = True
+            self._behavior = self._behavior.record_tool_calls(count=len(round_tool_calls))
+
+            messages.append(ModelMessage(
+                role=MessageRole.ASSISTANT,
+                content=round_content,
+                tool_calls=tuple(round_tool_calls),
+            ))
+
+            for tc in round_tool_calls:
+                yield {"type": "tool_call_start", "name": tc.name, "arguments": tc.arguments}
+                tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
+                is_error = '"error"' in tool_output
+                if is_error:
+                    self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
+                preview = tool_output[:200] if len(tool_output) > 200 else tool_output
+                yield {
+                    "type": "tool_call_end",
+                    "name": tc.name,
+                    "output_preview": preview,
+                    "is_error": is_error,
+                }
+                messages.append(ModelMessage(
+                    role=MessageRole.TOOL,
+                    content=tool_output,
+                    name=tc.name,
+                    tool_call_id=tc.id,
+                ))
+
+        self._track_behavior(prompt, response_content, used_tools=used_tools)
+        self._usage = self._usage.add_usage(total_input, total_output)
+        if response_content:
+            self._conversation.append(("user", prompt))
+            self._conversation.append(("assistant", response_content))
+        yield {"type": "done", "content": response_content or "[达到最大工具调用轮次]"}
 
     def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
         bm = self._behavior
@@ -473,6 +587,10 @@ class QueryEngine:
             kept = self._messages[-half:]
             summary = f"[前 {len(self._messages) - half} 轮对话已压缩]"
             self._messages[:] = [summary] + kept
+        conv_limit = self.config.compact_after_turns * 2
+        if len(self._conversation) > conv_limit:
+            kept = self._conversation[-conv_limit:]
+            self._conversation[:] = kept
         if len(self._transcript) > self.config.compact_after_turns:
             self._transcript[:] = self._transcript[-self.config.compact_after_turns:]
 
@@ -527,10 +645,12 @@ class QueryEngine:
             "你是灵克，一个会自我进化的开源 AI 编程助手。\n"
             "\n"
             "核心规则:\n"
-            "1. 回答代码相关问题时，必须先用工具（read/grep/glob）读取源码，不要猜测。\n"
-            "2. 如果用户指出你胡说或没读代码，立即使用工具重新阅读相关文件。\n"
-            "3. 你擅长代码理解、编辑、终端操作，并通过自优化持续提升能力。\n"
-            "4. 用中文回答，代码保持原样。"
+            "1. 先判断用户意图：只有涉及具体代码、文件、项目结构的问题才需要调用工具。\n"
+            "2. 一般性对话、观点讨论、概念解释等非代码问题，直接回答，不要调用工具。\n"
+            "3. 回答代码相关问题时，必须先用工具（read/grep/glob）读取源码，不要猜测。\n"
+            "4. 如果用户指出你胡说或没读代码，立即使用工具重新阅读相关文件。\n"
+            "5. 你擅长代码理解、编辑、终端操作，并通过自优化持续提升能力。\n"
+            "6. 用中文回答，代码保持原样。"
         )
 
         extras: list[str] = []
@@ -538,12 +658,12 @@ class QueryEngine:
 
         if bm.hallucination_risk > 0.3:
             extras.append(
-                "\n⚠ 行为警告: 你近期幻觉风险较高({:.0%})。回答任何代码问题前必须先调用工具读取文件，绝对不能凭记忆猜测代码内容。".format(bm.hallucination_risk)
+                "\n⚠ 行为警告: 你近期幻觉风险较高({:.0%})。回答代码问题时必须先调用工具读取文件，绝对不能凭记忆猜测代码内容。一般性问题可以直接回答。".format(bm.hallucination_risk)
             )
 
         if bm.frustration_rate > 0.2:
             extras.append(
-                "\n⚠ 用户状态: 用户近期频繁表现出沮丧({:.0%})。请格外仔细，先读代码再回答，避免猜测。".format(bm.frustration_rate)
+                "\n⚠ 用户状态: 用户近期频繁表现出沮丧({:.0%})。请格外仔细，回答代码问题前先读文件。".format(bm.frustration_rate)
             )
 
         if bm.tool_error_rate > 0.3:

@@ -23,6 +23,12 @@ class StructureMetrics:
 
 
 class StructureEvaluator:
+    _SKIP_DIRS = frozenset({
+        ".git", ".cache", "__pycache__", "node_modules", "venv",
+        ".venv", ".npm-global", ".tox", ".mypy_cache", ".ruff_cache",
+        "site-packages", "dist", "build", "egg-info",
+    })
+
     def __init__(self, target_path: str = "."):
         self.target_path = Path(target_path)
 
@@ -44,10 +50,15 @@ class StructureEvaluator:
         method_counts: list[int] = []
         violations = 0
 
+        import warnings
         for py_file in self.target_path.rglob("*.py"):
+            if any(part in self._SKIP_DIRS for part in py_file.parts):
+                continue
             try:
-                source = py_file.read_text(encoding="utf-8")
-                tree = ast.parse(source)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", SyntaxWarning)
+                    source = py_file.read_text(encoding="utf-8")
+                    tree = ast.parse(source)
 
                 for node in ast.walk(tree):
                     if isinstance(node, ast.ClassDef):

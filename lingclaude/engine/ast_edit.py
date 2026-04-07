@@ -116,6 +116,17 @@ def _get_node_source_range(
     return start_line, end_line
 
 
+def _resolve_path(file_path: str) -> Result[Path]:
+    """Validate and resolve file path, blocking traversal attacks."""
+    p = Path(file_path)
+    resolved = p.resolve()
+    if ".." in p.parts:
+        return Result.fail(f"路径不允许包含 '..': {file_path}")
+    if not resolved.exists():
+        return Result.fail(f"文件不存在: {file_path}")
+    return Result.ok(resolved)
+
+
 def replace_function_body(
     file_path: str,
     function_name: str,
@@ -123,7 +134,10 @@ def replace_function_body(
     class_name: str | None = None,
     occurrence: int = 1,
 ) -> Result[ASTEditResult]:
-    path = Path(file_path)
+    resolved = _resolve_path(file_path)
+    if resolved.is_error:
+        return resolved  # type: ignore[return-value]
+    path = resolved.data
     if not path.exists():
         return Result.fail(f"文件不存在: {file_path}")
 
@@ -187,7 +201,10 @@ def replace_function_body(
 
 
 def list_functions(file_path: str) -> Result[list[dict[str, Any]]]:
-    path = Path(file_path)
+    resolved = _resolve_path(file_path)
+    if resolved.is_error:
+        return resolved  # type: ignore[return-value]
+    path = resolved.data
     if not path.exists():
         return Result.fail(f"文件不存在: {file_path}")
 

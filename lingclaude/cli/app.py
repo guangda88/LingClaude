@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import sys
+import warnings
 from pathlib import Path
+from typing import Any
+
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 from lingclaude.core.config import LingClaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
@@ -48,8 +53,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
         if args.interactive:
             return _interactive_loop(engine, args.prompt)
         print(f"灵克> {args.prompt}")
-        result = engine.submit(args.prompt)
-        print(result.output)
+        if engine._provider:
+            for event in engine.stream_call_model(args.prompt):
+                _handle_stream_event(event)
+            engine._messages.append(args.prompt)
+            engine._transcript.append(args.prompt)
+        else:
+            result = engine.submit(args.prompt)
+            print(result.output)
         _feed_behavior_to_daemon(engine, config)
         if args.verbose:
             print("\n--- 会话统计 ---")
@@ -69,16 +80,60 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _handle_stream_event(event: dict[str, Any]) -> None:
+    etype = event.get("type")
+    if etype == "text_delta":
+        sys.stdout.write(event["text"])
+        sys.stdout.flush()
+    elif etype == "tool_call_start":
+        name = event.get("name", "?")
+        args = event.get("arguments", "")
+        try:
+            parsed = json.loads(args)
+            args_preview = " ".join(f"{k}={v}" for k, v in list(parsed.items())[:3])
+        except (json.JSONDecodeError, TypeError):
+            args_preview = args[:60] if args else ""
+        sys.stdout.write(f"\n  [{name}] {args_preview} ... ")
+        sys.stdout.flush()
+    elif etype == "tool_call_end":
+        is_error = event.get("is_error", False)
+        preview = event.get("output_preview", "")
+        mark = "❌" if is_error else "✅"
+        if preview and not is_error:
+            preview = preview[:80].replace("\n", " ")
+            sys.stdout.write(f"{mark} ({len(preview)} chars)\n")
+        else:
+            sys.stdout.write(f"{mark}\n")
+        sys.stdout.flush()
+    elif etype == "status":
+        sys.stdout.write(f"\n  [{event.get('message', '')}] ")
+        sys.stdout.flush()
+    elif etype == "done":
+        sys.stdout.write("\n\n")
+        sys.stdout.flush()
+    elif etype == "error":
+        sys.stdout.write(f"\n[错误] {event.get('error', '')}\n")
+        sys.stdout.flush()
+
+
 def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
     print("灵克 v0.2.0 — 交互模式（输入 'exit' 或 'quit' 退出）")
     print(f"Provider: {'已连接' if engine._provider else '未配置（回退模式）'}")
     print()
 
+    def _read_input() -> str:
+        try:
+            return input("灵克> ")
+        except UnicodeDecodeError:
+            sys.stdin.buffer.readline()
+            print("[输入编码错误，请检查终端编码设置]")
+            return ""
+
     prompt = first_prompt
     while True:
         if not prompt:
             try:
-                prompt = input("灵克> ").strip()
+                prompt = _read_input().strip()
             except (EOFError, KeyboardInterrupt):
                 print("\n再见！")
                 break
@@ -89,17 +144,28 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
             prompt = ""
             continue
 
-        result = engine.submit(prompt)
-        print(f"\n{result.output}\n")
+        stopped = False
+        if engine._provider:
+            for event in engine.stream_call_model(prompt):
+                _handle_stream_event(event)
+                if event.get("type") == "error":
+                    stopped = True
+            engine._messages.append(prompt)
+            engine._transcript.append(prompt)
+        else:
+            result = engine.submit(prompt)
+            print(f"\n{result.output}\n")
+            if result.stop_reason.value != "completed":
+                print(f"[会话结束: {result.stop_reason.value}]")
+                stopped = True
         _feed_behavior_to_daemon(engine, None)
 
-        if result.stop_reason.value != "completed":
-            print(f"[会话结束: {result.stop_reason.value}]")
+        if stopped:
             break
 
         prompt = ""
         try:
-            prompt = input("灵克> ").strip()
+            prompt = _read_input().strip()
         except (EOFError, KeyboardInterrupt):
             print("\n再见！")
             break
@@ -115,7 +181,13 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     runtime = CodingRuntime(config)
 
-    target = args.target or "."
+    if args.target:
+        target = args.target
+    else:
+        from lingclaude.core.config import find_config_path
+        found = find_config_path()
+        target = str(found.parent) if found else "."
+
     goal = args.goal or "structure"
     max_trials = args.trials or 20
 
@@ -145,7 +217,13 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     runtime = CodingRuntime(config)
 
-    target = args.target or "."
+    if args.target:
+        target = args.target
+    else:
+        from lingclaude.core.config import find_config_path
+        found = find_config_path()
+        target = str(found.parent) if found else "."
+
     metrics = runtime.analyze(target)
 
     print(f"Structure analysis: {target}")
