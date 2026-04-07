@@ -8,12 +8,12 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-warnings.filterwarnings("ignore", category=SyntaxWarning)
-
 from lingclaude.core.config import LingClaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
 from lingclaude.self_optimizer.daemon import OptimizationDaemon, DaemonState
+
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 _logger = logging.getLogger(__name__)
 
