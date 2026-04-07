@@ -50,14 +50,37 @@ def _detect_provider(cfg: ModelConfig) -> str:
         return "openai"
     if "claude" in model:
         return "anthropic"
-    if "glm" in model:
+    if "glm" in model or "deepseek" in model or "qwen" in model:
         return "openai"
     return "openai"
 
 
 def _get_env_key(provider: str) -> str:
     if provider == "openai":
-        return os.environ.get("OPENAI_API_KEY", "") or os.environ.get("ZHIPU_API_KEY", "")
+        return (
+            os.environ.get("OPENAI_API_KEY", "")
+            or os.environ.get("DEEPSEEK_API_KEY", "")
+            or os.environ.get("ZHIPU_API_KEY", "")
+            or _key_store_get("OPENAI_API_KEY")
+            or _key_store_get("DEEPSEEK_API_KEY")
+            or _key_store_get("ZHIPU_API_KEY")
+        )
     if provider == "anthropic":
-        return os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("ZHIPU_API_KEY", "")
+        return (
+            os.environ.get("ANTHROPIC_API_KEY", "")
+            or os.environ.get("ZHIPU_API_KEY", "")
+            or _key_store_get("ANTHROPIC_API_KEY")
+            or _key_store_get("ZHIPU_API_KEY")
+        )
     return ""
+
+
+def _key_store_get(key_name: str) -> str:
+    try:
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path.home() / ".ling_lib"))
+        from ling_key_store import get_key
+        return get_key(key_name) or ""
+    except (ImportError, ModuleNotFoundError, AttributeError):
+        return ""
