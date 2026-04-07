@@ -1,12 +1,16 @@
-"""灵克 MCP Server — 将15个核心能力封装为MCP工具。
+"""灵克 MCP Server — 将26个核心能力封装为MCP工具。
 
 工具清单（灵系命名）:
-  核心编码(8): edit_code(灵编), search_code(灵查), read_file(灵读),
-              write_file(灵写), run_bash(灵动), index_project(灵索),
-              list_functions(灵析), replace_function(灵构)
-  版本控制(3): git_status(灵态), git_log(灵史), git_diff(灵异)
-  自优化(4):  run_optimization(灵优), evaluate_code(灵评),
-              get_advice(灵谏), check_triggers(灵检)
+  核心编码(14): edit_code(灵编), search_code(灵查), read_file(灵读),
+               write_file(灵写), run_bash(灵动), index_project(灵索),
+               list_functions(灵析), replace_function(灵构),
+               glob(灵巡), file_create(灵创), file_insert(灵插),
+               file_delete_lines(灵删), file_undo(灵撤), analyze_full(灵鉴)
+  版本控制(4):  git_status(灵态), git_log(灵史), git_diff(灵异), git_blame(灵溯)
+  自优化(4):   run_optimization(灵优), evaluate_code(灵评),
+               get_advice(灵谏), check_triggers(灵检)
+  知识与会话(4): knowledge_search(灵忆), session_list(灵簿),
+               stt(灵听), check_and_optimize(灵自审)
 """
 
 from __future__ import annotations
@@ -310,6 +314,175 @@ def tool_check_triggers(
         "should_optimize": should_optimize,
         "trigger": _to_dict(trigger_info) if trigger_info else None,
     }
+
+
+# ── 新增工具（11个） ──
+
+
+@mcp.tool(name="glob", description="按模式查找文件（灵巡）")
+def tool_glob(pattern: str, working_dir: str = "") -> dict:
+    """按glob模式查找文件，如 '*.py', 'src/**/*.ts'。返回匹配文件列表。"""
+    from ..engine.file_ops import FileOps
+
+    base = working_dir or "."
+    ops = FileOps(base_dir=base)
+    result = ops.glob(pattern)
+    if result.is_error:
+        return {"error": result.error, "files": []}
+    return {"files": list(result.data)}
+
+
+@mcp.tool(name="file_create", description="创建新文件（灵创）")
+def tool_file_create(path: str, content: str, working_dir: str = "") -> dict:
+    """创建新文件并写入内容。如果文件已存在则返回错误。working_dir 为空时使用当前目录。"""
+    from ..engine.file_edit import FileEditTool
+
+    base = working_dir or "."
+    editor = FileEditTool(base_dir=base)
+    result = editor.create(path, content)
+    return _unwrap(result)
+
+
+@mcp.tool(name="file_insert", description="在指定行号插入文本（灵插）")
+def tool_file_insert(path: str, line: int, text: str, working_dir: str = "") -> dict:
+    """在文件的指定行号处插入文本。行号从1开始。working_dir 为空时使用当前目录。"""
+    from ..engine.file_edit import FileEditTool
+
+    base = working_dir or "."
+    editor = FileEditTool(base_dir=base)
+    result = editor.insert(path, line, text)
+    return _unwrap(result)
+
+
+@mcp.tool(name="file_delete_lines", description="删除指定行范围（灵删）")
+def tool_file_delete_lines(
+    path: str, start_line: int, end_line: int, working_dir: str = ""
+) -> dict:
+    """删除文件中从 start_line 到 end_line 的行（含端点）。行号从1开始。"""
+    from ..engine.file_edit import FileEditTool
+
+    base = working_dir or "."
+    editor = FileEditTool(base_dir=base)
+    result = editor.delete_lines(path, start_line, end_line)
+    return _unwrap(result)
+
+
+@mcp.tool(name="file_undo", description="撤销上次编辑（灵撤）")
+def tool_file_undo(path: str, working_dir: str = "") -> dict:
+    """撤销文件的最后一次编辑操作，恢复到编辑前状态。"""
+    from ..engine.file_edit import FileEditTool
+
+    base = working_dir or "."
+    editor = FileEditTool(base_dir=base)
+    result = editor.undo(path)
+    return _unwrap(result)
+
+
+@mcp.tool(name="analyze_full", description="完整代码分析（灵鉴）")
+def tool_analyze_full(target: str = ".") -> dict:
+    """对代码进行完整分析：结构指标 + 6种模式检测（长方法、未使用变量、硬编码密钥、重复代码、空块、圈复杂度）。"""
+    from ..engine.coding import CodingRuntime
+
+    runtime = CodingRuntime()
+    return runtime.analyze(target)
+
+
+@mcp.tool(name="git_blame", description="行级作者追溯（灵溯）")
+def tool_git_blame(
+    file_path: str,
+    cwd: str = ".",
+    start_line: int = 0,
+    end_line: int = 0,
+) -> dict:
+    """查看文件每一行的最近修改者和提交信息。start_line/end_line 为0表示不限制。"""
+    from ..engine.git import git_blame
+
+    result = git_blame(
+        file_path,
+        cwd=cwd,
+        start_line=start_line or None,
+        end_line=end_line or None,
+    )
+    return _unwrap(result)
+
+
+@mcp.tool(name="knowledge_search", description="搜索知识库（灵忆）")
+def tool_knowledge_search(keyword: str, limit: int = 10) -> dict:
+    """搜索灵克自学习知识库中的规则和模式。返回匹配的已学习规则。"""
+    from ..self_optimizer.learner.knowledge import KnowledgeBase
+
+    kb = KnowledgeBase()
+    try:
+        result = kb.search_rules(keyword)
+        if result.is_error:
+            return {"keyword": keyword, "total": 0, "results": []}
+        rules = result.data if isinstance(result.data, (list, tuple)) else []
+        results = []
+        for rule in rules[:limit]:
+            results.append(_to_dict(rule))
+        return {"keyword": keyword, "total": len(rules), "results": results}
+    finally:
+        kb.close()
+
+
+@mcp.tool(name="session_list", description="列出会话历史（灵簿）")
+def tool_session_list(project_path: str = "") -> dict:
+    """列出灵克的会话历史记录。project_path 为空时列出所有项目的会话。"""
+    from ..core.session import SessionManager
+
+    mgr = SessionManager()
+    sessions = mgr.list_sessions(project_path=project_path)
+    return {"total": len(sessions), "sessions": list(sessions)}
+
+
+@mcp.tool(name="stt", description="语音录制转文字（灵听）")
+def tool_stt(
+    duration: int = 5,
+    file: str = "",
+    backend: str = "",
+) -> dict:
+    """录制音频并转写为文字，或转写指定音频文件。duration 为录制时长（秒），file 为音频文件路径。"""
+    from ..engine.stt import STTEngine
+
+    engine = STTEngine()
+    if not engine.is_available():
+        return {"error": "无可用的 STT 后端（需安装 openai-whisper 或 sherpa-onnx）", "ok": False}
+    if file:
+        result = engine.transcribe(file, backend=backend or None)
+    else:
+        result = engine.record_and_transcribe(duration=duration, backend=backend or None)
+    if not result.available:
+        return {"error": result.error, "ok": False}
+    return {
+        "text": result.text,
+        "backend": result.backend,
+        "duration": result.duration,
+        "language": result.language,
+        "ok": True,
+    }
+
+
+@mcp.tool(name="check_and_optimize", description="自动检测并优化（灵自审）")
+def tool_check_and_optimize(
+    target: str = ".",
+    goal: str = "structure",
+    total_files: int = 0,
+    total_lines: int = 0,
+    test_pass_rate: float = 0.0,
+    avg_response_time: float = 0.0,
+) -> dict:
+    """一体化：检查触发条件 → 评估代码 → 运行优化。goal 可选: structure/performance/quality。"""
+    from ..engine.coding import CodingRuntime
+
+    runtime = CodingRuntime()
+    context = {
+        "target_path": target,
+        "total_files": total_files,
+        "total_lines": total_lines,
+        "test_pass_rate": test_pass_rate,
+        "avg_response_time": avg_response_time,
+    }
+    return runtime.check_and_optimize(context, target=target, goal=goal)
 
 
 def main():
