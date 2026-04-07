@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -13,6 +13,11 @@ from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent, detect_emotion, detect_intent, is_tool_intent
 from lingclaude.core.intel import IntelCollector, DailyDigest, DailyDigestGenerator, IntelRelay
+from lingclaude.model.intelligent_router import IntelligentRouter
+from lingclaude.core.context_cache import ContextCache
+from lingclaude.core.task_aggregation import TaskAggregator, TaskPriority
+from lingclaude.core.token_monitor import TokenMonitor
+from lingclaude.model.types import ModelConfig
 
 from lingclaude.core.types import Result
 
@@ -73,6 +78,10 @@ class QueryEngine:
         self._intel_relay: IntelRelay | None = None
         self._session_history_path: Path = Path("data/session_history.json")
         self._mailbox: Any | None = None
+        self._router = IntelligentRouter()
+        self._cache = ContextCache(cache_size=100, ttl_hours=24)
+        self._aggregator = TaskAggregator(max_group_size=5)
+        self._monitor = TokenMonitor()
 
     def init_mailbox(self, mailbox: Any) -> None:
         self._mailbox = mailbox
@@ -273,7 +282,10 @@ class QueryEngine:
         self._collect_behavior_intel()
 
     def _call_model(self, prompt: str) -> str:
-        from lingclaude.model.types import ModelMessage, MessageRole, ModelConfig
+        from lingclaude.model.types import ModelMessage, MessageRole
+
+        # Get routing decision
+        decision = self._router.route(prompt)
 
         messages: list[ModelMessage] = []
 
@@ -286,7 +298,7 @@ class QueryEngine:
         messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
 
         tools = self._build_openai_tools()
-        resolved_config = self._resolve_model_config(prompt)
+        resolved_config, decision = self._resolve_model_config(prompt)
         used_tools = False
         response = None
         total_input = 0
@@ -312,6 +324,13 @@ class QueryEngine:
                         return content
                 self._track_behavior(prompt, response.content, used_tools=used_tools)
                 self._usage = self._usage.add_usage(response.usage.input_tokens, response.usage.output_tokens)
+                self._monitor.record_usage(
+                    model=str(resolved_config.model) if resolved_config else "unknown",
+                    task_type="unknown",
+                    total_tokens=response.usage.input_tokens + response.usage.output_tokens,
+                    input_tokens=response.usage.input_tokens,
+                    output_tokens=response.usage.output_tokens,
+                )
                 return response.content
 
             used_tools = True
@@ -337,6 +356,13 @@ class QueryEngine:
         self._track_behavior(prompt, response.content if response else "", used_tools=used_tools)
         if response:
             self._usage = self._usage.add_usage(total_input, total_output)
+            self._monitor.record_usage(
+                model=str(resolved_config.model) if resolved_config else "unknown",
+                task_type="unknown",
+                total_tokens=total_input + total_output,
+                input_tokens=total_input,
+                output_tokens=total_output,
+            )
         return response.content if response and response.content else "[达到最大工具调用轮次]"
 
     def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
@@ -450,21 +476,43 @@ class QueryEngine:
         if len(self._transcript) > self.config.compact_after_turns:
             self._transcript[:] = self._transcript[-self.config.compact_after_turns:]
 
-    def _resolve_model_config(self, prompt: str) -> ModelConfig | None:
+    def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
         if self._model_config is None:
-            return None
+            return None, None
         from lingclaude.core.behavior import Intent
-        intent = detect_intent(prompt)
-        is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
+
+        # Use intelligent router if available
+        decision = self._router.route(prompt)
+        target_model = str(decision.model.value)
+
+        # Record task for aggregation
+        self._aggregator.add_task(
+            query=prompt,
+            task_type=str(decision.task_type.value),
+            priority=TaskPriority.MEDIUM,
+        )
+
         cfg = self._model_config
         router = self._model_router
         if router is None or not router.enabled:
-            return None
-        target_model = router.code_model if is_code else router.chat_model
-        if not target_model:
-            return None
-        from lingclaude.model.types import ModelConfig
-        return ModelConfig(
+            config = ModelConfig(
+                model=target_model,
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                max_tokens=cfg.max_tokens,
+                temperature=cfg.temperature,
+                system_prompt="",
+            )
+            return config, decision
+
+        # Fallback to legacy router if enabled
+        intent = detect_intent(prompt)
+        is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
+        legacy_model = router.code_model if is_code else router.chat_model
+        if legacy_model:
+            target_model = legacy_model
+
+        config = ModelConfig(
             model=target_model,
             api_key=cfg.api_key,
             base_url=cfg.base_url,
@@ -472,6 +520,7 @@ class QueryEngine:
             temperature=cfg.temperature,
             system_prompt="",
         )
+        return config, decision
 
     def _build_adaptive_system_prompt(self) -> str:
         base = (

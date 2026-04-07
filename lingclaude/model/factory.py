@@ -50,12 +50,14 @@ def _detect_provider(cfg: ModelConfig) -> str:
         return "openai"
     if "claude" in model:
         return "anthropic"
+    if "glm" in model:
+        return "openai"
     return "openai"
 
 
 def _get_env_key(provider: str) -> str:
     if provider == "openai":
-        return os.environ.get("OPENAI_API_KEY", "")
+        return os.environ.get("OPENAI_API_KEY", "") or os.environ.get("ZHIPU_API_KEY", "")
     if provider == "anthropic":
-        return os.environ.get("ANTHROPIC_API_KEY", "")
+        return os.environ.get("ANTHROPIC_API_KEY", "") or os.environ.get("ZHIPU_API_KEY", "")
     return ""

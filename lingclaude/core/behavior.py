@@ -7,9 +7,8 @@ self-optimization can be triggered automatically.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 
 class Emotion(str, Enum):

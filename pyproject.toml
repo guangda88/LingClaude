@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lingclaude"
-version = "0.2.1"
+version = "0.3.0"
 description = "灵克 (LingClaude) — 开源 AI 编程助手，内置自优化能力"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,6 +13,7 @@ dependencies = [
     "tiktoken>=0.5.0",
     "aiohttp>=3.8.0",
     "pyyaml>=6.0",
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,11 @@ optimization = [
 
 [project.scripts]
 lingclaude = "lingclaude.cli.__main__:main"
+lingclaude-mcp = "lingclaude.mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["lingclaude*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

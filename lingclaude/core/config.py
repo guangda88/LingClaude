@@ -16,6 +16,7 @@ class EngineConfig:
     max_budget_tokens: int = 200000
     compact_after_turns: int = 12
     structured_output: bool = False
+    bash_executor_type: str = "native"  # "native" or "lingxi"
 
 
 @dataclass(frozen=True)
@@ -112,6 +113,7 @@ class LingClaudeConfig:
                 max_budget_tokens=engine_raw.get("max_budget_tokens", 200000),
                 compact_after_turns=engine_raw.get("compact_after_turns", 12),
                 structured_output=engine_raw.get("structured_output", False),
+                bash_executor_type=engine_raw.get("bash_executor_type", "native"),
             ),
             permissions=PermissionConfig(
                 deny_tools=perm_raw.get("deny_tools", []),

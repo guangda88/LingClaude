@@ -12,6 +12,7 @@ from lingclaude.model.types import (
     ModelProvider,
     ModelResponse,
     ModelUsage,
+    ToolCall,
 )
 
 
@@ -29,7 +30,7 @@ class AnthropicProvider(ModelProvider):
         if not cfg.api_key:
             return Result.fail("Anthropic API key 未设置。请在 config.yaml 中配置 model.api_key 或设置 ANTHROPIC_API_KEY 环境变量")
         try:
-            return self._call_api_sync(messages, cfg)
+            return self._call_api_sync(messages, cfg, tools)
         except Exception as e:
             return Result.fail(f"Anthropic API 调用失败: {e}")
 
@@ -43,7 +44,7 @@ class AnthropicProvider(ModelProvider):
         if not cfg.api_key:
             return Result.fail("Anthropic API key 未设置")
         try:
-            return await self._call_api_async(messages, cfg)
+            return await self._call_api_async(messages, cfg, tools)
         except Exception as e:
             return Result.fail(f"Anthropic API 调用失败: {e}")
 
@@ -51,22 +52,50 @@ class AnthropicProvider(ModelProvider):
         return len(text) // 4
 
     def _build_request_body(
-        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig
+        self,
+        messages: tuple[ModelMessage, ...],
+        cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> tuple[str, list[dict[str, Any]]]:
         system_prompt = cfg.system_prompt
         msg_dicts: list[dict[str, Any]] = []
         for m in messages:
             if m.role.value == "system":
                 system_prompt = m.content
+            elif m.role.value == "assistant" and m.tool_calls:
+                content_blocks: list[dict[str, Any]] = []
+                if m.content:
+                    content_blocks.append({"type": "text", "text": m.content})
+                for tc in m.tool_calls:
+                    try:
+                        input_data = json.loads(tc.arguments)
+                    except (json.JSONDecodeError, TypeError):
+                        input_data = {}
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": tc.id,
+                        "name": tc.name,
+                        "input": input_data,
+                    })
+                msg_dicts.append({"role": "assistant", "content": content_blocks})
+            elif m.role.value == "tool":
+                tool_result_block: dict[str, Any] = {
+                    "type": "tool_result",
+                    "tool_use_id": m.tool_call_id or "",
+                    "content": m.content,
+                }
+                msg_dicts.append({"role": "user", "content": [tool_result_block]})
             else:
                 msg_dicts.append({"role": m.role.value, "content": m.content})
         return system_prompt, msg_dicts
 
-    def _call_api_sync(
-        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig
-    ) -> Result[ModelResponse]:
-        url = (cfg.base_url or "https://api.anthropic.com") + "/v1/messages"
-        system_prompt, msg_dicts = self._build_request_body(messages, cfg)
+    def _build_body(
+        self,
+        messages: tuple[ModelMessage, ...],
+        cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
+    ) -> dict[str, Any]:
+        system_prompt, msg_dicts = self._build_request_body(messages, cfg, tools)
         body: dict[str, Any] = {
             "model": cfg.model,
             "messages": msg_dicts,
@@ -74,6 +103,25 @@ class AnthropicProvider(ModelProvider):
         }
         if system_prompt:
             body["system"] = system_prompt
+        if tools:
+            body["tools"] = [
+                {
+                    "name": t.get("name", ""),
+                    "description": t.get("description", ""),
+                    "input_schema": t.get("parameters", {"type": "object", "properties": {}}),
+                }
+                for t in tools
+            ]
+        return body
+
+    def _call_api_sync(
+        self,
+        messages: tuple[ModelMessage, ...],
+        cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
+    ) -> Result[ModelResponse]:
+        url = (cfg.base_url or "https://api.anthropic.com") + "/v1/messages"
+        body = self._build_body(messages, cfg, tools)
 
         headers = {
             "x-api-key": cfg.api_key,
@@ -99,19 +147,15 @@ class AnthropicProvider(ModelProvider):
         return self._parse_response(data, cfg.model)
 
     async def _call_api_async(
-        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig
+        self,
+        messages: tuple[ModelMessage, ...],
+        cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         import aiohttp
 
         url = (cfg.base_url or "https://api.anthropic.com") + "/v1/messages"
-        system_prompt, msg_dicts = self._build_request_body(messages, cfg)
-        body: dict[str, Any] = {
-            "model": cfg.model,
-            "messages": msg_dicts,
-            "max_tokens": cfg.max_tokens,
-        }
-        if system_prompt:
-            body["system"] = system_prompt
+        body = self._build_body(messages, cfg, tools)
 
         headers = {
             "x-api-key": cfg.api_key,
@@ -141,9 +185,18 @@ class AnthropicProvider(ModelProvider):
             return Result.fail("Anthropic API 返回空 content")
 
         content = ""
+        parsed_calls: list[ToolCall] = []
         for block in content_blocks:
-            if block.get("type") == "text":
+            block_type = block.get("type", "")
+            if block_type == "text":
                 content += block.get("text", "")
+            elif block_type == "tool_use":
+                input_data = block.get("input", {})
+                parsed_calls.append(ToolCall(
+                    id=block.get("id", ""),
+                    name=block.get("name", ""),
+                    arguments=json.dumps(input_data, ensure_ascii=False),
+                ))
 
         usage_raw = data.get("usage", {})
         usage = ModelUsage(
@@ -151,12 +204,16 @@ class AnthropicProvider(ModelProvider):
             output_tokens=usage_raw.get("output_tokens", 0),
         )
 
+        stop_reason = data.get("stop_reason", "end_turn")
+        finish_reason = "tool_calls" if parsed_calls else stop_reason
+
         return Result.ok(
             ModelResponse(
                 content=content,
                 model=data.get("model", model),
                 usage=usage,
-                finish_reason=data.get("stop_reason", "end_turn"),
+                finish_reason=finish_reason,
                 raw=data,
+                tool_calls=tuple(parsed_calls),
             )
         )

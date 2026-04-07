@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from pathlib import Path
 
 from lingclaude.core.config import LingClaudeConfig, load_config
@@ -40,6 +39,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
     runtime = CodingRuntime(config)
     engine.set_runtime(runtime)
 
+    # Override bash executor type if specified
+    if args.bash_executor:
+        from dataclasses import replace
+        config = replace(config, engine=replace(config.engine, bash_executor_type=args.bash_executor))
+
     if args.prompt:
         if args.interactive:
             return _interactive_loop(engine, args.prompt)
@@ -48,7 +52,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(result.output)
         _feed_behavior_to_daemon(engine, config)
         if args.verbose:
-            print(f"\n--- 会话统计 ---")
+            print("\n--- 会话统计 ---")
             stats = engine.get_stats()
             print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
             print(f"用量: {stats['usage']}")
@@ -66,7 +70,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
-    print(f"灵克 v0.2.0 — 交互模式（输入 'exit' 或 'quit' 退出）")
+    print("灵克 v0.2.0 — 交互模式（输入 'exit' 或 'quit' 退出）")
     print(f"Provider: {'已连接' if engine._provider else '未配置（回退模式）'}")
     print()
 
@@ -101,7 +105,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
             break
 
     stats = engine.get_stats()
-    print(f"\n--- 会话统计 ---")
+    print("\n--- 会话统计 ---")
     print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
     print(f"用量: {stats['usage']}")
     return 0
@@ -215,7 +219,7 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
 
     if args.daemon_action == "status":
         state = daemon.state
-        print(f"自由化框架状态:")
+        print("自由化框架状态:")
         print(f"  总周期: {state.total_cycles}")
         print(f"  总改进: {state.total_improvements}")
         print(f"  上次优化: {state.last_optimization_time or '从未运行'}")
@@ -257,6 +261,7 @@ def main() -> int:
     run_parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     run_parser.add_argument("--verbose", "-v", action="store_true", help="Show usage stats")
     run_parser.add_argument("--model", "-m", help="Override model name")
+    run_parser.add_argument("--bash-executor", choices=["native", "lingxi"], help="Bash executor type (native or lingxi)")
 
     opt_parser = subparsers.add_parser("optimize", help="Run self-optimization")
     opt_parser.add_argument("--target", "-t", help="Target path")
