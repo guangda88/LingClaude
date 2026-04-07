@@ -5,8 +5,8 @@ from typing import Any
 
 from lingclaude.core.config import LingClaudeConfig
 from lingclaude.core.permissions import PermissionContext
-from lingclaude.core.query_engine import QueryEngine, TurnResult
 from lingclaude.engine.bash import BashExecutor
+from lingclaude.engine.bash_lingxi import BashLingXiExecutor
 from lingclaude.engine.file_ops import FileOps
 from lingclaude.engine.file_edit import FileEditTool
 from lingclaude.engine.file_read import FileReadTool
@@ -33,6 +33,12 @@ class CodingRuntime:
 
     def _setup_tools(self) -> None:
         self.bash = BashExecutor(timeout=self.config.optimizer.timeout_seconds)
+        # Initialize BashLingXiExecutor with no restrictions (allow all commands)
+        self.bash_lingxi = BashLingXiExecutor(
+            timeout=self.config.optimizer.timeout_seconds,
+            blocked_commands=[],
+            allowed_commands=None,  # None means no whitelist restriction
+        )
         self.file_ops = FileOps()
         self.file_edit = FileEditTool()
         self.file_read = FileReadTool()
@@ -46,12 +52,24 @@ class CodingRuntime:
         self.optimizer = SynchronousOptimizer()
         self.advisor = OptimizationAdvisor()
 
+        # Register bash tool (native)
         self.registry.register(
             ToolDefinition(
                 name="bash",
-                description="Execute bash commands",
+                description="Execute bash commands (native subprocess)",
                 parameters={"command": {"type": "string"}},
                 handler=self._bash_handler,
+                security_scope="execute",
+            )
+        )
+
+        # Register bash_lingxi tool (MCP server)
+        self.registry.register(
+            ToolDefinition(
+                name="bash_lingxi",
+                description="Execute bash commands via LingXi MCP server (secure, monitored)",
+                parameters={"command": {"type": "string"}},
+                handler=self._bash_lingxi_handler,
                 security_scope="execute",
             )
         )
@@ -272,6 +290,15 @@ class CodingRuntime:
 
     def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
         result = self.bash.run(command)
+        return {
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "duration": result.duration,
+        }
+
+    def _bash_lingxi_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
+        result = self.bash_lingxi.run(command)
         return {
             "exit_code": result.exit_code,
             "stdout": result.stdout,

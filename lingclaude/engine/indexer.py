@@ -106,7 +106,6 @@ def _parse_file(path: Path, root: Path) -> list[SymbolInfo]:
 
     rel = str(path.relative_to(root))
     symbols: list[SymbolInfo] = []
-    current_class: str | None = None
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.Import):
@@ -135,7 +134,6 @@ def _parse_file(path: Path, root: Path) -> list[SymbolInfo]:
                     bases.append(base.id)
                 elif isinstance(base, ast.Attribute):
                     bases.append(ast.dump(base))
-            current_class = node.name
             decorators = []
             for d in node.decorator_list:
                 if isinstance(d, ast.Name):
@@ -159,7 +157,6 @@ def _parse_file(path: Path, root: Path) -> list[SymbolInfo]:
                         detail=f"method:{node.name}({args})" + (f" @{','.join(dec)}" if dec else ""),
                     ))
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            current_class = None
             args = _format_args(node.args)
             decorators = []
             for d in node.decorator_list:

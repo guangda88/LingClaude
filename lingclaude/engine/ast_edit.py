@@ -12,9 +12,7 @@ Operations:
 from __future__ import annotations
 
 import ast
-import re
 import textwrap
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -109,13 +107,8 @@ def _get_node_source_range(
             if dec.end_lineno and dec.end_lineno >= decorator_end:
                 decorator_end = dec.end_lineno
 
-        def_line = decorator_end
         for i in range(decorator_end, body_start):
-            if i < len(lines) and lines[i].strip().startswith("def "):
-                def_line = i + 1
-                break
-            elif i < len(lines) and lines[i].strip().startswith("async def "):
-                def_line = i + 1
+            if i < len(lines) and lines[i].strip().startswith(("def ", "async def ")):
                 break
 
         return start_line, end_line

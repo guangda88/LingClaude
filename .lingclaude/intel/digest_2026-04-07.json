@@ -1,0 +1,70 @@
+{
+  "report_date": "2026-04-07",
+  "total_items": 4,
+  "summary": "共收集 4 条情报。 error: 1 条 optimization: 1 条 quality: 1 条 structure: 1 条 其中 2 条关键情报需要优先处理。",
+  "key_findings": [
+    "发现 2 条关键情报需要立即关注",
+    "捕获 1 个错误事件",
+    "完成 1 次自优化周期"
+  ],
+  "recommendations": [
+    "审查近期错误日志，排查工具参数和路径问题"
+  ],
+  "category_counts": {
+    "error": 1,
+    "optimization": 1,
+    "quality": 1,
+    "structure": 1
+  },
+  "priority_counts": {
+    "critical": 2,
+    "info": 2
+  },
+  "items": [
+    {
+      "category": "error",
+      "priority": "critical",
+      "source": "user_report",
+      "content": "用户反馈会话无法正常进行，显示'未登录'。经排查发现：后端登录 API 正常，WebSocket 功能正常，但主页路由缺少登录检查，前端 WebSocket 连接时未自动重定向。根本原因：测试只覆盖后端逻辑，绕过了浏览器行为。",
+      "timestamp": "2026-04-06T22:14:49.953278+00:00",
+      "metadata": {
+        "problem_title": "WebUI 测试覆盖盲区导致用户无法正常使用",
+        "proposal_path": "/home/ai/LingYi/docs/proposals/webui-testing-evolution.md"
+      }
+    },
+    {
+      "category": "quality",
+      "priority": "critical",
+      "source": "optimization_trigger",
+      "content": "优化触发条件满足: User manually triggered optimization",
+      "timestamp": "2026-04-06T22:14:49.953307+00:00",
+      "metadata": {
+        "trigger_type": "user",
+        "priority": "high"
+      }
+    },
+    {
+      "category": "structure",
+      "priority": "info",
+      "source": "structure_evaluator",
+      "content": "项目结构评估完成，发现 3.0 处违规",
+      "timestamp": "2026-04-06T22:14:50.145011+00:00",
+      "metadata": {
+        "violations": "3.0",
+        "target_path": "/home/ai/LingYi"
+      }
+    },
+    {
+      "category": "optimization",
+      "priority": "info",
+      "source": "optimization_advisor",
+      "content": "优化建议生成完成: WebUI 测试体系进化",
+      "timestamp": "2026-04-06T22:14:50.145493+00:00",
+      "metadata": {
+        "best_score": "85.0",
+        "experiments": "10",
+        "report_path": ".lingclaude/reports/webui_testing_optimization.md"
+      }
+    }
+  ]
+}
