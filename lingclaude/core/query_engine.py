@@ -608,36 +608,25 @@ class QueryEngine:
             return None, None
         from lingclaude.core.behavior import Intent
 
-        # Use intelligent router if available
-        decision = self._router.route(prompt)
-        target_model = str(decision.model.value)
-
-        # Record task for aggregation
-        self._aggregator.add_task(
-            query=prompt,
-            task_type=str(decision.task_type.value),
-            priority=TaskPriority.MEDIUM,
-        )
-
         cfg = self._model_config
         router = self._model_router
-        if router is None or not router.enabled:
-            config = ModelConfig(
-                model=target_model,
-                api_key=cfg.api_key,
-                base_url=cfg.base_url,
-                max_tokens=cfg.max_tokens,
-                temperature=cfg.temperature,
-                system_prompt="",
-            )
-            return config, decision
+        target_model = cfg.model
 
-        # Fallback to legacy router if enabled
-        intent = detect_intent(prompt)
-        is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
-        legacy_model = router.code_model if is_code else router.chat_model
-        if legacy_model:
-            target_model = legacy_model
+        # Only use router if explicitly enabled and configured
+        if router and router.enabled:
+            decision = self._router.route(prompt)
+            if router.code_model or router.chat_model:
+                intent = detect_intent(prompt)
+                is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
+                legacy_model = router.code_model if is_code else router.chat_model
+                if legacy_model:
+                    target_model = legacy_model
+
+                self._aggregator.add_task(
+                    query=prompt,
+                    task_type=str(decision.task_type.value),
+                    priority=TaskPriority.MEDIUM,
+                )
 
         config = ModelConfig(
             model=target_model,
@@ -647,7 +636,7 @@ class QueryEngine:
             temperature=cfg.temperature,
             system_prompt="",
         )
-        return config, decision
+        return config, None
 
     def _build_adaptive_system_prompt(self) -> str:
         base = (
