@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import http.client
 import json
+import ssl
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Generator
+from urllib.parse import urlparse
 
 from lingclaude.core.types import Result
 from lingclaude.model.types import (
@@ -60,6 +63,127 @@ class OpenAIProvider(ModelProvider):
                 self._encoder = _tiktoken.encoding_for_model(self._config.model)
             return len(self._encoder.encode(text))
         return len(text) // 4
+
+    def stream_complete(
+        self,
+        messages: tuple[ModelMessage, ...],
+        config: ModelConfig | None = None,
+        tools: tuple[dict[str, Any], ...] | None = None,
+    ) -> Generator[dict[str, Any], None, None]:
+        cfg = config or self._config
+        if not cfg.api_key:
+            yield {"type": "error", "error": "OpenAI API key 未设置"}
+            return
+
+        base = cfg.base_url or "https://api.openai.com/v1"
+        parsed = urlparse(base)
+        host = parsed.hostname or "api.openai.com"
+        port = parsed.port or 443
+        path = (parsed.path or "/v1").rstrip("/") + "/chat/completions"
+        body = self._build_request_body(messages, cfg, tools)
+        body["stream"] = True
+        headers = {
+            "Authorization": f"Bearer {cfg.api_key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+        content_parts: list[str] = []
+        tool_call_accumulators: dict[int, dict[str, Any]] = {}
+        finish_reason = "stop"
+        usage = ModelUsage()
+
+        try:
+            ctx = ssl.create_default_context()
+            conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=180)
+            conn.request("POST", path, body=json.dumps(body).encode("utf-8"), headers=headers)
+            resp = conn.getresponse()
+
+            if resp.status != 200:
+                error_body = resp.read().decode("utf-8", errors="replace")
+                yield {"type": "error", "error": f"HTTP {resp.status}: {error_body}"}
+                conn.close()
+                return
+
+            while True:
+                line = resp.readline()
+                if not line:
+                    break
+                line = line.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[len("data:"):].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    data = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+
+                choices = data.get("choices", [])
+                if not choices:
+                    continue
+                delta = choices[0].get("delta", {})
+                fr = choices[0].get("finish_reason")
+                if fr:
+                    finish_reason = fr
+
+                if "content" in delta and delta["content"]:
+                    content_parts.append(delta["content"])
+                    yield {"type": "text_delta", "text": delta["content"]}
+
+                raw_tc = delta.get("tool_calls")
+                if raw_tc:
+                    for tc_chunk in raw_tc:
+                        idx = tc_chunk.get("index", 0)
+                        if idx not in tool_call_accumulators:
+                            tool_call_accumulators[idx] = {
+                                "id": tc_chunk.get("id", ""),
+                                "name": "",
+                                "arguments": "",
+                            }
+                        acc = tool_call_accumulators[idx]
+                        if tc_chunk.get("id"):
+                            acc["id"] = tc_chunk["id"]
+                        fn = tc_chunk.get("function", {})
+                        if fn.get("name"):
+                            acc["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            acc["arguments"] += fn["arguments"]
+
+                usage_raw = data.get("usage")
+                if usage_raw:
+                    usage = ModelUsage(
+                        input_tokens=usage_raw.get("prompt_tokens", 0),
+                        output_tokens=usage_raw.get("completion_tokens", 0),
+                    )
+
+            conn.close()
+
+            for idx in sorted(tool_call_accumulators):
+                acc = tool_call_accumulators[idx]
+                yield {
+                    "type": "tool_call_complete",
+                    "id": acc["id"],
+                    "name": acc["name"],
+                    "arguments": acc["arguments"],
+                }
+
+            yield {
+                "type": "finish",
+                "reason": finish_reason,
+                "content": "".join(content_parts),
+                "usage": usage,
+                "model": cfg.model,
+            }
+        except http.client.HTTPException as e:
+            yield {"type": "error", "error": f"HTTP 错误: {e}"}
+        except OSError as e:
+            yield {"type": "error", "error": f"网络错误: {e}"}
+        except Exception as e:
+            yield {"type": "error", "error": str(e)}
 
     def _build_request_body(
         self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,

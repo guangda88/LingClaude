@@ -121,3 +121,20 @@ class ModelProvider(ABC):
     @abstractmethod
     def count_tokens(self, text: str) -> int:
         ...
+
+    def stream_complete(
+        self,
+        messages: tuple[ModelMessage, ...],
+        config: ModelConfig | None = None,
+        tools: tuple[dict[str, Any], ...] | None = None,
+    ) -> Any:
+        result = self.complete(messages, config, tools)
+        if result.is_error:
+            yield {"type": "error", "error": result.error}
+            return
+        resp = result.data
+        if resp.content:
+            yield {"type": "text_delta", "text": resp.content}
+        for tc in resp.tool_calls:
+            yield {"type": "tool_call_complete", "id": tc.id, "name": tc.name, "arguments": tc.arguments}
+        yield {"type": "finish", "reason": resp.finish_reason}
