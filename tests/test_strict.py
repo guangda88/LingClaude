@@ -179,7 +179,8 @@ class TestModelProviderEdgeCases:
         assert result.data.content == "only this counts"
 
     def test_create_provider_with_no_api_key_no_env(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("lingclaude.model.factory._key_store_get", return_value=""):
             result = create_provider(provider_name="openai")
             assert result.is_ok
             provider = result.data
