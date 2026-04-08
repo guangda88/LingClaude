@@ -34,6 +34,16 @@ def _feed_behavior_to_daemon(engine: QueryEngine, config: LingClaudeConfig | Non
         _logger.warning("行为数据写入守护进程失败", exc_info=True)
 
 
+def _get_version() -> str:
+    try:
+        version_file = Path(__file__).resolve().parent.parent / "VERSION"
+        if version_file.exists():
+            return version_file.read_text().strip()
+    except Exception:
+        pass
+    return "0.2.1"
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     engine_result = QueryEngine.from_config_file(args.config)
@@ -44,7 +54,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
     runtime = CodingRuntime(config)
     engine.set_runtime(runtime)
 
-    # Override bash executor type if specified
     if args.bash_executor:
         from dataclasses import replace
         config = replace(config, engine=replace(config.engine, bash_executor_type=args.bash_executor))
@@ -52,31 +61,46 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.prompt:
         if args.interactive:
             return _interactive_loop(engine, args.prompt)
-        print(f"灵克> {args.prompt}")
-        if engine._provider:
-            for event in engine.stream_call_model(args.prompt):
-                _handle_stream_event(event)
-            engine._messages.append(args.prompt)
-            engine._transcript.append(args.prompt)
-        else:
-            result = engine.submit(args.prompt)
-            print(result.output)
-        _feed_behavior_to_daemon(engine, config)
-        if args.verbose:
-            print("\n--- 会话统计 ---")
-            stats = engine.get_stats()
-            print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
-            print(f"用量: {stats['usage']}")
-            bm = engine.behavior_metrics.to_dict()
-            print(f"行为: 幻觉风险={bm['hallucination_risk']:.0%} 沮丧率={bm['frustration_rate']:.0%}")
+        return _single_turn(engine, args.prompt, args.verbose)
+    elif args.interactive:
+        return _interactive_loop(engine, None)
     else:
-        print("灵克 v0.2.0 — 开源 AI 编程助手")
+        version = _get_version()
+        print(f"灵克 v{version} — 开源 AI 编程助手")
         print(f"Config: {args.config or 'default'}")
         print(f"Model: {config.model.provider}/{config.model.model}")
         provider_status = "已连接" if engine._provider else "未配置（回退模式）"
         print(f"Provider: {provider_status}")
-        runtime = CodingRuntime(config)
         print(f"Tools: {len(runtime.registry.list_tools())} registered")
+    return 0
+
+
+def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int:
+    print(f"灵克> {prompt}")
+    if engine._provider:
+        response_content = ""
+        for event in engine.stream_call_model(prompt):
+            _handle_stream_event(event)
+            if event.get("type") == "text_delta":
+                response_content += event.get("text", "")
+            elif event.get("type") == "done":
+                response_content = event.get("content", response_content)
+        if response_content:
+            engine._messages.append(prompt)
+            engine._messages.append(response_content)
+            engine._compact_if_needed()
+            engine._append_to_session_history(prompt, response_content)
+    else:
+        result = engine.submit(prompt)
+        print(result.output)
+    _feed_behavior_to_daemon(engine, None)
+    if verbose:
+        print("\n--- 会话统计 ---")
+        stats = engine.get_stats()
+        print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
+        print(f"用量: {stats['usage']}")
+        bm = engine.behavior_metrics.to_dict()
+        print(f"行为: 幻觉风险={bm['hallucination_risk']:.0%} 沮丧率={bm['frustration_rate']:.0%}")
     return 0
 
 
@@ -116,8 +140,9 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         sys.stdout.flush()
 
 
-def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
-    print("灵克 v0.2.0 — 交互模式（输入 'exit' 或 'quit' 退出）")
+def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
+    version = _get_version()
+    print(f"灵克 v{version} — 交互模式（输入 'exit' 或 'quit' 退出）")
     print(f"Provider: {'已连接' if engine._provider else '未配置（回退模式）'}")
     print()
 
@@ -129,7 +154,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
             print("[输入编码错误，请检查终端编码设置]")
             return ""
 
-    prompt = first_prompt
+    prompt = first_prompt or ""
     while True:
         if not prompt:
             try:
@@ -141,27 +166,27 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str) -> int:
             print("再见！")
             break
         if not prompt:
-            prompt = ""
             continue
 
-        stopped = False
         if engine._provider:
+            response_content = ""
             for event in engine.stream_call_model(prompt):
                 _handle_stream_event(event)
-                if event.get("type") == "error":
-                    stopped = True
-            engine._messages.append(prompt)
-            engine._transcript.append(prompt)
+                if event.get("type") == "text_delta":
+                    response_content += event.get("text", "")
+                elif event.get("type") == "done":
+                    response_content = event.get("content", response_content)
+            if response_content:
+                engine._messages.append(prompt)
+                engine._messages.append(response_content)
+                engine._compact_if_needed()
+                engine._append_to_session_history(prompt, response_content)
         else:
             result = engine.submit(prompt)
             print(f"\n{result.output}\n")
-            if result.stop_reason.value != "completed":
+            if result.stop_reason.value == "max_turns_reached":
                 print(f"[会话结束: {result.stop_reason.value}]")
-                stopped = True
         _feed_behavior_to_daemon(engine, None)
-
-        if stopped:
-            break
 
         prompt = ""
         try:
@@ -242,8 +267,11 @@ def _cmd_session(args: argparse.Namespace) -> int:
         if not sessions:
             print("No sessions found.")
         else:
-            for sid in sessions:
-                print(f"  {sid}")
+            for info in sessions:
+                sid = info["session_id"]
+                proj = info.get("project_name", "")
+                created = info.get("created_at", "")
+                print(f"  {sid}  [{proj}] {created}")
     elif args.session_action == "delete":
         if not args.session_id:
             print("Error: session ID required for delete")
