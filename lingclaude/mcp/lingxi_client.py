@@ -30,7 +30,7 @@ class LingXiClient:
 
     def __init__(
         self,
-        server_path: str = "/home/ai/Ling-term-mcp/dist/index.js",
+        server_path: str = "/home/ai/Ling-term-mcp/dist/cli.js",
         node_path: str = "node",
     ):
         """初始化客户端

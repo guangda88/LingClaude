@@ -164,7 +164,7 @@ class QueryEngine:
         matched_tools: tuple[str, ...] = (),
         denied_tools: tuple[PermissionDenial, ...] = (),
     ) -> TurnResult:
-        if len(self._messages) >= self.config.max_turns:
+        if len(self._messages) // 2 >= self.config.max_turns:
             return TurnResult(
                 prompt=prompt,
                 output=f"已达最大轮次 ({self.config.max_turns})。",
@@ -183,7 +183,8 @@ class QueryEngine:
             stop_reason = StopReason.MAX_BUDGET_REACHED
 
         self._messages.append(prompt)
-        self._transcript.append(prompt)
+        self._messages.append(output)
+        self._transcript.append(output)
         self._denials.extend(denied_tools)
         self._usage = projected
         self._compact_if_needed()
@@ -243,6 +244,12 @@ class QueryEngine:
         self._messages = list(session.messages)
         self._usage = UsageSummary(session.input_tokens, session.output_tokens)
         self._transcript = list(session.messages)
+        self._conversation.clear()
+        for i in range(0, len(session.messages) - 1, 2):
+            user_msg = session.messages[i]
+            asst_msg = session.messages[i + 1] if i + 1 < len(session.messages) else ""
+            self._conversation.append(("user", user_msg))
+            self._conversation.append(("assistant", asst_msg))
         return True
 
     def reset(self) -> None:
@@ -255,7 +262,7 @@ class QueryEngine:
 
     @property
     def turn_count(self) -> int:
-        return len(self._messages)
+        return len(self._messages) // 2
 
     @property
     def usage(self) -> UsageSummary:
@@ -264,7 +271,7 @@ class QueryEngine:
     def get_stats(self) -> dict[str, object]:
         return {
             "session_id": self.session_id,
-            "turns": len(self._messages),
+            "turns": len(self._messages) // 2,
             "usage": self._usage.to_dict(),
             "denials": len(self._denials),
             "transcript_size": len(self._transcript),
@@ -591,10 +598,10 @@ class QueryEngine:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
     def _compact_if_needed(self) -> None:
-        if len(self._messages) > self.config.compact_after_turns:
-            half = self.config.compact_after_turns // 2
+        if len(self._messages) > self.config.compact_after_turns * 2:
+            half = (self.config.compact_after_turns // 2) * 2
             kept = self._messages[-half:]
-            summary = f"[前 {len(self._messages) - half} 轮对话已压缩]"
+            summary = f"[前 {(len(self._messages) - half) // 2} 轮对话已压缩]"
             self._messages[:] = [summary] + kept
         conv_limit = self.config.compact_after_turns * 2
         if len(self._conversation) > conv_limit:

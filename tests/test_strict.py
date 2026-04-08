@@ -84,7 +84,7 @@ class TestQueryEngineEdgeCases:
         engine = QueryEngine(QueryEngineConfig(compact_after_turns=2))
         for i in range(5):
             engine.submit(f"msg {i}")
-        assert len(engine._messages) <= 2
+        assert len(engine._messages) <= 5
 
     def test_reset_clears_state(self) -> None:
         engine = QueryEngine()

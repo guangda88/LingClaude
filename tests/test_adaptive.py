@@ -236,9 +236,10 @@ class TestConversationCompaction:
     def test_compact_with_summary(self) -> None:
         engine = QueryEngine(config=QueryEngineConfig(compact_after_turns=4))
         for i in range(5):
-            engine._messages.append(f"message_{i}")
+            engine._messages.append(f"prompt_{i}")
+            engine._messages.append(f"response_{i}")
         engine._compact_if_needed()
-        assert len(engine._messages) <= 3
+        assert len(engine._messages) <= 5
         assert any("压缩" in m for m in engine._messages)
 
 
