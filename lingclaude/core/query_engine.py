@@ -13,6 +13,9 @@ from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent, detect_emotion, detect_intent, is_tool_intent
 from lingclaude.core.intel import IntelCollector, DailyDigest, DailyDigestGenerator, IntelRelay
+from lingclaude.core.prior_verifier import PriorVerifier
+from lingclaude.core.meta_cognition import MetaCognition, Domain
+from lingclaude.core.layered_memory import LayeredMemory, Experience, EmotionIntensity
 from lingclaude.model.intelligent_router import IntelligentRouter
 from lingclaude.core.context_cache import ContextCache
 from lingclaude.core.task_aggregation import TaskAggregator, TaskPriority
@@ -83,6 +86,9 @@ class QueryEngine:
         self._cache = ContextCache(cache_size=100, ttl_hours=24)
         self._aggregator = TaskAggregator(max_group_size=5)
         self._monitor = TokenMonitor()
+        self._prior_verifier = PriorVerifier()
+        self._meta_cognition = MetaCognition()
+        self._layered_memory = LayeredMemory()
 
     def init_mailbox(self, mailbox: Any) -> None:
         self._mailbox = mailbox
@@ -95,6 +101,18 @@ class QueryEngine:
     @property
     def behavior_metrics(self) -> BehaviorMetrics:
         return self._behavior
+
+    @property
+    def layered_memory(self) -> LayeredMemory:
+        return self._layered_memory
+
+    @property
+    def meta_cognition(self) -> MetaCognition:
+        return self._meta_cognition
+
+    @property
+    def prior_verifier(self) -> PriorVerifier:
+        return self._prior_verifier
 
     @classmethod
     def from_config_file(cls, config_path: str | None = None) -> Result[QueryEngine]:
@@ -259,6 +277,7 @@ class QueryEngine:
         self._denials.clear()
         self._usage = UsageSummary()
         self._transcript.clear()
+        self._layered_memory.working.clear()
 
     @property
     def turn_count(self) -> int:
@@ -308,6 +327,22 @@ class QueryEngine:
         )
         self._collect_behavior_intel()
 
+        if intent == Intent.CORRECTION:
+            self._meta_cognition.record_failure(
+                Domain.CODE_UNDERSTANDING, error_description=prompt[:100],
+            )
+            exp = Experience.create(
+                problem=prompt[:200],
+                reflection=f"用户纠正: {output[:100]}",
+                emotion=EmotionIntensity.MEDIUM,
+                associations=("correction", "user_feedback"),
+            )
+            self._layered_memory.record_experience(exp)
+        elif used_tools:
+            self._meta_cognition.record_success(Domain.CODE_UNDERSTANDING)
+        else:
+            self._meta_cognition.record_success(Domain.GENERAL_KNOWLEDGE)
+
     def _call_model(self, prompt: str) -> str:
         from lingclaude.model.types import ModelMessage, MessageRole
 
@@ -351,7 +386,11 @@ class QueryEngine:
                         self._track_behavior(prompt, content, used_tools=used_tools)
                         self._conversation.append(("user", prompt))
                         self._conversation.append(("assistant", content))
+                        self._layered_memory.working.append("user", prompt)
+                        self._layered_memory.working.append("assistant", content)
                         return content
+                vr = self._prior_verifier.analyze(response.content, used_tools=used_tools)
+                final_content = vr.corrected_text if vr.corrected_text else response.content
                 self._track_behavior(prompt, response.content, used_tools=used_tools)
                 self._usage = self._usage.add_usage(response.usage.input_tokens, response.usage.output_tokens)
                 self._monitor.record_usage(
@@ -362,8 +401,10 @@ class QueryEngine:
                     output_tokens=response.usage.output_tokens,
                 )
                 self._conversation.append(("user", prompt))
-                self._conversation.append(("assistant", response.content))
-                return response.content
+                self._conversation.append(("assistant", final_content))
+                self._layered_memory.working.append("user", prompt)
+                self._layered_memory.working.append("assistant", final_content)
+                return final_content
 
             used_tools = True
             self._behavior = self._behavior.record_tool_calls(count=len(response.tool_calls))
@@ -386,7 +427,9 @@ class QueryEngine:
                 ))
 
         content = response.content if response and response.content else "[达到最大工具调用轮次]"
-        self._track_behavior(prompt, content, used_tools=used_tools)
+        vr = self._prior_verifier.analyze(content, used_tools=used_tools)
+        final_content = vr.corrected_text if vr.corrected_text else content
+        self._track_behavior(prompt, final_content, used_tools=used_tools)
         if response:
             self._usage = self._usage.add_usage(total_input, total_output)
             self._monitor.record_usage(
@@ -397,8 +440,10 @@ class QueryEngine:
                 output_tokens=total_output,
             )
         self._conversation.append(("user", prompt))
-        self._conversation.append(("assistant", content))
-        return content
+        self._conversation.append(("assistant", final_content))
+        self._layered_memory.working.append("user", prompt)
+        self._layered_memory.working.append("assistant", final_content)
+        return final_content
 
     def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
         from lingclaude.model.types import ModelMessage, MessageRole, ModelUsage, ToolCall
@@ -457,12 +502,16 @@ class QueryEngine:
                     if corrected:
                         yield {"type": "text_delta", "text": corrected}
                         content = corrected
-                self._track_behavior(prompt, content, used_tools=used_tools)
+                vr = self._prior_verifier.analyze(content, used_tools=used_tools)
+                final_content = vr.corrected_text if vr.corrected_text else content
+                self._track_behavior(prompt, final_content, used_tools=used_tools)
                 self._usage = self._usage.add_usage(total_input, total_output)
-                response_content = content
+                response_content = final_content
                 self._conversation.append(("user", prompt))
-                self._conversation.append(("assistant", content))
-                yield {"type": "done", "content": content}
+                self._conversation.append(("assistant", final_content))
+                self._layered_memory.working.append("user", prompt)
+                self._layered_memory.working.append("assistant", final_content)
+                yield {"type": "done", "content": final_content}
                 return
 
             used_tools = True
@@ -495,11 +544,15 @@ class QueryEngine:
                 ))
 
         content = response_content or "[达到最大工具调用轮次]"
-        self._track_behavior(prompt, content, used_tools=used_tools)
+        vr = self._prior_verifier.analyze(content, used_tools=used_tools)
+        final_content = vr.corrected_text if vr.corrected_text else content
+        self._track_behavior(prompt, final_content, used_tools=used_tools)
         self._usage = self._usage.add_usage(total_input, total_output)
         self._conversation.append(("user", prompt))
-        self._conversation.append(("assistant", content))
-        yield {"type": "done", "content": content}
+        self._conversation.append(("assistant", final_content))
+        self._layered_memory.working.append("user", prompt)
+        self._layered_memory.working.append("assistant", final_content)
+        yield {"type": "done", "content": final_content}
 
     def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
         bm = self._behavior
@@ -666,6 +719,14 @@ class QueryEngine:
 
         extras: list[str] = []
         bm = self._behavior
+
+        memory_text = self._layered_memory.inject_common_to_prompt()
+        if memory_text:
+            extras.append("\n\n" + memory_text)
+
+        meta_text = self._meta_cognition.get_system_prompt_injection()
+        if meta_text:
+            extras.append("\n\n" + meta_text)
 
         if bm.hallucination_risk > 0.3:
             extras.append(
