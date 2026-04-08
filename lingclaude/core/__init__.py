@@ -17,6 +17,12 @@ from lingclaude.core.intel import (
     DailyDigestGenerator,
     IntelRelay,
 )
+from lingclaude.core.prior_verifier import PriorVerifier, AssertionLevel, Assertion, VerificationResult
+from lingclaude.core.meta_cognition import MetaCognition, Domain, ConfidenceLevel, CognitiveBoundary, MetaCognitiveSnapshot
+from lingclaude.core.layered_memory import (
+    LayeredMemory, Experience, EmotionIntensity, MemoryLayer,
+    CommonKnowledge, WorkingMemory, ExperienceStore, InMemoryExperienceStore, ebbinghaus_weight,
+)
 
 __all__ = [
     "Result",
@@ -37,4 +43,22 @@ __all__ = [
     "DailyDigest",
     "DailyDigestGenerator",
     "IntelRelay",
+    "PriorVerifier",
+    "AssertionLevel",
+    "Assertion",
+    "VerificationResult",
+    "MetaCognition",
+    "Domain",
+    "ConfidenceLevel",
+    "CognitiveBoundary",
+    "MetaCognitiveSnapshot",
+    "LayeredMemory",
+    "Experience",
+    "EmotionIntensity",
+    "MemoryLayer",
+    "CommonKnowledge",
+    "WorkingMemory",
+    "ExperienceStore",
+    "InMemoryExperienceStore",
+    "ebbinghaus_weight",
 ]
