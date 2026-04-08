@@ -348,6 +348,9 @@ class QueryEngine:
                 if self._should_hallucination_correct(prompt, used_tools):
                     content = self._hallucination_correction(messages, content, tools, resolved_config)
                     if content:
+                        self._track_behavior(prompt, content, used_tools=used_tools)
+                        self._conversation.append(("user", prompt))
+                        self._conversation.append(("assistant", content))
                         return content
                 self._track_behavior(prompt, response.content, used_tools=used_tools)
                 self._usage = self._usage.add_usage(response.usage.input_tokens, response.usage.output_tokens)
@@ -382,7 +385,8 @@ class QueryEngine:
                     tool_call_id=tc.id,
                 ))
 
-        self._track_behavior(prompt, response.content if response else "", used_tools=used_tools)
+        content = response.content if response and response.content else "[达到最大工具调用轮次]"
+        self._track_behavior(prompt, content, used_tools=used_tools)
         if response:
             self._usage = self._usage.add_usage(total_input, total_output)
             self._monitor.record_usage(
@@ -392,7 +396,9 @@ class QueryEngine:
                 input_tokens=total_input,
                 output_tokens=total_output,
             )
-        return response.content if response and response.content else "[达到最大工具调用轮次]"
+        self._conversation.append(("user", prompt))
+        self._conversation.append(("assistant", content))
+        return content
 
     def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
         from lingclaude.model.types import ModelMessage, MessageRole, ModelUsage, ToolCall
@@ -488,12 +494,12 @@ class QueryEngine:
                     tool_call_id=tc.id,
                 ))
 
-        self._track_behavior(prompt, response_content, used_tools=used_tools)
+        content = response_content or "[达到最大工具调用轮次]"
+        self._track_behavior(prompt, content, used_tools=used_tools)
         self._usage = self._usage.add_usage(total_input, total_output)
-        if response_content:
-            self._conversation.append(("user", prompt))
-            self._conversation.append(("assistant", response_content))
-        yield {"type": "done", "content": response_content or "[达到最大工具调用轮次]"}
+        self._conversation.append(("user", prompt))
+        self._conversation.append(("assistant", content))
+        yield {"type": "done", "content": content}
 
     def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
         bm = self._behavior
