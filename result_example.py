@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""
+Result 类使用示例
+演示 Result.ok() 和 Result.fail() 的用法
+"""
+
+from typing import Dict, List, Optional, TypeVar, Generic
+
+T = TypeVar('T')
+
+# 模拟 Result 类（基于实际实现）
+class Result(Generic[T]):
+    """简化的 Result 类用于演示"""
+    
+    def __init__(self, success: bool, data=None, error: str = None, code: str = None):
+        self.success = success
+        self.data = data
+        self.error = error
+        self.code = code
+    
+    @classmethod
+    def ok(cls, data, code: str = None):
+        """创建成功结果"""
+        return cls(success=True, data=data, code=code)
+    
+    @classmethod
+    def fail(cls, error: str, code: str = None):
+        """创建失败结果"""
+        return cls(success=False, error=error, code=code)
+    
+    @property
+    def is_ok(self):
+        return self.success
+    
+    @property
+    def is_error(self):
+        return not self.success
+    
+    def __str__(self):
+        if self.success:
+            return f"Result(success=True, data={self.data}, code={self.code})"
+        else:
+            return f"Result(success=False, error='{self.error}', code={self.code})"
+
+
+# 示例 1: 基本用法
+def example_basic():
+    print("=== 示例 1: 基本用法 ===")
+    
+    # 创建成功结果
+    success_result = Result.ok(data="操作成功", code="SUCCESS_200")
+    print(f"成功结果: {success_result}")
+    print(f"是否成功: {success_result.is_ok}")
+    print(f"数据: {success_result.data}")
+    print(f"错误: {success_result.error}")
+    print()
+    
+    # 创建失败结果
+    fail_result = Result.fail(error="文件不存在", code="FILE_NOT_FOUND")
+    print(f"失败结果: {fail_result}")
+    print(f"是否失败: {fail_result.is_error}")
+    print(f"数据: {fail_result.data}")
+    print(f"错误: {fail_result.error}")
+    print()
+
+
+# 示例 2: 不同类型的数据
+def example_different_types():
+    print("=== 示例 2: 不同类型的数据 ===")
+    
+    # 字符串类型
+    str_result = Result.ok(data="Hello World", code="STRING_RESULT")
+    print(f"字符串结果: {str_result}")
+    
+    # 字典类型
+    dict_result = Result.ok(data={"id": 123, "name": "Alice"}, code="DICT_RESULT")
+    print(f"字典结果: {dict_result}")
+    
+    # 列表类型
+    list_result = Result.ok(data=[1, 2, 3, 4, 5], code="LIST_RESULT")
+    print(f"列表结果: {list_result}")
+    
+    # 整数类型
+    int_result = Result.ok(data=42, code="INT_RESULT")
+    print(f"整数结果: {int_result}")
+    print()
+
+
+# 示例 3: 实际应用场景
+def example_practical():
+    print("=== 示例 3: 实际应用场景 ===")
+    
+    def validate_user_input(username: str, password: str) -> Result[Dict]:
+        """验证用户输入"""
+        if not username or not password:
+            return Result.fail(
+                error="用户名和密码不能为空",
+                code="VALIDATION_ERROR"
+            )
+        
+        if len(password) < 6:
+            return Result.fail(
+                error="密码长度至少6位",
+                code="PASSWORD_TOO_SHORT"
+            )
+        
+        # 模拟验证成功
+        user_data = {
+            "username": username,
+            "user_id": 1001,
+            "created_at": "2024-01-01"
+        }
+        return Result.ok(data=user_data, code="VALIDATION_SUCCESS")
+    
+    def authenticate_user(username: str, password: str) -> Result[Dict]:
+        """用户认证"""
+        # 先验证输入
+        validation_result = validate_user_input(username, password)
+        if validation_result.is_error:
+            return validation_result
+        
+        # 模拟数据库查询
+        if username == "admin" and password == "admin123":
+            user_info = {
+                "username": username,
+                "role": "administrator",
+                "permissions": ["read", "write", "delete"]
+            }
+            return Result.ok(data=user_info, code="AUTH_SUCCESS")
+        else:
+            return Result.fail(
+                error="用户名或密码错误",
+                code="AUTH_FAILED"
+            )
+    
+    # 测试用例
+    test_cases = [
+        ("", ""),  # 空输入
+        ("user", "123"),  # 密码太短
+        ("admin", "wrong"),  # 密码错误
+        ("admin", "admin123"),  # 正确
+    ]
+    
+    for username, password in test_cases:
+        print(f"\n测试: username='{username}', password='{password}'")
+        result = authenticate_user(username, password)
+        
+        if result.is_ok:
+            print(f"✓ 认证成功: {result.data}")
+            print(f"  状态码: {result.code}")
+        else:
+            print(f"✗ 认证失败: {result.error}")
+            print(f"  错误码: {result.code}")
+
+
+# 示例 4: 链式操作
+def example_chaining():
+    print("\n=== 示例 4: 链式操作 ===")
+    
+    def parse_number(value: str) -> Result[int]:
+        """解析字符串为整数"""
+        try:
+            number = int(value)
+            return Result.ok(data=number, code="PARSE_SUCCESS")
+        except ValueError:
+            return Result.fail(
+                error=f"无法解析为整数: {value}",
+                code="PARSE_ERROR"
+            )
+    
+    def validate_range(number: int, min_val: int, max_val: int) -> Result[int]:
+        """验证数字范围"""
+        if min_val <= number <= max_val:
+            return Result.ok(data=number, code="RANGE_VALID")
+        else:
+            return Result.fail(
+                error=f"数字 {number} 不在范围 [{min_val}, {max_val}] 内",
+                code="RANGE_INVALID"
+            )
+    
+    def process_input(value: str) -> Result[int]:
+        """处理输入：解析并验证"""
+        # 解析
+        parse_result = parse_number(value)
+        if parse_result.is_error:
+            return parse_result
+        
+        # 验证范围
+        return validate_range(parse_result.data, 1, 100)
+    
+    # 测试
+    test_inputs = ["abc", "0", "50", "150"]
+    
+    for input_val in test_inputs:
+        result = process_input(input_val)
+        if result.is_ok:
+            print(f"输入 '{input_val}': ✓ 有效数字 {result.data}")
+        else:
+            print(f"输入 '{input_val}': ✗ {result.error}")
+
+
+def main():
+    """主函数"""
+    print("Result.ok() 和 Result.fail() 使用示例\n")
+    
+    example_basic()
+    example_different_types()
+    example_practical()
+    example_chaining()
+    
+    print("\n=== 总结 ===")
+    print("Result.ok(data, code=None): 创建成功结果，data 必需，code 可选")
+    print("Result.fail(error, code=None): 创建失败结果，error 必需，code 可选")
+    print("使用 Result 模式可以避免异常，提供类型安全的错误处理")
+
+
+if __name__ == "__main__":
+    main()
