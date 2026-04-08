@@ -78,8 +78,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
 def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int:
     print(f"灵克> {prompt}")
     if engine._provider:
+        sys.stdout.write("思考中...\r")
+        sys.stdout.flush()
         response_content = ""
+        got_first_token = False
         for event in engine.stream_call_model(prompt):
+            if not got_first_token and event.get("type") in ("text_delta", "error"):
+                got_first_token = True
+                sys.stdout.write("            \r")
+                sys.stdout.flush()
             _handle_stream_event(event)
             if event.get("type") == "text_delta":
                 response_content += event.get("text", "")
@@ -137,6 +144,7 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         sys.stdout.flush()
     elif etype == "error":
         sys.stdout.write(f"\n[错误] {event.get('error', '')}\n")
+        sys.stdout.write("提示: 请检查网络连接，或在 config.yaml 中确认 model.api_key 已设置\n")
         sys.stdout.flush()
 
 
@@ -169,8 +177,15 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             continue
 
         if engine._provider:
+            sys.stdout.write("思考中...\r")
+            sys.stdout.flush()
             response_content = ""
+            got_first_token = False
             for event in engine.stream_call_model(prompt):
+                if not got_first_token and event.get("type") in ("text_delta", "error"):
+                    got_first_token = True
+                    sys.stdout.write("            \r")
+                    sys.stdout.flush()
                 _handle_stream_event(event)
                 if event.get("type") == "text_delta":
                     response_content += event.get("text", "")
