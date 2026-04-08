@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import http.client
 import json
+import logging
 import ssl
+import time
 import urllib.error
 import urllib.request
 from typing import Any, Generator
@@ -22,6 +24,8 @@ try:
     import tiktoken as _tiktoken
 except ImportError:
     _tiktoken = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIProvider(ModelProvider):
@@ -95,7 +99,7 @@ class OpenAIProvider(ModelProvider):
 
         try:
             ctx = ssl.create_default_context()
-            conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=180)
+            conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=60)
             conn.request("POST", path, body=json.dumps(body).encode("utf-8"), headers=headers)
             resp = conn.getresponse()
 
@@ -105,7 +109,13 @@ class OpenAIProvider(ModelProvider):
                 conn.close()
                 return
 
+            stream_start = time.monotonic()
+            STREAM_MAX_SECONDS = 120
             while True:
+                if time.monotonic() - stream_start > STREAM_MAX_SECONDS:
+                    yield {"type": "error", "error": "流式响应超时（120秒），请重试或检查网络连接"}
+                    conn.close()
+                    return
                 line = resp.readline()
                 if not line:
                     break
@@ -226,7 +236,7 @@ class OpenAIProvider(ModelProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="replace")
