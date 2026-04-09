@@ -297,10 +297,26 @@ class TestPrePushRunTests(unittest.TestCase):
             self.assertFalse(ok)
 
     def test_run_tests_bad_dir(self) -> None:
-        with patch("pre_push._run") as mock_run:
-            mock_run.return_value = (False, "No such file or directory")
-            ok = pre_push.run_tests(repo_path="/tmp/nonexistent_xyz")
+        tmpdir = tempfile.mkdtemp(prefix="test_bad_dir_")
+        try:
+            tests_dir = Path(tmpdir) / "tests"
+            tests_dir.mkdir(parents=True, exist_ok=True)
+            with patch("pre_push._run") as mock_run:
+                mock_run.return_value = (False, "No such file or directory")
+                ok = pre_push.run_tests(repo_path=tmpdir)
             self.assertFalse(ok)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_run_tests_no_tests_dir(self) -> None:
+        tmpdir = tempfile.mkdtemp(prefix="test_no_tests_")
+        try:
+            ok = pre_push.run_tests(repo_path=tmpdir)
+            self.assertTrue(ok)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 class TestPrePushDiffSummary(unittest.TestCase):
@@ -618,13 +634,9 @@ class TestMainL1L2Integration(unittest.TestCase):
 
             with patch("os.getcwd", return_value=tmpdir), \
                  patch("sys.stdin") as mock_stdin, \
-                 patch("pre_push.LING_REPOS", {"TestRepo": tmpdir}), \
                  patch("pre_push.run_tests", return_value=True), \
                  patch("pre_push.get_diff_summary", return_value=(1, "1 file")), \
-                 patch("pre_push.get_changed_py_files", side_effect=mock_get_changed), \
-                 patch("pre_push.audit_L2", return_value=[]), \
-                 patch("pre_push.send_audit_request", return_value="fakethread123"), \
-                 patch("pre_push.poll_audit_reply", return_value=("PASS", "")):
+                 patch("pre_push.get_changed_py_files", side_effect=mock_get_changed):
                 mock_stdin.read.return_value = "origin url refs/heads/master abc123 def456"
                 ret = pre_push.main()
             self.assertEqual(ret, 1)
@@ -648,6 +660,38 @@ class TestMainL1L2Integration(unittest.TestCase):
                  patch("pre_push.audit_L2", return_value=["[L2:DEP_DIRTY] warning"]), \
                  patch("pre_push.send_audit_request", return_value="fakethread123"), \
                  patch("pre_push.poll_audit_reply", return_value=("PASS", "")):
+                mock_stdin.read.return_value = "origin url refs/heads/master abc123 def456"
+                ret = pre_push.main()
+            self.assertEqual(ret, 0)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_non_ling_repo_passes_L1_only(self) -> None:
+        tmpdir = tempfile.mkdtemp(prefix="test_main_")
+        try:
+            py_file = Path(tmpdir) / "clean.py"
+            py_file.write_text("x = 1\n")
+
+            with patch("os.getcwd", return_value=tmpdir), \
+                 patch("sys.stdin") as mock_stdin, \
+                 patch("pre_push.run_tests", return_value=True), \
+                 patch("pre_push.get_diff_summary", return_value=(1, "1 file")), \
+                 patch("pre_push.get_changed_py_files", return_value=["clean.py"]):
+                mock_stdin.read.return_value = "origin url refs/heads/master abc123 def456"
+                ret = pre_push.main()
+            self.assertEqual(ret, 0)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_no_tests_dir_passes(self) -> None:
+        tmpdir = tempfile.mkdtemp(prefix="test_main_")
+        try:
+            with patch("os.getcwd", return_value=tmpdir), \
+                 patch("sys.stdin") as mock_stdin, \
+                 patch("pre_push.get_diff_summary", return_value=(1, "1 file")), \
+                 patch("pre_push.get_changed_py_files", return_value=[]):
                 mock_stdin.read.return_value = "origin url refs/heads/master abc123 def456"
                 ret = pre_push.main()
             self.assertEqual(ret, 0)
@@ -714,6 +758,158 @@ class TestLingPushL1L2(unittest.TestCase):
             critical = ling_push.run_L1L2_audit(repos)
         mock_l1.assert_not_called()
         self.assertEqual(len(critical), 0)
+
+
+class TestRetryBehavior(unittest.TestCase):
+    """Test retry logic with exponential backoff."""
+
+    def test_pre_push_run_retries_on_timeout(self) -> None:
+        """Test that _run in pre-push retries on TimeoutExpired."""
+        call_count = [0]
+
+        def mock_subprocess_run(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] < 3:
+                raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout", 30))
+            else:
+                return subprocess.CompletedProcess(
+                    args=args[0], returncode=0,
+                    stdout="success", stderr=""
+                )
+
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            with patch.object(pre_push, "_log"):
+                ok, output = pre_push._run(["echo", "test"], max_retries=5)
+
+        self.assertTrue(ok)
+        self.assertEqual(output, "success")
+        self.assertEqual(call_count[0], 3)
+
+    def test_pre_push_run_retries_on_rate_limit(self) -> None:
+        """Test that _run in pre-push retries on rate limit errors."""
+        call_count = [0]
+
+        def mock_subprocess_run(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] < 2:
+                return subprocess.CompletedProcess(
+                    args=args[0], returncode=1,
+                    stdout="", stderr="Too Many Requests"
+                )
+            else:
+                return subprocess.CompletedProcess(
+                    args=args[0], returncode=0,
+                    stdout="success", stderr=""
+                )
+
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            with patch.object(pre_push, "_log"):
+                ok, output = pre_push._run(["echo", "test"], max_retries=5)
+
+        self.assertTrue(ok)
+        self.assertEqual(output, "success")
+        self.assertEqual(call_count[0], 2)
+
+    def test_pre_push_run_fails_after_max_retries(self) -> None:
+        """Test that _run in pre-push fails after max retries."""
+        def mock_subprocess_run(*args, **kwargs):
+            raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout", 30))
+
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            with patch.object(pre_push, "_log"):
+                ok, output = pre_push._run(["echo", "test"], max_retries=2)
+
+        self.assertFalse(ok)
+        self.assertIn("Failed after 2 retries", output)
+
+    def test_pre_push_run_no_retry_for_non_retryable_error(self) -> None:
+        """Test that _run in pre-push doesn't retry on non-retryable errors."""
+        call_count = [0]
+
+        def mock_subprocess_run(*args, **kwargs):
+            call_count[0] += 1
+            return subprocess.CompletedProcess(
+                args=args[0], returncode=1,
+                stdout="", stderr="permission denied"
+            )
+
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
+            ok, output = pre_push._run(["echo", "test"], max_retries=5)
+
+        self.assertFalse(ok)
+        self.assertEqual(output, "permission denied")
+        self.assertEqual(call_count[0], 1)
+
+    def test_ling_push_push_repos_retries_on_timeout(self) -> None:
+        """Test that push_repos retries on network timeout."""
+        call_count = [0]
+
+        def mock_subprocess_run(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] < 2:
+                raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout", 60))
+            else:
+                return subprocess.CompletedProcess(
+                    args=args[0], returncode=0,
+                    stdout="", stderr=""
+                )
+
+        repos = [ling_push.RepoAudit(
+            name="LingClaude", path="/home/ai/LingClaude",
+            branch="master", remote="origin", ahead=1,
+        )]
+
+        with patch("ling_push.subprocess.run", side_effect=mock_subprocess_run):
+            with patch("sys.stdout"):
+                results = ling_push.push_repos(repos)
+
+        self.assertTrue(results["LingClaude"])
+        self.assertEqual(call_count[0], 2)
+
+    def test_ling_push_push_repos_retries_on_rate_limit(self) -> None:
+        """Test that push_repos retries on rate limit errors."""
+        call_count = [0]
+
+        def mock_subprocess_run(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] < 2:
+                raise subprocess.CalledProcessError(
+                    returncode=1, cmd=args[0],
+                    output="", stderr="429 Too Many Requests"
+                )
+            else:
+                return subprocess.CompletedProcess(
+                    args=args[0], returncode=0,
+                    stdout="", stderr=""
+                )
+
+        repos = [ling_push.RepoAudit(
+            name="LingClaude", path="/home/ai/LingClaude",
+            branch="master", remote="origin", ahead=1,
+        )]
+
+        with patch("ling_push.subprocess.run", side_effect=mock_subprocess_run):
+            with patch("sys.stdout"):
+                results = ling_push.push_repos(repos)
+
+        self.assertTrue(results["LingClaude"])
+        self.assertEqual(call_count[0], 2)
+
+    def test_ling_push_push_repos_fails_after_max_retries(self) -> None:
+        """Test that push_repos fails after max retries."""
+        def mock_subprocess_run(*args, **kwargs):
+            raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout", 60))
+
+        repos = [ling_push.RepoAudit(
+            name="LingClaude", path="/home/ai/LingClaude",
+            branch="master", remote="origin", ahead=1,
+        )]
+
+        with patch("ling_push.subprocess.run", side_effect=mock_subprocess_run):
+            with patch("sys.stdout"):
+                results = ling_push.push_repos(repos)
+
+        self.assertFalse(results["LingClaude"])
 
 
 class TestLingPushCLI(unittest.TestCase):
