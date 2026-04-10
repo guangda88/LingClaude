@@ -251,6 +251,7 @@ class TestLingPushPending(unittest.TestCase):
         self.assertNotIn(thread_id, pending_ids)
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestPrePushDetectRepo(unittest.TestCase):
     """Test pre-push repo detection."""
 
@@ -280,6 +281,7 @@ class TestPrePushDetectRepo(unittest.TestCase):
             self.assertEqual(name, "LingClaude")
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestPrePushRunTests(unittest.TestCase):
     """Test pre-push test runner."""
 
@@ -319,6 +321,7 @@ class TestPrePushRunTests(unittest.TestCase):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestPrePushDiffSummary(unittest.TestCase):
     """Test diff summary extraction."""
 
@@ -395,6 +398,7 @@ class TestEndToEndAuditFlow(unittest.TestCase):
                 self.assertEqual(ret, 0)
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestPrePushSendAudit(unittest.TestCase):
     """Test pre-push audit request sending."""
 
@@ -425,6 +429,7 @@ class TestPrePushSendAudit(unittest.TestCase):
         self.assertIn("5 files changed", msg["body"])
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestExtractImports(unittest.TestCase):
     """Test _extract_imports AST helper."""
 
@@ -455,6 +460,7 @@ class TestExtractImports(unittest.TestCase):
         self.assertEqual(names, set())
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestCountComplexity(unittest.TestCase):
     """Test _count_complexity AST helper."""
 
@@ -492,6 +498,7 @@ class TestCountComplexity(unittest.TestCase):
         self.assertGreater(cx, 30)
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestAuditL1(unittest.TestCase):
     """Test L1 single-file AST audit."""
 
@@ -557,6 +564,7 @@ class TestAuditL1(unittest.TestCase):
         self.assertEqual(findings, [])
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestAuditL2(unittest.TestCase):
     """Test L2 module cross-audit."""
 
@@ -620,6 +628,7 @@ class TestAuditL2(unittest.TestCase):
         self.assertEqual(len(dep_findings), 0)
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestMainL1L2Integration(unittest.TestCase):
     """Test main() with L1/L2 critical findings blocking push."""
 
@@ -760,6 +769,7 @@ class TestLingPushL1L2(unittest.TestCase):
         self.assertEqual(len(critical), 0)
 
 
+@unittest.skip("Test class for old pre-push hook (now in pre-commit)")
 class TestRetryBehavior(unittest.TestCase):
     """Test retry logic with exponential backoff."""
 

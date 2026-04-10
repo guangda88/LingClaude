@@ -82,7 +82,7 @@ def is_git_repo(path: str = ".") -> bool:
 
 def git_status(path: str = ".", short: bool = True) -> Result[dict[str, Any]]:
     args = ["status", "--porcelain"] if short else ["status"]
-    r = _run_git(args + ["--", path], cwd=path)
+    r = _run_git(args, cwd=path)
     if not r.success:
         return Result.fail(r.error)
 
@@ -90,10 +90,14 @@ def git_status(path: str = ".", short: bool = True) -> Result[dict[str, Any]]:
     if short and r.output.strip():
         for line in r.output.strip().split("\n"):
             if len(line) >= 4:
-                files.append({
-                    "status": line[:2].strip(),
-                    "path": line[3:].strip(),
-                })
+                status = line[:2].strip()
+                path = line[3:].strip()
+                # Ignore .audit directory created by pre-commit hooks
+                if not path.startswith(".audit/"):
+                    files.append({
+                        "status": status,
+                        "path": path,
+                    })
 
     return Result.ok({
         "raw": r.output,
