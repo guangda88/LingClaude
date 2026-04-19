@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 import sys
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)

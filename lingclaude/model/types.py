@@ -24,7 +24,7 @@ class ModelMessage:
     tool_calls: tuple[ToolCall, ...] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"role": self.role.value, "content": self.content}
+        d: dict[str, Any] = {"role": getattr(self.role, "value", self.role), "content": self.content}
         if self.name is not None:
             d["name"] = self.name
         if self.tool_call_id is not None:

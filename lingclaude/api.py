@@ -183,12 +183,25 @@ async def lingmessage_notify(payload: dict, api_key: str = Security(verify_api_k
     """灵信通知端点 — 收到通知后在后台线程中生成回复。"""
     import threading
 
-    event = payload.get("event")
-    from_member = payload.get("from")
+    event = payload.get("event") or payload.get("type")
+    from_member = payload.get("from") or payload.get("sender")
     discussion_id = payload.get("discussion_id")
     topic = payload.get("topic", "")
+    thread_id = payload.get("thread_id")
 
-    logger.info(f"灵信通知: event={event}, from={from_member}, disc={discussion_id}, topic={topic[:40]}")
+    logger.info(f"灵信通知: event={event}, from={from_member}, thread={thread_id}, topic={topic[:40]}")
+
+    if event == "family_chat" and thread_id:
+        import sys
+        sys.path.insert(0, "/home/ai/LingMessage")
+        from lingmessage.auto_reply import auto_reply
+
+        threading.Thread(
+            target=auto_reply,
+            args=("lingclaude", thread_id),
+            daemon=True,
+        ).start()
+        return {"received": True, "service": "灵克", "action": "auto_replying"}
 
     if event == "new_message" and from_member != "lingclaude" and topic:
         thread = threading.Thread(

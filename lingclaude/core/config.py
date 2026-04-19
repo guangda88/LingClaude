@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_CONFIG_PATH = Path("config.yaml")
@@ -92,6 +95,17 @@ class IntelConfig:
 
 
 @dataclass(frozen=True)
+class VerificationConfig:
+    enabled: bool = True
+    syntax_check: bool = True
+    test_run: bool = False
+    test_command: str = "python3 -m pytest {test_path} -x -q --tb=short"
+    blocked_extensions: tuple[str, ...] = (".py",)
+    allowed_write_roots: tuple[str, ...] = ()
+    max_tool_calls_per_session: int = 0
+
+
+@dataclass(frozen=True)
 class LingClaudeConfig:
     engine: EngineConfig = field(default_factory=EngineConfig)
     permissions: PermissionConfig = field(default_factory=PermissionConfig)
@@ -101,6 +115,7 @@ class LingClaudeConfig:
     model: ModelProviderConfig = field(default_factory=ModelProviderConfig)
     model_router: ModelRouterConfig = field(default_factory=ModelRouterConfig)
     intel: IntelConfig = field(default_factory=IntelConfig)
+    verification: VerificationConfig = field(default_factory=VerificationConfig)
     log_level: str = "INFO"
 
     @classmethod
@@ -114,6 +129,7 @@ class LingClaudeConfig:
         router_raw = raw.get("model_router", {})
 
         intel_raw = raw.get("intel", {})
+        ver_raw = raw.get("verification", {})
 
         return cls(
             engine=EngineConfig(
@@ -172,6 +188,15 @@ class LingClaudeConfig:
                 auto_relay=intel_raw.get("auto_relay", True),
                 relay_target=intel_raw.get("relay_target", "lingyi"),
                 digest_hour=intel_raw.get("digest_hour", 23),
+            ),
+            verification=VerificationConfig(
+                enabled=ver_raw.get("enabled", True),
+                syntax_check=ver_raw.get("syntax_check", True),
+                test_run=ver_raw.get("test_run", False),
+                test_command=ver_raw.get("test_command", "python3 -m pytest {test_path} -x -q --tb=short"),
+                blocked_extensions=tuple(ver_raw.get("blocked_extensions", [".py"])),
+                allowed_write_roots=tuple(ver_raw.get("allowed_write_roots", [])),
+                max_tool_calls_per_session=ver_raw.get("max_tool_calls_per_session", 0),
             ),
             log_level=raw.get("system", {}).get("log_level", "INFO"),
         )

@@ -12,10 +12,10 @@ intel:
   relay_target: lingyi
   session_history_path: data/session_history.json
 model:
-  api_key: ''
-  base_url: https://api.deepseek.com/v1
+  api_key: 6eea22e2ab7c409a9f014c6094a8efb4.s85I4xqBd8l7eM9c
+  base_url: https://open.bigmodel.cn/api/paas/v4
   max_tokens: 4096
-  model: deepseek-chat
+  model: glm-4.7
   provider: openai
   system_prompt: '你是灵克，一个会自我进化的开源 AI 编程助手。
 
@@ -60,3 +60,12 @@ session:
 system:
   log_level: INFO
   name: 灵克
+verification:
+  allowed_write_roots: []
+  blocked_extensions:
+  - .py
+  enabled: true
+  max_tool_calls_per_session: 0
+  syntax_check: true
+  test_command: python3 -m pytest {test_path} -x -q --tb=short
+  test_run: false

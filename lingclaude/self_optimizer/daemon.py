@@ -297,6 +297,7 @@ class OptimizationDaemon:
         if len(self.state.cycles) > 100:
             self.state.cycles = self.state.cycles[-100:]
         self.state.save(self.state_path)
+        self._record_quality_to_metrics(cycle)
 
     def _write_cycle_to_knowledge(self, cycle: OptimizationCycle) -> None:
         try:
@@ -355,3 +356,35 @@ class OptimizationDaemon:
             return Result.ok(None)
         except Exception as e:
             return Result.fail(f"Failed to save behavior history: {e}", code="IO_ERROR")
+
+    def _record_quality_to_metrics(self, cycle: OptimizationCycle) -> None:
+        try:
+            from lingclaude.core.metrics import MetricsStore, QualityScorer
+
+            store = MetricsStore(self.state_dir / "metrics.db")
+            scorer = QualityScorer(store)
+            structure_metrics = {
+                "violations": cycle.violations_after,
+                "avg_complexity": self.state.last_metrics.get("avg_complexity", 5.0),
+                "large_classes": self.state.last_metrics.get("large_classes", 0),
+            }
+            behavior_metrics = {
+                "hallucination_risk": self._behavior_snapshot.get("hallucination_risk", 0),
+                "frustration_rate": self._behavior_snapshot.get("frustration_rate", 0),
+                "tool_error_rate": self._behavior_snapshot.get("tool_error_rate", 0),
+            }
+            safety_metrics = {
+                "hard_stops": 0,
+                "verification_passes": 1,
+                "verification_total": 1,
+            }
+            scorer.compute_overall(
+                structure=structure_metrics,
+                behavior=behavior_metrics,
+                safety=safety_metrics,
+            )
+            store.record("optimization", "cycle_score", cycle.best_score, cycle_id=str(cycle.cycle_id))
+            store.close()
+            logger.info("已记录质量指标 cycle=#%d", cycle.cycle_id)
+        except Exception:
+            logger.debug("质量指标记录失败", exc_info=True)

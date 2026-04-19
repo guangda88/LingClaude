@@ -9,6 +9,10 @@ from pathlib import Path
 
 from lingclaude.core.types import Result
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(api[_-]?key|apikey|token|secret|password|auth[_-]?header)\s*[:=]\s*\S+", re.IGNORECASE),
     re.compile(r"sk-[a-zA-Z0-9]{20,}"),

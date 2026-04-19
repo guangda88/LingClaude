@@ -1965,8 +1965,13 @@ async def verify_api_key(api_key: str = Security(API_KEY_HEADER)):
 ```
 
 ### A.2 路径遍历防护
+
+> ⚠️ **二次审计标注**（灵通, 2026-04-14）：
+> `lingclaude/core/path_utils.py` 不存在。以下代码是**建议实现**，不是已有代码。
+> 若要使用，需要先创建此文件。
+
 ```python
-# lingclaude/core/path_utils.py
+# lingclaude/core/path_utils.py (⚠️ 不存在，建议实现)
 from pathlib import Path
 from lingclaude.core.types import Result
 

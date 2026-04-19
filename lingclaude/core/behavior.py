@@ -6,9 +6,12 @@ self-optimization can be triggered automatically.
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class Emotion(str, Enum):

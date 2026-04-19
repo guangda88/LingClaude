@@ -9,9 +9,12 @@ Three components:
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class Domain(str, Enum):

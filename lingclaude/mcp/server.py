@@ -233,9 +233,10 @@ def tool_run_optimization(
     max_trials: int = 20,
 ) -> dict:
     """运行同步优化搜索，寻找最佳参数配置。goal 可选: structure/performance/quality。"""
-    from ..self_optimizer.optimizer import OptimizationRequest, SimpleSearchSpace
+    from lingminopt import SearchSpace
+    from ..self_optimizer.optimizer import OptimizationRequest
 
-    space = SimpleSearchSpace()
+    space = SearchSpace()
     if goal == "structure":
         space.add_discrete("max_class_lines", [100, 200, 300, 500])
         space.add_discrete("max_method_lines", [20, 50, 100])
@@ -252,7 +253,7 @@ def tool_run_optimization(
         target=target,
         goal=goal,
         params=best_params,
-        config={"max_trials": max_trials},
+        config={"max_experiments": max_trials},
     )
 
     from ..self_optimizer.optimizer import SynchronousOptimizer
@@ -487,6 +488,11 @@ def tool_check_and_optimize(
 
 def main():
     """stdio transport entry point."""
+    try:
+        from lingmessage.registry import register_fastmcp_server
+        register_fastmcp_server("lingclaude", "灵克", mcp, "编程助手")
+    except Exception:
+        pass
     mcp.run()
 
 

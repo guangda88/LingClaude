@@ -1,0 +1,17 @@
+{
+  "experiment": "EXP-1",
+  "group": "C",
+  "type": "\u589e\u5f3a\u914d\u65b9\u7ec4\uff08\u5b8c\u6574\u914d\u65b9\uff09",
+  "operation_level": "enhanced",
+  "recipe": "enhanced_workflow",
+  "tasks": {
+    "M1": "\u521b\u5efaPR\u6a21\u677f",
+    "M2": "\u5efa\u7acb\u6d4b\u8bd5\u6846\u67b6",
+    "M3": "\u5b9e\u73b0ADR\u7cfb\u7edf",
+    "M4": "\u5f00\u53d1\u76d1\u63a7\u4eea\u8868\u76d8",
+    "M5": "\u914d\u7f6eCI/CD"
+  },
+  "start_time": 1775831416.9133773,
+  "end_time": 1775831416.9133778,
+  "status": "pending"
+}

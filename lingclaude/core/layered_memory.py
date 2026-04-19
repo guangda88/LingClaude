@@ -127,9 +127,9 @@ _COMMON_KNOWLEDGE: dict[str, dict[str, str]] = {
         "alias": "灵依,LingYi",
         "role": "私人助理，灵字辈的管家",
     },
-    "灵妍": {
+    "灵研": {
         "en": "LingResearch",
-        "alias": "灵妍,LingResearch",
+        "alias": "灵研,LingResearch",
         "role": "研究员，负责深度分析和学术研究",
     },
     "灵信": {

@@ -7,6 +7,7 @@ to configured targets (e.g., 灵依).
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from enum import Enum
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from lingclaude.core.types import Result
+
+logger = logging.getLogger(__name__)
 
 
 class IntelCategory(str, Enum):

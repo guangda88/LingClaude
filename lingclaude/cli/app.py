@@ -8,6 +8,21 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+from lingclaude.cli.display import (
+    QualityReport,
+    SessionSummary,
+    print_error,
+    print_header,
+    print_info,
+    print_kv,
+    print_metrics_stats,
+    print_quality_report,
+    print_session_summary,
+    print_success,
+    print_trend,
+    print_warning,
+    print_welcome,
+)
 from lingclaude.core.config import LingClaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
@@ -32,6 +47,11 @@ def _feed_behavior_to_daemon(engine: QueryEngine, config: LingClaudeConfig | Non
         })
     except Exception:
         _logger.warning("行为数据写入守护进程失败", exc_info=True)
+
+    try:
+        engine.collect_daily_digest()
+    except Exception:
+        _logger.warning("情报采集失败", exc_info=True)
 
 
 def _get_version() -> str:
@@ -66,12 +86,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return _interactive_loop(engine, None)
     else:
         version = _get_version()
-        print(f"灵克 v{version} — 开源 AI 编程助手")
-        print(f"Config: {args.config or 'default'}")
-        print(f"Model: {config.model.provider}/{config.model.model}")
         provider_status = "已连接" if engine._provider else "未配置（回退模式）"
-        print(f"Provider: {provider_status}")
-        print(f"Tools: {len(runtime.registry.list_tools())} registered")
+        print_welcome(version, provider_status, f"{config.model.provider}/{config.model.model}", len(runtime.registry.list_tools()))
     return 0
 
 
@@ -102,12 +118,14 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         print(result.output)
     _feed_behavior_to_daemon(engine, None)
     if verbose:
-        print("\n--- 会话统计 ---")
         stats = engine.get_stats()
-        print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
-        print(f"用量: {stats['usage']}")
         bm = engine.behavior_metrics.to_dict()
-        print(f"行为: 幻觉风险={bm['hallucination_risk']:.0%} 沮丧率={bm['frustration_rate']:.0%}")
+        print_session_summary(SessionSummary(
+            turns=stats["turns"],
+            session_id=stats["session_id"],
+            usage=stats["usage"],
+            behavior=bm,
+        ))
     return 0
 
 
@@ -211,9 +229,12 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             break
 
     stats = engine.get_stats()
-    print("\n--- 会话统计 ---")
-    print(f"轮次: {stats['turns']}, 会话: {stats['session_id']}")
-    print(f"用量: {stats['usage']}")
+    print_session_summary(SessionSummary(
+        turns=stats["turns"],
+        session_id=stats["session_id"],
+        usage=stats["usage"],
+        behavior={},
+    ))
     return 0
 
 
@@ -235,20 +256,20 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
     result = runtime.optimize(target, goal, max_trials)
 
     if result.get("success"):
-        print(f"\nBest score: {result['best_score']:.2f}")
-        print(f"Experiments: {result['experiments']}")
-        print(f"Duration: {result['duration']:.1f}s")
-        print("\nBest params:")
+        print_success(f"Best score: {result['best_score']:.2f}")
+        print_kv("Experiments", result['experiments'])
+        print_kv("Duration", f"{result['duration']:.1f}s")
+        print_header("Best Params")
         for k, v in sorted(result["best_params"].items()):
-            print(f"  {k}: {v}")
+            print_kv(k, v)
 
         if args.report:
             report_path = runtime.advisor.save_report(
                 result["report"], args.report
             )
-            print(f"\nReport saved: {report_path}")
+            print_success(f"Report saved: {report_path}")
     else:
-        print(f"Optimization failed: {result.get('error', 'unknown')}")
+        print_error(f"Optimization failed: {result.get('error', 'unknown')}")
         return 1
     return 0
 
@@ -340,32 +361,103 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
 
     if args.daemon_action == "status":
         state = daemon.state
-        print("自由化框架状态:")
-        print(f"  总周期: {state.total_cycles}")
-        print(f"  总改进: {state.total_improvements}")
-        print(f"  上次优化: {state.last_optimization_time or '从未运行'}")
+        print_header("自由化框架状态")
+        print_kv("总周期", state.total_cycles)
+        print_kv("总改进", state.total_improvements)
+        print_kv("上次优化", state.last_optimization_time or "从未运行")
         if state.cycles:
             last = state.cycles[-1]
-            print(f"  最近: score={last['best_score']:.2f} "
+            print_kv("最近", f"score={last['best_score']:.2f} "
                   f"violations={last['violations_before']}→{last['violations_after']}")
     elif args.daemon_action == "run":
         cycle = daemon.run_once()
         if cycle:
-            print(f"Cycle #{cycle.cycle_id}: score={cycle.best_score:.2f}")
-            print(f"  触发: {cycle.trigger_reason}")
-            print(f"  违规: {cycle.violations_before}→{cycle.violations_after}")
-            print(f"  耗时: {cycle.duration_seconds}s")
+            print_success(f"Cycle #{cycle.cycle_id}: score={cycle.best_score:.2f}")
+            print_kv("触发", cycle.trigger_reason)
+            print_kv("违规", f"{cycle.violations_before}→{cycle.violations_after}")
+            print_kv("耗时", f"{cycle.duration_seconds}s")
             if cycle.report_path:
-                print(f"  报告: {cycle.report_path}")
+                print_kv("报告", cycle.report_path)
         else:
-            print("无触发条件，无需优化")
+            print_info("无触发条件，无需优化")
     elif args.daemon_action == "watch":
         interval = args.interval or 300
         daemon.run_watch(interval_seconds=interval)
     elif args.daemon_action == "reset":
         daemon.state = DaemonState()
         daemon.state.save(daemon.state_path)
-        print("状态已重置")
+        print_success("状态已重置")
+    return 0
+
+
+def _cmd_metrics(args: argparse.Namespace) -> int:
+    from lingclaude.core.metrics import MetricsStore, QualityScorer
+
+    config = load_config(Path(args.config) if args.config else None)
+    db_path = Path(config.session.save_dir).parent / "metrics.db"
+    store = MetricsStore(db_path)
+
+    if args.metrics_action == "stats":
+        stats_result = store.get_statistics()
+        if stats_result.is_ok:
+            print_metrics_stats(stats_result.data)
+        else:
+            print_error(stats_result.error)
+    elif args.metrics_action == "trend":
+        if not args.category or not args.name:
+            print_error("--category and --name required for trend")
+            store.close()
+            return 1
+        trend_result = store.get_trend(args.category, args.name, window=args.window or 10)
+        if trend_result.is_ok:
+            t = trend_result.data
+            if t.points:
+                print_trend(t.name, t.direction, t.delta, t.moving_avg)
+            else:
+                print_warning("无数据")
+        else:
+            print_error(trend_result.error)
+    elif args.metrics_action == "quality":
+        scorer = QualityScorer(store)
+        from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
+        kb = KnowledgeBase()
+        kb_stats_result = kb.get_statistics()
+        kb.close()
+        knowledge_stats = kb_stats_result.data if kb_stats_result.is_ok else {}
+        score = scorer.compute_overall(knowledge=knowledge_stats)
+        print_quality_report(QualityReport(
+            overall=score.overall,
+            safety=score.safety,
+            structure=score.structure,
+            behavior=score.behavior,
+            knowledge=score.knowledge,
+        ))
+    elif args.metrics_action == "prune":
+        if not args.before:
+            print_error("--before date required for prune (ISO format)")
+            store.close()
+            return 1
+        prune_result = store.prune(args.before)
+        if prune_result.is_ok:
+            print_success(f"已清理 {prune_result.data} 条数据")
+        else:
+            print_error(prune_result.error)
+    elif args.metrics_action == "categories":
+        cats_result = store.get_categories()
+        if cats_result.is_ok:
+            if cats_result.data:
+                for cat in cats_result.data:
+                    print_info(cat)
+            else:
+                print_warning("无分类")
+        else:
+            print_error(cats_result.error)
+    else:
+        print_error(f"Unknown metrics action: {args.metrics_action}")
+        store.close()
+        return 1
+
+    store.close()
     return 0
 
 
@@ -413,6 +505,17 @@ def main() -> int:
         "--interval", "-i", type=int, default=300, help="Watch interval (seconds)"
     )
 
+    metrics_parser = subparsers.add_parser("metrics", help="Query metrics and quality scores")
+    metrics_parser.add_argument(
+        "metrics_action",
+        choices=["stats", "trend", "quality", "prune", "categories"],
+        help="Metrics action",
+    )
+    metrics_parser.add_argument("--category", "-C", help="Metric category")
+    metrics_parser.add_argument("--name", "-N", help="Metric name")
+    metrics_parser.add_argument("--window", "-w", type=int, default=10, help="Trend window size")
+    metrics_parser.add_argument("--before", "-b", help="Prune before date (ISO format)")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -427,6 +530,8 @@ def main() -> int:
         return _cmd_knowledge(args)
     elif args.command == "daemon":
         return _cmd_daemon(args)
+    elif args.command == "metrics":
+        return _cmd_metrics(args)
     else:
         parser.print_help()
         return 0

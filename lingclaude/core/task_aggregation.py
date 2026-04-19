@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import sys
 from collections import defaultdict
@@ -17,6 +18,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class TaskPriority(str, Enum):

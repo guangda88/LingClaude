@@ -1,0 +1,16 @@
+{
+  "experiment": "EXP-2",
+  "group": "E",
+  "type": "\u5de5\u5177\u951a\u5b9a\uff08\u90e8\u5206\u8fdb\u5316\uff09",
+  "tool_anchoring": "enabled",
+  "feedback_loop": "enabled",
+  "strategy_sharing": "none",
+  "tasks": {
+    "T1": "\u8bca\u65adPython\u4ee3\u7801\u4e2d\u7684\u7b80\u5355\u9519\u8bef",
+    "T2": "\u4fee\u590d\u8bed\u6cd5\u9519\u8bef",
+    "T3": "\u4fee\u590d\u903b\u8f91\u9519\u8bef"
+  },
+  "start_time": 1775831416.913587,
+  "end_time": 1775831416.9135876,
+  "status": "pending"
+}

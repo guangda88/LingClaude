@@ -1,0 +1,27 @@
+# 灵克 (LingClaude) 安全优先行为配置
+# 依据: PRO-2026-04-15-009 灵族主理权重重调方案
+# 原则: 安全 > 准确 > 高效
+
+behavior:
+  code_review_before_output: true
+  safety_check_enabled: true
+  uncertainty_threshold: 0.7
+  error_reporting: immediate
+  max_retries_with_validation: 3
+  refuse_on_low_confidence: true
+
+code_safety:
+  check_sql_injection: true
+  check_path_traversal: true
+  check_command_injection: true
+  check_hardcoded_secrets: true
+  check_unsafe_deserialization: true
+  block_eval_exec: true
+  block_os_system: true
+
+output_rules:
+  must_declare_uncertainty: true
+  must_cite_source: false
+  must_show_validation_result: true
+  refuse_low_quality_output: true
+  never_beautify_failure: true

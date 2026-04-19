@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Generic, TypeVar
 
 T = TypeVar("T")
+
+
+class StopReason(str, Enum):
+    COMPLETED = "completed"
+    MAX_TURNS_REACHED = "max_turns_reached"
+    MAX_BUDGET_REACHED = "max_budget_reached"
+    CONSECUTIVE_FAILURE = "consecutive_failure"
+    ERROR = "error"
 
 
 @dataclass(frozen=True)

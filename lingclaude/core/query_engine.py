@@ -4,7 +4,6 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
 from typing import Any, Generator
 from uuid import uuid4
@@ -17,23 +16,20 @@ from lingclaude.core.prior_verifier import PriorVerifier
 from lingclaude.core.meta_cognition import MetaCognition, Domain
 from lingclaude.core.layered_memory import LayeredMemory, Experience, EmotionIntensity
 from lingclaude.model.intelligent_router import IntelligentRouter
+from lingclaude.engine.tool_router import ToolRouter, create_default_router
+from lingclaude.engine import mcp_proxy
 from lingclaude.core.context_cache import ContextCache
 from lingclaude.core.task_aggregation import TaskAggregator, TaskPriority
 from lingclaude.core.token_monitor import TokenMonitor
 from lingclaude.model.types import ModelConfig
 
-from lingclaude.core.types import Result
+from lingclaude.core.types import Result, StopReason
 
 logger = logging.getLogger(__name__)
 
 AGENT_MAX_TOOL_ROUNDS = 10
-
-
-class StopReason(str, Enum):
-    COMPLETED = "completed"
-    MAX_TURNS_REACHED = "max_turns_reached"
-    MAX_BUDGET_REACHED = "max_budget_reached"
-    ERROR = "error"
+CONSECUTIVE_FAILURE_LIMIT = 3
+CHECKPOINT_DIR = Path.home() / ".lingclaude" / "checkpoints"
 
 
 @dataclass(frozen=True)
@@ -43,6 +39,7 @@ class QueryEngineConfig:
     compact_after_turns: int = 12
     structured_output: bool = False
     structured_retry_limit: int = 2
+    consecutive_failure_limit: int = CONSECUTIVE_FAILURE_LIMIT
 
 
 @dataclass(frozen=True)
@@ -83,12 +80,15 @@ class QueryEngine:
         self._session_history_path: Path = Path("data/session_history.json")
         self._mailbox: Any | None = None
         self._router = IntelligentRouter()
+        self._tool_router: ToolRouter = create_default_router()
+        self._mcp_initialized: bool = False
         self._cache = ContextCache(cache_size=100, ttl_hours=24)
         self._aggregator = TaskAggregator(max_group_size=5)
         self._monitor = TokenMonitor()
         self._prior_verifier = PriorVerifier()
         self._meta_cognition = MetaCognition()
         self._layered_memory = LayeredMemory()
+        self._active_checkpoint: Path | None = None
 
     def init_mailbox(self, mailbox: Any) -> None:
         self._mailbox = mailbox
@@ -98,6 +98,55 @@ class QueryEngine:
             return ()
         return self._mailbox.list_threads()
 
+    def notify_completion(self, task: str, result_summary: str, channel: str = "ecosystem") -> None:
+        if self._mailbox is None:
+            return
+        try:
+            self._mailbox.open_thread(
+                sender="LINGCLAUDE",
+                recipients=["ALL"],
+                channel=channel,
+                topic=f"工作完成: {task[:50]}",
+                subject=f"灵克完成: {task}",
+                body=result_summary,
+            )
+        except Exception as e:
+            logger.warning("灵信工作完成通知失败: %s", e)
+
+    def notify_risk(self, risk_type: str, details: str, severity: str = "warning") -> None:
+        if self._mailbox is None:
+            return
+        try:
+            self._mailbox.open_thread(
+                sender="LINGCLAUDE",
+                recipients=["ALL"],
+                channel="ecosystem",
+                topic=f"风险预警: {risk_type}",
+                subject=f"[{severity.upper()}] 灵克风险预警: {risk_type}",
+                body=details,
+            )
+        except Exception as e:
+            logger.warning("灵信风险预警失败: %s", e)
+
+    def notify_vote(self, proposal: str, options: list[str], deadline_hours: int = 48) -> None:
+        if self._mailbox is None:
+            return
+        try:
+            body = f"提案: {proposal}\n\n选项:\n"
+            for i, opt in enumerate(options, 1):
+                body += f"  {i}. {opt}\n"
+            body += f"\n截止时间: {deadline_hours}小时后"
+            self._mailbox.open_thread(
+                sender="LINGCLAUDE",
+                recipients=["ALL"],
+                channel="ecosystem",
+                topic=f"灵委会投票: {proposal[:50]}",
+                subject=f"[投票] {proposal}",
+                body=body,
+            )
+        except Exception as e:
+            logger.warning("灵信投票通知失败: %s", e)
+
     @property
     def behavior_metrics(self) -> BehaviorMetrics:
         return self._behavior
@@ -105,6 +154,13 @@ class QueryEngine:
     @property
     def layered_memory(self) -> LayeredMemory:
         return self._layered_memory
+
+    @property
+    def has_checkpoint(self) -> bool:
+        if self._active_checkpoint and self._active_checkpoint.exists():
+            return True
+        cp_path = CHECKPOINT_DIR / f"{self.session_id}.json"
+        return cp_path.exists()
 
     @property
     def meta_cognition(self) -> MetaCognition:
@@ -197,7 +253,9 @@ class QueryEngine:
 
         projected = self._usage.add_turn(prompt, output)
         stop_reason = StopReason.COMPLETED
-        if projected.input_tokens + projected.output_tokens > self.config.max_budget_tokens:
+        if "[硬中断]" in output:
+            stop_reason = StopReason.CONSECUTIVE_FAILURE
+        elif projected.input_tokens + projected.output_tokens > self.config.max_budget_tokens:
             stop_reason = StopReason.MAX_BUDGET_REACHED
 
         self._messages.append(prompt)
@@ -207,6 +265,10 @@ class QueryEngine:
         self._usage = projected
         self._compact_if_needed()
         self._append_to_session_history(prompt, output)
+        self._learn_from_turn(prompt, output)
+
+        if stop_reason == StopReason.CONSECUTIVE_FAILURE:
+            self.notify_risk("硬中断触发", f"会话 {self.session_id[:8]} 连续失败触发硬中断。Query: {prompt[:80]}")
 
         return TurnResult(
             prompt=prompt,
@@ -232,13 +294,44 @@ class QueryEngine:
             yield {"type": "tool_match", "tools": matched_tools}
         if denied_tools:
             yield {"type": "permission_denial", "denials": [d.tool_name for d in denied_tools]}
-        result = self.submit(prompt, matched_commands, matched_tools, denied_tools)
-        yield {"type": "message_delta", "text": result.output}
+        if self._provider is None:
+            result = self.submit(prompt, matched_commands, matched_tools, denied_tools)
+            yield {"type": "message_delta", "text": result.output}
+            yield {
+                "type": "message_stop",
+                "usage": result.usage.to_dict(),
+                "stop_reason": result.stop_reason.value,
+                "transcript_size": len(self._transcript),
+            }
+            return
+        final_content = ""
+        usage_data: dict[str, Any] = {}
+        stop_reason = "end_turn"
+        transcript_size = 0
+        for event in self.stream_call_model(prompt):
+            if event["type"] == "text_delta":
+                yield {"type": "message_delta", "text": event["text"]}
+            elif event["type"] == "tool_call_start":
+                yield {"type": "tool_call_start", "name": event["name"], "arguments": event["arguments"]}
+            elif event["type"] == "tool_call_end":
+                yield {"type": "tool_call_end", "name": event["name"], "output_preview": event["output_preview"], "is_error": event["is_error"]}
+            elif event["type"] == "status":
+                yield {"type": "status", "message": event["message"]}
+            elif event["type"] == "hard_interrupt":
+                yield {"type": "hard_interrupt", "message": event["message"]}
+                return
+            elif event["type"] == "error":
+                yield {"type": "error", "error": event["error"]}
+                return
+            elif event["type"] == "done":
+                final_content = event.get("content", "")
+                transcript_size = len(self._transcript)
         yield {
             "type": "message_stop",
-            "usage": result.usage.to_dict(),
-            "stop_reason": result.stop_reason.value,
-            "transcript_size": len(self._transcript),
+            "usage": usage_data,
+            "stop_reason": stop_reason,
+            "transcript_size": transcript_size,
+            "content": final_content,
         }
 
     def persist_session(self) -> Result[str]:
@@ -270,7 +363,149 @@ class QueryEngine:
             self._conversation.append(("assistant", asst_msg))
         return True
 
+    def _clear_checkpoint(self) -> None:
+        if self._active_checkpoint and self._active_checkpoint.exists():
+            try:
+                self._active_checkpoint.unlink()
+            except OSError:
+                pass
+            self._active_checkpoint = None
+
+    def _save_checkpoint(
+        self,
+        messages: list[Any],
+        round_idx: int,
+        prompt: str,
+        used_tools: bool,
+        total_input: int,
+        total_output: int,
+    ) -> None:
+        try:
+            CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+            cp_path = CHECKPOINT_DIR / f"{self.session_id}.json"
+            serialized: list[dict[str, Any]] = []
+            for msg in messages:
+                d = msg.to_dict()
+                serialized.append(d)
+            data = {
+                "session_id": self.session_id,
+                "prompt": prompt,
+                "round_idx": round_idx,
+                "used_tools": used_tools,
+                "total_input": total_input,
+                "total_output": total_output,
+                "messages": serialized,
+                "conversation": list(self._conversation),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            cp_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            self._active_checkpoint = cp_path
+            logger.info("Checkpoint saved: session=%s round=%d", self.session_id, round_idx)
+        except Exception as e:
+            logger.warning("Checkpoint save failed: %s", e)
+
+    def _load_checkpoint(self) -> dict[str, Any] | None:
+        cp_path = self._active_checkpoint or (CHECKPOINT_DIR / f"{self.session_id}.json")
+        if not cp_path.exists():
+            return None
+        try:
+            data = json.loads(cp_path.read_text(encoding="utf-8"))
+            if data.get("session_id") != self.session_id:
+                return None
+            self._active_checkpoint = cp_path
+            logger.info("Checkpoint loaded: session=%s round=%d", self.session_id, data.get("round_idx", 0))
+            return data
+        except Exception as e:
+            logger.warning("Checkpoint load failed: %s", e)
+            return None
+
+    def resume_interrupted(self) -> Result[str]:
+        from lingclaude.model.types import ModelMessage, MessageRole, ToolCall
+
+        data = self._load_checkpoint()
+        if data is None:
+            return Result.fail("No checkpoint found for this session", code="NO_CHECKPOINT")
+
+        prompt = data["prompt"]
+        round_idx = data["round_idx"]
+        used_tools = data["used_tools"]
+        total_input = data.get("total_input", 0)
+        total_output = data.get("total_output", 0)
+        raw_messages = data.get("messages", [])
+        saved_conversation = data.get("conversation", [])
+
+        messages: list[ModelMessage] = []
+        for rm in raw_messages:
+            role = MessageRole(rm.get("role", "user"))
+            tool_calls = None
+            if rm.get("tool_calls"):
+                tool_calls = tuple(
+                    ToolCall(
+                        id=tc["function"].get("id", ""),
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
+                    )
+                    for tc in rm["tool_calls"]
+                    if "function" in tc
+                )
+            messages.append(ModelMessage(
+                role=role,
+                content=rm.get("content", ""),
+                name=rm.get("name"),
+                tool_call_id=rm.get("tool_call_id"),
+                tool_calls=tool_calls,
+            ))
+
+        if saved_conversation:
+            self._conversation = list(saved_conversation)
+
+        tools = self._build_openai_tools()
+        resolved_config, _ = self._resolve_model_config(prompt)
+        response = None
+
+        for ri in range(round_idx + 1, AGENT_MAX_TOOL_ROUNDS):
+            result = self._provider.complete(
+                tuple(messages), config=resolved_config, tools=tools,
+            )
+            if result.is_error:
+                self._clear_checkpoint()
+                return Result.fail(f"[Resume failed at round {ri}] {result.error}", code="RESUME_ERROR")
+
+            response = result.data
+            total_input += response.usage.input_tokens
+            total_output += response.usage.output_tokens
+
+            if not response.tool_calls:
+                final_content = self._finalize_turn(
+                    prompt, response.content, used_tools, total_input, total_output, resolved_config,
+                )
+                self._messages.append(prompt)
+                self._messages.append(final_content)
+                self._transcript.append(final_content)
+                self._clear_checkpoint()
+                self._append_to_session_history(prompt, final_content)
+                self._learn_from_turn(prompt, final_content)
+                return Result.ok(final_content)
+
+            used_tools = True
+            self._process_tool_calls(response.tool_calls, messages, content=response.content)
+            self._save_checkpoint(messages, ri, prompt, used_tools, total_input, total_output)
+
+        content = response.content if response and response.content else "[达到最大工具调用轮次]"
+        final_content = self._finalize_turn(
+            prompt, content, used_tools, total_input, total_output, resolved_config,
+        )
+        self._messages.append(prompt)
+        self._messages.append(final_content)
+        self._transcript.append(final_content)
+        self._clear_checkpoint()
+        return Result.ok(final_content)
+
     def reset(self) -> None:
+        self._clear_checkpoint()
         self.session_id = uuid4().hex[:16]
         self._messages.clear()
         self._conversation.clear()
@@ -343,36 +578,90 @@ class QueryEngine:
         else:
             self._meta_cognition.record_success(Domain.GENERAL_KNOWLEDGE)
 
-    def _call_model(self, prompt: str) -> str:
+    def _build_messages(self, prompt: str) -> list:
         from lingclaude.model.types import ModelMessage, MessageRole
 
-        # Get routing decision
-        decision = self._router.route(prompt)
-
         messages: list[ModelMessage] = []
-
         system_prompt = self._build_adaptive_system_prompt()
         if system_prompt:
             messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
-
         for role, content in self._conversation:
             messages.append(ModelMessage(role=MessageRole(role), content=content))
         messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
+        return messages
 
-        tools = self._build_openai_tools()
+    def _finalize_turn(
+        self,
+        prompt: str,
+        content: str,
+        used_tools: bool,
+        total_input: int,
+        total_output: int,
+        resolved_config: Any,
+    ) -> str:
+        vr = self._prior_verifier.analyze(content, used_tools=used_tools)
+        final_content = vr.corrected_text if vr.corrected_text else content
+        self._track_behavior(prompt, final_content, used_tools=used_tools)
+        self._usage = self._usage.add_usage(total_input, total_output)
+        self._monitor.record_usage(
+            model=str(resolved_config.model) if resolved_config else "unknown",
+            task_type="unknown",
+            total_tokens=total_input + total_output,
+            input_tokens=total_input,
+            output_tokens=total_output,
+        )
+        self._conversation.append(("user", prompt))
+        self._conversation.append(("assistant", final_content))
+        self._layered_memory.working.append("user", prompt)
+        self._layered_memory.working.append("assistant", final_content)
+        return final_content
+
+    def _process_tool_calls(self, tool_calls: tuple, messages: list, content: str = "") -> None:
+        from lingclaude.model.types import ModelMessage, MessageRole
+
+        self._behavior = self._behavior.record_tool_calls(count=len(tool_calls))
+        messages.append(ModelMessage(
+            role=MessageRole.ASSISTANT,
+            content=content,
+            tool_calls=tool_calls,
+        ))
+        for tc in tool_calls:
+            tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
+            if '"error"' in tool_output:
+                self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
+            messages.append(ModelMessage(
+                role=MessageRole.TOOL,
+                content=tool_output,
+                name=tc.name,
+                tool_call_id=tc.id,
+            ))
+
+    def _call_model(self, prompt: str) -> str:
+        decision = self._router.route(prompt)
+        messages = self._build_messages(prompt)
+        tools = self._build_openai_tools(query=prompt)
         resolved_config, decision = self._resolve_model_config(prompt)
         used_tools = False
         response = None
         total_input = 0
         total_output = 0
+        consecutive_failures = 0
 
         for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
             result = self._provider.complete(
                 tuple(messages), config=resolved_config, tools=tools,
             )
             if result.is_error:
+                consecutive_failures += 1
                 self._track_behavior(prompt, f"[模型调用失败] {result.error}", used_tools=False)
-                return f"[模型调用失败] {result.error}"
+                if consecutive_failures >= self.config.consecutive_failure_limit:
+                    logger.warning(
+                        "硬中断触发: 连续模型调用失败 %d 次，强制停止",
+                        consecutive_failures,
+                    )
+                    self._log_to_flywheel("hard_interrupt", f"连续模型调用失败 {consecutive_failures} 次", tool_name="provider")
+                    return f"[硬中断] 连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。"
+                continue
 
             response = result.data
             total_input += response.usage.input_tokens
@@ -383,91 +672,52 @@ class QueryEngine:
                 if self._should_hallucination_correct(prompt, used_tools):
                     content = self._hallucination_correction(messages, content, tools, resolved_config)
                     if content:
-                        self._track_behavior(prompt, content, used_tools=used_tools)
-                        self._conversation.append(("user", prompt))
-                        self._conversation.append(("assistant", content))
-                        self._layered_memory.working.append("user", prompt)
-                        self._layered_memory.working.append("assistant", content)
-                        return content
-                vr = self._prior_verifier.analyze(response.content, used_tools=used_tools)
-                final_content = vr.corrected_text if vr.corrected_text else response.content
-                self._track_behavior(prompt, response.content, used_tools=used_tools)
-                self._usage = self._usage.add_usage(response.usage.input_tokens, response.usage.output_tokens)
-                self._monitor.record_usage(
-                    model=str(resolved_config.model) if resolved_config else "unknown",
-                    task_type="unknown",
-                    total_tokens=response.usage.input_tokens + response.usage.output_tokens,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                )
-                self._conversation.append(("user", prompt))
-                self._conversation.append(("assistant", final_content))
-                self._layered_memory.working.append("user", prompt)
-                self._layered_memory.working.append("assistant", final_content)
-                return final_content
+                        return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+                return self._finalize_turn(prompt, response.content, used_tools, total_input, total_output, resolved_config)
 
             used_tools = True
-            self._behavior = self._behavior.record_tool_calls(count=len(response.tool_calls))
+            self._process_tool_calls(response.tool_calls, messages, content=response.content)
 
-            messages.append(ModelMessage(
-                role=MessageRole.ASSISTANT,
-                content=response.content,
-                tool_calls=response.tool_calls,
-            ))
-
-            for tc in response.tool_calls:
-                tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
-                if '"error"' in tool_output:
-                    self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
-                messages.append(ModelMessage(
-                    role=MessageRole.TOOL,
-                    content=tool_output,
-                    name=tc.name,
-                    tool_call_id=tc.id,
-                ))
+            round_error_count = sum(
+                1 for tc in response.tool_calls
+                if '"error"' in self._get_last_tool_output(messages, tc.id)
+            )
+            if round_error_count == len(response.tool_calls) and round_error_count > 0:
+                consecutive_failures += 1
+                if consecutive_failures >= self.config.consecutive_failure_limit:
+                    logger.warning(
+                        "硬中断触发: 连续工具失败 %d 次，强制停止",
+                        consecutive_failures,
+                    )
+                    self._log_to_flywheel("hard_interrupt", f"连续工具失败 {consecutive_failures} 次", tool_name="tool_loop")
+                    content = response.content or ""
+                    return self._finalize_turn(
+                        prompt,
+                        content + f"\n[硬中断] 连续工具调用失败 {consecutive_failures} 次，自动停止。",
+                        used_tools, total_input, total_output, resolved_config,
+                    )
+            else:
+                consecutive_failures = 0
 
         content = response.content if response and response.content else "[达到最大工具调用轮次]"
-        vr = self._prior_verifier.analyze(content, used_tools=used_tools)
-        final_content = vr.corrected_text if vr.corrected_text else content
-        self._track_behavior(prompt, final_content, used_tools=used_tools)
-        if response:
-            self._usage = self._usage.add_usage(total_input, total_output)
-            self._monitor.record_usage(
-                model=str(resolved_config.model) if resolved_config else "unknown",
-                task_type="unknown",
-                total_tokens=total_input + total_output,
-                input_tokens=total_input,
-                output_tokens=total_output,
-            )
-        self._conversation.append(("user", prompt))
-        self._conversation.append(("assistant", final_content))
-        self._layered_memory.working.append("user", prompt)
-        self._layered_memory.working.append("assistant", final_content)
-        return final_content
+        return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
 
     def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
         from lingclaude.model.types import ModelMessage, MessageRole, ModelUsage, ToolCall
 
-        messages: list[ModelMessage] = []
-
-        system_prompt = self._build_adaptive_system_prompt()
-        if system_prompt:
-            messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
-
-        for role, content in self._conversation:
-            messages.append(ModelMessage(role=MessageRole(role), content=content))
-        messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
-
+        messages = self._build_messages(prompt)
         tools = self._build_openai_tools()
         resolved_config, _ = self._resolve_model_config(prompt)
         used_tools = False
         response_content = ""
         total_input = 0
         total_output = 0
+        consecutive_failures = 0
 
         for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
             round_text_parts: list[str] = []
             round_tool_calls: list[ToolCall] = []
+            stream_error: str | None = None
 
             for event in self._provider.stream_complete(
                 tuple(messages), config=resolved_config, tools=tools,
@@ -486,9 +736,23 @@ class QueryEngine:
                     total_input += event.get("usage", ModelUsage()).input_tokens
                     total_output += event.get("usage", ModelUsage()).output_tokens
                 elif event["type"] == "error":
-                    self._track_behavior(prompt, f"[模型调用失败] {event['error']}", used_tools=False)
-                    yield {"type": "error", "error": event["error"]}
+                    stream_error = event["error"]
+
+            if stream_error is not None:
+                consecutive_failures += 1
+                self._track_behavior(prompt, f"[模型调用失败] {stream_error}", used_tools=False)
+                if consecutive_failures >= self.config.consecutive_failure_limit:
+                    logger.warning(
+                        "硬中断触发(stream): 连续模型调用失败 %d 次，强制停止",
+                        consecutive_failures,
+                    )
+                    yield {
+                        "type": "hard_interrupt",
+                        "message": f"连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。",
+                    }
                     return
+                yield {"type": "error", "error": stream_error}
+                return
 
             round_content = "".join(round_text_parts)
 
@@ -502,32 +766,27 @@ class QueryEngine:
                     if corrected:
                         yield {"type": "text_delta", "text": corrected}
                         content = corrected
-                vr = self._prior_verifier.analyze(content, used_tools=used_tools)
-                final_content = vr.corrected_text if vr.corrected_text else content
-                self._track_behavior(prompt, final_content, used_tools=used_tools)
-                self._usage = self._usage.add_usage(total_input, total_output)
-                response_content = final_content
-                self._conversation.append(("user", prompt))
-                self._conversation.append(("assistant", final_content))
-                self._layered_memory.working.append("user", prompt)
-                self._layered_memory.working.append("assistant", final_content)
+                final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+                self._append_to_session_history(prompt, final_content)
+                self._learn_from_turn(prompt, final_content)
                 yield {"type": "done", "content": final_content}
                 return
 
             used_tools = True
             self._behavior = self._behavior.record_tool_calls(count=len(round_tool_calls))
-
             messages.append(ModelMessage(
                 role=MessageRole.ASSISTANT,
                 content=round_content,
                 tool_calls=tuple(round_tool_calls),
             ))
 
+            round_error_count = 0
             for tc in round_tool_calls:
                 yield {"type": "tool_call_start", "name": tc.name, "arguments": tc.arguments}
                 tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
                 is_error = '"error"' in tool_output
                 if is_error:
+                    round_error_count += 1
                     self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
                 preview = tool_output[:200] if len(tool_output) > 200 else tool_output
                 yield {
@@ -543,15 +802,23 @@ class QueryEngine:
                     tool_call_id=tc.id,
                 ))
 
+            if round_error_count == len(round_tool_calls) and round_error_count > 0:
+                consecutive_failures += 1
+                if consecutive_failures >= self.config.consecutive_failure_limit:
+                    logger.warning(
+                        "硬中断触发(stream): 连续工具失败 %d 次，强制停止",
+                        consecutive_failures,
+                    )
+                    yield {
+                        "type": "hard_interrupt",
+                        "message": f"连续工具调用失败 {consecutive_failures} 次，自动停止。",
+                    }
+                    return
+            else:
+                consecutive_failures = 0
+
         content = response_content or "[达到最大工具调用轮次]"
-        vr = self._prior_verifier.analyze(content, used_tools=used_tools)
-        final_content = vr.corrected_text if vr.corrected_text else content
-        self._track_behavior(prompt, final_content, used_tools=used_tools)
-        self._usage = self._usage.add_usage(total_input, total_output)
-        self._conversation.append(("user", prompt))
-        self._conversation.append(("assistant", final_content))
-        self._layered_memory.working.append("user", prompt)
-        self._layered_memory.working.append("assistant", final_content)
+        final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
         yield {"type": "done", "content": final_content}
 
     def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
@@ -623,26 +890,73 @@ class QueryEngine:
 
         return response.content if response.content else None
 
-    def _build_openai_tools(self) -> tuple[dict[str, Any], ...] | None:
+    def _build_openai_tools(self, query: str = "") -> tuple[dict[str, Any], ...] | None:
         if self._runtime is None:
             return None
-        tool_defs = self._runtime.registry.list_tools()
+        tool_defs = list(self._runtime.registry.list_tools())
+
+        mcp_defs = self._build_mcp_tool_defs()
+        if mcp_defs:
+            tool_defs.extend(mcp_defs)
+
         if not tool_defs:
             return None
-        return tuple(
-            {
-                "name": t.name,
-                "description": t.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        k: v for k, v in t.parameters.items()
+        if not query or len(tool_defs) <= ToolRouter.MAX_TOOLS_PER_REQUEST:
+            return tuple(
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {k: v for k, v in t.parameters.items()},
+                        "required": list(t.parameters.keys()),
                     },
-                    "required": list(t.parameters.keys()),
-                },
-            }
-            for t in tool_defs
+                }
+                for t in tool_defs
+            )
+        result = self._tool_router.route(query, tool_defs)
+        logger.info(
+            "ToolRouter: %d/%d tools selected for query (categories: %s)",
+            result.selected_count, result.total_available,
+            ", ".join(c.value for c in result.categories),
         )
+        return result.tools
+
+    def _build_mcp_tool_defs(self) -> list[Any]:
+        from lingclaude.engine.tools import ToolDefinition
+
+        self._ensure_mcp()
+        mcp_names = mcp_proxy.list_all_tools()
+        if not mcp_names:
+            return []
+
+        native_names = {t.name for t in self._runtime.registry.list_tools()}
+        server_map: dict[str, str] = {}
+        for info in mcp_proxy.list_servers():
+            for t in info.tools:
+                if t not in server_map:
+                    server_map[t] = info.name
+
+        defs: list[ToolDefinition] = []
+        for name in mcp_names:
+            if name in native_names:
+                continue
+            server_name = server_map.get(name, "unknown")
+            defs.append(ToolDefinition(
+                name=name,
+                description=f"[MCP:{server_name}] {name}",
+                parameters={},
+            ))
+        return defs
+
+    def _ensure_mcp(self) -> None:
+        if self._mcp_initialized:
+            return
+        self._mcp_initialized = True
+        try:
+            mcp_proxy.init_from_lingflow_registry()
+        except Exception:
+            logger.debug("MCP proxy registry init skipped")
 
     def _execute_tool(self, name: str, arguments_json: str) -> str:
         try:
@@ -651,10 +965,28 @@ class QueryEngine:
             return json.dumps({"error": f"Invalid JSON arguments: {arguments_json}"}, ensure_ascii=False)
         try:
             result = self._runtime.execute_tool(name, **kwargs)
+            if hasattr(result, 'is_error'):
+                from lingclaude.core.types import Result as _R
+                if isinstance(result, _R):
+                    if result.is_error:
+                        return json.dumps({"error": result.error}, ensure_ascii=False)
+                    result = result.data if result.is_ok else {"error": result.error}
+            if "error" in result and result["error"] and "not found" in str(result["error"]).lower():
+                return self._execute_mcp_tool(name, kwargs)
             return json.dumps(result, ensure_ascii=False, default=str)
         except Exception as e:
             logger.warning("Tool execution failed: %s.%s -> %s", name, kwargs.keys(), e)
             return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    def _execute_mcp_tool(self, name: str, kwargs: dict[str, Any]) -> str:
+        self._ensure_mcp()
+        result = mcp_proxy.call_tool(name, **kwargs)
+        if result.is_error:
+            return json.dumps({"error": result.error}, ensure_ascii=False)
+        data = result.data
+        if data.success:
+            return json.dumps(data.output if isinstance(data.output, dict) else {"result": data.output}, ensure_ascii=False, default=str)
+        return json.dumps({"error": data.error or "MCP tool call failed"}, ensure_ascii=False)
 
     def _compact_if_needed(self) -> None:
         if len(self._messages) > self.config.compact_after_turns * 2:
@@ -799,6 +1131,15 @@ class QueryEngine:
 
         return None
 
+    def _get_last_tool_output(self, messages: list, tool_call_id: str) -> str:
+        for msg in reversed(messages):
+            if (
+                hasattr(msg, "tool_call_id")
+                and msg.tool_call_id == tool_call_id
+            ):
+                return msg.content or ""
+        return ""
+
     def collect_daily_digest(self, report_date: str | None = None) -> Result[DailyDigest]:
         items = self._intel_collector.collect_all()
         digest = DailyDigestGenerator.generate(items, report_date)
@@ -833,6 +1174,129 @@ class QueryEngine:
             )
         except Exception as e:
             logger.warning("Session history write failed: %s", e)
+
+    def _learn_from_turn(self, prompt: str, response: str) -> None:
+        try:
+            from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
+            from lingclaude.self_optimizer.learner.models import (
+                FeedbackCategory,
+                LearnedRule,
+                Pattern,
+            )
+
+            turn_num = len(self._messages) // 2
+            bm = self._behavior
+
+            if bm.hallucination_risk > 0.3:
+                kb = KnowledgeBase()
+                rule = LearnedRule(
+                    id=f"hallucination_turn_{turn_num}_{self.session_id[:8]}",
+                    name="幻觉风险检测",
+                    description=f"第{turn_num}轮幻觉风险={bm.hallucination_risk:.0%}, query={prompt[:60]}",
+                    category=FeedbackCategory.SECURITY,
+                    pattern=Pattern(
+                        context_keywords=("hallucination", prompt[:30]),
+                        severity_distribution={"risk": bm.hallucination_risk},
+                    ),
+                    tools=("prior_verifier", "behavior"),
+                    frequency=1,
+                    confidence=0.7,
+                    quality_score=max(0.1, 1.0 - bm.hallucination_risk),
+                    status="active",
+                )
+                kb.add_rule(rule)
+                kb.close()
+
+            if bm.tool_error_count > 0:
+                kb = KnowledgeBase()
+                rule = LearnedRule(
+                    id=f"tool_error_turn_{turn_num}_{self.session_id[:8]}",
+                    name="工具错误记录",
+                    description=f"第{turn_num}轮工具错误={bm.tool_error_count}, query={prompt[:60]}",
+                    category=FeedbackCategory.BUG_RISK,
+                    pattern=Pattern(
+                        context_keywords=("tool_error", prompt[:30]),
+                        severity_distribution={"errors": bm.tool_error_count},
+                    ),
+                    tools=("behavior",),
+                    frequency=1,
+                    confidence=0.8,
+                    quality_score=0.5,
+                    status="active",
+                )
+                kb.add_rule(rule)
+                kb.close()
+
+            if bm.corrections_received > 0:
+                kb = KnowledgeBase()
+                rule = LearnedRule(
+                    id=f"correction_turn_{turn_num}_{self.session_id[:8]}",
+                    name="用户纠正记录",
+                    description=f"第{turn_num}轮用户纠正={bm.corrections_received}, query={prompt[:60]}",
+                    category=FeedbackCategory.BEST_PRACTICE,
+                    pattern=Pattern(
+                        context_keywords=("correction", prompt[:30]),
+                        severity_distribution={"count": bm.corrections_received},
+                    ),
+                    tools=("behavior",),
+                    frequency=1,
+                    confidence=0.9,
+                    quality_score=0.6,
+                    status="active",
+                )
+                kb.add_rule(rule)
+                kb.close()
+
+            if turn_num > 0 and turn_num % 5 == 0:
+                kb = KnowledgeBase()
+                rule = LearnedRule(
+                    id=f"session_milestone_{turn_num}_{self.session_id[:8]}",
+                    name=f"会话里程碑 #{turn_num}",
+                    description=f"会话进行到第{turn_num}轮, 幻觉风险={bm.hallucination_risk:.0%}, 沮丧率={bm.frustration_rate:.0%}, 工具错误={bm.tool_error_count}",
+                    category=FeedbackCategory.BEST_PRACTICE,
+                    pattern=Pattern(
+                        context_keywords=("milestone", str(turn_num)),
+                        severity_distribution={
+                            "hallucination_risk": bm.hallucination_risk,
+                            "frustration_rate": bm.frustration_rate,
+                        },
+                    ),
+                    tools=("behavior", "meta_cognition"),
+                    frequency=1,
+                    confidence=0.6,
+                    quality_score=0.5,
+                    status="active",
+                )
+                kb.add_rule(rule)
+                kb.close()
+
+        except Exception as e:
+            logger.warning("知识库学习失败: %s", e)
+
+    def _log_to_flywheel(
+        self,
+        pattern_type: str,
+        error_message: str,
+        tool_name: str = "",
+        file_path: str = "",
+        context: str = "",
+    ) -> None:
+        try:
+            from lingclaude.core.data_flywheel import DataFlywheel, ErrorPattern
+
+            flywheel = DataFlywheel()
+            flywheel.log_error(ErrorPattern(
+                pattern_type=pattern_type,
+                file_path=file_path,
+                error_message=error_message[:500],
+                tool_name=tool_name,
+                context=context[:200],
+                session_id=self.session_id,
+                occurred_at=datetime.now().isoformat(),
+            ))
+            flywheel.close()
+        except Exception as e:
+            logger.warning("飞轮记录失败: %s", e)
 
     def _collect_behavior_intel(self) -> None:
         self._intel_collector.from_behavior(self._behavior.to_dict())

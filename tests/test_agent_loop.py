@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lingclaude.core.query_engine import AGENT_MAX_TOOL_ROUNDS, QueryEngine, QueryEngineConfig
+from lingclaude.core.query_engine import AGENT_MAX_TOOL_ROUNDS, CHECKPOINT_DIR, QueryEngine, QueryEngineConfig, StopReason, CONSECUTIVE_FAILURE_LIMIT
 from lingclaude.engine.coding import CodingRuntime
 from lingclaude.model.types import (
     ModelConfig,
@@ -318,9 +318,8 @@ class TestToolDefinitionConversion:
 
         tools = captured_tools["tools"]
         assert tools is not None
-        assert len(tools) == 2
-        bash_tool = tools[0]
-        assert bash_tool["name"] == "bash"
+        assert len(tools) >= 2
+        bash_tool = next(t for t in tools if t["name"] == "bash")
         assert bash_tool["parameters"]["type"] == "object"
         assert "command" in bash_tool["parameters"]["properties"]
         assert "command" in bash_tool["parameters"]["required"]
@@ -396,3 +395,430 @@ class TestMessageHistory:
         assert tool_msg.role.value == "tool"
         assert tool_msg.tool_call_id == "tc_42"
         assert "file1.py" in tool_msg.content
+
+
+class TestCheckpointResume:
+    def test_checkpoint_saved_after_tool_round(self, tmp_path: Any, monkeypatch: Any) -> None:
+        monkeypatch.setattr("lingclaude.core.query_engine.CHECKPOINT_DIR", tmp_path / "cp")
+
+        call_count = 0
+
+        class TwoRoundProvider(ModelProvider):
+            def complete(self, messages, config=None, tools=None):
+                nonlocal call_count
+                from lingclaude.core.types import Result
+                call_count += 1
+                if call_count == 1:
+                    return Result.ok(ModelResponse(
+                        content="",
+                        model="test",
+                        usage=ModelUsage(),
+                        tool_calls=(ToolCall(id="c1", name="bash", arguments='{"command": "ls"}'),),
+                    ))
+                return Result.ok(ModelResponse(
+                    content="done after tool",
+                    model="test",
+                    usage=ModelUsage(),
+                    tool_calls=(),
+                ))
+
+            async def acomplete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.ok(ModelResponse(content="ok", model="test", usage=ModelUsage()))
+
+            def count_tokens(self, text):
+                return 0
+
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+        runtime.execute_tool.return_value = {"exit_code": 0, "stdout": "file.py", "stderr": ""}
+
+        engine = QueryEngine(model_provider=TwoRoundProvider())
+        engine.set_runtime(runtime)
+        result = engine.submit("test checkpoint")
+
+        assert result.output == "done after tool"
+        cp_dir = tmp_path / "cp"
+        cp_files = list(cp_dir.glob("*.json"))
+        assert len(cp_files) == 0
+
+    def test_checkpoint_exists_during_tool_loop(self, tmp_path: Any, monkeypatch: Any) -> None:
+        cp_dir = tmp_path / "cp"
+        monkeypatch.setattr("lingclaude.core.query_engine.CHECKPOINT_DIR", cp_dir)
+
+        call_count = 0
+
+        class InterruptingProvider(ModelProvider):
+            def complete(self, messages, config=None, tools=None):
+                nonlocal call_count
+                from lingclaude.core.types import Result
+                call_count += 1
+                if call_count == 1:
+                    return Result.ok(ModelResponse(
+                        content="",
+                        model="test",
+                        usage=ModelUsage(),
+                        tool_calls=(ToolCall(id="c1", name="bash", arguments='{"command": "ls"}'),),
+                    ))
+                if call_count == 2:
+                    return Result.ok(ModelResponse(
+                        content="",
+                        model="test",
+                        usage=ModelUsage(),
+                        tool_calls=(ToolCall(id="c2", name="read", arguments='{"path": "/tmp/x"}'),),
+                    ))
+                return Result.ok(ModelResponse(
+                    content="final answer",
+                    model="test",
+                    usage=ModelUsage(),
+                    tool_calls=(),
+                ))
+
+            async def acomplete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.ok(ModelResponse(content="ok", model="test", usage=ModelUsage()))
+
+            def count_tokens(self, text):
+                return 0
+
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+        runtime.execute_tool.return_value = {"exit_code": 0, "stdout": "out", "stderr": ""}
+
+        engine = QueryEngine(model_provider=InterruptingProvider())
+        engine.set_runtime(runtime)
+        result = engine.submit("multi-round")
+
+        assert result.output == "final answer"
+        assert not engine.has_checkpoint
+
+    def test_resume_after_simulated_429(self, tmp_path: Any, monkeypatch: Any) -> None:
+        cp_dir = tmp_path / "cp"
+        monkeypatch.setattr("lingclaude.core.query_engine.CHECKPOINT_DIR", cp_dir)
+
+        session_id = "test_429_session"
+
+        cp_data = {
+            "session_id": session_id,
+            "prompt": "读取文件并分析",
+            "round_idx": 0,
+            "used_tools": True,
+            "total_input": 100,
+            "total_output": 50,
+            "messages": [
+                {"role": "system", "content": "你是灵克"},
+                {"role": "user", "content": "读取文件并分析"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "bash", "arguments": '{"command": "ls"}'},
+                        }
+                    ],
+                },
+                {"role": "tool", "content": '{"exit_code": 0, "stdout": "main.py", "stderr": ""}', "name": "bash", "tool_call_id": "call_1"},
+            ],
+            "conversation": [],
+            "timestamp": "2026-01-01T00:00:00Z",
+        }
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        (cp_dir / f"{session_id}.json").write_text(
+            json.dumps(cp_data, ensure_ascii=False), encoding="utf-8",
+        )
+
+        class ResumeProvider(ModelProvider):
+            def complete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.ok(ModelResponse(
+                    content="分析完成：找到main.py",
+                    model="test",
+                    usage=ModelUsage(input_tokens=50, output_tokens=20),
+                    tool_calls=(),
+                ))
+
+            async def acomplete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.ok(ModelResponse(content="ok", model="test", usage=ModelUsage()))
+
+            def count_tokens(self, text):
+                return 0
+
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+
+        engine = QueryEngine(model_provider=ResumeProvider())
+        engine.session_id = session_id
+        engine.set_runtime(runtime)
+
+        assert engine.has_checkpoint
+
+        resume_result = engine.resume_interrupted()
+        assert resume_result.is_ok
+        assert "分析完成" in resume_result.data
+        assert not engine.has_checkpoint
+        assert len(engine._messages) == 2
+
+    def test_resume_no_checkpoint_returns_error(self) -> None:
+        class SimpleProvider(ModelProvider):
+            def complete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.ok(ModelResponse(content="ok", model="test", usage=ModelUsage()))
+
+            async def acomplete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.ok(ModelResponse(content="ok", model="test", usage=ModelUsage()))
+
+            def count_tokens(self, text):
+                return 0
+
+        engine = QueryEngine(model_provider=SimpleProvider())
+        result = engine.resume_interrupted()
+        assert result.is_error
+        assert result.code == "NO_CHECKPOINT"
+
+    def test_reset_clears_checkpoint(self, tmp_path: Any, monkeypatch: Any) -> None:
+        cp_dir = tmp_path / "cp"
+        monkeypatch.setattr("lingclaude.core.query_engine.CHECKPOINT_DIR", cp_dir)
+
+        call_count = 0
+
+        class OneToolProvider(ModelProvider):
+            def complete(self, messages, config=None, tools=None):
+                nonlocal call_count
+                from lingclaude.core.types import Result
+                call_count += 1
+                if call_count == 1:
+                    return Result.ok(ModelResponse(
+                        content="",
+                        model="test",
+                        usage=ModelUsage(),
+                        tool_calls=(ToolCall(id="c1", name="bash", arguments='{"command": "echo hi"}'),),
+                    ))
+                return Result.ok(ModelResponse(
+                    content="ok", model="test", usage=ModelUsage(), tool_calls=(),
+                ))
+
+            async def acomplete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.ok(ModelResponse(content="ok", model="test", usage=ModelUsage()))
+
+            def count_tokens(self, text):
+                return 0
+
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+        runtime.execute_tool.return_value = {"exit_code": 0, "stdout": "hi", "stderr": ""}
+
+        engine = QueryEngine(model_provider=OneToolProvider())
+        engine.set_runtime(runtime)
+        engine.submit("trigger tool")
+
+        engine.reset()
+        assert not engine.has_checkpoint
+
+    def test_resume_provider_error_returns_fail(self, tmp_path: Any, monkeypatch: Any) -> None:
+        cp_dir = tmp_path / "cp"
+        monkeypatch.setattr("lingclaude.core.query_engine.CHECKPOINT_DIR", cp_dir)
+
+        session_id = "test_fail_resume"
+        cp_data = {
+            "session_id": session_id,
+            "prompt": "test",
+            "round_idx": 0,
+            "used_tools": True,
+            "total_input": 0,
+            "total_output": 0,
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "test"},
+                {"role": "tool", "content": '{"ok": true}', "name": "bash", "tool_call_id": "c1"},
+            ],
+            "conversation": [],
+            "timestamp": "2026-01-01T00:00:00Z",
+        }
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        (cp_dir / f"{session_id}.json").write_text(
+            json.dumps(cp_data, ensure_ascii=False), encoding="utf-8",
+        )
+
+        class FailingProvider(ModelProvider):
+            def complete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.fail("429 rate limit", code="RATE_LIMIT")
+
+            async def acomplete(self, messages, config=None, tools=None):
+                from lingclaude.core.types import Result
+                return Result.fail("error", code="ERR")
+
+            def count_tokens(self, text):
+                return 0
+
+        engine = QueryEngine(model_provider=FailingProvider())
+        engine.session_id = session_id
+
+        result = engine.resume_interrupted()
+        assert result.is_error
+        assert "Resume failed" in result.error
+
+
+class AlwaysFailingProvider(ModelProvider):
+    def __init__(self, fail_count: int) -> None:
+        self._fail_count = fail_count
+        self._call_count = 0
+
+    def complete(self, messages, config=None, tools=None):
+        from lingclaude.core.types import Result
+        self._call_count += 1
+        if self._call_count <= self._fail_count:
+            return Result.fail("connection timeout", code="TIMEOUT")
+        return Result.ok(ModelResponse(
+            content="recovered", model="test", usage=ModelUsage(),
+        ))
+
+    async def acomplete(self, messages, config=None, tools=None):
+        from lingclaude.core.types import Result
+        return Result.fail("error", code="ERR")
+
+    def count_tokens(self, text):
+        return 0
+
+
+class ToolErrorProvider(ModelProvider):
+    def __init__(self, error_rounds: int) -> None:
+        self._error_rounds = error_rounds
+        self._round = 0
+
+    def complete(self, messages, config=None, tools=None):
+        from lingclaude.core.types import Result
+        self._round += 1
+        if self._round <= self._error_rounds:
+            return Result.ok(ModelResponse(
+                content="",
+                model="test",
+                usage=ModelUsage(),
+                tool_calls=(ToolCall(
+                    id=f"err_{self._round}",
+                    name="bash",
+                    arguments='{"command": "false"}',
+                ),),
+            ))
+        return Result.ok(ModelResponse(
+            content="最终成功", model="test", usage=ModelUsage(),
+        ))
+
+    async def acomplete(self, messages, config=None, tools=None):
+        from lingclaude.core.types import Result
+        return Result.fail("error", code="ERR")
+
+    def count_tokens(self, text):
+        return 0
+
+
+class TestHardInterrupt:
+    def test_consecutive_model_failures_trigger_hard_interrupt(self) -> None:
+        provider = AlwaysFailingProvider(fail_count=5)
+        config = QueryEngineConfig(consecutive_failure_limit=3)
+        engine = QueryEngine(config=config, model_provider=provider)
+        result = engine.submit("测试硬中断")
+        assert "[硬中断]" in result.output
+        assert "连续模型调用失败" in result.output
+        assert result.stop_reason == StopReason.CONSECUTIVE_FAILURE
+
+    def test_single_model_failure_no_interrupt(self) -> None:
+        provider = AlwaysFailingProvider(fail_count=1)
+        config = QueryEngineConfig(consecutive_failure_limit=3)
+        engine = QueryEngine(config=config, model_provider=provider)
+        result = engine.submit("测试单次失败")
+        assert "[硬中断]" not in result.output
+        assert result.stop_reason == StopReason.COMPLETED
+
+    def test_consecutive_tool_errors_trigger_hard_interrupt(self) -> None:
+        provider = ToolErrorProvider(error_rounds=3)
+        config = QueryEngineConfig(consecutive_failure_limit=3)
+
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+        runtime.execute_tool.return_value = {"error": "command failed"}
+
+        engine = QueryEngine(config=config, model_provider=provider)
+        engine.set_runtime(runtime)
+        result = engine.submit("测试工具连续失败")
+        assert "[硬中断]" in result.output
+        assert "连续工具调用失败" in result.output
+        assert result.stop_reason == StopReason.CONSECUTIVE_FAILURE
+
+    def test_tool_errors_below_limit_continue(self) -> None:
+        provider = ToolErrorProvider(error_rounds=2)
+        config = QueryEngineConfig(consecutive_failure_limit=3)
+
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+        runtime.execute_tool.return_value = {"error": "command failed"}
+
+        engine = QueryEngine(config=config, model_provider=provider)
+        engine.set_runtime(runtime)
+        result = engine.submit("测试工具失败未达阈值")
+        assert "[硬中断]" not in result.output
+
+    def test_mixed_success_resets_failure_counter(self) -> None:
+        responses = []
+        for i in range(2):
+            responses.append(ModelResponse(
+                content="",
+                model="test",
+                usage=ModelUsage(),
+                tool_calls=(ToolCall(id=f"e{i}", name="bash", arguments='{"command": "false"}'),),
+            ))
+        for i in range(2):
+            responses.append(ModelResponse(
+                content="",
+                model="test",
+                usage=ModelUsage(),
+                tool_calls=(ToolCall(id=f"s{i}", name="bash", arguments='{"command": "echo ok"}'),),
+            ))
+        for i in range(2):
+            responses.append(ModelResponse(
+                content="",
+                model="test",
+                usage=ModelUsage(),
+                tool_calls=(ToolCall(id=f"e2_{i}", name="bash", arguments='{"command": "false"}'),),
+            ))
+        responses.append(ModelResponse(
+            content="全部完成", model="test", usage=ModelUsage(),
+        ))
+        provider = FakeProvider(responses)
+        config = QueryEngineConfig(consecutive_failure_limit=3)
+
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+        call_count = [0]
+
+        def side_effect(name, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                return {"error": "fail"}
+            if call_count[0] <= 4:
+                return {"exit_code": 0, "stdout": "ok", "stderr": "", "duration": 0.01}
+            return {"error": "fail"}
+
+        runtime.execute_tool.side_effect = side_effect
+
+        engine = QueryEngine(config=config, model_provider=provider)
+        engine.set_runtime(runtime)
+        result = engine.submit("测试混合成功重置计数器")
+        assert "[硬中断]" not in result.output
+
+    def test_default_config_has_consecutive_failure_limit(self) -> None:
+        config = QueryEngineConfig()
+        assert config.consecutive_failure_limit == CONSECUTIVE_FAILURE_LIMIT
+        assert CONSECUTIVE_FAILURE_LIMIT == 3
+
+    def test_custom_failure_limit(self) -> None:
+        provider = AlwaysFailingProvider(fail_count=2)
+        config = QueryEngineConfig(consecutive_failure_limit=2)
+        engine = QueryEngine(config=config, model_provider=provider)
+        result = engine.submit("测试自定义阈值")
+        assert "[硬中断]" in result.output

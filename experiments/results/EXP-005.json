@@ -1,0 +1,5006 @@
+{
+  "experiment_id": "EXP-005",
+  "experiment_name": "\u8de8\u4efb\u52a1\u6cdb\u5316\u5b9e\u9a8c",
+  "timestamp": "2026-04-12 14:13:25",
+  "config": {
+    "config_file": "EXP-005_config.yaml",
+    "runs_per_group": 3,
+    "groups_executed": [
+      "high_direct_simple",
+      "high_adaptive_simple",
+      "high_adaptive_medium",
+      "high_adaptive_complex",
+      "medium_direct_medium",
+      "medium_adaptive_medium",
+      "medium_hybrid_medium",
+      "low_direct_medium",
+      "low_adaptive_medium"
+    ]
+  },
+  "results": {
+    "high_direct_simple": [
+      {
+        "group_id": "high_direct_simple",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "simple",
+        "task_similarity": 0.85,
+        "duration_hours": 9.934107462565104e-09,
+        "total_operations": 50,
+        "successful_operations": 37,
+        "operation_effectiveness": 0.6503920607871043,
+        "efficiency_gain": 48318382080.0,
+        "cognitive_stability": 0.8891426609026187,
+        "tool_usage_ratio": 0.7845224153794818,
+        "feedback_loop_strength": 0.6486947199429944,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.34569916734195694,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8572234280926893,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 4,
+        "effective_rules": 4,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.6503920607871043,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          }
+        ]
+      },
+      {
+        "group_id": "high_direct_simple",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "simple",
+        "task_similarity": 0.85,
+        "duration_hours": 4.5696894327799476e-09,
+        "total_operations": 99,
+        "successful_operations": 40,
+        "operation_effectiveness": 0.5624481055115305,
+        "efficiency_gain": 105039961043.47827,
+        "cognitive_stability": 0.9153136211130117,
+        "tool_usage_ratio": 0.858959911132163,
+        "feedback_loop_strength": 0.6470925221703929,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.324696629584915,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.7652751831153888,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 4,
+        "effective_rules": 4,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.5624481055115305,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          }
+        ]
+      },
+      {
+        "group_id": "high_direct_simple",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "simple",
+        "task_similarity": 0.85,
+        "duration_hours": 3.0464596218532988e-09,
+        "total_operations": 50,
+        "successful_operations": 43,
+        "operation_effectiveness": 0.7194382799900837,
+        "efficiency_gain": 157559941565.21738,
+        "cognitive_stability": 0.8067071870886116,
+        "tool_usage_ratio": 0.7424058861261953,
+        "feedback_loop_strength": 0.6711857440703691,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.2076442339186273,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8710795557351587,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 4,
+        "effective_rules": 4,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.7194382799900837,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          }
+        ]
+      }
+    ],
+    "high_adaptive_simple": [
+      {
+        "group_id": "high_adaptive_simple",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "simple",
+        "task_similarity": 0.85,
+        "duration_hours": 4.371007283528646e-09,
+        "total_operations": 54,
+        "successful_operations": 55,
+        "operation_effectiveness": 0.6696209863822096,
+        "efficiency_gain": 109814504727.27272,
+        "cognitive_stability": 0.8840236129629274,
+        "tool_usage_ratio": 0.8061591279154104,
+        "feedback_loop_strength": 0.6399479315001227,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.06029494925466919,
+        "transfer_speed": 0.22076224030647312,
+        "adaptation_overhead": 0.5,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8628230933199951,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 4,
+        "effective_rules": 4,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 2.185503641764323e-09,
+        "source_performance": 0,
+        "target_performance": 0.6696209863822096,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          }
+        ]
+      },
+      {
+        "group_id": "high_adaptive_simple",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "simple",
+        "task_similarity": 0.85,
+        "duration_hours": 3.708733452690972e-09,
+        "total_operations": 50,
+        "successful_operations": 39,
+        "operation_effectiveness": 0.7561600148511242,
+        "efficiency_gain": 129424237714.28572,
+        "cognitive_stability": 0.8280779419239479,
+        "tool_usage_ratio": 0.7754737014858377,
+        "feedback_loop_strength": 0.7654418961071202,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.08783239288170981,
+        "transfer_speed": 0.3466788450863574,
+        "adaptation_overhead": 0.4642857142857143,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8753031401297957,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 4,
+        "effective_rules": 4,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 1.7219119601779513e-09,
+        "source_performance": 0,
+        "target_performance": 0.7561600148511242,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          }
+        ]
+      },
+      {
+        "group_id": "high_adaptive_simple",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "simple",
+        "task_similarity": 0.85,
+        "duration_hours": 3.0464596218532988e-09,
+        "total_operations": 54,
+        "successful_operations": 55,
+        "operation_effectiveness": 0.8002344903228703,
+        "efficiency_gain": 157559941565.21738,
+        "cognitive_stability": 0.8850968534177605,
+        "tool_usage_ratio": 0.7326272574831543,
+        "feedback_loop_strength": 0.6685180650768803,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.056771044755034965,
+        "transfer_speed": 0.2685055319944854,
+        "adaptation_overhead": 0.3913043478260869,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8931004045184456,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 4,
+        "effective_rules": 4,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 1.1920928955078125e-09,
+        "source_performance": 0,
+        "target_performance": 0.8002344903228703,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          }
+        ]
+      }
+    ],
+    "high_adaptive_medium": [
+      {
+        "group_id": "high_adaptive_medium",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.85,
+        "duration_hours": 4.039870368109809e-09,
+        "total_operations": 98,
+        "successful_operations": 54,
+        "operation_effectiveness": 0.6948276328847265,
+        "efficiency_gain": 118815693639.34425,
+        "cognitive_stability": 0.8342850840633278,
+        "tool_usage_ratio": 0.8249710836595104,
+        "feedback_loop_strength": 0.7058295707884233,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.12867769582320238,
+        "transfer_speed": 0.35281777451643076,
+        "adaptation_overhead": 0.44262295081967207,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8558256641216249,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 1.7881393432617187e-09,
+        "source_performance": 0,
+        "target_performance": 0.6948276328847265,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "high_adaptive_medium",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.85,
+        "duration_hours": 3.77496083577474e-09,
+        "total_operations": 89,
+        "successful_operations": 34,
+        "operation_effectiveness": 0.6892638137883922,
+        "efficiency_gain": 127153637052.63156,
+        "cognitive_stability": 0.9080403229330859,
+        "tool_usage_ratio": 0.8794324895184871,
+        "feedback_loop_strength": 0.6852828123766258,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.11542909039486919,
+        "transfer_speed": 0.2477865047272756,
+        "adaptation_overhead": 0.42105263157894735,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8943378144134679,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 1.5894571940104168e-09,
+        "source_performance": 0,
+        "target_performance": 0.6892638137883922,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "high_adaptive_medium",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.85,
+        "duration_hours": 3.6425060696072047e-09,
+        "total_operations": 89,
+        "successful_operations": 39,
+        "operation_effectiveness": 0.7413522137228068,
+        "efficiency_gain": 131777405672.72728,
+        "cognitive_stability": 0.9404434869558994,
+        "tool_usage_ratio": 0.7004310537120035,
+        "feedback_loop_strength": 0.6102694575323558,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.07813352656120887,
+        "transfer_speed": 0.3906608175222463,
+        "adaptation_overhead": 0.4181818181818182,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8666566927963095,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 1.5232298109266494e-09,
+        "source_performance": 0,
+        "target_performance": 0.7413522137228068,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      }
+    ],
+    "high_adaptive_complex": [
+      {
+        "group_id": "high_adaptive_complex",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "complex",
+        "task_similarity": 0.85,
+        "duration_hours": 4.702144198947482e-09,
+        "total_operations": 99,
+        "successful_operations": 56,
+        "operation_effectiveness": 0.7592038893063091,
+        "efficiency_gain": 102081088901.40846,
+        "cognitive_stability": 0.9083287043265387,
+        "tool_usage_ratio": 0.8505626050855544,
+        "feedback_loop_strength": 0.7060417579108146,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.14401647499247738,
+        "transfer_speed": 0.23183290871677173,
+        "adaptation_overhead": 0.4366197183098592,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8521074879630953,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 12,
+        "effective_rules": 12,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 2.053048875596788e-09,
+        "source_performance": 0,
+        "target_performance": 0.7592038893063091,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "check_dependencies",
+            "description": "\u68c0\u67e5\u4f9d\u8d56",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "validate_environment",
+            "description": "\u9a8c\u8bc1\u73af\u5883",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R7",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R8",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R9",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R10",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          },
+          {
+            "rule_id": "R11",
+            "name": "optimize_performance",
+            "description": "\u4f18\u5316\u6027\u80fd",
+            "effectiveness": 0.84
+          },
+          {
+            "rule_id": "R12",
+            "name": "security_review",
+            "description": "\u5b89\u5168\u5ba1\u67e5",
+            "effectiveness": 0.83
+          }
+        ]
+      },
+      {
+        "group_id": "high_adaptive_complex",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "complex",
+        "task_similarity": 0.85,
+        "duration_hours": 4.238552517361111e-09,
+        "total_operations": 54,
+        "successful_operations": 46,
+        "operation_effectiveness": 0.6908209346532077,
+        "efficiency_gain": 113246208000.0,
+        "cognitive_stability": 0.8617236515144953,
+        "tool_usage_ratio": 0.8860674732080133,
+        "feedback_loop_strength": 0.7556282393807848,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.07542159804020226,
+        "transfer_speed": 0.25948367052767096,
+        "adaptation_overhead": 0.453125,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.7714047748424813,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 12,
+        "effective_rules": 12,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 1.9205941094292534e-09,
+        "source_performance": 0,
+        "target_performance": 0.6908209346532077,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "check_dependencies",
+            "description": "\u68c0\u67e5\u4f9d\u8d56",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "validate_environment",
+            "description": "\u9a8c\u8bc1\u73af\u5883",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R7",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R8",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R9",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R10",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          },
+          {
+            "rule_id": "R11",
+            "name": "optimize_performance",
+            "description": "\u4f18\u5316\u6027\u80fd",
+            "effectiveness": 0.84
+          },
+          {
+            "rule_id": "R12",
+            "name": "security_review",
+            "description": "\u5b89\u5168\u5ba1\u67e5",
+            "effectiveness": 0.83
+          }
+        ]
+      },
+      {
+        "group_id": "high_adaptive_complex",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-CODE",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "complex",
+        "task_similarity": 0.85,
+        "duration_hours": 4.172325134277344e-09,
+        "total_operations": 94,
+        "successful_operations": 69,
+        "operation_effectiveness": 0.7468995240639562,
+        "efficiency_gain": 115043766857.14285,
+        "cognitive_stability": 0.8883382470138068,
+        "tool_usage_ratio": 0.769758178581602,
+        "feedback_loop_strength": 0.6749557713839837,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.85,
+        "adaptive_vs_direct_improvement": 0.11020288386946805,
+        "transfer_speed": 0.32637830341343116,
+        "adaptation_overhead": 0.46031746031746024,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.87,
+        "recipe_stability": 0.8874179311324362,
+        "transfer_distance": 0.15000000000000002,
+        "generalization_gap": 0.0,
+        "total_rules": 12,
+        "effective_rules": 12,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 1.9205941094292534e-09,
+        "source_performance": 0,
+        "target_performance": 0.7468995240639562,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "check_dependencies",
+            "description": "\u68c0\u67e5\u4f9d\u8d56",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "validate_environment",
+            "description": "\u9a8c\u8bc1\u73af\u5883",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R7",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R8",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R9",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R10",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          },
+          {
+            "rule_id": "R11",
+            "name": "optimize_performance",
+            "description": "\u4f18\u5316\u6027\u80fd",
+            "effectiveness": 0.84
+          },
+          {
+            "rule_id": "R12",
+            "name": "security_review",
+            "description": "\u5b89\u5168\u5ba1\u67e5",
+            "effectiveness": 0.83
+          }
+        ]
+      }
+    ],
+    "medium_direct_medium": [
+      {
+        "group_id": "medium_direct_medium",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 3.112687004937066e-09,
+        "total_operations": 86,
+        "successful_operations": 40,
+        "operation_effectiveness": 0.587344401533827,
+        "efficiency_gain": 154207602382.9787,
+        "cognitive_stability": 0.8369647383316525,
+        "tool_usage_ratio": 0.862767031247863,
+        "feedback_loop_strength": 0.6374910596621434,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.2287772002820557,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.8270130578173109,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.587344401533827,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "medium_direct_medium",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 5.563100179036459e-09,
+        "total_operations": 64,
+        "successful_operations": 35,
+        "operation_effectiveness": 0.5742571906479385,
+        "efficiency_gain": 86282825142.85713,
+        "cognitive_stability": 0.9088508621293454,
+        "tool_usage_ratio": 0.7318441636589808,
+        "feedback_loop_strength": 0.6606222928927116,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.31320440177836273,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.7585696784236162,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.5742571906479385,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "medium_direct_medium",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 4.900826348198785e-09,
+        "total_operations": 61,
+        "successful_operations": 28,
+        "operation_effectiveness": 0.5531696557352598,
+        "efficiency_gain": 97942666378.37837,
+        "cognitive_stability": 0.8835443134873352,
+        "tool_usage_ratio": 0.8678514088325193,
+        "feedback_loop_strength": 0.7994704143279516,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.39590453599661046,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.8728674552557999,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 0,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.5531696557352598,
+        "adaptation_logs": [],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      }
+    ],
+    "medium_adaptive_medium": [
+      {
+        "group_id": "medium_adaptive_medium",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 2.311335669623481e-08,
+        "total_operations": 75,
+        "successful_operations": 30,
+        "operation_effectiveness": 0.6034564239648329,
+        "efficiency_gain": 20767212928.366764,
+        "cognitive_stability": 0.8948771124432333,
+        "tool_usage_ratio": 0.8730719871667371,
+        "feedback_loop_strength": 0.7941999249359502,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.1372589927847241,
+        "transfer_speed": 0.3733332275148125,
+        "adaptation_overhead": 0.816618911174785,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.8824281370456819,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 6,
+        "adaptation_time_hours": 1.8874804178873697e-08,
+        "source_performance": 0,
+        "target_performance": 0.6034564239648329,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "medium_adaptive_medium",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 1.529852549235026e-08,
+        "total_operations": 92,
+        "successful_operations": 52,
+        "operation_effectiveness": 0.6131776410052764,
+        "efficiency_gain": 31375572779.22078,
+        "cognitive_stability": 0.8245779915997036,
+        "tool_usage_ratio": 0.8233540393172455,
+        "feedback_loop_strength": 0.782700375596565,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.12437988339048307,
+        "transfer_speed": 0.3797201404287219,
+        "adaptation_overhead": 0.6796536796536797,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.8957851130841707,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 10,
+        "adaptation_time_hours": 1.0397699144151476e-08,
+        "source_performance": 0,
+        "target_performance": 0.6131776410052764,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "medium_adaptive_medium",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 1.304679446750217e-08,
+        "total_operations": 61,
+        "successful_operations": 37,
+        "operation_effectiveness": 0.6503089113049203,
+        "efficiency_gain": 36790646253.807106,
+        "cognitive_stability": 0.8232324445407871,
+        "tool_usage_ratio": 0.831412726223963,
+        "feedback_loop_strength": 0.6322674709606089,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.1043231528789714,
+        "transfer_speed": 0.35351969167364605,
+        "adaptation_overhead": 0.6700507614213198,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.7860323599851817,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 13,
+        "adaptation_time_hours": 8.742014567057292e-09,
+        "source_performance": 0,
+        "target_performance": 0.6503089113049203,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      }
+    ],
+    "medium_hybrid_medium": [
+      {
+        "group_id": "medium_hybrid_medium",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "hybrid",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 1.3841523064507378e-08,
+        "total_operations": 98,
+        "successful_operations": 38,
+        "operation_effectiveness": 0.6038906594317898,
+        "efficiency_gain": 34678264650.717705,
+        "cognitive_stability": 0.8547455465638153,
+        "tool_usage_ratio": 0.8273449288570789,
+        "feedback_loop_strength": 0.6026836177962668,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.08208880605649346,
+        "transfer_speed": 0.36037665943024094,
+        "adaptation_overhead": 0.8038277511961723,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.8874521681616491,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 20,
+        "adaptation_time_hours": 1.1126200358072917e-08,
+        "source_performance": 0,
+        "target_performance": 0.6038906594317898,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "medium_hybrid_medium",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "hybrid",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 1.0596381293402778e-08,
+        "total_operations": 78,
+        "successful_operations": 33,
+        "operation_effectiveness": 0.6130091182218411,
+        "efficiency_gain": 45298483200.0,
+        "cognitive_stability": 0.9101712800725434,
+        "tool_usage_ratio": 0.7103945974786848,
+        "feedback_loop_strength": 0.7969666172649523,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.061296875187649716,
+        "transfer_speed": 0.2189904797250316,
+        "adaptation_overhead": 0.7687499999999999,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.8661449980474796,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 24,
+        "adaptation_time_hours": 8.145968119303385e-09,
+        "source_performance": 0,
+        "target_performance": 0.6130091182218411,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "medium_hybrid_medium",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-DOCS",
+        "transfer_strategy": "hybrid",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.6,
+        "duration_hours": 1.2848112318250868e-08,
+        "total_operations": 54,
+        "successful_operations": 60,
+        "operation_effectiveness": 0.659472829821473,
+        "efficiency_gain": 37359573773.19588,
+        "cognitive_stability": 0.828550172614627,
+        "tool_usage_ratio": 0.8070847839517297,
+        "feedback_loop_strength": 0.7335553590261922,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.6,
+        "adaptive_vs_direct_improvement": 0.05751946346813015,
+        "transfer_speed": 0.2626351568212754,
+        "adaptation_overhead": 0.8195876288659794,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.82,
+        "recipe_stability": 0.8250433634102724,
+        "transfer_distance": 0.4,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 32,
+        "adaptation_time_hours": 1.053015391031901e-08,
+        "source_performance": 0,
+        "target_performance": 0.659472829821473,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116372,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116408,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116441,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011647,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116498,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116527,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011655,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116582,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      }
+    ],
+    "low_direct_medium": [
+      {
+        "group_id": "low_direct_medium",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-TEST",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.35,
+        "duration_hours": 2.9802322387695314e-09,
+        "total_operations": 81,
+        "successful_operations": 27,
+        "operation_effectiveness": 0.464645851037048,
+        "efficiency_gain": 161061273600.0,
+        "cognitive_stability": 0.9312661990976521,
+        "tool_usage_ratio": 0.8326816200472142,
+        "feedback_loop_strength": 0.6748678732724512,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.35,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.3356495940166087,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.7699999999999999,
+        "recipe_stability": 0.7714964326890684,
+        "transfer_distance": 0.65,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 32,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.464645851037048,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116372,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116408,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116441,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011647,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116498,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116527,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011655,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116582,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "low_direct_medium",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-TEST",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.35,
+        "duration_hours": 2.914004855685764e-09,
+        "total_operations": 85,
+        "successful_operations": 42,
+        "operation_effectiveness": 0.5043375811106009,
+        "efficiency_gain": 164721757090.9091,
+        "cognitive_stability": 0.8124647385377868,
+        "tool_usage_ratio": 0.7537604289409102,
+        "feedback_loop_strength": 0.6024525127005045,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.35,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.37542652481261624,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.7699999999999999,
+        "recipe_stability": 0.8526209842019095,
+        "transfer_distance": 0.65,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 32,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.5043375811106009,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116372,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116408,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116441,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011647,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116498,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116527,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011655,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116582,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "low_direct_medium",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-TEST",
+        "transfer_strategy": "direct",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.35,
+        "duration_hours": 2.6490953233506945e-09,
+        "total_operations": 52,
+        "successful_operations": 37,
+        "operation_effectiveness": 0.42263832392284395,
+        "efficiency_gain": 181193932800.0,
+        "cognitive_stability": 0.9063307222504854,
+        "tool_usage_ratio": 0.7132545579680342,
+        "feedback_loop_strength": 0.6726044932960399,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.35,
+        "adaptive_vs_direct_improvement": 0.0,
+        "transfer_speed": 0.35696687527021015,
+        "adaptation_overhead": 0.0,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.7699999999999999,
+        "recipe_stability": 0.7540885743960344,
+        "transfer_distance": 0.65,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 32,
+        "adaptation_time_hours": 0.0,
+        "source_performance": 0,
+        "target_performance": 0.42263832392284395,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116372,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116408,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116441,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011647,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116498,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116527,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011655,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116582,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      }
+    ],
+    "low_adaptive_medium": [
+      {
+        "group_id": "low_adaptive_medium",
+        "run_id": 1,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-TEST",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.35,
+        "duration_hours": 1.7881393432617187e-08,
+        "total_operations": 74,
+        "successful_operations": 56,
+        "operation_effectiveness": 0.5994622310695169,
+        "efficiency_gain": 26843545600.0,
+        "cognitive_stability": 0.8158395797429844,
+        "tool_usage_ratio": 0.7371140116559391,
+        "feedback_loop_strength": 0.6293715543576205,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.35,
+        "adaptive_vs_direct_improvement": 0.06108382731687321,
+        "transfer_speed": 0.3772246368369877,
+        "adaptation_overhead": 0.8370370370370371,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.7699999999999999,
+        "recipe_stability": 0.7743555113965016,
+        "transfer_distance": 0.65,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 37,
+        "adaptation_time_hours": 1.4967388576931424e-08,
+        "source_performance": 0,
+        "target_performance": 0.5994622310695169,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116372,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116408,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116441,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011647,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116498,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116527,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011655,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116582,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011895,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0118997,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119236,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119324,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119376,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.35"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "low_adaptive_medium",
+        "run_id": 2,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-TEST",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.35,
+        "duration_hours": 1.0331471761067709e-08,
+        "total_operations": 96,
+        "successful_operations": 58,
+        "operation_effectiveness": 0.6511663710022455,
+        "efficiency_gain": 46459982769.23077,
+        "cognitive_stability": 0.9231087996600453,
+        "tool_usage_ratio": 0.8013090421114328,
+        "feedback_loop_strength": 0.6115826793929408,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.35,
+        "adaptive_vs_direct_improvement": 0.13278140938346725,
+        "transfer_speed": 0.22860466762781453,
+        "adaptation_overhead": 0.7371794871794871,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.7699999999999999,
+        "recipe_stability": 0.7578725514713165,
+        "transfer_distance": 0.65,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 44,
+        "adaptation_time_hours": 7.616149054633246e-09,
+        "source_performance": 0,
+        "target_performance": 0.6511663710022455,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116372,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116408,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116441,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011647,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116498,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116527,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011655,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116582,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011895,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0118997,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119236,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119324,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119376,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120018,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120053,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120084,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120113,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120142,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.012017,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120196,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_tuned",
+            "reason": "task_similarity=0.35"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      },
+      {
+        "group_id": "low_adaptive_medium",
+        "run_id": 3,
+        "source_task_id": "TASK-005-SOURCE-CODE",
+        "target_task_id": "TASK-005-TARGET-TEST",
+        "transfer_strategy": "adaptive",
+        "recipe_complexity": "medium",
+        "task_similarity": 0.35,
+        "duration_hours": 1.105997297498915e-08,
+        "total_operations": 82,
+        "successful_operations": 63,
+        "operation_effectiveness": 0.6511129450274405,
+        "efficiency_gain": 43399744383.233536,
+        "cognitive_stability": 0.8213368727851879,
+        "tool_usage_ratio": 0.732862728349327,
+        "feedback_loop_strength": 0.7475928925003726,
+        "performance_retention_rate": 0,
+        "similarity_correlation": 0.35,
+        "adaptive_vs_direct_improvement": 0.12082356225874781,
+        "transfer_speed": 0.22797884100394017,
+        "adaptation_overhead": 0.7544910179640719,
+        "rule_effectiveness_rate": 1.0,
+        "cross_domain_transfer_success": 0.7699999999999999,
+        "recipe_stability": 0.8204645101232668,
+        "transfer_distance": 0.65,
+        "generalization_gap": 0.0,
+        "total_rules": 8,
+        "effective_rules": 8,
+        "adaptations_made": 51,
+        "adaptation_time_hours": 8.344650268554688e-09,
+        "source_performance": 0,
+        "target_performance": 0.6511129450274405,
+        "adaptation_logs": [
+          {
+            "timestamp": 1775974405.011124,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111394,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011148,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111547,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011161,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0111668,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112696,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112765,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112824,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0112884,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113845,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011391,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0113962,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114708,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114744,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114775,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114806,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011484,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114868,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0114896,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115612,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115645,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115674,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0115705,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116372,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116408,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116441,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011647,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116498,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116527,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011655,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.0116582,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.60"
+          },
+          {
+            "timestamp": 1775974405.011895,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0118997,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119236,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119324,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0119376,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120018,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120053,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120084,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120113,
+            "action": "adapt",
+            "rule_id": "R4",
+            "original_rule": "diagnose_before_retry",
+            "adapted_rule": "diagnose_before_retry_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120142,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.012017,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_refined",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120196,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.012085,
+            "action": "adapt",
+            "rule_id": "R1",
+            "original_rule": "tool_anchoring",
+            "adapted_rule": "tool_anchoring_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120883,
+            "action": "adapt",
+            "rule_id": "R2",
+            "original_rule": "read_before_edit",
+            "adapted_rule": "read_before_edit_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120914,
+            "action": "adapt",
+            "rule_id": "R3",
+            "original_rule": "test_after_edit",
+            "adapted_rule": "test_after_edit_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0120974,
+            "action": "adapt",
+            "rule_id": "R5",
+            "original_rule": "extract_strategies",
+            "adapted_rule": "extract_strategies_tuned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0121,
+            "action": "adapt",
+            "rule_id": "R6",
+            "original_rule": "analyze_patterns",
+            "adapted_rule": "analyze_patterns_pruned",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0121028,
+            "action": "adapt",
+            "rule_id": "R7",
+            "original_rule": "validate_decisions",
+            "adapted_rule": "validate_decisions_added",
+            "reason": "task_similarity=0.35"
+          },
+          {
+            "timestamp": 1775974405.0121057,
+            "action": "adapt",
+            "rule_id": "R8",
+            "original_rule": "document_learnings",
+            "adapted_rule": "document_learnings_pruned",
+            "reason": "task_similarity=0.35"
+          }
+        ],
+        "rule_comparison": [
+          {
+            "rule_id": "R1",
+            "name": "tool_anchoring",
+            "description": "\u4f18\u5148\u4f7f\u7528\u5de5\u5177",
+            "effectiveness": 0.95
+          },
+          {
+            "rule_id": "R2",
+            "name": "read_before_edit",
+            "description": "\u4fee\u6539\u524d\u5148\u9605\u8bfb",
+            "effectiveness": 0.92
+          },
+          {
+            "rule_id": "R3",
+            "name": "test_after_edit",
+            "description": "\u4fee\u6539\u540e\u6d4b\u8bd5",
+            "effectiveness": 0.94
+          },
+          {
+            "rule_id": "R4",
+            "name": "diagnose_before_retry",
+            "description": "\u91cd\u8bd5\u524d\u8bca\u65ad",
+            "effectiveness": 0.9
+          },
+          {
+            "rule_id": "R5",
+            "name": "extract_strategies",
+            "description": "\u63d0\u53d6\u7b56\u7565",
+            "effectiveness": 0.88
+          },
+          {
+            "rule_id": "R6",
+            "name": "analyze_patterns",
+            "description": "\u5206\u6790\u6a21\u5f0f",
+            "effectiveness": 0.86
+          },
+          {
+            "rule_id": "R7",
+            "name": "validate_decisions",
+            "description": "\u9a8c\u8bc1\u51b3\u7b56",
+            "effectiveness": 0.87
+          },
+          {
+            "rule_id": "R8",
+            "name": "document_learnings",
+            "description": "\u8bb0\u5f55\u5b66\u4e60",
+            "effectiveness": 0.85
+          }
+        ]
+      }
+    ]
+  },
+  "analysis": {
+    "groups_executed": 9,
+    "total_runs": 27,
+    "summary_by_group": {
+      "high_direct_simple": {
+        "avg_operation_effectiveness": 0.6440928154295729,
+        "avg_efficiency_gain": 103639428229.56523,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.0,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "high_adaptive_simple": {
+        "avg_operation_effectiveness": 0.742005163852068,
+        "avg_efficiency_gain": 132266228002.2586,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.45186335403726713,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "high_adaptive_medium": {
+        "avg_operation_effectiveness": 0.7084812201319751,
+        "avg_efficiency_gain": 125915578788.23438,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.4272858001934792,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "high_adaptive_complex": {
+        "avg_operation_effectiveness": 0.7323081160078244,
+        "avg_efficiency_gain": 110123687919.5171,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.4500207262091065,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "medium_direct_medium": {
+        "avg_operation_effectiveness": 0.5715904159723418,
+        "avg_efficiency_gain": 112811031301.40474,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.0,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "medium_adaptive_medium": {
+        "avg_operation_effectiveness": 0.6223143254250099,
+        "avg_efficiency_gain": 29644477320.464886,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.7221077840832616,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "medium_hybrid_medium": {
+        "avg_operation_effectiveness": 0.6254575358250346,
+        "avg_efficiency_gain": 39112107207.97119,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.7973884600207173,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "low_direct_medium": {
+        "avg_operation_effectiveness": 0.4638739186901643,
+        "avg_efficiency_gain": 168992321163.63635,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.0,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      },
+      "low_adaptive_medium": {
+        "avg_operation_effectiveness": 0.6339138490330677,
+        "avg_efficiency_gain": 38901090917.4881,
+        "avg_performance_retention_rate": 0.0,
+        "avg_adaptation_overhead": 0.776235847393532,
+        "avg_rule_effectiveness_rate": 1.0,
+        "num_runs": 3
+      }
+    },
+    "summary_by_similarity": {},
+    "summary_by_strategy": {},
+    "hypothesis_validation": {
+      "H5a": {
+        "hypothesis": "\u914d\u65b9\u53ef\u8de8\u4efb\u52a1\u6cdb\u5316\uff08\u226580%\u6027\u80fd\u4fdd\u6301\uff09",
+        "expected_threshold": 0.8,
+        "avg_retention_rate": 0.0,
+        "min_retention_rate": 0,
+        "groups_above_threshold": 0,
+        "total_groups": 27,
+        "passed": false
+      }
+    },
+    "key_findings": [
+      "H5a: \u274c \u672a\u901a\u8fc7 - \u914d\u65b9\u53ef\u8de8\u4efb\u52a1\u6cdb\u5316\uff08\u226580%\u6027\u80fd\u4fdd\u6301\uff09"
+    ]
+  }
+}

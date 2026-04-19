@@ -1,0 +1,349 @@
+# AI自我进化实验配置文件
+
+experiment:
+  id: "EXP-20260410-001"
+  name: "AI自我进化配方验证实验"
+  version: "1.0"
+  start_date: "2026-04-10"
+  researcher: "LingClaude (灵克)"
+  reviewer: "LingYang (灵妍)"
+
+# 实验组别配置
+groups:
+  control:
+    id: "A"
+    name: "对照组"
+    description: "无配方，随机使用工具"
+    recipe_enabled: false
+    recipe_level: "none"
+    parallel_enabled: false
+    workflow_enforced: false
+    time_limit_hours: 5.0
+    expected_effectiveness: 0.65
+    expected_efficiency: 2.5
+
+  basic:
+    id: "B"
+    name: "基础配方组"
+    description: "标准workflow，读→改→测"
+    recipe_enabled: true
+    recipe_level: "basic"
+    parallel_enabled: false
+    workflow_enforced: true
+    time_limit_hours: 5.0
+    expected_effectiveness: 0.82
+    expected_efficiency: 8.0
+
+  enhanced:
+    id: "C"
+    name: "增强配方组"
+    description: "完整配方，并行+诊断+策略提取"
+    recipe_enabled: true
+    recipe_level: "enhanced"
+    parallel_enabled: true
+    workflow_enforced: true
+    diagnostic_enabled: true
+    strategy_extraction_enabled: true
+    time_limit_hours: 5.0
+    expected_effectiveness: 0.94
+    expected_efficiency: 25.0
+
+# 配方定义
+recipes:
+  basic:
+    rules:
+      - "read_before_edit"
+      - "test_after_edit"
+      - "log_decisions"
+    max_attempts: 3
+    diagnostic_level: "minimal"
+
+  enhanced:
+    rules:
+      - "read_before_edit"
+      - "test_after_edit"
+      - "parallel_independent"
+      - "diagnose_before_retry"
+      - "extract_strategies"
+      - "monitor_efficiency"
+    max_attempts: 5
+    diagnostic_level: "systematic"
+    retry_strategy: "exponential_backoff"
+
+# 工具集配置
+toolsets:
+  minimal:
+    name: "基础工具集"
+    count: 10
+    tools:
+      - view
+      - edit
+      - write
+      - ls
+      - grep
+      - bash
+      - todos
+
+  standard:
+    name: "标准工具集"
+    count: 30
+    tools:
+      - view
+      - edit
+      - multiedit
+      - write
+      - ls
+      - grep
+      - glob
+      - agent
+      - bash
+      - todos
+      - python
+      - fetch
+      - download
+
+  enhanced:
+    name: "增强工具集"
+    count: 50
+    tools:
+      # 标准集
+      - view
+      - edit
+      - multiedit
+      - write
+      - ls
+      - grep
+      - glob
+      - agent
+      - bash
+      - todos
+      - python
+      - fetch
+      - download
+      # 高级工具
+      - lsp_references
+      - lsp_diagnostics
+      - job_output
+      - job_kill
+      - git_status
+      - git_log
+      # 分析工具
+      - sourcegraph
+      - mcp_web-search-prime_web_search_prime
+      - mcp_web-reader_webReader
+      # 监控工具
+      - resource_monitor
+
+# 实验任务配置
+tasks:
+  - id: "TASK-001"
+    name: "M1-M6质量体系实现"
+    description: "实现完整的质量体系，包括PR模板、测试基础设施、ADR系统、监控仪表盘"
+    difficulty: "medium"
+    category: "quality_infrastructure"
+    expected_human_time_months: 6.0
+    expected_ai_time_hours: 5.0
+    subtasks:
+      - "创建PR模板"
+      - "建立测试框架"
+      - "实现ADR系统"
+      - "开发监控仪表盘"
+      - "配置CI/CD"
+
+  - id: "TASK-002"
+    name: "Git钩子系统重构"
+    description: "重构git钩子，实现三层审计机制"
+    difficulty: "high"
+    category: "infrastructure"
+    expected_human_time_months: 3.0
+    expected_ai_time_hours: 4.0
+
+  - id: "TASK-003"
+    name: "简单功能实现"
+    description: "实现一个小型功能模块"
+    difficulty: "easy"
+    category: "feature"
+    expected_human_time_weeks: 2.0
+    expected_ai_time_hours: 2.0
+
+# 测量指标配置
+metrics:
+  # 采样间隔（秒）
+  sample_interval: 1800  # 30分钟
+
+  # 检查点（小时）
+  check_points: [1.0, 2.0, 3.0, 4.0, 5.0]
+
+  # 核心指标
+  core:
+    - name: "operation_effectiveness"
+      formula: "successes / attempts"
+      unit: "ratio"
+      target: 0.90
+      critical: true
+
+    - name: "efficiency_gain"
+      formula: "expected_human_time / actual_ai_time"
+      unit: "x"
+      target: 10.0
+      critical: true
+
+    - name: "cognitive_stability"
+      formula: "1 - variance(repeated_operations)"
+      unit: "ratio"
+      target: 0.95
+      critical: true
+
+    - name: "parallel_speedup"
+      formula: "sequential_time / parallel_time"
+      unit: "x"
+      target: 2.0
+      critical: false
+
+    - name: "strategy_count"
+      formula: "len(extracted_strategies)"
+      unit: "count"
+      target: 10
+      critical: false
+
+  # 辅助指标
+  auxiliary:
+    - name: "tool_usage_distribution"
+      type: "histogram"
+
+    - name: "failure_modes"
+      type: "categorical"
+
+    - name: "learning_curve"
+      type: "time_series"
+
+    - name: "decision_trace"
+      type: "log"
+
+# 监控配置
+monitoring:
+  enabled: true
+
+  # 实时监控
+  realtime:
+    update_interval: 60  # 秒
+    display_metrics:
+      - "operation_effectiveness"
+      - "efficiency_gain"
+      - "success_rate"
+      - "attempts_per_minute"
+
+  # 日志记录
+  logging:
+    level: "DEBUG"
+    format: "jsonl"
+    file: "experiments/data/{experiment_id}_{group_id}.jsonl"
+
+  # 可视化
+  visualization:
+    enabled: true
+    realtime_plots: false  # 实时绘图可能影响性能
+    final_plots: true
+    plot_types:
+      - "line"      # 学习曲线
+      - "bar"       # 组间对比
+      - "scatter"   # 散点图
+      - "heatmap"   # 工具使用热力图
+
+# 输出配置
+output:
+  # 数据目录
+  data_dir: "experiments/data"
+
+  # 报告目录
+  report_dir: "experiments/reports"
+
+  # 图表目录
+  plot_dir: "experiments/plots"
+
+  # 日志格式
+  log_format: "jsonl"
+
+  # 报告格式
+  report_formats:
+    - "markdown"
+    - "html"
+    - "json"
+
+# 统计检验配置
+statistics:
+  enabled: true
+
+  # 显著性水平
+  alpha: 0.05
+
+  # 检验方法
+  tests:
+    - "t_test"           # t检验
+    - "mann_whitney"     # Mann-Whitney U检验
+    - "anova"            # 方差分析
+    - "kruskal_wallis"   # Kruskal-Wallis检验
+
+  # 效应量
+  effect_size:
+    - "cohens_d"         # Cohen's d
+    - "eta_squared"      # η²
+
+# 风险缓解
+risk_mitigation:
+  # 超时处理
+  timeout_handling:
+    enabled: true
+    grace_period: 300  # 5分钟
+    checkpoint_interval: 600  # 10分钟
+
+  # 重试机制
+  retry:
+    enabled: true
+    max_attempts: 3
+    backoff_strategy: "exponential"
+
+  # 断点续传
+  checkpoint:
+    enabled: true
+    save_interval: 300  # 5分钟
+    restore_on_restart: true
+
+  # 回退策略
+  fallback:
+    enabled: true
+    conditions:
+      - "operation_effectiveness < 0.5"
+      - "error_rate > 0.3"
+    action: "simplify_task"
+
+# 实验限制
+constraints:
+  # 最大时间
+  max_duration_hours: 8.0
+
+  # 最大工具调用次数
+  max_tool_calls: 10000
+
+  # 最大失败次数
+  max_failures: 100
+
+  # 最大内存使用（MB）
+  max_memory_mb: 4096
+
+# 验证标准
+validation:
+  # 最小样本量
+  min_sample_size: 30
+
+  # 最小操作数
+  min_operations: 50
+
+  # 数据质量检查
+  data_quality:
+    - "no_missing_values"
+    - "consistent_timestamps"
+    - "valid_metric_ranges"
+
+  # 结果可信度
+  confidence_level: 0.95

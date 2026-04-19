@@ -11,6 +11,10 @@ from typing import Any, Generator
 from urllib.parse import urlparse
 
 from lingclaude.core.types import Result
+from lingclaude.model.retry import (
+    GlmRetryPolicy,
+    is_rate_limit_error,
+)
 from lingclaude.model.types import (
     ModelConfig,
     ModelMessage,
@@ -32,6 +36,9 @@ class OpenAIProvider(ModelProvider):
     def __init__(self, config: ModelConfig | None = None) -> None:
         self._config = config or ModelConfig()
         self._encoder: Any = None
+        self._retry_policy = GlmRetryPolicy()
+        if config:
+            self._retry_policy.configure_primary(config.model)
 
     def complete(
         self,
@@ -43,7 +50,7 @@ class OpenAIProvider(ModelProvider):
         if not cfg.api_key:
             return Result.fail("OpenAI API key 未设置。请在 config.yaml 中配置 model.api_key 或设置 OPENAI_API_KEY 环境变量")
         try:
-            return self._call_api_sync(messages, cfg, tools)
+            return self._call_with_retry(messages, cfg, tools)
         except Exception as e:
             return Result.fail(f"OpenAI API 调用失败: {e}")
 
@@ -79,6 +86,51 @@ class OpenAIProvider(ModelProvider):
             yield {"type": "error", "error": "OpenAI API key 未设置"}
             return
 
+        max_retries = 3
+        for attempt in range(max_retries + 1):
+            retry_cfg = self._config_for_model(cfg)
+            got_429 = False
+            error_text = ""
+
+            for event in self._do_stream(messages, retry_cfg, tools):
+                if event.get("type") == "error":
+                    err = event.get("error", "")
+                    if is_rate_limit_error(err):
+                        got_429 = True
+                        error_text = err
+                        break
+                yield event
+
+            if not got_429:
+                self._retry_policy.record_success()
+                return
+
+            if attempt < max_retries:
+                self._retry_policy.record_failure()
+                backoff = self._retry_policy.get_backoff(attempt + 1)
+                logger.warning(
+                    "流式 429 限流 (attempt %d/%d)，%s 退避 %.1fs",
+                    attempt + 1, max_retries,
+                    self._retry_policy.current_model, backoff,
+                )
+                yield {"type": "status", "message": f"限流等待 {backoff:.0f}s ({attempt+1}/{max_retries})..."}
+                time.sleep(backoff)
+
+                if self._retry_policy.is_primary and self._retry_policy.should_degrade():
+                    self._retry_policy.degrade()
+                elif self._retry_policy.is_degraded and self._retry_policy.should_retry_primary():
+                    self._retry_policy.reset_to_primary()
+                continue
+
+            yield {"type": "error", "error": f"流式请求限流，已重试 {max_retries} 次: {error_text}"}
+            return
+
+    def _do_stream(
+        self,
+        messages: tuple[ModelMessage, ...],
+        cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
+    ) -> Generator[dict[str, Any], None, None]:
         base = cfg.base_url or "https://api.openai.com/v1"
         parsed = urlparse(base)
         host = parsed.hostname or "api.openai.com"
@@ -105,8 +157,8 @@ class OpenAIProvider(ModelProvider):
 
             if resp.status != 200:
                 error_body = resp.read().decode("utf-8", errors="replace")
-                yield {"type": "error", "error": f"HTTP {resp.status}: {error_body}"}
                 conn.close()
+                yield {"type": "error", "error": f"HTTP {resp.status}: {error_body}"}
                 return
 
             stream_start = time.monotonic()
@@ -200,7 +252,7 @@ class OpenAIProvider(ModelProvider):
         tools: tuple[dict[str, Any], ...] | None = None,
     ) -> dict[str, Any]:
         msg_dicts: list[dict[str, Any]] = []
-        has_system = any(m.role.value == "system" for m in messages)
+        has_system = any(getattr(m.role, "value", m.role) == "system" for m in messages)
         if cfg.system_prompt and not has_system:
             msg_dicts.append({"role": "system", "content": cfg.system_prompt})
         for m in messages:
@@ -216,6 +268,53 @@ class OpenAIProvider(ModelProvider):
                 {"type": "function", "function": t} for t in tools
             ]
         return body
+
+    def _call_with_retry(
+        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
+    ) -> Result[ModelResponse]:
+        max_retries = 3
+        for attempt in range(max_retries + 1):
+            retry_cfg = self._config_for_model(cfg)
+            result = self._call_api_sync(messages, retry_cfg, tools)
+
+            if result.is_ok:
+                self._retry_policy.record_success()
+                return result
+
+            error = result.error or ""
+            if is_rate_limit_error(error):
+                if attempt < max_retries:
+                    self._retry_policy.record_failure()
+                    backoff = self._retry_policy.get_backoff(attempt + 1)
+                    logger.warning(
+                        "429 限流 (attempt %d/%d)，%s 退避 %.1fs",
+                        attempt + 1, max_retries,
+                        self._retry_policy.current_model, backoff,
+                    )
+                    time.sleep(backoff)
+
+                    if self._retry_policy.is_primary and self._retry_policy.should_degrade():
+                        self._retry_policy.degrade()
+                    elif self._retry_policy.is_degraded and self._retry_policy.should_retry_primary():
+                        self._retry_policy.reset_to_primary()
+                    continue
+                return Result.fail(
+                    f"模型限流，已重试 {max_retries} 次仍失败。"
+                    f"最终模型: {self._retry_policy.current_model}，请稍后再试。"
+                )
+
+            return result
+
+        return Result.fail("模型调用超出最大重试次数")
+
+    def _config_for_model(self, cfg: ModelConfig) -> ModelConfig:
+        target_model = self._retry_policy.current_model
+        is_glm = any(m in cfg.model for m in ("glm-", "GLM-"))
+        if is_glm and target_model != cfg.model:
+            from dataclasses import replace
+            return replace(cfg, model=target_model)
+        return cfg
 
     def _call_api_sync(
         self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,

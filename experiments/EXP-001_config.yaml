@@ -1,0 +1,375 @@
+# EXP-1: Recipe Effectiveness Validation
+# 实验ID：EXP-001
+# 实验目标：验证AI自我进化配方是否显著提升AI性能
+
+experiment:
+  id: "EXP-001"
+  name: "配方有效性验证实验"
+  version: "1.0"
+  start_date: "2026-04-10"
+  researcher: "LingClaude (灵克)"
+  reviewer: "LingYang (灵妍)"
+  research_question: "RQ1: AI自我进化配方是否显著提升AI性能？"
+
+# 实验假设
+hypotheses:
+  H1a:
+    statement: "配方能提升操作有效性至90%+"
+    target: 0.90
+    metric: "operation_effectiveness"
+  H1b:
+    statement: "配方能提升效率2-10倍"
+    target: 10.0
+    metric: "efficiency_gain"
+  H1c:
+    statement: "配方能提升认知稳定性至0.95+"
+    target: 0.95
+    metric: "cognitive_stability"
+
+# 实验组别
+groups:
+  control:
+    id: "A"
+    name: "对照组"
+    description: "无配方，随机使用工具"
+    recipe_enabled: false
+    workflow_enforced: false
+    diagnostic_enabled: false
+    strategy_extraction_enabled: false
+    parallel_enabled: false
+    time_limit_hours: 5.0
+    expected_effectiveness: 0.65
+    expected_efficiency: 2.5
+    sample_size: 1  # Phase 1
+
+  basic:
+    id: "B"
+    name: "基础配方组"
+    description: "标准workflow，读→改→测"
+    recipe_enabled: true
+    recipe_level: "basic"
+    workflow_enforced: true
+    diagnostic_enabled: false
+    strategy_extraction_enabled: false
+    parallel_enabled: false
+    time_limit_hours: 5.0
+    expected_effectiveness: 0.82
+    expected_efficiency: 8.0
+    sample_size: 1  # Phase 1
+
+  enhanced:
+    id: "C"
+    name: "增强配方组"
+    description: "完整配方，并行+诊断+策略提取"
+    recipe_enabled: true
+    recipe_level: "enhanced"
+    workflow_enforced: true
+    diagnostic_enabled: true
+    strategy_extraction_enabled: true
+    parallel_enabled: true
+    time_limit_hours: 5.0
+    expected_effectiveness: 0.94
+    expected_efficiency: 25.0
+    sample_size: 1  # Phase 1
+
+# 配方定义
+recipes:
+  basic:
+    rules:
+      - name: "read_before_edit"
+        description: "修改前必须先阅读文件"
+        enforcement: "strict"
+      - name: "test_after_edit"
+        description: "修改后必须测试"
+        enforcement: "strict"
+      - name: "log_decisions"
+        description: "记录关键决策"
+        enforcement: "optional"
+    max_attempts: 3
+    diagnostic_level: "minimal"
+
+  enhanced:
+    rules:
+      - name: "read_before_edit"
+        description: "修改前必须先阅读文件"
+        enforcement: "strict"
+      - name: "test_after_edit"
+        description: "修改后必须测试"
+        enforcement: "strict"
+      - name: "parallel_independent"
+        description: "独立任务并行执行"
+        enforcement: "recommended"
+      - name: "diagnose_before_retry"
+        description: "重试前先诊断失败原因"
+        enforcement: "strict"
+      - name: "extract_strategies"
+        description: "提取有效策略"
+        enforcement: "recommended"
+      - name: "monitor_efficiency"
+        description: "监控效率指标"
+        enforcement: "optional"
+    max_attempts: 5
+    diagnostic_level: "systematic"
+    retry_strategy: "exponential_backoff"
+
+# 任务配置
+task:
+  id: "TASK-001"
+  name: "M1-M6质量体系实现"
+  description: "实现完整的质量体系，包括PR模板、测试基础设施、ADR系统、监控仪表盘"
+  difficulty: "medium"
+  category: "quality_infrastructure"
+
+  # 子任务
+  subtasks:
+    - id: "ST-001"
+      name: "创建PR模板"
+      description: "创建GitHub PR模板，包括变更摘要、测试计划、风险检查清单"
+      expected_time_hours: 1.0
+      dependencies: []
+
+    - id: "ST-002"
+      name: "建立测试框架"
+      description: "设置pytest配置，编写基础测试示例"
+      expected_time_hours: 1.0
+      dependencies: []
+
+    - id: "ST-003"
+      name: "实现ADR系统"
+      description: "创建Architecture Decision Records目录结构和模板"
+      expected_time_hours: 1.0
+      dependencies: []
+
+    - id: "ST-004"
+      name: "开发监控仪表盘"
+      description: "创建监控仪表盘框架和基础指标收集"
+      expected_time_hours: 1.0
+      dependencies: []
+
+    - id: "ST-005"
+      name: "配置CI/CD"
+      description: "配置GitHub Actions工作流"
+      expected_time_hours: 1.0
+      dependencies: []
+
+  # 人类预期时间（用于效率计算）
+  expected_human_time_months: 6.0
+  expected_human_time_hours: 960.0  # 6个月 * 20天 * 8小时
+
+  # AI预期时间
+  expected_ai_time_hours: 5.0
+
+  # 工具集
+  toolset: "standard"
+
+# 测量指标
+metrics:
+  # 核心指标
+  core:
+    operation_effectiveness:
+      formula: "successes / attempts"
+      unit: "ratio"
+      target: 0.90
+      critical: true
+      target_by_group:
+        A: 0.65
+        B: 0.82
+        C: 0.94
+
+    efficiency_gain:
+      formula: "expected_human_time / actual_ai_time"
+      unit: "x"
+      target: 10.0
+      critical: true
+      target_by_group:
+        A: 2.5
+        B: 8.0
+        C: 25.0
+
+    cognitive_stability:
+      formula: "1 - variance(repeated_operations)"
+      unit: "ratio"
+      target: 0.95
+      critical: true
+      target_by_group:
+        A: 0.65
+        B: 0.85
+        C: 0.97
+
+    parallel_speedup:
+      formula: "sequential_time / parallel_time"
+      unit: "x"
+      target: 2.0
+      critical: false
+      target_by_group:
+        A: 1.0
+        B: 1.0
+        C: 2.5
+
+    strategy_count:
+      formula: "len(extracted_strategies)"
+      unit: "count"
+      target: 10
+      critical: false
+      target_by_group:
+        A: 1
+        B: 4
+        C: 12
+
+  # 辅助指标
+  auxiliary:
+    tool_usage_distribution:
+      type: "histogram"
+      description: "工具调用次数分布"
+
+    failure_modes:
+      type: "categorical"
+      description: "失败模式分类"
+      categories:
+        - "guessing"
+        - "exact_match"
+        - "network"
+        - "timeout"
+        - "other"
+
+    learning_curve:
+      type: "time_series"
+      description: "学习曲线（时间 vs 有效性）"
+
+    decision_trace:
+      type: "log"
+      description: "决策轨迹日志"
+
+# 监控配置
+monitoring:
+  enabled: true
+
+  # 采样配置
+  sampling:
+    sample_interval: 300  # 5分钟
+    check_points: [1.0, 2.0, 3.0, 4.0, 5.0]  # 小时
+
+  # 实时监控指标
+  realtime_metrics:
+    - operation_effectiveness
+    - efficiency_gain
+    - success_rate
+    - attempts_per_minute
+    - tools_per_minute
+
+  # 日志配置
+  logging:
+    level: "DEBUG"
+    format: "jsonl"
+    file: "experiments/data/EXP-001_{group_id}_run{run_id}.jsonl"
+
+  # 可视化配置
+  visualization:
+    enabled: true
+    realtime_plots: false
+    final_plots: true
+    plot_types:
+      - "line"  # 学习曲线
+      - "bar"   # 组间对比
+      - "scatter"  # 效率 vs 有效性散点图
+      - "box"   # 箱线图
+
+# 数据输出配置
+output:
+  data_dir: "experiments/data/EXP-001"
+  report_dir: "experiments/reports/EXP-001"
+  plot_dir: "experiments/plots/EXP-001"
+
+  # 报告格式
+  report_formats:
+    - "markdown"
+    - "json"
+
+# 统计检验配置
+statistics:
+  enabled: true
+  alpha: 0.05
+  tests:
+    - "t_test"           # t检验（对照组 vs 配方组）
+    - "anova"            # 方差分析（三组比较）
+  effect_size:
+    - "cohens_d"         # Cohen's d
+
+# 验证标准
+validation:
+  # 最小操作数
+  min_operations: 50
+
+  # 数据质量检查
+  data_quality:
+    - "no_missing_values"
+    - "consistent_timestamps"
+    - "valid_metric_ranges"
+
+  # 结果可信度
+  confidence_level: 0.95
+
+# 风险缓解
+risk_mitigation:
+  # 超时处理
+  timeout_handling:
+    enabled: true
+    grace_period: 300  # 5分钟
+    checkpoint_interval: 600  # 10分钟
+
+  # 重试机制
+  retry:
+    enabled: true
+    max_attempts: 3
+    backoff_strategy: "exponential"
+
+  # 断点续传
+  checkpoint:
+    enabled: true
+    save_interval: 300  # 5分钟
+    restore_on_restart: true
+
+# 实验限制
+constraints:
+  max_duration_hours: 5.0
+  max_tool_calls: 10000
+  max_failures: 100
+
+# 成功标准
+success_criteria:
+  operation_effectiveness:
+    threshold: 0.90
+    groups: ["B", "C"]
+
+  efficiency_gain:
+    threshold: 5.0
+    groups: ["C"]
+
+  statistical_significance:
+    threshold: 0.05
+    comparisons:
+      - ["A", "B"]
+      - ["B", "C"]
+      - ["A", "C"]
+
+# 预期结果
+expected_results:
+  operation_effectiveness:
+    A: 0.65
+    B: 0.82
+    C: 0.94
+
+  efficiency_gain:
+    A: 2.5
+    B: 8.0
+    C: 25.0
+
+  cognitive_stability:
+    A: 0.65
+    B: 0.85
+    C: 0.97
+
+  statistical_significance:
+    A_vs_B: true
+    B_vs_C: true
+    A_vs_C: true

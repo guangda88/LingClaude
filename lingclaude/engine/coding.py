@@ -22,6 +22,7 @@ from lingclaude.engine.git import git_blame, git_diff, git_log, git_status
 from lingclaude.engine.indexer import index_project
 from lingclaude.engine.ast_edit import list_functions, replace_function_body
 from lingclaude.engine.stt import STTEngine
+from lingclaude.engine.verification_gate import VerificationGate, WRITE_SCOPED_TOOLS, CRITICAL_TOOLS
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
 
 
@@ -29,6 +30,7 @@ class CodingRuntime:
     def __init__(self, config: LingClaudeConfig | None = None) -> None:
         self.config = config or LingClaudeConfig()
         self._pattern_recognizer = PatternRecognizer()
+        self.verification_gate = VerificationGate()
         self._setup_tools()
 
     def _setup_tools(self) -> None:
@@ -496,10 +498,37 @@ class CodingRuntime:
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         if self.permissions.blocks(name):
             return {"error": f"Tool blocked by permissions: {name}"}
+
+        rate = self.verification_gate.check_rate_limit()
+        if not rate.passed:
+            return {"error": f"[安全限制] {rate.error}"}
+
+        if name in WRITE_SCOPED_TOOLS and self.verification_gate.enabled:
+            file_path = kwargs.get("path") or kwargs.get("file_path")
+            content = kwargs.get("content") or kwargs.get("new_text") or kwargs.get("new_body")
+            pre = self.verification_gate.verify(name, file_path=file_path, content=content)
+            if not pre.passed:
+                return {"error": f"[验证关卡] 写入被阻止: {pre.error}", "verification": {"passed": False, "checks": [c for c in pre.checks if not c.get("passed", True)]}}
+
+        if name in CRITICAL_TOOLS:
+            command = kwargs.get("command", "")
+            dangerous_patterns = ("rm -rf /", "mkfs", "dd if=", "> /dev/sd", "chmod 777 /", ":(){:|:&};:")
+            for pat in dangerous_patterns:
+                if pat in command:
+                    return {"error": f"[安全限制] 危险命令被阻止: 含有 '{pat}'"}
+
         result = self.registry.execute(name, **kwargs)
         if result.is_error:
             return {"error": result.error}
         data = result.data
+
+        if name in WRITE_SCOPED_TOOLS and self.verification_gate.enabled:
+            file_path = kwargs.get("path") or kwargs.get("file_path")
+            if file_path:
+                post = self.verification_gate.verify_post_write(file_path)
+                if not post.passed:
+                    return {"error": f"[验证关卡] 写入后验证失败: {post.error}", "verification": {"passed": False, "checks": [c for c in post.checks if not c.get("passed", True)]}}
+
         return data if isinstance(data, dict) else {"result": data}
 
     def analyze(self, target: str = ".") -> dict[str, Any]:

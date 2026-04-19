@@ -1,10 +1,16 @@
 from __future__ import annotations
 
-import random
 import time
 import traceback
 from dataclasses import dataclass
 from typing import Any
+
+from lingminopt import (
+    MinimalOptimizer,
+    SearchSpace,
+    ExperimentConfig,
+)
+from lingminopt.core.models import OptimizationResult as LMOptResult
 
 
 @dataclass(frozen=True)
@@ -26,76 +32,43 @@ class OptimizationResult:
     history: tuple[dict[str, Any], ...] = ()
 
 
-class SimpleSearchSpace:
-    def __init__(self) -> None:
-        self._rng = random.Random(42)
-        self.parameters: dict[str, tuple[str, Any, ...]] = {}
-
-    def add_discrete(self, name: str, choices: list) -> None:
-        self.parameters[name] = ("discrete", choices)
-
-    def add_continuous(self, name: str, min_val: float, max_val: float) -> None:
-        self.parameters[name] = ("continuous", min_val, max_val)
-
-    def sample(self) -> dict[str, Any]:
-        sampled: dict[str, Any] = {}
-        for name, param in self.parameters.items():
-            if param[0] == "discrete":
-                sampled[name] = self._rng.choice(param[1])
-            else:
-                sampled[name] = self._rng.uniform(param[1], param[2])
-        return sampled
-
-
-def _create_search_space(goal: str) -> SimpleSearchSpace:
-    search_space = SimpleSearchSpace()
+def _build_search_space(goal: str) -> SearchSpace:
+    space = SearchSpace()
 
     if goal == "structure":
-        search_space.add_discrete("max_class_size", [100, 200, 300, 500])
-        search_space.add_discrete("max_method_count", [10, 15, 20, 25])
-        search_space.add_discrete("max_complexity", [5, 10, 15, 20])
-        search_space.add_discrete("max_nesting_depth", [3, 4, 5, 6])
-        search_space.add_continuous("coupling_limit", 5.0, 15.0)
+        space.add_discrete("max_class_size", [100, 200, 300, 500])
+        space.add_discrete("max_method_count", [10, 15, 20, 25])
+        space.add_discrete("max_complexity", [5, 10, 15, 20])
+        space.add_discrete("max_nesting_depth", [3, 4, 5, 6])
+        space.add_continuous("coupling_limit", 5.0, 15.0)
     elif goal == "performance":
-        search_space.add_discrete("cache_size", [10, 50, 100, 500])
-        search_space.add_discrete("parallelism", [1, 2, 4])
-        search_space.add_discrete("timeout", [5, 10, 30, 60])
+        space.add_discrete("cache_size", [10, 50, 100, 500])
+        space.add_discrete("parallelism", [1, 2, 4])
+        space.add_discrete("timeout", [5, 10, 30, 60])
     elif goal == "simplicity":
-        search_space.add_discrete("complexity_threshold", [5, 10, 15])
-        search_space.add_discrete("duplication_penalty", [0.5, 1.0, 2.0])
-        search_space.add_discrete("max_line_length", [80, 100, 120])
+        space.add_discrete("complexity_threshold", [5, 10, 15])
+        space.add_discrete("duplication_penalty", [0.5, 1.0, 2.0])
+        space.add_discrete("max_line_length", [80, 100, 120])
 
-    return search_space
+    return space
 
 
-def _grid_search(
-    search_space: SimpleSearchSpace,
-    target_path: str,
-    max_experiments: int,
-) -> OptimizationResult:
-    from lingclaude.self_optimizer.evaluator import StructureEvaluator
-
-    evaluator = StructureEvaluator(target_path)
-    best_score = float("inf")
-    best_params: dict[str, Any] = {}
+def _convert_result(lm_result: LMOptResult, duration: float) -> OptimizationResult:
     history: list[dict[str, Any]] = []
-
-    for i in range(max_experiments):
-        params = search_space.sample()
-        score = evaluator.evaluate(params)
-        history.append({"experiment_id": i, "params": params, "score": score})
-
-        if score < best_score:
-            best_score = score
-            best_params = params
+    for exp in lm_result.history:
+        history.append({
+            "experiment_id": exp.experiment_id,
+            "params": exp.params,
+            "score": exp.score,
+        })
 
     return OptimizationResult(
         success=True,
-        best_params=best_params,
-        best_score=best_score,
-        experiments=max_experiments,
-        duration=0,
-        history=history,
+        best_params=lm_result.best_params,
+        best_score=lm_result.best_score,
+        experiments=lm_result.total_experiments,
+        duration=duration,
+        history=tuple(history),
     )
 
 
@@ -103,53 +76,32 @@ class SynchronousOptimizer:
     def optimize(self, request: OptimizationRequest) -> OptimizationResult:
         start = time.monotonic()
         try:
-            search_space = _create_search_space(request.goal)
-            max_experiments = request.config.get("max_experiments", 20)
+            from lingclaude.self_optimizer.evaluator import StructureEvaluator
 
-            try:
-                import optuna
+            evaluator = StructureEvaluator(request.target)
+            space = _build_search_space(request.goal)
 
-                direction = "minimize"
-                study = optuna.create_study(direction=direction)
+            strategy = request.config.get("strategy", "random")
+            max_trials = request.config.get("max_experiments", 20)
 
-                def objective(trial: Any) -> float:
-                    params: dict[str, Any] = {}
-                    for name, spec in search_space.parameters.items():
-                        if spec[0] == "discrete":
-                            params[name] = trial.suggest_categorical(name, spec[1])
-                        else:
-                            params[name] = trial.suggest_float(name, spec[1], spec[2])
+            experiment_config = ExperimentConfig(
+                max_experiments=max_trials,
+                direction="minimize",
+                early_stopping_patience=10,
+                time_budget=300.0,
+            )
 
-                    from lingclaude.self_optimizer.evaluator import StructureEvaluator
+            opt = MinimalOptimizer(
+                evaluate=evaluator.evaluate,
+                search_space=space,
+                config=experiment_config,
+                search_strategy=strategy,
+                seed=42,
+            )
 
-                    evaluator = StructureEvaluator(request.target)
-                    return evaluator.evaluate(params)
-
-                study.optimize(objective, n_trials=max_experiments)
-
-                duration = time.monotonic() - start
-                return OptimizationResult(
-                    success=True,
-                    best_params=study.best_params,
-                    best_score=study.best_value,
-                    experiments=len(study.trials),
-                    duration=duration,
-                )
-
-            except ImportError:
-                grid_start = time.monotonic()
-                result = _grid_search(
-                    search_space, request.target, max_experiments
-                )
-                elapsed = time.monotonic() - grid_start
-                return OptimizationResult(
-                    success=result.success,
-                    best_params=result.best_params,
-                    best_score=result.best_score,
-                    experiments=result.experiments,
-                    duration=elapsed,
-                    history=result.history,
-                )
+            lm_result = opt.run()
+            duration = time.monotonic() - start
+            return _convert_result(lm_result, duration)
 
         except Exception as e:
             return OptimizationResult(

@@ -4,7 +4,6 @@ from lingclaude.self_optimizer.trigger import OptimizationTrigger, TriggerInfo
 from lingclaude.self_optimizer.evaluator import StructureEvaluator, StructureMetrics
 from lingclaude.self_optimizer.optimizer import (
     SynchronousOptimizer,
-    SimpleSearchSpace,
     OptimizationRequest,
     OptimizationResult,
 )
@@ -17,7 +16,6 @@ __all__ = [
     "StructureEvaluator",
     "StructureMetrics",
     "SynchronousOptimizer",
-    "SimpleSearchSpace",
     "OptimizationRequest",
     "OptimizationResult",
     "OptimizationAdvisor",

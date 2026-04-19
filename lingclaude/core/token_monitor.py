@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import sys
 from collections import defaultdict
@@ -18,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, TypeAlias
+
+logger = logging.getLogger(__name__)
 
 # 数据类型
 UsageRecord: TypeAlias = dict[str, Any]

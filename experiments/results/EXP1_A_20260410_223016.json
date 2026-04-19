@@ -1,0 +1,17 @@
+{
+  "experiment": "EXP-1",
+  "group": "A",
+  "type": "\u5bf9\u7167\u7ec4\uff08\u65e0\u914d\u65b9\uff09",
+  "operation_level": "none",
+  "recipe": "none",
+  "tasks": {
+    "M1": "\u521b\u5efaPR\u6a21\u677f",
+    "M2": "\u5efa\u7acb\u6d4b\u8bd5\u6846\u67b6",
+    "M3": "\u5b9e\u73b0ADR\u7cfb\u7edf",
+    "M4": "\u5f00\u53d1\u76d1\u63a7\u4eea\u8868\u76d8",
+    "M5": "\u914d\u7f6eCI/CD"
+  },
+  "start_time": 1775831416.9131281,
+  "end_time": 1775831416.9131286,
+  "status": "pending"
+}
