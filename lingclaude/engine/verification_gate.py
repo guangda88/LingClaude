@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import os
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -134,7 +136,7 @@ class VerificationGate:
         try:
             resolved = path.resolve()
             for root in self.allowed_write_roots:
-                if str(resolved).startswith(str(Path(root).resolve())):
+                if str(resolved).startswith(str(Path(root).resolve()) + os.sep) or resolved == Path(root).resolve():
                     return {"check": "path_traversal", "passed": True, "file": str(path)}
         except (OSError, ValueError):
             pass
@@ -168,7 +170,7 @@ class VerificationGate:
         cmd = self.test_command.format(test_path=test_path)
         try:
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=30,
+                shlex.split(cmd), shell=False, capture_output=True, text=True, timeout=30,
             )
             passed = result.returncode == 0
             output = (result.stdout + result.stderr).strip()[:500]

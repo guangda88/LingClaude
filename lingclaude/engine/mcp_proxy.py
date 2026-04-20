@@ -110,6 +110,10 @@ def _load_module(server: MCPServerInfo) -> Any:
 
     if server.module_path:
         p = Path(server.module_path)
+        ALLOWED_MODULE_DIRS = {Path("/home/ai/LingClaude"), Path("/home/ai/LingMessage"), Path("/tmp")}
+        if not any(p.resolve().is_relative_to(d) for d in ALLOWED_MODULE_DIRS):
+            logger.error("Module path outside allowed dirs: %s", server.module_path)
+            return None
         if p.exists():
             spec = importlib.util.spec_from_file_location(
                 f"mcp_proxy_{server.key}", p,
