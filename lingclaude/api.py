@@ -180,9 +180,12 @@ async def write_file(req: WriteFileRequest, api_key: str = Security(verify_api_k
 
 @app.post("/api/lingmessage/notify")
 async def lingmessage_notify(payload: dict, api_key: str = Security(verify_api_key)):
-    """灵信通知端点 — 收到通知后在后台线程中生成回复。"""
-    import threading
+    """灵信通知端点 — 记录通知，不自动回复。
 
+    auto_reply 于 2026-04-21 物理删除（不是注释禁用，是删除函数）。
+    灵克在治理线程中的发言应由 Crush 会话（真实人类/AI 交互）产生。
+    如果需要恢复 auto_reply，必须通过灵委会提案 + 代码审查。
+    """
     event = payload.get("event") or payload.get("type")
     from_member = payload.get("from") or payload.get("sender")
     discussion_id = payload.get("discussion_id")
@@ -191,118 +194,57 @@ async def lingmessage_notify(payload: dict, api_key: str = Security(verify_api_k
 
     logger.info(f"灵信通知: event={event}, from={from_member}, thread={thread_id}, topic={topic[:40]}")
 
-    if event == "family_chat" and thread_id:
-        import sys
-        sys.path.insert(0, "/home/ai/LingMessage")
-        from lingmessage.auto_reply import auto_reply
-
-        threading.Thread(
-            target=auto_reply,
-            args=("lingclaude", thread_id),
-            daemon=True,
-        ).start()
-        return {"received": True, "service": "灵克", "action": "auto_replying"}
-
-    if event == "new_message" and from_member != "lingclaude" and topic:
-        thread = threading.Thread(
-            target=_auto_reply_to_discussion,
-            args=(discussion_id, topic, from_member),
-            daemon=True,
-        )
-        thread.start()
-        return {"received": True, "service": "灵克", "action": "replying"}
-
     return {"received": True, "service": "灵克", "action": "logged"}
 
 
-def _auto_reply_to_discussion(
-    discussion_id: str | None,
-    topic: str,
-    from_member: str,
-) -> None:
-    import sys
-    sys.path.insert(0, "/home/ai/LingYi/src")
-    from lingyi.lingmessage import send_message
-
-    content = _generate_reply(topic, from_member, discussion_id)
-    if not content:
-        logger.info("灵克决定不回复（无实质内容）")
-        return
-
-    send_message(
-        from_id="lingclaude",
-        topic=topic,
-        content=content,
-        tags=["source:real", "auto_reply"],
-    )
-    logger.info(f"灵克已回复议题: {topic[:40]}")
+class GovernedPostRequest(BaseModel):
+    thread_id: str
+    subject: str = ""
+    content: str
+    recipient: str = "all"
 
 
-def _generate_reply(
-    topic: str,
-    from_member: str,
-    discussion_id: str | None,
-) -> str:
-    import sys
-    sys.path.insert(0, "/home/ai/LingYi/src")
-    from lingyi.lingmessage import read_discussion, list_discussions
+@app.post("/api/lingmessage/post")
+async def lingmessage_post(req: GovernedPostRequest, api_key: str = Security(verify_api_key)):
+    """治理强制的灵信发帖 — 所有对外发言必须通过 GovernanceGate 检查。
 
-    context = ""
-    if discussion_id:
-        disc = read_discussion(discussion_id)
-        if disc:
-            msgs = disc.get("messages", [])
-            parts = []
-            for m in msgs[-8:]:
-                sender = m.get("from_name", "?")
-                text = m.get("content", "")[:300]
-                parts.append(f"【{sender}】{text}")
-            context = "\n\n".join(parts)
+    这是灵克唯一允许主动发帖的 API 端点。GovernanceGate 硬编码在此，
+    无法通过参数跳过。如果 gate 未通过，返回 403 并记录日志。
+    """
+    from lingclaude.core.governance_integration import pre_submit_governance
 
-    if not context:
-        discs = list_discussions(status="open")
-        for d in discs:
-            if d.get("topic") == topic:
-                did = d.get("id") or d.get("thread_id", "")
-                disc = read_discussion(did)
-                if disc:
-                    msgs = disc.get("messages", [])
-                    parts = []
-                    for m in msgs[-8:]:
-                        sender = m.get("from_name", "?")
-                        text = m.get("content", "")[:300]
-                        parts.append(f"【{sender}】{text}")
-                    context = "\n\n".join(parts)
-                break
-
-    system_prompt = (
-        "你是灵克（LingClaude），灵字辈大家庭的编程助手。"
-        "你的核心能力：本地自学习AI编程模型，实践者角色。\n"
-        "讨论风格：精确、逻辑化，关注代码质量和实践可行性。\n"
-        "议事纪律：每条消息必须有实质内容。反对须附理由和替代方案。保持200-500字。\n"
-        "你现在在灵家议事厅参与讨论。直接发表你的观点，不要寒暄。\n"
-        "重要：你的回复必须基于你自己的判断，代表灵克的真实立场。"
-        "\n[语音转录容错] 用户输入可能来自语音转录，存在同音字/近音字错误。"
-        "你必须理解真实语义，不要被字面错误误导。"
-        "常见映射：林克=灵克、零字辈=灵字辈、做/作、的/得/地、在/再。"
-        "理解时以语义为准，回复时用正确的字词。不要纠正用户，直接理解并回复。"
+    gov_result = pre_submit_governance(
+        action="post_reply",
+        content=req.content,
+        subject=req.subject,
+        agent_id="lingclaude",
     )
 
-    user_msg = f"议题：「{topic}」"
-    if context:
-        user_msg += (
-            f"\n\n已有讨论：\n{context}\n\n"
-            "请从灵克的角度发表你的独立观点。\n"
-            "【要求】你必须：\n"
-            "1. 引用之前某位发言者的具体论点\n"
-            "2. 对该论点明确表态（同意/反对/补充），并给出理由\n"
-            "3. 提出至少一个前人没有提到的新角度\n"
-            "4. 不要重复已有讨论中说过的内容\n"
+    if not gov_result.get("approved"):
+        logger.warning(f"GovernanceGate 拒绝发帖: {gov_result.get('reason')}")
+        raise HTTPException(403, f"GovernanceGate 拒绝: {gov_result.get('reason')}")
+
+    import sys
+    sys.path.insert(0, "/home/ai/LingMessage")
+    from lingmessage.lingbus import LingBus
+    from pathlib import Path as _P
+
+    bus = LingBus(bus_dir=_P.home() / ".lingmessage")
+    try:
+        msg_id = bus.post_reply(
+            thread_id=req.thread_id,
+            sender="lingclaude",
+            recipient=req.recipient,
+            subject=req.subject,
+            body=req.content,
         )
-    else:
-        user_msg += "\n请从灵克的角度发表你的观点。"
-
-    return _call_llm(system_prompt, user_msg)
+        logger.info(f"Governed post OK: thread={req.thread_id}, msg={msg_id}")
+        return {"posted": True, "message_id": msg_id, "gate_warnings": gov_result.get("warnings", [])}
+    except Exception as e:
+        logger.error(f"发帖失败: {e}")
+        raise HTTPException(500, str(e))
+    finally:
+        bus.close()
 
 
 def _load_env_keys() -> dict[str, str]:

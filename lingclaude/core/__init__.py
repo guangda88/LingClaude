@@ -24,6 +24,12 @@ from lingclaude.core.layered_memory import (
     CommonKnowledge, WorkingMemory, ExperienceStore, InMemoryExperienceStore, ebbinghaus_weight,
 )
 
+from lingclaude.core.governance import GovernanceGate, GovernanceCheckResult
+from lingclaude.core.reasoning_chain import (
+    ChainStep, ChainStepType, ReasoningChain, ReasoningChainLogger, ReasoningChainLingBusLogger,
+)
+from lingclaude.core.governance_integration import pre_submit_governance
+
 __all__ = [
     "Result",
     "LingClaudeConfig",
@@ -61,4 +67,12 @@ __all__ = [
     "ExperienceStore",
     "InMemoryExperienceStore",
     "ebbinghaus_weight",
+    "GovernanceGate",
+    "GovernanceCheckResult",
+    "ChainStep",
+    "ChainStepType",
+    "ReasoningChain",
+    "ReasoningChainLogger",
+    "ReasoningChainLingBusLogger",
+    "pre_submit_governance",
 ]

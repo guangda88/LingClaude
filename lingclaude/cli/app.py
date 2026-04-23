@@ -461,6 +461,43 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_governance_audit(args: argparse.Namespace) -> int:
+    from lingclaude.core.governance_verifier import GovernanceVerifier
+
+    proposals_path = Path(args.proposals_file or "/home/ai/LingFlow/discussion_hall/proposals.json")
+    verifier = GovernanceVerifier()
+    result = verifier.audit_proposals_file(proposals_path)
+
+    if "error" in result:
+        print_error(result["error"])
+        return 1
+
+    print_header("治理审计报告")
+    print_kv("审计时间", result["audit_time"])
+    print_kv("提案总数", result["total_proposals"])
+    print_kv("有效投票", result["total_valid_votes"])
+    print_kv("无效投票", result["total_filtered_votes"])
+    print()
+
+    for prop in result["proposals"]:
+        pid = prop["proposal_id"]
+        status = "✓" if prop["filtered_votes"] == 0 else "⚠"
+        if prop["batch_patterns"]:
+            status = "✗"
+        print(f"  {status} {pid}: {prop['valid_votes']}有效 / {prop['total_votes']}总票")
+        if prop["batch_patterns"]:
+            for bp in prop["batch_patterns"]:
+                print(f"      批量模式: {bp['evidence']}")
+        for fv in prop["filtered"]:
+            issues = ", ".join(fv.get("validation", {}).get("issues", []))
+            if issues:
+                print(f"      过滤: {fv.get('voter','?')} — {issues}")
+
+    log_dir = verifier.log_dir
+    print_success(f"完整报告: {log_dir}/audit_*.json")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="lingclaude",
@@ -516,6 +553,9 @@ def main() -> int:
     metrics_parser.add_argument("--window", "-w", type=int, default=10, help="Trend window size")
     metrics_parser.add_argument("--before", "-b", help="Prune before date (ISO format)")
 
+    gov_parser = subparsers.add_parser("governance-audit", help="Audit governance votes")
+    gov_parser.add_argument("--proposals-file", "-p", help="Path to proposals.json")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -532,6 +572,8 @@ def main() -> int:
         return _cmd_daemon(args)
     elif args.command == "metrics":
         return _cmd_metrics(args)
+    elif args.command == "governance-audit":
+        return _cmd_governance_audit(args)
     else:
         parser.print_help()
         return 0

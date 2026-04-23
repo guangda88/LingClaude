@@ -21,3 +21,12 @@ archive/
 .lingclaude/behavior_history.json
 .lingclaude/daemon_state.json
 data/
+
+# Backup and temp files
+*.bak
+*.tmp
+*.swp
+*.swo
+*.orig
+*.rej
+.DS_Store
