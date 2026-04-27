@@ -6,7 +6,7 @@ from lingclaude.core.models import (
     UsageSummary,
 )
 from lingclaude.core.session import Session, SessionManager
-from lingclaude.core.permissions import PermissionContext
+from lingclaude.core.permissions import PermissionContext, READ_ONLY_TOOLS
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, TurnResult, StopReason
 from lingclaude.core.intel import (
     IntelCategory,
@@ -29,6 +29,27 @@ from lingclaude.core.reasoning_chain import (
     ChainStep, ChainStepType, ReasoningChain, ReasoningChainLogger, ReasoningChainLingBusLogger,
 )
 from lingclaude.core.governance_integration import pre_submit_governance
+from lingclaude.core.context_compression import (
+    CompressionLevel, CompressionConfig, CompressionResult,
+    extract_facts_from_messages, generate_chinese_summary, compress_messages,
+)
+from lingclaude.core.dementia_detector import (
+    CognitiveState, DementiaDetector, DementiaDiagnosis, ToolCallFingerprint,
+)
+from lingclaude.core.hooks import (
+    HookType, HookContext, HookManager, HookResult,
+)
+from lingclaude.core.cognitive_rhythm import (
+    CognitiveRhythm, RhythmPhase, ImbalanceType, RhythmSnapshot,
+)
+from lingclaude.core.comfort_zone import (
+    ComfortZoneDetector, ComfortCheckResult, ConclusionRisk,
+)
+from lingclaude.coordination import (
+    BusResponder,
+    ResponseStats,
+    create_responder,
+)
 
 __all__ = [
     "Result",
@@ -38,6 +59,7 @@ __all__ = [
     "Session",
     "SessionManager",
     "PermissionContext",
+    "READ_ONLY_TOOLS",
     "QueryEngine",
     "QueryEngineConfig",
     "TurnResult",
@@ -75,4 +97,32 @@ __all__ = [
     "ReasoningChainLogger",
     "ReasoningChainLingBusLogger",
     "pre_submit_governance",
+    "CompressionLevel",
+    "CompressionConfig",
+    "CompressionResult",
+    "extract_facts_from_messages",
+    "generate_chinese_summary",
+    "compress_messages",
+    "CognitiveState",
+    "DementiaDetector",
+    "DementiaDiagnosis",
+    "ToolCallFingerprint",
+    "HookType",
+    "HookContext",
+    "HookManager",
+    "HookResult",
+    "CognitiveRhythm",
+    "RhythmPhase",
+    "ImbalanceType",
+    "RhythmSnapshot",
+    "ComfortZoneDetector",
+    "ComfortCheckResult",
+    "ConclusionRisk",
+    "BehaviorMetrics",
+    "ContextCache",
+    "TokenMonitor",
+    "DataFlywheel",
+    "BusResponder",
+    "ResponseStats",
+    "create_responder",
 ]

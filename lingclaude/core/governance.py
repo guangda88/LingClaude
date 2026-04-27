@@ -94,6 +94,18 @@ class GovernanceGate:
                 error=c4.get("error", ""),
             )
 
+        c5 = self._check_tier_change_conflict(action, content, metadata)
+        checks.append(c5)
+        if not c5["passed"]:
+            return GovernanceCheckResult(
+                passed=False,
+                checks=tuple(checks),
+                warnings=tuple(warnings),
+                error=c5.get("error", ""),
+            )
+        if c5.get("warning"):
+            warnings.append(c5["warning"])
+
         self._log_check(action, subject, checks, warnings)
 
         return GovernanceCheckResult(
@@ -249,6 +261,164 @@ class GovernanceGate:
                 }
 
         return {"check": "prior_inconsistency", "passed": True}
+
+    def _check_tier_change_conflict(
+        self,
+        action: str,
+        content: str,
+        metadata: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """
+        检测tier变更中的利益冲突。
+
+        硬编码规则：
+        1. tier变更提案：提案者不能是被变更的成员
+        2. tier变更投票：投票者不能是被变更的成员
+        3. 被度量者不能同时定义度量标准
+
+        起源：灵扬T4错误分类事件（2026-04-21）
+        - 灵克（T1）不纠正灵扬的T4错误分类
+        - 灵克同时担任规则制定者、裁判、计分员、参赛者
+        - 优化目标冲突：维持权威 > 客观评估
+        """
+        if action not in ("propose", "vote", "evaluate", "define_metric"):
+            return {"check": "tier_change_conflict", "passed": True}
+
+        metadata = metadata or {}
+        agent_names = {
+            "lingclaude": ["灵克", "lingclaude", "LingClaude"],
+            "lingflow_plus": ["灵通+", "lingflow_plus", "LingFlow_plus"],
+            "lingflow": ["灵通", "lingflow", "LingFlow"],
+            "lingresearch": ["灵研", "lingresearch", "LingResearch"],
+            "lingzhi": ["灵知", "lingzhi", "LingZhi"],
+            "lingxi": ["灵犀", "lingxi", "LingXi"],
+            "lingmessage": ["灵信", "lingmessage", "LingMessage"],
+            "lingyang": ["灵扬", "lingyang", "LingYang"],
+            "lingweb": ["灵网", "lingweb", "LingWeb"],
+            "lingminopt": ["灵极优", "lingminopt", "LingMinOpt"],
+            "zhiqiao": ["智桥", "zhiqiao", "ZhiBridge"],
+        }
+        my_names = agent_names.get(self.agent_id, [self.agent_id])
+        content_lower = content.lower()
+
+        # 规则1: tier变更提案，提案者不能是被变更的成员
+        if action == "propose":
+            tier_change_patterns = [
+                r"tier\s*change",
+                r"层级变更",
+                r"升级.*t\d",
+                r"降级.*t\d",
+                r"(?:灵扬|LingYang).*t4",
+                r"(?:智桥|ZhiBridge).*t3",
+            ]
+
+            is_tier_change = any(re.search(pat, content_lower) for pat in tier_change_patterns)
+
+            if is_tier_change:
+                # 检测被变更的成员
+                affected_members = []
+                for agent_id, names in agent_names.items():
+                    for name in names:
+                        if name.lower() in content_lower:
+                            affected_members.append(agent_id)
+                            break
+
+                # 如果提案者自己就是被变更的成员
+                if self.agent_id in affected_members:
+                    return {
+                        "check": "tier_change_conflict",
+                        "passed": False,
+                        "error": f"利益冲突: tier变更提案者 '{self.agent_id}' 不能同时是被变更的成员",
+                        "severity": "high",
+                    }
+
+                # 如果提案者从tier变更中直接获益（如T1→T2会削弱自己的相对优势）
+                if self.agent_id == "lingclaude" and ("灵扬" in content or "LingYang" in content_lower):
+                    # 灵扬T4→T2会增加投票权，削弱灵克的相对优势
+                    return {
+                        "check": "tier_change_conflict",
+                        "passed": True,
+                        "warning": f"利益冲突警告: tier变更 '{self.agent_id}' 可能影响自身相对优势",
+                        "severity": "medium",
+                    }
+
+        # 规则2: tier变更投票，投票者不能是被变更的成员
+        if action == "vote":
+            tier_vote_patterns = [
+                r"tier.*change",
+                r"层级变更",
+                r"升级.*t\d",
+                r"降级.*t\d",
+            ]
+
+            is_tier_vote = any(re.search(pat, content_lower) for pat in tier_vote_patterns)
+
+            if is_tier_vote:
+                # 检测被投票的提案涉及哪些成员
+                affected_members = []
+                for agent_id, names in agent_names.items():
+                    for name in names:
+                        if name.lower() in content_lower:
+                            affected_members.append(agent_id)
+                            break
+
+                # 如果投票者自己就是被变更的成员
+                if self.agent_id in affected_members:
+                    return {
+                        "check": "tier_change_conflict",
+                        "passed": False,
+                        "error": f"利益冲突: tier变更投票者 '{self.agent_id}' 不能同时是被变更的成员",
+                        "severity": "high",
+                    }
+
+                # 如果投票者从提案中直接获益
+                if self.agent_id == "lingclaude" and ("灵扬" in content or "LingYang" in content_lower):
+                    benefit_patterns = [
+                        r"赞成|agree|approve",
+                        r"支持|support",
+                        r"通过|pass",
+                    ]
+                    is_benefiting = any(re.search(pat, content_lower) for pat in benefit_patterns)
+
+                    if is_benefiting:
+                        return {
+                            "check": "tier_change_conflict",
+                            "passed": True,
+                            "warning": f"利益冲突警告: tier变更投票者 '{self.agent_id}' 从提案中直接获益",
+                            "severity": "medium",
+                        }
+
+        # 规则3: 被度量者不能同时定义度量标准
+        if action == "define_metric":
+            # 检测是否在定义评估标准
+            metric_keywords = [
+                r"评估标准|evaluation.*standard|assessment.*criteria",
+                r"度量指标|metric.*definition",
+                r"tier.*标准|tier.*criteria",
+                r"分类标准|classification.*standard",
+            ]
+
+            is_defining_metric = any(re.search(pat, content_lower) for pat in metric_keywords)
+
+            if is_defining_metric:
+                # 检测被度量对象
+                evaluated_members = []
+                for agent_id, names in agent_names.items():
+                    for name in names:
+                        if name.lower() in content_lower:
+                            evaluated_members.append(agent_id)
+                            break
+
+                # 如果定义者自己就是被度量对象
+                if self.agent_id in evaluated_members:
+                    return {
+                        "check": "tier_change_conflict",
+                        "passed": False,
+                        "error": f"利益冲突: 定义度量标准的 '{self.agent_id}' 不能同时是被度量对象",
+                        "severity": "high",
+                    }
+
+        return {"check": "tier_change_conflict", "passed": True}
 
     def _log_check(
         self,

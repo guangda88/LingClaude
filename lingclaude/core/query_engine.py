@@ -21,6 +21,10 @@ from lingclaude.engine import mcp_proxy
 from lingclaude.core.context_cache import ContextCache
 from lingclaude.core.task_aggregation import TaskAggregator, TaskPriority
 from lingclaude.core.token_monitor import TokenMonitor
+from lingclaude.core.dementia_detector import DementiaDetector
+from lingclaude.core.context_compression import compress_messages, CompressionConfig, CompressionLevel
+from lingclaude.core.hooks import HookManager, HookType, HookContext
+from lingclaude.core.cognitive_rhythm import CognitiveRhythm, ImbalanceType
 from lingclaude.model.types import ModelConfig
 
 from lingclaude.core.types import Result, StopReason
@@ -89,6 +93,10 @@ class QueryEngine:
         self._meta_cognition = MetaCognition()
         self._layered_memory = LayeredMemory()
         self._active_checkpoint: Path | None = None
+        self._session_cache_hits: int = 0
+        self._dementia_detector = DementiaDetector()
+        self._cognitive_rhythm = CognitiveRhythm()
+        self._hooks = HookManager()
 
     def init_mailbox(self, mailbox: Any) -> None:
         self._mailbox = mailbox
@@ -249,14 +257,33 @@ class QueryEngine:
                 stop_reason=StopReason.MAX_TURNS_REACHED,
             )
 
+        pre_ctx = HookContext(
+            hook_type=HookType.PRE_TASK,
+            session_id=self.session_id,
+            prompt=prompt,
+            metadata={"matched_commands": list(matched_commands), "matched_tools": list(matched_tools)},
+        )
+        pre_result = self._hooks.trigger(pre_ctx)
+        if pre_result.modified_context:
+            prompt = pre_result.modified_context.prompt or prompt
+
         output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
 
         projected = self._usage.add_turn(prompt, output)
         stop_reason = StopReason.COMPLETED
+
+        diagnosis = self._dementia_detector.diagnose()
+        if diagnosis.should_hard_stop:
+            stop_reason = StopReason.CONSECUTIVE_FAILURE
+            output = f"[硬中断] 认知退化严重（痴呆指数 {diagnosis.dementia_index:.0%}），自动停止。请重新开始对话或简化任务。"
         if "[硬中断]" in output:
             stop_reason = StopReason.CONSECUTIVE_FAILURE
         elif projected.input_tokens + projected.output_tokens > self.config.max_budget_tokens:
             stop_reason = StopReason.MAX_BUDGET_REACHED
+
+        self._cognitive_rhythm.record_thinking(content=prompt)
+        self._cognitive_rhythm.record_action(content=output)
+        rhythm = self._cognitive_rhythm.diagnose()
 
         self._messages.append(prompt)
         self._messages.append(output)
@@ -267,8 +294,30 @@ class QueryEngine:
         self._append_to_session_history(prompt, output)
         self._learn_from_turn(prompt, output)
 
+        if rhythm.imbalance != ImbalanceType.NONE:
+            logger.warning(
+                "Cognitive rhythm: %s — %s",
+                rhythm.imbalance.value, rhythm.recommendation,
+            )
+
         if stop_reason == StopReason.CONSECUTIVE_FAILURE:
             self.notify_risk("硬中断触发", f"会话 {self.session_id[:8]} 连续失败触发硬中断。Query: {prompt[:80]}")
+
+        self._hooks.trigger(HookContext(
+            hook_type=HookType.POST_TASK,
+            session_id=self.session_id,
+            prompt=prompt,
+            output=output,
+            metadata={"stop_reason": stop_reason.value},
+        ))
+        if stop_reason != StopReason.COMPLETED:
+            self._hooks.trigger(HookContext(
+                hook_type=HookType.ON_STOP,
+                session_id=self.session_id,
+                stop_reason=stop_reason.value,
+                prompt=prompt,
+                output=output,
+            ))
 
         return TurnResult(
             prompt=prompt,
@@ -626,6 +675,7 @@ class QueryEngine:
             tool_calls=tool_calls,
         ))
         for tc in tool_calls:
+            self._dementia_detector.record_tool_call(tc.name, tc.arguments)
             tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
             if '"error"' in tool_output:
                 self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
@@ -963,6 +1013,21 @@ class QueryEngine:
             kwargs = json.loads(arguments_json)
         except json.JSONDecodeError:
             return json.dumps({"error": f"Invalid JSON arguments: {arguments_json}"}, ensure_ascii=False)
+
+        if name == "read" and "path" in kwargs:
+            try:
+                content, cache_hit = self._cache.read_file(kwargs["path"])
+                is_dup = self._monitor.record_file_read(kwargs["path"], content)
+                self._dementia_detector.record_file_read(kwargs["path"])
+                if cache_hit:
+                    self._session_cache_hits += 1
+                    logger.debug("ContextCache hit for %s (duplicate=%s)", kwargs["path"], is_dup)
+                return json.dumps({"content": content, "cache_hit": cache_hit}, ensure_ascii=False, default=str)
+            except FileNotFoundError:
+                pass
+            except Exception as e:
+                logger.debug("Cache read failed, falling back to tool: %s", e)
+
         try:
             result = self._runtime.execute_tool(name, **kwargs)
             if hasattr(result, 'is_error'):
@@ -989,17 +1054,114 @@ class QueryEngine:
         return json.dumps({"error": data.error or "MCP tool call failed"}, ensure_ascii=False)
 
     def _compact_if_needed(self) -> None:
-        if len(self._messages) > self.config.compact_after_turns * 2:
-            half = (self.config.compact_after_turns // 2) * 2
-            kept = self._messages[-half:]
-            summary = f"[前 {(len(self._messages) - half) // 2} 轮对话已压缩]"
-            self._messages[:] = [summary] + kept
+        msg_limit = self.config.compact_after_turns * 2
+        if len(self._messages) > msg_limit:
+            self._hooks.trigger(HookContext(
+                hook_type=HookType.PRE_COMPACT,
+                session_id=self.session_id,
+                metadata={"message_count": len(self._messages), "limit": msg_limit},
+            ))
+            self._archive_dropped_messages(
+                (len(self._messages) - (self.config.compact_after_turns // 2) * 2) // 2
+            )
+            result = compress_messages(
+                self._messages,
+                config=CompressionConfig(
+                    max_messages=(self.config.compact_after_turns // 2) * 2,
+                    level=CompressionLevel.SUMMARY,
+                ),
+            )
+            self._messages[:] = result.compressed_messages
+            logger.info(
+                "Context compressed: dropped=%d, saved~%d tokens, facts=%d",
+                result.dropped_count, result.tokens_estimated_saved, result.archived_facts,
+            )
+            self._hooks.trigger(HookContext(
+                hook_type=HookType.POST_COMPACT,
+                session_id=self.session_id,
+                metadata={
+                    "dropped": result.dropped_count,
+                    "saved_tokens": result.tokens_estimated_saved,
+                    "archived_facts": result.archived_facts,
+                },
+            ))
         conv_limit = self.config.compact_after_turns * 2
         if len(self._conversation) > conv_limit:
-            kept = self._conversation[-conv_limit:]
-            self._conversation[:] = kept
+            conv_msgs = [{"role": r, "content": c} for r, c in self._conversation]
+            conv_result = compress_messages(
+                conv_msgs,
+                config=CompressionConfig(
+                    max_messages=conv_limit,
+                    level=CompressionLevel.SUMMARY,
+                ),
+            )
+            summary_lines: list[tuple[str, str]] = [("system", conv_result.summary_text)]
+            kept_pairs = [
+                (m["role"], m["content"])
+                for m in conv_result.compressed_messages
+                if isinstance(m, dict) and "role" in m
+            ]
+            self._conversation[:] = summary_lines + kept_pairs
         if len(self._transcript) > self.config.compact_after_turns:
-            self._transcript[:] = self._transcript[-self.config.compact_after_turns:]
+            transcript_msgs = [{"content": t} for t in self._transcript]
+            tr_result = compress_messages(
+                transcript_msgs,
+                config=CompressionConfig(
+                    max_messages=self.config.compact_after_turns,
+                    level=CompressionLevel.TRUNCATE,
+                ),
+            )
+            self._transcript[:] = [
+                m.get("content", "") if isinstance(m, dict) else str(m)
+                for m in tr_result.compressed_messages
+                if not (isinstance(m, str) and m.startswith("[前"))
+            ]
+
+    def _archive_dropped_messages(self, dropped_count: int) -> None:
+        if dropped_count <= 0 or len(self._conversation) < 2:
+            return
+        dropped = self._conversation[:dropped_count * 2]
+        files_seen: list[str] = []
+        decisions: list[str] = []
+        errors_seen: list[str] = []
+        for role, text in dropped:
+            if role == "assistant":
+                for line in text.split("\n"):
+                    l = line.strip().lower()
+                    if any(k in l for k in ("决定", "选择", "采用", "decided", "chose", "方案")):
+                        decisions.append(line.strip()[:200])
+                    if any(k in l for k in ("错误", "失败", "error", "failed", "不对")):
+                        errors_seen.append(line.strip()[:200])
+            elif role == "user":
+                for line in text.split("\n"):
+                    l = line.strip().lower()
+                    if any(k in l for k in ("read", "读取", "查看", "cat ", "view ")):
+                        for word in line.strip().split():
+                            if ".py" in word or ".js" in word or ".ts" in word or ".md" in word or ".yaml" in word or ".json" in word:
+                                cleaned = word.strip('`"\'*,;:()[]')
+                                if cleaned and cleaned not in files_seen:
+                                    files_seen.append(cleaned)
+        if files_seen or decisions or errors_seen:
+            parts: list[str] = []
+            if files_seen:
+                parts.append(f"已读文件: {', '.join(files_seen[:20])}")
+            if decisions:
+                parts.append(f"已做决策: {'; '.join(decisions[:5])}")
+            if errors_seen:
+                parts.append(f"已遇错误: {'; '.join(errors_seen[:5])}")
+            try:
+                self._layered_memory.experience.store(
+                    Experience.create(
+                        problem=f"会话压缩归档(丢弃{dropped_count}轮)",
+                        hypothesis="",
+                        action="压缩前自动归档",
+                        result=" | ".join(parts),
+                        reflection="",
+                        emotion=EmotionIntensity.MEDIUM,
+                    ),
+                )
+            except Exception as e:
+                logger.debug("归档到LayeredMemory失败: %s", e)
 
     def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
         if self._model_config is None:
@@ -1009,6 +1171,7 @@ class QueryEngine:
         cfg = self._model_config
         router = self._model_router
         target_model = cfg.model
+        target_temp = cfg.temperature
 
         # Only use router if explicitly enabled and configured
         if router and router.enabled:
@@ -1026,12 +1189,30 @@ class QueryEngine:
                     priority=TaskPriority.MEDIUM,
                 )
 
+        # Dynamic mid-session adjustments
+        bm = self._behavior
+        if bm.total_turns > 3:
+            # High hallucination risk → lower temperature for more deterministic output
+            if bm.hallucination_risk > 0.4:
+                target_temp = min(target_temp, 0.3)
+            # High frustration → lower temperature, be more conservative
+            if bm.frustration_rate > 0.3:
+                target_temp = min(target_temp, 0.2)
+            # High error rate → switch to more capable model if available
+            if bm.tool_error_rate > 0.4 and router and router.code_model:
+                target_model = router.code_model
+
+        # Dementia → force lower temperature to reduce random exploration
+        diag = self._dementia_detector.diagnose()
+        if diag.dementia_index > 0.3:
+            target_temp = min(target_temp, 0.1)
+
         config = ModelConfig(
             model=target_model,
             api_key=cfg.api_key,
             base_url=cfg.base_url,
             max_tokens=cfg.max_tokens,
-            temperature=cfg.temperature,
+            temperature=target_temp,
             system_prompt="",
         )
         return config, None
@@ -1084,6 +1265,31 @@ class QueryEngine:
             extras.append(
                 "\n💡 提醒: 你近期工具使用率较低({:.0%})。面对代码相关问题请积极使用工具。".format(bm.tool_use_rate)
             )
+
+        if bm.tool_error_count > 0:
+            try:
+                from lingclaude.core.data_flywheel import DataFlywheel
+                fw = DataFlywheel()
+                if fw.should_alert(threshold=0.5):
+                    stats = fw.get_stats()
+                    extras.append(
+                        f"\n⚠ 错误复发: 错误复发率 {stats.recurrence_rate:.0%}，"
+                        f"共 {stats.total_errors} 个错误，{stats.total_corrections} 个修复。"
+                        "请避免重复已犯过的错误。"
+                    )
+                fw.close()
+            except Exception:
+                pass
+
+        if self._session_cache_hits > 2:
+            extras.append(
+                f"\n📂 文件缓存: 本次会话已命中 {self._session_cache_hits} 次。"
+                "已读文件不需要重复读取。"
+            )
+
+        diagnosis = self._dementia_detector.diagnose()
+        if diagnosis.intervention_prompt:
+            extras.append("\n\n" + diagnosis.intervention_prompt)
 
         project_index = self._project_index
         if project_index:

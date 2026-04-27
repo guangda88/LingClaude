@@ -107,6 +107,30 @@ class TestPermissions:
         assert ctx.blocks("sys_admin")
         assert not ctx.blocks("user_tool")
 
+    def test_auto_approve_read_tools(self) -> None:
+        ctx = PermissionContext()
+        assert ctx.is_auto_approved("read")
+        assert ctx.is_auto_approved("grep")
+        assert ctx.is_auto_approved("glob")
+        assert ctx.is_auto_approved("ls")
+
+    def test_auto_approve_denied_overrides(self) -> None:
+        ctx = PermissionContext.from_config(deny_tools=["read"])
+        assert not ctx.is_auto_approved("read")
+
+    def test_requires_approval_write_tools(self) -> None:
+        ctx = PermissionContext()
+        assert ctx.requires_approval("write")
+        assert ctx.requires_approval("edit")
+        assert ctx.requires_approval("delete")
+        assert not ctx.requires_approval("read")
+        assert not ctx.requires_approval("grep")
+
+    def test_custom_auto_approve(self) -> None:
+        ctx = PermissionContext.from_config(auto_approve=["custom_read"])
+        assert ctx.is_auto_approved("custom_read")
+        assert ctx.is_auto_approved("read")  # defaults preserved
+
 
 class TestToolRegistry:
     def test_register_and_execute(self) -> None:

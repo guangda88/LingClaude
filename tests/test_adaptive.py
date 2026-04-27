@@ -199,6 +199,56 @@ class TestModelRouting:
         assert provider.last_config.model == "coder-model"
 
 
+class TestDynamicModelSwitching:
+    def test_high_hallucination_reduces_temperature(self) -> None:
+        from lingclaude.core.behavior import BehaviorMetrics, Emotion
+        provider = _FakeProvider([ModelResponse(content="ok", model="test", usage=ModelUsage())])
+        engine = QueryEngine(model_provider=provider)
+        engine._model_config = ModelConfig(model="default", api_key="key", temperature=0.8)
+        # Simulate 5 turns with high hallucination
+        for _ in range(5):
+            engine._behavior = engine._behavior.record_turn(
+                emotion=Emotion.NEUTRAL, is_correction=False,
+                is_frustrated=False, used_tools=False, needed_tools=True,
+            )
+        resolved, _ = engine._resolve_model_config("some question")
+        assert resolved is not None
+        assert resolved.temperature < 0.8
+
+    def test_high_frustration_reduces_temperature(self) -> None:
+        from lingclaude.core.behavior import BehaviorMetrics, Emotion
+        provider = _FakeProvider([ModelResponse(content="ok", model="test", usage=ModelUsage())])
+        engine = QueryEngine(model_provider=provider)
+        engine._model_config = ModelConfig(model="default", api_key="key", temperature=0.7)
+        for _ in range(5):
+            engine._behavior = engine._behavior.record_turn(
+                emotion=Emotion.FRUSTRATED, is_correction=True,
+                is_frustrated=True, used_tools=True, needed_tools=False,
+            )
+        resolved, _ = engine._resolve_model_config("fix the code")
+        assert resolved is not None
+        assert resolved.temperature < 0.3
+
+    def test_dementia_reduces_temperature(self) -> None:
+        provider = _FakeProvider([ModelResponse(content="ok", model="test", usage=ModelUsage())])
+        engine = QueryEngine(model_provider=provider)
+        engine._model_config = ModelConfig(model="default", api_key="key", temperature=0.9)
+        # Simulate dementia by recording lots of duplicate reads
+        for i in range(30):
+            engine._dementia_detector.record_tool_call("read", '{"path": "same_file.py"}')
+        resolved, _ = engine._resolve_model_config("check this file")
+        assert resolved is not None
+        assert resolved.temperature <= 0.1
+
+    def test_early_session_unchanged_temperature(self) -> None:
+        provider = _FakeProvider([ModelResponse(content="ok", model="test", usage=ModelUsage())])
+        engine = QueryEngine(model_provider=provider)
+        engine._model_config = ModelConfig(model="default", api_key="key", temperature=0.7)
+        resolved, _ = engine._resolve_model_config("hello")
+        assert resolved is not None
+        assert resolved.temperature == 0.7
+
+
 class TestToolRetry:
     def test_read_retry_finds_file(self) -> None:
         engine = QueryEngine()

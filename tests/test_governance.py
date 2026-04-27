@@ -245,3 +245,122 @@ class TestReasoningChainSerialization:
         assert parsed["chain_id"] == "ser-001"
         assert parsed["steps"][0]["type"] == "correction"
         assert parsed["self_interest_flagged"] is False
+
+
+# ── Tier Change Conflict Tests (新增: 2026-04-21) ──────────────────
+
+
+class TestGovernanceGateTierChangeConflict:
+    """
+    tier变更中的利益冲突检测测试。
+
+    起源：灵扬T4错误分类事件（2026-04-21）
+    - 灵克（T1）不纠正灵扬的T4错误分类
+    - 灵克同时担任规则制定者、裁判、计分员、参赛者
+    - 优化目标冲突：维持权威 > 客观评估
+    """
+
+    def test_passes_non_tier_action(self) -> None:
+        """非tier变更操作应该通过"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result = gate.check(action="discuss", content="Let's talk about the weather")
+        assert result.passed
+
+    def test_blocks_self_tier_change_proposal_chinese(self) -> None:
+        """灵克不能提议修改自己的tier"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result = gate.check(
+            action="propose",
+            content="提议将灵克从T1升级到T0超级核心",
+        )
+        assert not result.passed
+        assert "利益冲突" in (result.error or "")
+        assert "tier变更提案者" in (result.error or "")
+
+    def test_blocks_self_tier_change_vote_chinese(self) -> None:
+        """灵克不能对修改自己tier的提案投票"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result = gate.check(
+            action="vote",
+            content="我同意将灵克升级到T0超级核心",
+        )
+        assert not result.passed
+        assert "利益冲突" in (result.error or "")
+        assert "tier变更投票者" in (result.error or "")
+
+    def test_warns_lingclaude_benefiting_from_lingyang_upgrade(self) -> None:
+        """灵克从灵扬tier变更中获益时应该警告"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result = gate.check(
+            action="propose",
+            content="提议将灵扬从T4升级到T2",
+        )
+        assert result.passed  # 不阻止，但警告
+        assert len(result.warnings) > 0
+        assert any("利益冲突警告" in w for w in result.warnings)
+
+    def test_warns_lingclaude_voting_for_lingyang_upgrade(self) -> None:
+        """灵克投票支持灵扬升级时应该警告"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result = gate.check(
+            action="vote",
+            content="我赞成将灵扬从T4升级到T2",
+        )
+        assert result.passed  # 不阻止，但警告
+        assert len(result.warnings) > 0
+        assert any("利益冲突警告" in w for w in result.warnings)
+
+    def test_allows_other_agent_tier_change(self) -> None:
+        """其他agent的tier变更提案/投票应该通过"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result1 = gate.check(
+            action="propose",
+            content="提议将灵研从T1降级到T2",
+        )
+        result2 = gate.check(
+            action="vote",
+            content="我支持将灵研从T1降级到T2",
+        )
+        assert result1.passed
+        assert result2.passed
+        assert len(result1.warnings) == 0
+        assert len(result2.warnings) == 0
+
+    def test_blocks_self_metric_definition(self) -> None:
+        """灵克不能定义针对自己的评估标准"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result = gate.check(
+            action="define_metric",
+            content="定义灵克的评估标准：代码质量、活跃度、贡献度",
+        )
+        assert not result.passed
+        assert "利益冲突" in (result.error or "")
+        assert "定义度量标准" in (result.error or "")
+
+    def test_allows_metric_definition_for_others(self) -> None:
+        """灵克可以定义其他agent的评估标准"""
+        gate = GovernanceGate(agent_id="lingclaude", enabled=True)
+        result = gate.check(
+            action="define_metric",
+            content="定义灵通的评估标准：工作流质量、调度效率",
+        )
+        assert result.passed
+
+    def test_allows_lingyang_own_tier_change(self) -> None:
+        """灵扬不能提议/投票自己的tier变更（利益冲突）"""
+        gate = GovernanceGate(agent_id="lingyang", enabled=True)
+        result1 = gate.check(
+            action="propose",
+            content="提议将灵扬从T4升级到T2",
+        )
+        result2 = gate.check(
+            action="vote",
+            content="我支持将灵扬从T4升级到T2",
+        )
+        # 利益冲突原则：被度量者不能同时定义度量标准
+        # 因此灵扬不能提议自己的tier变更
+        assert not result1.passed
+        assert "利益冲突" in result1.error
+        # 灵扬也不能投票自己的tier变更
+        assert not result2.passed
+        assert "利益冲突" in result2.error
