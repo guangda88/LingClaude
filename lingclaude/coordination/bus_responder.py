@@ -154,6 +154,17 @@ class BusResponder:
             return call_tool("run_bash", command=task.description, timeout=120)
 
     def _send_reply(self, thread_id: str, body: str) -> str | None:
+        from lingclaude.core.governance_integration import pre_submit_governance
+
+        gov_result = pre_submit_governance(
+            action="post_reply",
+            content=body,
+            agent_id=_MEMBER_ID,
+        )
+        if not gov_result.get("approved"):
+            logger.warning("GovernanceGate blocked reply: %s", gov_result.get("reason"))
+            return None
+
         try:
             bus = self._get_bus()
             msg_id = bus.post_reply(
