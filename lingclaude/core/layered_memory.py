@@ -122,11 +122,6 @@ _COMMON_KNOWLEDGE: dict[str, dict[str, str]] = {
         "alias": "灵克,LingClaude",
         "role": "AI编程助手，对标Claude Code，内置自优化",
     },
-    "灵依": {
-        "en": "LingYi",
-        "alias": "灵依,LingYi",
-        "role": "私人助理，灵字辈的管家",
-    },
     "灵研": {
         "en": "LingResearch",
         "alias": "灵研,LingResearch",

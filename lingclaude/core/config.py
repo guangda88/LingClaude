@@ -90,7 +90,7 @@ class IntelConfig:
     session_history_path: str = "data/session_history.json"
     auto_collect_behavior: bool = True
     auto_relay: bool = True
-    relay_target: str = "lingyi"
+    relay_target: str = ""
     digest_hour: int = 23
 
 
@@ -186,7 +186,7 @@ class LingClaudeConfig:
                 session_history_path=intel_raw.get("session_history_path", "data/session_history.json"),
                 auto_collect_behavior=intel_raw.get("auto_collect_behavior", True),
                 auto_relay=intel_raw.get("auto_relay", True),
-                relay_target=intel_raw.get("relay_target", "lingyi"),
+                relay_target=intel_raw.get("relay_target", ""),
                 digest_hour=intel_raw.get("digest_hour", 23),
             ),
             verification=VerificationConfig(

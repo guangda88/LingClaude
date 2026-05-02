@@ -490,7 +490,7 @@ class TestEndToEndIntelPipeline:
         assert any("安全" in r for r in digest.recommendations)
 
 
-class TestSessionHistoryForLingYi:
+class TestSessionHistory:
     def test_submit_creates_session_history(self, tmp_path: Path) -> None:
         history_path = tmp_path / "data" / "session_history.json"
         engine = QueryEngine(config=QueryEngineConfig())

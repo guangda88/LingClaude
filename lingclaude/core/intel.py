@@ -1,8 +1,8 @@
-"""灵克情报系统 — Intelligence collection, daily digest, and relay to 灵依.
+"""灵克情报系统 — Intelligence collection, daily digest, and relay.
 
 Gathers intel from behavior metrics, code patterns, errors, optimizations,
 and project structure changes. Aggregates into daily digests and relays
-to configured targets (e.g., 灵依).
+to configured targets (via filesystem output).
 """
 from __future__ import annotations
 

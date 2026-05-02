@@ -100,6 +100,11 @@ class FileEditTool:
 
         count = content.count(old_text)
         if count == 0:
+            fuzzy_result = self._fuzzy_replace(content, old_text, new_text, replace_all)
+            if fuzzy_result is not None:
+                self._backup(target)
+                write_result = self._write_and_diff(target, content, fuzzy_result, start)
+                return write_result
             return Result.fail(f"未找到匹配文本: {path}")
         if count > 1 and not replace_all:
             return Result.fail(
@@ -275,6 +280,56 @@ class FileEditTool:
             return Result.ok(backup_path)
         except Exception as e:
             return Result.fail(f"备份失败: {e}")
+
+    def _fuzzy_replace(
+        self,
+        content: str,
+        old_text: str,
+        new_text: str,
+        replace_all: bool,
+    ) -> str | None:
+        old_lines = old_text.splitlines()
+        if len(old_lines) < 2:
+            return None
+
+        content_lines = content.splitlines(keepends=True)
+        content_stripped = [l.rstrip() for l in content_lines]
+        search_line = old_lines[0].strip()
+        if not search_line:
+            return None
+
+        candidates = []
+        for i, line in enumerate(content_stripped):
+            if search_line and search_line in line:
+                end_idx = i + len(old_lines)
+                if end_idx <= len(content_stripped):
+                    block = content_stripped[i:end_idx]
+                    old_stripped = [l.strip() for l in old_lines]
+                    ratio = difflib.SequenceMatcher(
+                        None, block, old_stripped
+                    ).ratio()
+                    if ratio >= 0.6:
+                        candidates.append((i, ratio))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        if not replace_all:
+            candidates = candidates[:1]
+
+        result_lines = list(content_lines)
+        offset = 0
+        for idx, ratio in candidates:
+            start = idx + offset
+            end = start + len(old_lines)
+            new_lines = new_text.splitlines(keepends=True)
+            if new_text and not new_text.endswith("\n"):
+                new_lines[-1] = new_lines[-1].rstrip("\n")
+            result_lines[start:end] = new_lines
+            offset += len(new_lines) - len(old_lines)
+
+        return "".join(result_lines)
 
     def _write_and_diff(
         self,

@@ -97,6 +97,7 @@ class QueryEngine:
         self._dementia_detector = DementiaDetector()
         self._cognitive_rhythm = CognitiveRhythm()
         self._hooks = HookManager()
+        self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
         self._mailbox = mailbox
@@ -293,6 +294,9 @@ class QueryEngine:
         self._compact_if_needed()
         self._append_to_session_history(prompt, output)
         self._learn_from_turn(prompt, output)
+
+        if self.turn_count % 5 == 0 and self.turn_count > 0:
+            self._check_optimization_triggers()
 
         if rhythm.imbalance != ImbalanceType.NONE:
             logger.warning(
@@ -554,6 +558,7 @@ class QueryEngine:
         return Result.ok(final_content)
 
     def reset(self) -> None:
+        self._save_session_state()
         self._clear_checkpoint()
         self.session_id = uuid4().hex[:16]
         self._messages.clear()
@@ -679,6 +684,11 @@ class QueryEngine:
             tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
             if '"error"' in tool_output:
                 self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
+                self._log_to_flywheel(
+                    pattern_type="tool_error",
+                    error_message=tool_output[:200],
+                    tool_name=tc.name,
+                )
             messages.append(ModelMessage(
                 role=MessageRole.TOOL,
                 content=tool_output,
@@ -838,6 +848,11 @@ class QueryEngine:
                 if is_error:
                     round_error_count += 1
                     self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
+                    self._log_to_flywheel(
+                        pattern_type="tool_error",
+                        error_message=tool_output[:200],
+                        tool_name=tc.name,
+                    )
                 preview = tool_output[:200] if len(tool_output) > 200 else tool_output
                 yield {
                     "type": "tool_call_end",
@@ -1287,6 +1302,50 @@ class QueryEngine:
                 "已读文件不需要重复读取。"
             )
 
+        # Loop 1: Knowledge read-back — rules learned from past turns
+        try:
+            from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
+            kb = KnowledgeBase()
+            keyword = self._messages[-1][:50] if self._messages else ""
+            result = kb.search_rules(keyword=keyword, limit=5)
+            if result.is_ok and result.data:
+                rule_lines = [
+                    f"  - {r.description} (置信度={r.confidence:.0%})"
+                    for r in result.data
+                    if r.confidence > 0.5
+                ]
+                if rule_lines:
+                    extras.append(
+                        "\n📚 已学经验:\n" + "\n".join(rule_lines)
+                    )
+            # Also fetch high-confidence rules regardless of keyword
+            all_result = kb.get_all_rules(limit=3)
+            if all_result.is_ok and all_result.data:
+                existing_descs = {r.description for r in (result.data or [])}
+                general_lines = [
+                    f"  - {r.description} (置信度={r.confidence:.0%})"
+                    for r in all_result.data
+                    if r.confidence > 0.7 and r.description not in existing_descs
+                ]
+                if general_lines:
+                    extras.append(
+                        "\n📚 通用经验:\n" + "\n".join(general_lines)
+                    )
+            kb.close()
+        except Exception:
+            pass
+
+        # Loop 2: Experience injection — recall relevant past experiences
+        try:
+            current_query = self._messages[-1] if self._messages else ""
+            experience_text = self._layered_memory.build_context_injection(
+                current_query=current_query,
+            )
+            if experience_text and len(experience_text) > 50:
+                extras.append("\n\n" + experience_text)
+        except Exception:
+            pass
+
         diagnosis = self._dementia_detector.diagnose()
         if diagnosis.intervention_prompt:
             extras.append("\n\n" + diagnosis.intervention_prompt)
@@ -1503,6 +1562,80 @@ class QueryEngine:
             flywheel.close()
         except Exception as e:
             logger.warning("飞轮记录失败: %s", e)
+
+    def _session_state_path(self) -> Path:
+        return Path.home() / ".lingclaude" / "session_state.json"
+
+    def _save_session_state(self) -> None:
+        try:
+            state: dict[str, Any] = {
+                "behavior": self._behavior.to_dict(),
+                "calibrator_records": {},
+            }
+            for domain, rec in self._meta_cognition._calibrator.records.items():
+                state["calibrator_records"][domain] = {
+                    "correct": rec.correct,
+                    "incorrect": rec.incorrect,
+                    "last_error": rec.last_error,
+                    "last_error_time": rec.last_error_time,
+                }
+            blind_spots = self._meta_cognition._blind_spot_detector.error_patterns
+            state["blind_spot_patterns"] = {
+                k: v for k, v in blind_spots.items()
+            }
+            path = self._session_state_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(state, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning("会话状态保存失败: %s", e)
+
+    def _load_session_state(self) -> None:
+        try:
+            path = self._session_state_path()
+            if not path.exists():
+                return
+            data = json.loads(path.read_text(encoding="utf-8"))
+            from lingclaude.core.meta_cognition import _DomainRecord
+            if "calibrator_records" in data:
+                for domain, rec_data in data["calibrator_records"].items():
+                    self._meta_cognition._calibrator.records[domain] = _DomainRecord(
+                        correct=rec_data.get("correct", 0),
+                        incorrect=rec_data.get("incorrect", 0),
+                        last_error=rec_data.get("last_error", ""),
+                        last_error_time=rec_data.get("last_error_time", ""),
+                    )
+            if "blind_spot_patterns" in data:
+                for domain, count in data["blind_spot_patterns"].items():
+                    self._meta_cognition._blind_spot_detector.error_patterns[domain] = count
+        except Exception as e:
+            logger.warning("会话状态加载失败: %s", e)
+
+    def _check_optimization_triggers(self) -> None:
+        try:
+            from lingclaude.self_optimizer.trigger import OptimizationTrigger
+            trigger = OptimizationTrigger()
+            context = {
+                "behavior_metrics": self._behavior.to_dict(),
+                "hallucination_risk": self._behavior.hallucination_risk,
+                "tool_error_rate": self._behavior.tool_error_rate,
+                "frustration_rate": self._behavior.frustration_rate,
+                "review_score": int((1.0 - self._behavior.hallucination_risk) * 100),
+            }
+            triggered, info = trigger.check_all_conditions(context)
+            if triggered and info is not None:
+                logger.info(
+                    "自优化触发: %s (priority=%s)",
+                    info.reason, info.priority,
+                )
+                self.notify_risk(
+                    "自优化触发",
+                    f"触发原因: {info.reason}, 优先级: {info.priority}",
+                )
+        except Exception as e:
+            logger.warning("优化触发检查失败: %s", e)
 
     def _collect_behavior_intel(self) -> None:
         self._intel_collector.from_behavior(self._behavior.to_dict())

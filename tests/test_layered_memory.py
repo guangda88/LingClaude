@@ -236,7 +236,7 @@ class TestCommonKnowledge:
         # Should find multiple agents with "灵"
         names = [r[0] for r in results]
         assert "灵克" in names
-        assert "灵依" in names
+        assert "灵研" in names
 
     def test_all_facts(self):
         """Test getting all facts"""
@@ -244,7 +244,7 @@ class TestCommonKnowledge:
         facts = ck.all_facts()
         assert len(facts) > 0
         assert "灵克" in facts
-        assert "灵依" in facts
+        assert "灵信" in facts
 
     def test_to_prompt_text(self):
         """Test generating prompt text"""

@@ -135,7 +135,7 @@ def _load_module(server: MCPServerInfo) -> Any:
 _MODULE_IMPORTS: dict[str, tuple[str, ...]] = {
     "lingyang": ("src.mcp_server",),
     "lingke": ("lingclaude_mcp",),
-    "lingyi": ("lingyi.mcp_server",),
+
     "lingtong": ("lingflow_mcp",),
     "lingtongask": ("mcp_server",),
     "lingzhi": ("mcp_servers.zhineng_server",),

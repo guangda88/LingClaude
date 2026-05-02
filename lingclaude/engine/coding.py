@@ -24,11 +24,13 @@ from lingclaude.engine.ast_edit import list_functions, replace_function_body
 from lingclaude.engine.stt import STTEngine
 from lingclaude.engine.verification_gate import VerificationGate, WRITE_SCOPED_TOOLS, CRITICAL_TOOLS
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
+from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig
 
 
 class CodingRuntime:
-    def __init__(self, config: LingClaudeConfig | None = None) -> None:
+    def __init__(self, config: LingClaudeConfig | None = None, model_provider: Any | None = None) -> None:
         self.config = config or LingClaudeConfig()
+        self._model_provider = model_provider
         self._pattern_recognizer = PatternRecognizer()
         self.verification_gate = VerificationGate()
         self._setup_tools()
@@ -289,6 +291,55 @@ class CodingRuntime:
                 security_scope="read",
             )
         )
+        self.registry.register(
+            ToolDefinition(
+                name="sub_agent",
+                description="Spawn a sub-agent to autonomously research or analyze a task using read-only tools",
+                parameters={
+                    "task": {"type": "string", "description": "Task description for the sub-agent"},
+                    "context": {"type": "string", "description": "Additional context (optional)"},
+                    "max_rounds": {"type": "integer", "description": "Max agentic rounds (default 5)"},
+                },
+                handler=self._sub_agent_handler,
+                security_scope="execute",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="plan_mode",
+                description="Toggle plan mode: think without tool execution to plan complex tasks",
+                parameters={
+                    "action": {"type": "string", "description": "'enter' or 'exit'"},
+                },
+                handler=self._plan_mode_handler,
+                security_scope="read",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="web_fetch",
+                description="Fetch content from a URL and extract text",
+                parameters={
+                    "url": {"type": "string", "description": "URL to fetch"},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default 30)"},
+                },
+                handler=self._web_fetch_handler,
+                security_scope="read",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="web_search",
+                description="Search the web for information",
+                parameters={
+                    "query": {"type": "string", "description": "Search query"},
+                    "max_results": {"type": "integer", "description": "Max results to return (default 5)"},
+                },
+                handler=self._web_search_handler,
+                security_scope="read",
+            )
+        )
+        self._plan_mode_active: bool = False
 
     def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
         result = self.bash.run(command)
@@ -494,6 +545,60 @@ class CodingRuntime:
         if result.is_error:
             return {"error": result.error}
         return {"functions": result.data}
+
+    def _sub_agent_handler(
+        self,
+        task: str,
+        context: str = "",
+        max_rounds: int = 5,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        config = SubAgentConfig(max_rounds=max_rounds)
+        agent = SubAgent(config=config, runtime=self, provider=self._model_provider)
+        result = agent.run(task, context)
+        return {
+            "agent_id": result.agent_id,
+            "output": result.output,
+            "tools_used": list(result.tools_used),
+            "success": result.success,
+            "error": result.error,
+            "rounds": result.rounds,
+        }
+
+    def _plan_mode_handler(self, action: str = "enter", **_kwargs: Any) -> dict[str, Any]:
+        if action == "enter":
+            self._plan_mode_active = True
+            return {"plan_mode": True, "message": "Plan mode activated. Tool execution disabled."}
+        elif action == "exit":
+            self._plan_mode_active = False
+            return {"plan_mode": False, "message": "Plan mode deactivated. Tool execution enabled."}
+        return {"error": f"Unknown action: {action}. Use 'enter' or 'exit'."}
+
+    def _web_fetch_handler(
+        self,
+        url: str,
+        timeout: int = 30,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        from lingclaude.engine.web_tools import WebFetcher
+        fetcher = WebFetcher(timeout=timeout)
+        result = fetcher.fetch(url)
+        if result.is_error:
+            return {"error": result.error}
+        return {"url": url, "content": result.data}
+
+    def _web_search_handler(
+        self,
+        query: str,
+        max_results: int = 5,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        from lingclaude.engine.web_tools import WebSearcher
+        searcher = WebSearcher()
+        result = searcher.search(query, max_results=max_results)
+        if result.is_error:
+            return {"error": result.error}
+        return {"query": query, "results": result.data}
 
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         if self.permissions.blocks(name):

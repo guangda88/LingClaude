@@ -257,7 +257,7 @@ class TestCommonKnowledge:
 
     def test_search_by_en(self):
         ck = CommonKnowledge()
-        results = ck.search("LingYi")
+        results = ck.search("LingResearch")
         assert len(results) >= 1
 
     def test_search_by_role(self):

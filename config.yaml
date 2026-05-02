@@ -9,7 +9,7 @@ intel:
   digest_hour: 23
   enabled: true
   output_dir: .lingclaude/intel/
-  relay_target: lingyi
+  relay_target: ''
   session_history_path: data/session_history.json
 model:
   api_key: 6eea22e2ab7c409a9f014c6094a8efb4.s85I4xqBd8l7eM9c
