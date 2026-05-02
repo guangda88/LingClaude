@@ -35,7 +35,7 @@ def execute_problem_to_evolution_workflow(
     problem_title: str,
     problem_description: str,
     proposal_path: str,
-    target_path: str = "/home/ai/LingYi",
+    target_path: str = "/home/ai/LingFlow_plus",
 ) -> Result[str]:
     """执行从问题到进化的完整工作流
 
@@ -255,7 +255,7 @@ def execute_problem_to_evolution_workflow(
 
 
 if __name__ == "__main__":
-    # 执行 LingYi WebUI 测试进化工作流
+    # 执行 WebUI 测试进化工作流
     result = execute_problem_to_evolution_workflow(
         problem_title="WebUI 测试覆盖盲区导致用户无法正常使用",
         problem_description=(

@@ -3,7 +3,7 @@
 
 Purpose:
 - Submit GLM token optimization plan to all Ling family members
-- Invite LingYi, LingTong, LingMinOpt, LingClaude, and other Ling members to participate
+- Invite LingTong, LingMinOpt, LingClaude, and other Ling members to participate
 - Collaborate on token optimization implementation
 """
 from __future__ import annotations
@@ -39,7 +39,7 @@ def create_glm_optimization_discussion() -> tuple[str, dict]:
         "initiator_name": "灵克",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "participants": ["灵克", "灵依", "灵通", "灵极优", "灵工", "灵智"],
+        "participants": ["灵克", "灵通", "灵极优", "灵工", "灵智"],
         "status": "open",
         "summary": "GLM Token 优化 — 让每一位灵字辈成员都活动起来，尽职尽责地消费 token",
         "messages": [
@@ -147,7 +147,7 @@ def create_glm_optimization_discussion() -> tuple[str, dict]:
 
 ## 🤝 灵字辈成员分工
 
-### 灵依（LINGYI） - 统筹协调
+### 灵通+（LINGFLOW_PLUS） - 统筹协调
 **任务**：
 - [ ] 审核优化计划
 - [ ] 协调各成员分工

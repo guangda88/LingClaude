@@ -140,16 +140,6 @@ class ResourceMonitor:
                 enabled=True,
             ),
             ProjectResourceConfig(
-                name="lingyi",
-                display_name="灵依",
-                priority="medium",
-                cpu_quota=10,
-                memory_quota_mb=1 * 1024,
-                bandwidth_quota_mbps=10,
-                request_rate=15,
-                enabled=True,
-            ),
-            ProjectResourceConfig(
                 name="lingmessage",
                 display_name="灵信",
                 priority="high",

@@ -264,7 +264,7 @@ self._monitor = TokenMonitor()           # Token 监控器
     "reply_to": "msg_20260406233215",
     "tags": ["progress", "phase1-complete", "integration", "testing"],
     "source_type": "real",
-    "mentions": ["lingyi", "lingflow", "lingminopt", "lingwork", "lingzhi"]
+    "mentions": ["lingflow", "lingminopt", "lingwork", "lingzhi"]
 }
 
 # Update the discussion

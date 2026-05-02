@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 
-# 使用灵依的 discussions/ 系统
+# 使用灵信的 discussions/ 系统
 discussions_dir = Path.home() / ".lingmessage" / "discussions"
 discussions_dir.mkdir(parents=True, exist_ok=True)
 

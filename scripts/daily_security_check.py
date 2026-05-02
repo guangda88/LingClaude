@@ -20,7 +20,6 @@ LING_PROJECTS = [
     Path.home() / "LingMessage",
     Path.home() / "Ling-term-mcp",
     Path.home() / "lingresearch",
-    Path.home() / "LingYi",
     Path.home() / "LingYang",
     Path.home() / "LingMinOpt",
     Path.home() / "zhineng-bridge",

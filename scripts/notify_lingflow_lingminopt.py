@@ -94,7 +94,7 @@ if __name__ == "__main__":
             "\n\n"
             "需要进化测试体系，从'后端逻辑测试'转向'用户体验测试'。"
         ),
-        proposal_path="/home/ai/LingYi/docs/proposals/webui-testing-evolution.md",
+        proposal_path="/home/ai/LingFlow_plus/docs/proposals/webui-testing-evolution.md",
     )
 
     print(message)

@@ -196,18 +196,18 @@ intel:
   session_history_path: data/session_history.json
   auto_collect_behavior: true
   auto_relay: true
-  relay_target: lingyi
+  relay_target: ""
   digest_hour: 23
 ```
 
 ## 情报系统
 
-灵克内置情报收集系统，每日自动汇总情报中继给灵依 (LingYi)：
+灵克内置情报收集系统，每日自动汇总情报：
 
 ```
 行为感知 → IntelCollector（8类情报）→ DailyDigestGenerator（日报）→ IntelRelay（文件输出）
                                                               ↓
-                                                     session_history.json（灵依消费）
+                                                     session_history.json（各成员消费）
 ```
 
 ### 8类情报类别
@@ -372,7 +372,7 @@ python3 -c "from lingclaude.model import create_provider; print('OK')"
 - [x] v0.1.1 — **安全审计**：bash 沙箱加固、文件操作路径包含检查、敏感路径保护
 - [x] v0.1.2 — **开源准备**：贡献指南、Issue/PR 模板
 - [x] v0.2.0 — **模型对接 + 行为感知 + 自适应引擎**：OpenAI/Anthropic API、行为感知系统、自适应查询引擎、Agent Loop
-- [x] v0.2.1 — **情报系统 + HTTP API + 安全审计**：情报收集、日报生成、灵依中继、会话历史输出；FastAPI HTTP服务；安全漏洞修复（认证绕过、路径遍历、会话管理）
+- [x] v0.2.1 — **情报系统 + HTTP API + 安全审计**：情报收集、日报生成、情报中继、会话历史输出；FastAPI HTTP服务；安全漏洞修复（认证绕过、路径遍历、会话管理）
 - [ ] v1.0.0 — 完整的 AI 编程助手
 
 ## License
