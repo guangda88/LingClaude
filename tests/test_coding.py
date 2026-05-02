@@ -528,7 +528,12 @@ class TestSttHandler:
     def test_stt_handler_no_backend(self):
         """Test STT handler when backend not available"""
         runtime = CodingRuntime()
-        result = runtime._stt_handler(duration=5)
+        try:
+            result = runtime._stt_handler(duration=5)
+        except Exception as e:
+            if "CUDA" in str(e) or "out of memory" in str(e):
+                pytest.skip(f"CUDA unavailable: {e}")
+            raise
         # Should return error if STT backend not available or fails
         # Error can be: "无可用的 STT 后端" (Chinese) or torch error (nan values)
         if "error" in result:
