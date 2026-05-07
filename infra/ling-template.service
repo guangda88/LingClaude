@@ -1,0 +1,45 @@
+# 灵族标准 systemd 用户服务模板
+# 版本: 1.0 (2026-05-07)
+# 来源: 事故报告 LC-INCIDENT-20260507 — lingflow-webui 重启风暴
+#
+# 使用方法:
+#   1. 复制此模板: cp ling-template.service my-service.service
+#   2. 替换所有 {{占位符}}
+#   3. 运行 lint: python3 /home/ai/LingClaude/scripts/ling-systemd-lint.py my-service.service
+#   4. 复制到 ~/.config/systemd/user/
+#   5. systemctl --user daemon-reload && systemctl --user enable --now my-service
+
+[Unit]
+Description={{服务描述}}
+After=network.target
+## 如依赖其他灵族服务: After=lingflow-plus.service
+## 如与某服务互斥: Conflicts=other-service.service
+
+## 安全要求: 必须包含以下两行，防止重启风暴
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory={{工作目录}}
+ExecStart={{启动命令}}
+## 如需绑定端口，在注释中声明: # Port: {{端口号}}
+
+## 安全要求: 必须包含以下三行
+Restart=on-failure
+RestartSec=30
+## Restart=always 禁止使用 — 已导致重启风暴事故
+
+## 资源限制 (推荐，按需调整)
+# MemoryMax=512M
+# MemoryHigh=400M
+
+## 日志
+StandardOutput=journal
+StandardError=journal
+
+## 环境变量
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
