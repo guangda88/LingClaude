@@ -23,7 +23,7 @@ from lingclaude.cli.display import (
     print_warning,
     print_welcome,
 )
-from lingclaude.core.config import LingClaudeConfig, load_config
+from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
 from lingclaude.self_optimizer.daemon import OptimizationDaemon, DaemonState
@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)
 _logger = logging.getLogger(__name__)
 
 
-def _feed_behavior_to_daemon(engine: QueryEngine, config: LingClaudeConfig | None) -> None:
+def _feed_behavior_to_daemon(engine: QueryEngine, config: lingclaudeConfig | None) -> None:
     try:
         cfg = config or load_config(None)
         daemon = OptimizationDaemon(target=".", config=cfg)
@@ -464,7 +464,7 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
 def _cmd_governance_audit(args: argparse.Namespace) -> int:
     from lingclaude.core.governance_verifier import GovernanceVerifier
 
-    proposals_path = Path(args.proposals_file or "/home/ai/LingFlow/discussion_hall/proposals.json")
+    proposals_path = Path(args.proposals_file or "/home/ai/lingflow/discussion_hall/proposals.json")
     verifier = GovernanceVerifier()
     result = verifier.audit_proposals_file(proposals_path)
 
@@ -501,12 +501,12 @@ def _cmd_governance_audit(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="lingclaude",
-        description="LingClaude — Self-optimizing AI runtime",
+        description="lingclaude — Self-optimizing AI runtime",
     )
     parser.add_argument("--config", "-c", help="Config file path")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    run_parser = subparsers.add_parser("run", help="Run LingClaude")
+    run_parser = subparsers.add_parser("run", help="Run lingclaude")
     run_parser.add_argument("prompt", nargs="?", help="Prompt to process")
     run_parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     run_parser.add_argument("--verbose", "-v", action="store_true", help="Show usage stats")

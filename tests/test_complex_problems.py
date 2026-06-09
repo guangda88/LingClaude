@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, StopReason
-from lingclaude.core.session import Session, SessionManager
+from lingclaude.core.session import SessionManager
 from lingclaude.engine.tools import ToolDefinition, ToolRegistry
 from lingclaude.model.types import (
     ModelConfig,
@@ -110,6 +110,17 @@ def _make_runtime(registry: ToolRegistry) -> MagicMock:
 class TestMultiStepToolChain:
     """复杂问题：多步工具调用链（读→分析→写）"""
 
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        engine._messages.clear()
+        engine._conversation.clear()
+        return engine
+
     def test_three_step_tool_chain(self) -> None:
         recorder = _ToolRecorder()
         registry = _make_registry_with_tools(recorder)
@@ -131,7 +142,7 @@ class TestMultiStepToolChain:
             ModelResponse(content="已完成三步修改", model="test", usage=ModelUsage()),
         ])
 
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.set_runtime(runtime)
         result = engine.submit("帮我修复 src/main.py 中的所有 TODO")
 
@@ -156,9 +167,9 @@ class TestMultiStepToolChain:
             ModelResponse(content="是的，上一轮我读了 a.py，内容是 X", model="test", usage=ModelUsage()),
         ])
 
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.set_runtime(runtime)
-        r1 = engine.submit("读 a.py")
+        engine.submit("读 a.py")
 
         r2 = engine.submit("你刚才读了什么？")
 
@@ -182,9 +193,9 @@ class TestMultiStepToolChain:
             ModelResponse(content="两个文件都读完了", model="test", usage=ModelUsage()),
         ])
 
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.set_runtime(runtime)
-        result = engine.submit("同时读 a.py 和 b.py")
+        engine.submit("同时读 a.py 和 b.py")
 
         assert len(recorder.calls) == 2
         assert recorder.calls[0] == ("read", {"path": "a.py"})
@@ -194,15 +205,26 @@ class TestMultiStepToolChain:
 class TestMultiTurnConversation:
     """复杂问题：多轮对话上下文连贯性"""
 
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
+
     def test_five_turn_referential_chain(self) -> None:
         provider = _FakeProvider()
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
 
         topics = ["Python 的 GIL", "它有什么影响？", "能举个例子吗？", "有替代方案吗？", "总结一下"]
+        provider.responses = [
+            ModelResponse(content=f"回答{i+1}: 关于{prompt}", model="test", usage=ModelUsage())
+            for i, prompt in enumerate(topics)
+        ]
+        provider._idx = 0
         for i, prompt in enumerate(topics):
-            provider.responses = [
-                ModelResponse(content=f"回答{i+1}: 关于{prompt}", model="test", usage=ModelUsage()),
-            ]
             result = engine.submit(prompt)
             assert result.stop_reason == StopReason.COMPLETED
 
@@ -286,7 +308,7 @@ class TestMultiTurnConversation:
             provider.responses = [
                 ModelResponse(content="是的，之前讨论了 A 和 B", model="test", usage=ModelUsage()),
             ]
-            r = engine2.submit("我们之前讨论了什么？")
+            engine2.submit("我们之前讨论了什么？")
 
             last_msgs = provider.call_log[-1][0]
             conv_msgs = [m for m in last_msgs if m.role.value in ("user", "assistant")]
@@ -295,6 +317,15 @@ class TestMultiTurnConversation:
 
 class TestLongConversationCompaction:
     """复杂问题：长对话压缩"""
+
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
 
     def test_compaction_preserves_recent_context(self) -> None:
         provider = _FakeProvider([
@@ -329,6 +360,17 @@ class TestLongConversationCompaction:
 class TestStreamingComplexScenarios:
     """复杂问题：流式调用"""
 
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        engine._messages.clear()
+        engine._conversation.clear()
+        return engine
+
     def test_stream_with_tool_calls(self) -> None:
         recorder = _ToolRecorder()
         registry = _make_registry_with_tools(recorder)
@@ -342,7 +384,7 @@ class TestStreamingComplexScenarios:
             ModelResponse(content="文件内容已分析", model="test", usage=ModelUsage()),
         ])
 
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.set_runtime(runtime)
 
         events = list(engine.stream_call_model("分析 test.py"))
@@ -362,7 +404,7 @@ class TestStreamingComplexScenarios:
         provider = _FakeProvider([
             ModelResponse(content="流式回答", model="test", usage=ModelUsage()),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
 
         events = list(engine.stream_call_model("问题"))
         assert events[-1]["type"] == "done"
@@ -374,6 +416,16 @@ class TestStreamingComplexScenarios:
 
 class TestMaxTurnsAndBudget:
     """复杂问题：轮次和预算限制"""
+
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
+
 
     def test_max_turns_stops_new_queries(self) -> None:
         engine = QueryEngine(config=QueryEngineConfig(max_turns=2))
@@ -395,7 +447,7 @@ class TestMaxTurnsAndBudget:
                 usage=ModelUsage(input_tokens=200, output_tokens=100),
             ),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.submit("问题1")
         engine.submit("问题2")
 
@@ -405,6 +457,16 @@ class TestMaxTurnsAndBudget:
 
 class TestSessionPersistenceRoundtrip:
     """复杂问题：会话持久化完整回环"""
+
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
+
 
     def test_save_load_preserves_all_pairs(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -460,7 +522,7 @@ class TestSessionPersistenceRoundtrip:
         provider = _FakeProvider([
             ModelResponse(content="回答", model="test", usage=ModelUsage()),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.submit("问题")
 
         old_sid = engine.session_id
@@ -474,6 +536,15 @@ class TestSessionPersistenceRoundtrip:
 
 class TestErrorRecoveryComplex:
     """复杂问题：错误恢复"""
+
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
 
     def test_tool_error_followed_by_retry(self) -> None:
         recorder = _ToolRecorder()
@@ -492,7 +563,7 @@ class TestErrorRecoveryComplex:
             ModelResponse(content="找到了，内容是...", model="test", usage=ModelUsage()),
         ])
 
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.set_runtime(runtime)
         result = engine.submit("读取 /nonexistent.py")
 
@@ -537,6 +608,16 @@ class TestErrorRecoveryComplex:
 class TestToolArgumentRetry:
     """复杂问题：工具参数自动修复"""
 
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
+
+
     def test_read_retry_with_glob(self) -> None:
         engine = QueryEngine()
         result = engine._fix_tool_arguments(
@@ -552,14 +633,26 @@ class TestToolArgumentRetry:
 class TestConversationIntegrity:
     """复杂问题：对话完整性（_messages 和 _conversation 同步）"""
 
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
+
+
     def test_messages_and_conversation_always_synced(self) -> None:
         provider = _FakeProvider()
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
 
+        provider.responses = [
+            ModelResponse(content=f"R{i}", model="test", usage=ModelUsage())
+            for i in range(10)
+        ]
+        provider._idx = 0
         for i in range(10):
-            provider.responses = [
-                ModelResponse(content=f"R{i}", model="test", usage=ModelUsage()),
-            ]
             engine.submit(f"Q{i}")
 
             expected_conv = len(engine._messages)
@@ -569,7 +662,7 @@ class TestConversationIntegrity:
         provider = _FakeProvider([
             ModelResponse(content="my answer", model="test", usage=ModelUsage()),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.submit("my question")
 
         assert engine._messages == ["my question", "my answer"]
@@ -580,19 +673,21 @@ class TestConversationIntegrity:
         provider = _FakeProvider([
             ModelResponse(content="stream answer", model="test", usage=ModelUsage()),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         list(engine.stream_call_model("stream question"))
 
         assert engine._conversation == [("user", "stream question"), ("assistant", "stream answer")]
 
     def test_stats_reflect_actual_turns(self) -> None:
         provider = _FakeProvider()
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
 
+        provider.responses = [
+            ModelResponse(content=f"A{i}", model="test", usage=ModelUsage())
+            for i in range(7)
+        ]
+        provider._idx = 0
         for i in range(7):
-            provider.responses = [
-                ModelResponse(content=f"A{i}", model="test", usage=ModelUsage()),
-            ]
             engine.submit(f"Q{i}")
 
         stats = engine.get_stats()
@@ -602,6 +697,16 @@ class TestConversationIntegrity:
 
 class TestStreamingMultiTurnWithTools:
     """复杂问题：流式多轮+工具"""
+
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
+
 
     def test_stream_two_turns_with_tools(self) -> None:
         recorder = _ToolRecorder()
@@ -621,7 +726,7 @@ class TestStreamingMultiTurnWithTools:
             ModelResponse(content="找到3个class", model="test", usage=ModelUsage()),
         ])
 
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         engine.set_runtime(runtime)
 
         events = list(engine.stream_call_model("分析 a.py"))
@@ -642,11 +747,21 @@ class TestStreamingMultiTurnWithTools:
 class TestEdgeCasesComplex:
     """边界条件"""
 
+    @staticmethod
+    def _make_engine(provider: _FakeProvider) -> QueryEngine:
+        engine = QueryEngine(model_provider=provider)
+        engine.L1_MESSAGE_THRESHOLD = 999999
+        engine.L2_MESSAGE_THRESHOLD = 999999
+        engine._total_messages_sent = 0
+        engine._l1_last_triggered_at = -1
+        return engine
+
+
     def test_empty_prompt(self) -> None:
         provider = _FakeProvider([
             ModelResponse(content="请说点什么", model="test", usage=ModelUsage()),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         result = engine.submit("")
         assert result.stop_reason == StopReason.COMPLETED
         assert engine.turn_count == 1
@@ -656,7 +771,7 @@ class TestEdgeCasesComplex:
         provider = _FakeProvider([
             ModelResponse(content="ok", model="test", usage=ModelUsage()),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         result = engine.submit(long_prompt)
         assert result.stop_reason == StopReason.COMPLETED
         assert engine._messages[0] == long_prompt
@@ -665,7 +780,7 @@ class TestEdgeCasesComplex:
         provider = _FakeProvider([
             ModelResponse(content="你好世界 🌍 テスト", model="test", usage=ModelUsage()),
         ])
-        engine = QueryEngine(model_provider=provider)
+        engine = self._make_engine(provider)
         result = engine.submit("你好")
         assert "你好世界" in result.output
 

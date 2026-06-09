@@ -1,0 +1,32 @@
+{
+  "model": "glm-4.7",
+  "benchmark": "HumanEval",
+  "timestamp": "2026-06-06T17:31:59.870043+00:00",
+  "total": 5,
+  "passed": 4,
+  "failed": 1,
+  "errors": 0,
+  "pass_at_1": 0.8,
+  "details": [
+    {
+      "task_id": "HumanEval/0",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/1",
+      "status": "FAIL"
+    },
+    {
+      "task_id": "HumanEval/2",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/3",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/4",
+      "status": "PASS"
+    }
+  ]
+}

@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.safe_db import safe_commit, safe_connect
+
 from lingclaude.core.types import Result
 
 
@@ -43,7 +45,7 @@ class MetricsStore:
     def __init__(self, db_path: str | Path = ".lingclaude/metrics.db") -> None:
         self._path = Path(db_path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self._path))
+        self._conn = safe_connect(self._path)
         self._conn.row_factory = sqlite3.Row
         self._init_schema()
 
@@ -72,7 +74,7 @@ class MetricsStore:
                 "INSERT INTO metrics (timestamp, category, name, value, tags) VALUES (?, ?, ?, ?, ?)",
                 (ts, category, name, value, tags_str),
             )
-            self._conn.commit()
+            safe_commit(self._conn)
             return Result.ok(MetricPoint(
                 timestamp=ts, category=category, name=name, value=value,
                 tags=tuple(tags.items()),
@@ -89,7 +91,7 @@ class MetricsStore:
                     for p in points
                 ],
             )
-            self._conn.commit()
+            safe_commit(self._conn)
             return Result.ok(len(points))
         except sqlite3.Error as e:
             return Result.fail(f"批量写入失败: {e}")
@@ -117,7 +119,7 @@ class MetricsStore:
             clauses.append("timestamp <= ?")
             params.append(until)
         where = " AND ".join(clauses) if clauses else "1=1"
-        sql = f"SELECT * FROM metrics WHERE {where} ORDER BY timestamp DESC LIMIT ?"
+        sql = f"SELECT * FROM metrics WHERE {where} ORDER BY timestamp DESC LIMIT ?"  # nosec B608 — where 仅拼接硬编码子句，参数全部参数化
         params.append(limit)
         try:
             rows = self._conn.execute(sql, params).fetchall()
@@ -200,7 +202,7 @@ class MetricsStore:
     def prune(self, before: str) -> Result[int]:
         try:
             cur = self._conn.execute("DELETE FROM metrics WHERE timestamp < ?", (before,))
-            self._conn.commit()
+            safe_commit(self._conn)
             return Result.ok(cur.rowcount)
         except sqlite3.Error as e:
             return Result.fail(f"清理失败: {e}")

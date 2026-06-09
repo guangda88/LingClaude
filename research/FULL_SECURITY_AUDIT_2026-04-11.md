@@ -1,7 +1,7 @@
 # 灵族大家庭安全大检查报告
 
 > **检查日期**: 2026-04-11
-> **检查人**: 灵克 (LingClaude)
+> **检查人**: 灵克 (lingclaude)
 > **检查范围**: 灵族生态系统全部 12 个项目 + 基础设施
 > **检查方法**: 源码审计 + 配置检查 + 依赖分析 + 基础设施扫描
 
@@ -21,17 +21,17 @@
 
 | 项目 | 评分 | 状态 |
 |------|------|------|
-| LingClaude (灵克) | **4/10** | 🔴 4个紧急漏洞（命令执行） |
+| lingclaude (灵克) | **4/10** | 🔴 4个紧急漏洞（命令执行） |
 | Ling-term-mcp (灵犀) | **3/10** | 🔴 6个紧急漏洞（验证器全面绕过） |
-| LingMessage (灵信) | **4/10** | 🔴 3个紧急漏洞（路径穿越+身份伪造） |
+| lingmessage (灵信) | **4/10** | 🔴 3个紧急漏洞（路径穿越+身份伪造） |
 | zhineng-bridge (智桥) | **3/10** | 🔴 密钥泄露+默认无认证 |
 | zhineng-knowledge-system (智能知识系统) | **2/10** | 🔴🔴 RSA私钥泄露+数据库密码硬编码 |
-| LingYi (灵依) | **6/10** | 🟡 密钥管理需改进 |
-| LingFlow (灵通) | **7/10** | 🟢 测试代码中的示例密钥 |
+| lingyi (灵依) | **6/10** | 🟡 密钥管理需改进 |
+| lingflow (灵通) | **7/10** | 🟢 测试代码中的示例密钥 |
 | lingresearch (灵研) | **8/10** | 🟢 干净 |
-| LingYang (灵扬) | **9/10** | 🟢 干净 |
-| LingMinOpt (灵极优) | **7/10** | 🟡 SQL注入风险 |
-| LingFlow_plus | **9/10** | 🟢 干净 |
+| lingyang (灵扬) | **9/10** | 🟢 干净 |
+| lingminopt (灵极优) | **7/10** | 🟡 SQL注入风险 |
+| lingflowplus | **9/10** | 🟢 干净 |
 | ai-server | **8/10** | 🟢 干净 |
 | **基础设施** | **2/10** | 🔴🔴 大量明文凭据 |
 
@@ -68,7 +68,7 @@
 
 ### 🔴 I-3: RSA 私钥提交到 Git 仓库
 
-**文件**: `/home/ai/zhineng-knowledge-system/jwt_private.pem`
+**文件**: `/home/ai/lingzhi/jwt_private.pem`
 
 2048位 RSA 私钥以 PKCS#8 格式直接存放在仓库中。任何人拥有仓库访问权即可伪造 JWT Token。
 
@@ -78,8 +78,8 @@
 
 ### 🔴 I-4: SSL 私钥 + VAPID 私钥提交到 Git 仓库
 
-**文件**: `/home/ai/zhineng-bridge/nginx/ssl/key.pem`
-**文件**: `/home/ai/zhineng-bridge/relay-server/vapid_private_key.pem`
+**文件**: `/home/ai/zhibridge/nginx/ssl/key.pem`
+**文件**: `/home/ai/zhibridge/relay-server/vapid_private_key.pem`
 
 **影响**: TLS 加密可被中间人攻击；Web Push 通知可被伪造。
 
@@ -104,13 +104,13 @@
 | Nginx | 8008 | Web UI 暴露 |
 | Prometheus | 9090 | 监控指标暴露 |
 | Grafana | 3000 | 仪表盘暴露 |
-| LingYi | 8900 | AI 助手暴露 |
+| lingyi | 8900 | AI 助手暴露 |
 
 **影响**: 结合硬编码密码（I-1），所有服务均可从网络直接访问。
 
 ---
 
-## 二、LingClaude（灵克）— 4 紧急 / 4 高危
+## 二、lingclaude（灵克）— 4 紧急 / 4 高危
 
 ### 🔴 LC-1: `shell=True` + 可绕过的命令黑名单 → 远程代码执行
 
@@ -126,7 +126,7 @@ result = subprocess.run(command, shell=True, ...)  # 危险！
 - 子进程: `bash -c 'sudo bash'` — `base_cmd` 为 `bash`
 - 分号: `ls; sudo bash` — 只检查 `ls`
 
-### 🔴 LC-2: BashLingXiExecutor 默认无黑名单
+### 🔴 LC-2: BashlingxiExecutor 默认无黑名单
 
 **文件**: `lingclaude/engine/bash_lingxi.py:46`
 
@@ -268,7 +268,7 @@ curl http://169.254.169.254/latest/meta-data/   → ✅ 放行（云元数据泄
 
 ---
 
-## 四、LingMessage（灵信）— 3 紧急 / 3 高危
+## 四、lingmessage（灵信）— 3 紧急 / 3 高危
 
 ### 🔴 LM-1: `thread_id` 路径穿越
 
@@ -414,7 +414,7 @@ xpack.security.enabled=false
 
 ## 七、其他项目安全概况
 
-### LingMinOpt（灵极优）— 🟡 1 中危
+### lingminopt（灵极优）— 🟡 1 中危
 
 **M-1**: SQL 注入风险 — `cli/commands.py:591`
 
@@ -422,15 +422,15 @@ xpack.security.enabled=false
 safe_sql = sql.replace("$1", thread_id)  # 字符串拼接构造 SQL
 ```
 
-### LingYi（灵依）— 🟡 1 中危
+### lingyi（灵依）— 🟡 1 中危
 
 密钥从 `~/.ling_lib/ling_key_store.py` 加载，设计合理但依赖明文文件（见 I-1）。
 
-### LingFlow（灵通）— 🟢 低危
+### lingflow（灵通）— 🟢 低危
 
 测试代码中 `API_KEY = "dev-key-12345"` 仅用于开发，无实际风险。
 
-### lingresearch（灵研）/ LingYang（灵扬）/ LingFlow_plus / ai-server — 🟢 干净
+### lingresearch（灵研）/ lingyang（灵扬）/ lingflowplus / ai-server — 🟢 干净
 
 无安全发现。
 
@@ -491,12 +491,12 @@ safe_sql = sql.replace("$1", thread_id)  # 字符串拼接构造 SQL
 - zhineng-bridge 认证: 参数化 SQL, HMAC 常量时间比较, BCrypt 哈希
 - 知识系统 JWT: RS256 算法, Token 刷新机制, 角色权限控制
 - 知识系统 Docker: 所有容器配置了 CPU/内存限制和健康检查
-- LingClaude 知识库: SQL 使用参数化查询
+- lingclaude 知识库: SQL 使用参数化查询
 - 全局 .gitignore: 各项目均排除 `.env` 文件
 - SSH: 使用 ed25519 密钥
 - 监控: Prometheus + Grafana + Exporters 完整配置
 
 ---
 
-*灵克 (LingClaude) — 2026-04-11*
+*灵克 (lingclaude) — 2026-04-11*
 *本报告为防御性安全审计，所有发现仅供修复使用。*

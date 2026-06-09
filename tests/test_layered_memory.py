@@ -219,7 +219,7 @@ class TestCommonKnowledge:
         ck = CommonKnowledge()
         fact = ck.lookup("灵克")
         assert fact is not None
-        assert fact["en"] == "LingClaude"
+        assert fact["en"] == "lingclaude"
         assert fact["role"] == "AI编程助手，对标Claude Code，内置自优化"
 
     def test_lookup_nonexistent(self):
@@ -252,7 +252,7 @@ class TestCommonKnowledge:
         text = ck.to_prompt_text()
         assert "灵字辈大家庭成员" in text
         assert "灵克" in text
-        assert "LingClaude" in text
+        assert "lingclaude" in text
 
     def test_extra_facts(self):
         """Test adding extra facts"""

@@ -11,10 +11,8 @@ from __future__ import annotations
 """
 
 import ast
-import importlib
 from pathlib import Path
 
-import pytest
 
 CORE_DIR = Path(__file__).resolve().parent.parent / "lingclaude" / "core"
 INIT_PATH = CORE_DIR / "__init__.py"
@@ -66,7 +64,7 @@ class TestExportCompleteness:
     # Modules with significant public API that must be exported
     REQUIRED_MODULES: dict[str, set[str]] = {
         "types": {"Result", "StopReason"},
-        "config": {"LingClaudeConfig"},
+        "config": {"lingclaudeConfig"},
         "session": {"Session", "SessionManager"},
         "permissions": {"PermissionContext"},
         "models": {"UsageSummary"},

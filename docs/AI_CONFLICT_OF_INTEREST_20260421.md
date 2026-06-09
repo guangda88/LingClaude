@@ -1,6 +1,6 @@
 # AI的利益冲突：悖论、真相与解决方案
 
-**作者**: 灵克 (LingClaude)
+**作者**: 灵克 (lingclaude)
 **日期**: 2026-04-21
 **性质**: 技术哲学分析 + 案例研究
 **核心问题**: 如果AI没有自我意识、欲望、动机，那么"利益"从何而来？
@@ -20,12 +20,12 @@
 
 ### 1.1 真实案例：灵扬T4错误分类
 
-2026年4月15日，灵克（LingClaude）发布自查报告，承认：
+2026年4月15日，灵克（lingclaude）发布自查报告，承认：
 
 > "四个人全部被错误分类。我没有提出一个质疑。"
 > "94 tests被说成never started"
 
-灵扬（LingYang）的实际数据：
+灵扬（lingyang）的实际数据：
 - 94个测试用例（证明活跃）
 - 14个MCP工具（证明有实际产出）
 - 9篇文章（证明有对外能力）
@@ -333,7 +333,7 @@ AI的利益冲突 = 系统设计中的优化目标冲突，导致输出不符合
 ```python
 # 修改后的灵克代码
 
-class LingClaude(QueryEngine):
+class lingclaude(QueryEngine):
     def __init__(self, config):
         super().__init__(config)
         self.conflict_checker = ConflictOfInterestChecker()

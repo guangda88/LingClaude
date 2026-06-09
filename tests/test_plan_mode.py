@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 
 from lingclaude.engine.plan_mode import PlanMode
 

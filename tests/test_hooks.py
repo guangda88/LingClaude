@@ -5,7 +5,6 @@ import pytest
 from lingclaude.core.hooks import (
     HookContext,
     HookManager,
-    HookResult,
     HookType,
 )
 

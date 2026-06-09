@@ -2,7 +2,7 @@
 
 **日期：** 2026-04-10
 **课题：** AI-EVOLUTION-2026-001 子课题A - 多AI协同进化
-**参与者：** LingClaude (灵克) + LingYang (灵妍)
+**参与者：** lingclaude (灵克) + lingyang (灵妍)
 
 ---
 

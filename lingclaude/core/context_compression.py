@@ -14,14 +14,12 @@ from __future__ import annotations
 - AGGRESSIVE: 双语混合摘要，最大化 token 节省
 """
 
-import hashlib
 import logging
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from lingclaude.core.types import Result
 
 logger = logging.getLogger(__name__)
 

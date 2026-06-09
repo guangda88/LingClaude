@@ -1,4 +1,4 @@
-"""Git integration tools for LingClaude.
+"""Git integration tools for lingclaude.
 
 Provides structured access to git information without raw shell access:
 - git_status: working tree status

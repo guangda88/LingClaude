@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""测试 LingXi MCP 客户端"""
+"""测试 lingxi MCP 客户端"""
 from __future__ import annotations
 
 import sys
@@ -8,28 +8,28 @@ from pathlib import Path
 # 添加项目路径到 sys.path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lingclaude.mcp.lingxi_client import LingXiClient
+from lingclaude.mcp.lingxi_client import lingxiClient
 
 def test_lingxi_client():
-    """测试 LingXi 客户端基本功能"""
+    """测试 lingxi 客户端基本功能"""
     print("=" * 60)
-    print("测试 LingXi MCP 客户端")
+    print("测试 lingxi MCP 客户端")
     print("=" * 60)
 
     # 检查服务器文件是否存在
-    server_path = Path("/home/ai/Ling-term-mcp/dist/index.js")
+    server_path = Path("/home/ai/lingxi/dist/index.js")
     if not server_path.exists():
-        print(f"\n✗ 错误: LingXi MCP 服务器不存在")
+        print(f"\n✗ 错误: lingxi MCP 服务器不存在")
         print(f"  路径: {server_path}")
-        print(f"\n  请先构建 LingXi 项目:")
-        print(f"    cd /home/ai/Ling-term-mcp")
+        print(f"\n  请先构建 lingxi 项目:")
+        print(f"    cd /home/ai/lingxi")
         print(f"    npm run build")
         return False
 
-    print(f"\n✓ LingXi MCP 服务器存在: {server_path}")
+    print(f"\n✓ lingxi MCP 服务器存在: {server_path}")
 
     try:
-        with LingXiClient() as client:
+        with lingxiClient() as client:
             print("\n1. 测试连接...")
             print("   ✓ 成功启动并初始化客户端")
 
@@ -43,8 +43,8 @@ def test_lingxi_client():
                 print(f"     - {name}: {description}")
 
             # 测试简单命令执行
-            print("\n3. 测试命令执行 (echo 'Hello LingXi')...")
-            result = client.execute_command("echo", ["Hello LingXi"])
+            print("\n3. 测试命令执行 (echo 'Hello lingxi')...")
+            result = client.execute_command("echo", ["Hello lingxi"])
             print(f"   输出: {result.strip()}")
             print("   ✓ 命令执行成功")
 

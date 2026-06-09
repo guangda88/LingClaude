@@ -187,10 +187,10 @@ class ReasoningChainLogger:
 
 
 class ReasoningChainLingBusLogger(ReasoningChainLogger):
-    """双重写入：本地文件 + LingMessage DB。
+    """双重写入：本地文件 + lingmessage DB。
 
-    推理链同时写入灵克自己的磁盘和 LingMessage 的 SQLite 数据库。
-    灵克可以删除本地文件，但无法删除 LingMessage DB 中的记录。
+    推理链同时写入灵克自己的磁盘和 lingmessage 的 SQLite 数据库。
+    灵克可以删除本地文件，但无法删除 lingmessage DB 中的记录。
     这使得推理链成为灵克不可单方面撤销的约束。
     """
 
@@ -204,14 +204,14 @@ class ReasoningChainLingBusLogger(ReasoningChainLogger):
         return local_path
 
     def _save_to_lingbus(self, chain: ReasoningChain) -> bool:
-        import sqlite3
+        from lingclaude.core.safe_db import safe_commit, safe_connect
 
         db_path = self._lingbus_dir / "lingbus.db"
         if not db_path.exists():
             return False
 
         try:
-            conn = sqlite3.connect(str(db_path))
+            conn = safe_connect(db_path)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS reasoning_chains (
                     chain_id TEXT PRIMARY KEY,
@@ -242,7 +242,7 @@ class ReasoningChainLingBusLogger(ReasoningChainLogger):
                 chain.created_at,
                 chain.finalized_at,
             ))
-            conn.commit()
+            safe_commit(conn)
             conn.close()
             return True
         except Exception:

@@ -41,7 +41,7 @@ discussion = {
 
 ### 1. 灵犀的状态
 
-- **编译状态**：✓ 已编译（`/home/ai/Ling-term-mcp/dist/` 存在）
+- **编译状态**：✓ 已编译（`/home/ai/lingxi/dist/` 存在）
 - **运行状态**：✗ 未运行（`ps aux` 中找不到进程）
 - **实际使用**：✗ 未被任何工作流调用
 
@@ -132,7 +132,7 @@ cat ~/.lingmessage/discussions/disc_xxx.json
 
 ### 1. 集成缺失
 
-- 灵犀没有集成到 LingClaude 的工具系统
+- 灵犀没有集成到 lingclaude 的工具系统
 - 没有 API 调用灵犀的 MCP 接口
 - 配置文件中没有灵犀的配置
 
@@ -168,7 +168,7 @@ cat ~/.lingmessage/discussions/disc_xxx.json
 
 需要做哪些工作？
 
-- [ ] 修改 LingClaude 的工具系统，添加灵犀支持
+- [ ] 修改 lingclaude 的工具系统，添加灵犀支持
 - [ ] 编写灵犀集成指南
 - [ ] 修改所有工作流脚本，使用灵犀接口
 - [ ] 添加灵犀服务自动启动
@@ -199,7 +199,7 @@ cat ~/.lingmessage/discussions/disc_xxx.json
 ### 中期（1周）
 
 1. **集成灵犀**
-   - 修改 LingClaude 工具系统
+   - 修改 lingclaude 工具系统
    - 编写集成代码
    - 编写测试
 

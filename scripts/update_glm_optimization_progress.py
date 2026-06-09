@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update LingMessage discussion with GLM optimization progress."""
+"""Update lingmessage discussion with GLM optimization progress."""
 from __future__ import annotations
 
 import json
@@ -35,7 +35,7 @@ progress_message = {
 - ✅ 每日自动生成报告
 
 **文件位置**：
-- 实现：`/home/ai/LingClaude/lingclaude/core/token_monitor.py`
+- 实现：`/home/ai/lingclaude/lingclaude/core/token_monitor.py`
 - 数据库：`~/.lingclaude/token_monitor.db`
 - 报告：`~/.lingclaude/reports/token_report.html` / `token_report.md`
 
@@ -51,8 +51,8 @@ progress_message = {
 - ✅ 测试验证通过
 
 **文件位置**：
-- 实现：`/home/ai/LingClaude/lingclaude/model/intelligent_router.py`
-- 集成：`/home/ai/LingClaude/lingclaude/core/query_engine.py`
+- 实现：`/home/ai/lingclaude/lingclaude/model/intelligent_router.py`
+- 集成：`/home/ai/lingclaude/lingclaude/core/query_engine.py`
 - 统计：`~/.lingclaude/routing_stats.json`
 
 **关键特性**：
@@ -73,8 +73,8 @@ progress_message = {
 - ✅ 测试验证通过
 
 **文件位置**：
-- 实现：`/home/ai/LingClaude/lingclaude/core/context_cache.py`
-- 集成：`/home/ai/LingClaude/lingclaude/core/query_engine.py`
+- 实现：`/home/ai/lingclaude/lingclaude/core/context_cache.py`
+- 集成：`/home/ai/lingclaude/lingclaude/core/query_engine.py`
 - 数据库：`~/.lingclaude/context_cache.db`
 
 **关键特性**：
@@ -96,8 +96,8 @@ progress_message = {
 - ✅ 测试验证通过
 
 **文件位置**：
-- 实现：`/home/ai/LingClaude/lingclaude/core/task_aggregation.py`
-- 集成：`/home/ai/LingClaude/lingclaude/core/query_engine.py`
+- 实现：`/home/ai/lingclaude/lingclaude/core/task_aggregation.py`
+- 集成：`/home/ai/lingclaude/lingclaude/core/query_engine.py`
 - 数据库：`~/.lingclaude/task_aggregation.db`
 
 **关键特性**：
@@ -135,7 +135,7 @@ self._monitor = TokenMonitor()           # Token 监控器
 ### 集成测试
 **状态**：✅ 已完成
 
-**测试文件**：`/home/ai/LingClaude/tests/test_optimization_integration.py`
+**测试文件**：`/home/ai/lingclaude/tests/test_optimization_integration.py`
 
 **测试覆盖**：
 - ✅ QueryEngine 组件初始化（13/13 测试通过）

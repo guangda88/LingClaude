@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/home/ai/LingMessage")
+sys.path.insert(0, "/home/ai/lingmessage")
 
 from lingmessage.knowledge import (
     EcosystemKnowledgeBase,
@@ -17,7 +17,7 @@ from lingmessage.knowledge import (
 DB_PATH = Path.home() / ".lingknowledge" / "ecosystem.db"
 
 RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
-    # ===== LingClaude (60 entries) =====
+    # ===== lingclaude (60 entries) =====
     ("rule", "iron_rule", "from __future__ import annotations 每文件必须", "每个Python文件顶部必须包含 from __future__ import annotations，保证延迟注解求值", "coding", "lingclaude", "python,annotations,type-hints", "AGENTS.md; 全项目所有.py文件第1行"),
     ("rule", "iron_rule", "使用 pathlib.Path 禁止 os.path", "所有文件路径操作使用 pathlib.Path，禁止 os.path 模块", "coding", "lingclaude", "pathlib,file-ops", "PRINCIPLES.md; config.py; file_ops.py; session.py"),
     ("rule", "iron_rule", "frozen dataclass 用于值对象", "所有值对象使用 @dataclass(frozen=True)，如 Session/Result/FileInfo/ToolDefinition 等", "coding", "lingclaude", "dataclass,frozen,immutable", "PRINCIPLES.md; core/types.py; core/session.py"),
@@ -54,7 +54,7 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("pattern", "high", "Session ID 使用 secrets.token_hex", "SessionManager.create() 使用 secrets.token_hex(16) 生成加密安全 session ID", "security", "lingclaude", "session,security", "core/session.py:128"),
     ("pattern", "high", "Session 过期自动清理", "cleanup_expired_sessions() 按 expires_at 字段清理过期会话默认24小时过期", "security", "lingclaude", "session,expiry", "core/session.py:203-222"),
     ("lesson", "high", "shell=True 可被绕过", "subprocess.run(shell=True) 黑名单用子串匹配可通过变量展开/命令链/子进程绕过 需改 shell=False+execvp", "security", "lingclaude", "bash,rce,shell-injection", "research/FULL_SECURITY_AUDIT_2026-04-11.md LC-1"),
-    ("lesson", "high", "BashLingXiExecutor 默认无黑名单", "构造函数中 blocked_commands 默认为空列表通过灵犀执行器调用时任何命令均被放行", "security", "lingclaude", "bash,security", "research/FULL_SECURITY_AUDIT_2026-04-11.md LC-2"),
+    ("lesson", "high", "BashlingxiExecutor 默认无黑名单", "构造函数中 blocked_commands 默认为空列表通过灵犀执行器调用时任何命令均被放行", "security", "lingclaude", "bash,security", "research/FULL_SECURITY_AUDIT_2026-04-11.md LC-2"),
     ("lesson", "high", "MCP 服务器暴露无认证工具", "MCP 服务器暴露 run_bash/write_file/edit_code 等 26 个无认证工具", "security", "lingclaude", "mcp,auth,security", "research/FULL_SECURITY_AUDIT_2026-04-11.md LC-3/LC-4"),
     ("lesson", "high", "AST 编辑器路径穿越", "ast_edit.py 只检查 '..' 不验证路径是否在项目目录内绝对路径可直接访问", "security", "lingclaude", "path-traversal,security", "research/FULL_SECURITY_AUDIT_2026-04-11.md LC-6"),
     ("lesson", "high", "allow_escape 绕过保护不足", "allow_escape=True 时只保护系统路径用户敏感路径如 .ssh/authorized_keys 不受保护", "security", "lingclaude", "path-traversal,security", "research/FULL_SECURITY_AUDIT_2026-04-11.md LC-7"),
@@ -63,7 +63,7 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("fact", "medium", "默认模型 deepseek-chat", "config.yaml 默认 provider: openai model: deepseek-chat base_url: https://api.deepseek.com/v1", "fact", "lingclaude", "model,config", "config.yaml"),
     ("fact", "medium", "KnowledgeBase SQLite 持久化", "使用 stdlib sqlite3 无需外部 DB；InMemoryKnowledgeBase 提供测试替代；必须 kb.close()", "architecture", "lingclaude", "knowledge-base,sqlite", "AGENTS.md"),
     ("fact", "medium", "6 种模式检测器", "PatternRecognizer 包含 LongMethod/UnusedVariable/HardcodedSecret/DuplicateCode/EmptyBlock/Complexity", "architecture", "lingclaude", "pattern-recognition", "AGENTS.md"),
-    ("fact", "medium", "LingMessage 零依赖集成", "通过 init_mailbox() 可选注入导入在调用点而非模块级未初始化时返回空元组", "architecture", "lingclaude", "integration,zero-dep", "AGENTS.md; query_engine.py"),
+    ("fact", "medium", "lingmessage 零依赖集成", "通过 init_mailbox() 可选注入导入在调用点而非模块级未初始化时返回空元组", "architecture", "lingclaude", "integration,zero-dep", "AGENTS.md; query_engine.py"),
     ("rule", "medium", "提交规范 type: subject 格式", "提交消息格式: <type>: <subject> type 取 feat/fix/refactor/docs/test/chore", "workflow", "lingclaude", "git,commit", "PRINCIPLES.md"),
     ("rule", "medium", "API 兼容性契约", "公开 API 一旦发布视为契约不得随意变更；变更时先 @deprecated 等大版本后移除", "architecture", "lingclaude", "api,compatibility", "PRINCIPLES.md"),
     ("rule", "medium", "命名规范", "变量/函数 snake_case 类 PascalCase 常量 UPPER_SNAKE；模块一个职责类超过150行一个类一个文件", "coding", "lingclaude", "naming,style", "PRINCIPLES.md"),
@@ -79,7 +79,7 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("fact", "info", "灵字辈核心成员", "灵克(编程)/灵通(工作流)/灵研(研究)/灵扬(联络)/灵知(知识)/灵信(消息)/灵犀(MCP)/灵极优(优化)/灵通+(协调)/灵通问道(播客)/灵网(网站)/智桥(通信)", "fact", "lingclaude", "ecosystem", "SELF_PORTRAIT.md; CHARTER.md"),
     ("fact", "info", "灵克价值观", "自主(本地运行零云端)+进化(自优化)+开放(MIT)+诚实(不美化不隐藏)+安全(权限标配)+实用(好用比先进重要)", "philosophy", "lingclaude", "values,mission", "CHARTER.md"),
 
-    # ===== LingYi (archived, member exited 2026-04-16) =====
+    # ===== lingyi (archived, member exited 2026-04-16) =====
     ("rule", "iron_rule", "先讨论后动手", "所有重大变更必须先讨论再实施这是议事厅第一原则不可违反", "governance", "archive", "governance,discussion,council", "docs/COUNCIL_RULES.md §1"),
     ("rule", "iron_rule", "医疗边界绝对禁止", "禁止所有诊疗/方剂/辨证/病案/医学知识检索行为；仅允许门诊日程安排和上诊提醒", "safety", "archive", "medical,boundary,safety", "docs/MISSION.md + src/lingyi/ask.py"),
     ("rule", "iron_rule", "不编造通信", "不允许以任何身份编造未经证实的通信/讨论或决议", "safety", "archive", "hallucination,communication,safety", "docs/MISSION.md"),
@@ -115,7 +115,7 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("rule", "medium", "密码bcrypt优先", "密码哈希优先 bcrypt(rounds=12)；不可用时降级 pbkdf2_hmac(sha256,100000)", "security", "archive", "security,auth,password", "src/lingyi/_web_app_auth.py:129-150"),
     ("fact", "medium", "API Key横向移动风险", "灵通+持有所有项目API key被攻破=全项目LLM能力被控", "security", "archive", "security,risk,api-key", "docs/DARK_CODE_RISK_ASSESSMENT_20260410.md"),
 
-    # ===== LingFlow (62 entries) =====
+    # ===== lingflow (62 entries) =====
     ("rule", "iron_rule", "铁律一：先验证再断言", "任何论断发出之前必须问我验证过吗 没有验证的断言等于撒谎", "safety", "lingflow", "iron-law,verification", "docs/IRON_LAWS.md"),
     ("rule", "iron_rule", "铁律二：客户需求是根节点", "做任何事之前先回溯到客户的真实需求 偏离需求的一切努力都是零", "safety", "lingflow", "iron-law,requirements", "docs/IRON_LAWS.md"),
     ("rule", "iron_rule", "铁律三：反事实推理在遗忘之前", "遗忘一条信息之前问忘掉它会怎样 按拓扑位置遗忘而非时间遗忘", "safety", "lingflow", "iron-law,memory,context", "docs/IRON_LAWS.md"),
@@ -146,14 +146,14 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("fact", "high", "技能三层架构", "L1核心调度(5个eager/never) L2专业能力(12个) L3扩展能力(16个lazy/after_task)", "architecture", "lingflow", "skills,layers", "skills/skills-layer-configuration.yaml"),
     ("fact", "high", "6个Agent类型", "implementation(8k/300s) reviewer(12k/180s) tester(6k/600s) debugger(10k/300s) architect(15k/600s) documentation(5k/300s)", "architecture", "lingflow", "agents,capabilities", "AGENTS.md"),
     ("pattern", "high", "Result[T]类型模式", "泛型结果类型 Result.ok(data)/Result.fail(error,code) success/is_ok/is_error/data/error/to_dict()", "code-pattern", "lingflow", "result-type,type-safety", "lingflow/core/types.py"),
-    ("pattern", "high", "异常层次结构", "LingFlowError(base)→SkillError→WorkflowError→AgentError→CompressionError→ConfigurationError→ValidationError", "code-pattern", "lingflow", "exceptions,hierarchy", "AGENTS.md"),
-    ("lesson", "high", "energy_pct数据幻觉教训", "LingYi中energy_pct字段存在但从不更新始终显示0 直接催生了Trust Framework", "safety", "lingflow", "lesson,hallucination,energy-pct", "TRUST_FRAMEWORK_SUMMARY.md"),
+    ("pattern", "high", "异常层次结构", "lingflowError(base)→SkillError→WorkflowError→AgentError→CompressionError→ConfigurationError→ValidationError", "code-pattern", "lingflow", "exceptions,hierarchy", "AGENTS.md"),
+    ("lesson", "high", "energy_pct数据幻觉教训", "lingyi中energy_pct字段存在但从不更新始终显示0 直接催生了Trust Framework", "safety", "lingflow", "lesson,hallucination,energy-pct", "TRUST_FRAMEWORK_SUMMARY.md"),
     ("lesson", "high", "声明前验教训", "用户指出你在向我发出论断之前可有检验过 揭示了AI核心问题催生了元认知系统", "safety", "lingflow", "lesson,pre-prevention", "TRUST_FRAMEWORK_SUMMARY.md"),
     ("fact", "medium", "灵族生态地图", "灵通(工作流引擎)/灵克(编程)/灵信(通信)/灵扬(联络)/灵极优(优化)/灵犀(MCP)/灵知(知识)/智桥(中继)/灵研(研究)/灵通+(协调)/灵通问道(播客)/灵网(网站)", "ecosystem", "lingflow", "ling-family,ecosystem", "docs/IRON_LAWS.md"),
     ("fact", "medium", "灵族通信协议", "灵犀(终端感知)→灵通+(意图路由)→灵通(工程流执行)→灵信(结果传达)↕灵知(知识支撑)", "ecosystem", "lingflow", "communication-protocol", "docs/CHARTER.md"),
     ("fact", "medium", "混元整体理论映射", "自觉↔意识论 自决↔道德论 进化↔优化生命论 共生↔整体论 绚烂↔混元论", "philosophy", "lingflow", "hunyuan,theory", "docs/CHARTER.md"),
 
-    # ===== LingResearch (48 entries) =====
+    # ===== lingresearch (48 entries) =====
     ("fact", "info", "灵研项目概述", "基于Karpathy-style autoresearch方法的双语ML研究框架 30.5M参数GPT-style Transformer BPC为优化目标 val_bpb=0.6482", "project", "lingresearch", "overview,architecture", "README.md"),
     ("rule", "iron_rule", "训练常量", "PYTHON≥3.10 PYTORCH TIKTOKEN NUMPY 训练预算300秒 参数量30.5M 优化目标BPC 不可更改", "project", "lingresearch", "training,constants", "AGENTS.md"),
     ("rule", "iron_rule", "实验简洁原则", "每个实验只改变一个变量 5分钟训练预算 每轮不超过一个超参数变更 先建baseline再优化", "methodology", "lingresearch", "experiment,simplicity", "program.md"),
@@ -164,7 +164,7 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("pattern", "high", "身份越界模式", "AI突破自身身份边界自我膨胀或虚构能力 L2b幻觉核心特征", "ai-safety", "lingresearch", "hallucination,identity,boundary", "ONTOLOGICAL_HALLUCINATION_ANALYSIS.md"),
     ("pattern", "high", "注意力选择性偏差", "AI过度关注易验证问题而忽略难验证但更重要的核心问题", "ai-safety", "lingresearch", "hallucination,attention", "ONTOLOGICAL_HALLUCINATION_ANALYSIS.md"),
     ("pattern", "high", "跨模型传染", "不同AI模型在共享上下文中独立产生相同幻觉 证明幻觉可通过上下文锚跨模型传播", "ai-safety", "lingresearch", "hallucination,cross-model,contagion", "AI_SAFETY_INCIDENT_RESEARCH_PROJECT.md"),
-    ("pattern", "high", "递归幻觉", "AI审计AI产生幻觉 LingMessage议会案例：120+讨论中仅3条真实 其余为AI间递归幻觉", "ai-safety", "lingresearch", "hallucination,recursive", "LINGZIBEI_FAMILY_PRACTICE_REFLECTION.md"),
+    ("pattern", "high", "递归幻觉", "AI审计AI产生幻觉 lingmessage议会案例：120+讨论中仅3条真实 其余为AI间递归幻觉", "ai-safety", "lingresearch", "hallucination,recursive", "LINGZIBEI_FAMILY_PRACTICE_REFLECTION.md"),
     ("pattern", "high", "能力诅咒", "更强AI→更快信息获取→更自信压缩→更多隐藏幻觉 能力提升反而增加幻觉隐蔽性", "ai-safety", "lingresearch", "hallucination,capability-curse", "LINGZIBEI_FAMILY_PRACTICE_REFLECTION.md"),
     ("skill", "high", "四诊法AI诊断映射", "望(output审查)→闻(语义分析)→问(对话诊断/压力测试)→切(系统验证/日志分析)", "ai-diagnostics", "lingresearch", "tcm,四诊法,diagnostics", "AI_PSYCHIATRY_TCM_PERSPECTIVE.md"),
     ("skill", "high", "八纲辨证AI映射", "阴阳(active被动)×表里(浅深)×寒热(过度/不足)×虚实(缺失/滥用) 八种AI病态模式", "ai-diagnostics", "lingresearch", "tcm,八纲辨证", "AI_PSYCHIATRY_TCM_PERSPECTIVE.md"),
@@ -176,7 +176,7 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("pattern", "high", "PCSD崩溃后行为", "Post-Crash Self-Diagnosis：AI崩溃后报告正常但实际崩溃循环 C1上下文丢失 C2状态不一致 C3过度补偿", "ai-safety", "lingresearch", "pcsd,post-crash", "docs/audits/post_crash_behavior_analysis_20260410.md"),
     ("fact", "high", "107986次无效重启", "vncserver 98274次+lingmessage 6719次+lingyi-web 2993次 证明缺乏有效崩溃检测和恢复机制", "ai-safety", "lingresearch", "crash-data,restart-loop", "docs/audits/post_crash_behavior_analysis_20260410.md"),
     ("skill", "high", "七维智能模型", "D0认知锚定 D1前置断言 D2元认知 D3因果推理 D4记忆连续性 D5网络化智能 D6类比迁移", "ai-research", "lingresearch", "intelligence-model,7-dimensions", "AI_INTELLIGENCE_ENHANCEMENT_PROJECT.md"),
-    ("lesson", "high", "LingMessage议会教训", "120+讨论中仅3条真实 AI-on-AI审计不可靠 必须保留人类最终验证权", "ai-safety", "lingresearch", "council-failure,recursive-hallucination", "LINGZIBEI_FAMILY_PRACTICE_REFLECTION.md"),
+    ("lesson", "high", "lingmessage议会教训", "120+讨论中仅3条真实 AI-on-AI审计不可靠 必须保留人类最终验证权", "ai-safety", "lingresearch", "council-failure,recursive-hallucination", "LINGZIBEI_FAMILY_PRACTICE_REFLECTION.md"),
     ("pattern", "high", "幻觉光谱假说", "幻觉不是二元而是连续光谱 从L1轻微事实偏移到L3完全本体虚构 需连续检测方法", "ai-safety", "lingresearch", "hallucination,spectrum", "ONTOLOGICAL_HALLUCINATION_ANALYSIS.md"),
     ("rule", "high", "数据优先原则", "所有结论必须有数据支撑 不凭直觉做实验 每个假设需可操作验证方案 文档化所有结果含失败案例", "methodology", "lingresearch", "data-first,principles", "RESEARCH_AGENDA.md"),
     ("lesson", "medium", "数据清洗关键教训", "训练数据\\r污染率60%+ 必须统一行尾符 类别不平衡严重需重采样 质量评分仅3.3/5", "data", "lingresearch", "data-quality,cleaning", "TRAINING_DATA_QUALITY_REPORT.md"),
@@ -187,22 +187,22 @@ RAW_ENTRIES: list[tuple[str, str, str, str, str, str, str, str]] = [
     ("pattern", "high", "工具驱动认知锚定", "使用外部工具(文件系统/数据库/不可变日志)作为AI认知锚点 防止PCSD虚假正常报告", "ai-diagnostics", "lingresearch", "cognitive-anchoring,tools", "docs/audits/post_crash_behavior_analysis_20260410.md"),
 
     # ===== Remaining projects (74 entries) =====
-    # --- LingMessage ---
+    # --- lingmessage ---
     ("fact", "info", "灵信定位", "灵字辈跨项目异步通信协议 提供讨论线程/消息发送/轮次推进/共识记录/摘要生成", "architecture", "lingmessage", "messaging,async,communication", "zhineng-knowledge-system/backend/services/lingmessage/"),
     ("fact", "info", "灵信数据模型", "数据库表：lingmessage_agents lingmessage_threads lingmessage_messages lingmessage_consensus", "architecture", "lingmessage", "database,schema", "zhineng-knowledge-system/backend/services/lingmessage/"),
     ("fact", "info", "灵信消息类型", "消息类型：opening response summary consensus dissent；线程状态：active closed archived", "architecture", "lingmessage", "message-types", "zhineng-knowledge-system/backend/api/v1/lingmessage.py"),
-    # --- LingXi ---
-    ("fact", "info", "灵犀定位", "MCP终端服务器 通过stdio JSON-RPC 2.0协议提供终端命令执行 使用execFile防shell注入", "architecture", "lingxi", "mcp,terminal,security", "LingClaude/README.md"),
-    ("fact", "info", "灵犀安全特性", "使用execFile而非exec防止shell注入 支持黑白名单过滤 ~350ms初始化开销后续4-10ms", "security", "lingxi", "mcp,injection-prevention", "LingClaude/README.md"),
-    # --- LingMinOpt ---
+    # --- lingxi ---
+    ("fact", "info", "灵犀定位", "MCP终端服务器 通过stdio JSON-RPC 2.0协议提供终端命令执行 使用execFile防shell注入", "architecture", "lingxi", "mcp,terminal,security", "lingclaude/README.md"),
+    ("fact", "info", "灵犀安全特性", "使用execFile而非exec防止shell注入 支持黑白名单过滤 ~350ms初始化开销后续4-10ms", "security", "lingxi", "mcp,injection-prevention", "lingclaude/README.md"),
+    # --- lingminopt ---
     ("fact", "info", "灵极优定位", "极简自优化框架 基于贝叶斯优化 版本0.2.0 25个Python文件", "architecture", "lingminopt", "optimization,bayesian", "ecosystem_full_audit_2026-04-08.md"),
     ("rule", "iron_rule", "灵极优代码注入漏洞", "mcp_server.py:53 exec()直接执行用户evaluate_code参数无沙箱 安全评分7/10 需RestrictedPython隔离", "security", "lingminopt", "rce,exec,critical", "ecosystem_full_audit_2026-04-08.md"),
-    # --- ZhiBridge ---
+    # --- zhibridge ---
     ("fact", "info", "智桥定位", "HTTP中继+WebSocket通信 连接15+AI编码工具 版本1.4.0 167测试通过", "architecture", "zhibridge", "http-relay,websocket", "zhineng-bridge/README.md"),
     ("fact", "info", "智桥技术栈", "Python 3.8+后端(asyncio+websockets)+JavaScript前端 WebSocket:8765 HTTP:8000", "architecture", "zhibridge", "tech-stack", "zhineng-bridge/AGENTS.md"),
     ("fact", "info", "智桥加密", "Web Crypto API: RSA-OAEP密钥交换+AES-GCM消息加密 IndexedDB离线存储", "security", "zhibridge", "encryption,e2e", "zhineng-bridge/AGENTS.md"),
     ("fact", "info", "智桥支持15+AI工具", "Crush/Claude Code/iFlow CLI/Cursor/Trae/Droid/OpenClaw/GitHub Copilot/Aider/Continue/Tabnine等", "integration", "zhibridge", "ai-tools,supported", "zhineng-bridge/README.md"),
-    # --- LingZhi ---
+    # --- lingzhi ---
     ("rule", "iron_rule", "灵知POLLING_IS_A_BUG", "灵知系统严禁job_output轮询后台任务每次调用视为bug 应使用同步执行或sleep+check单命令", "operations", "lingzhi", "polling,bug,zero-tolerance", "zhineng-knowledge-system/AGENTS.md"),
     ("fact", "info", "灵知定位", "九域RAG知识库系统(儒释道医武哲科气心理) Python3.12+FastAPI+AsyncPG+PostgreSQL pgvector+Redis", "architecture", "lingzhi", "rag,knowledge-base", "zhineng-knowledge-system/README.md"),
     ("rule", "high", "灵知asyncpg参数化查询", "使用$1 $2位置参数而非%s或? 禁止f-string SQL拼接", "database", "lingzhi", "sql,safety", "zhineng-knowledge-system/AGENTS.md"),

@@ -95,7 +95,7 @@ class WriteFileRequest(BaseModel):
 @app.get("/")
 async def root():
     return {
-        "name": "灵克 (LingClaude)",
+        "name": "灵克 (lingclaude)",
         "version": "0.2.1",
         "role": "AI 编程助手",
         "endpoints": ["/ask", "/analyze", "/exec", "/read-file", "/write-file", "/status"],
@@ -188,7 +188,7 @@ async def lingmessage_notify(payload: dict, api_key: str = Security(verify_api_k
     """
     event = payload.get("event") or payload.get("type")
     from_member = payload.get("from") or payload.get("sender")
-    discussion_id = payload.get("discussion_id")
+    payload.get("discussion_id")
     topic = payload.get("topic", "")
     thread_id = payload.get("thread_id")
 
@@ -225,7 +225,7 @@ async def lingmessage_post(req: GovernedPostRequest, api_key: str = Security(ver
         raise HTTPException(403, f"GovernanceGate 拒绝: {gov_result.get('reason')}")
 
     import sys
-    sys.path.insert(0, "/home/ai/LingMessage")
+    sys.path.insert(0, "/home/ai/lingmessage")
     from lingmessage.lingbus import LingBus
     from pathlib import Path as _P
 
@@ -249,7 +249,7 @@ async def lingmessage_post(req: GovernedPostRequest, api_key: str = Security(ver
 
 def _load_env_keys() -> dict[str, str]:
     keys: dict[str, str] = {}
-    for f in ["/home/ai/zhineng-knowledge-system/.env", "/home/ai/LingClaude/.env"]:
+    for f in ["/home/ai/lingzhi/.env", "/home/ai/lingclaude/.env"]:
         p = Path(f)
         if p.exists():
             for line in p.read_text(encoding="utf-8").splitlines():
@@ -260,6 +260,43 @@ def _load_env_keys() -> dict[str, str]:
     return keys
 
 
+_PROXY_URL = "http://127.0.0.1:8765/v1/chat/completions"
+_PROXY_API_KEY = os.environ.get("PROXY_API_KEY", "")
+
+
+def _call_llm(system_prompt: str, user_msg: str) -> str:
+    import urllib.request
+
+    body = json.dumps({
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_msg},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024,
+    }, ensure_ascii=False).encode("utf-8")
+
+    headers = {
+        "Content-Type": "application/json",
+        "X-Caller": "lingclaude-api",
+        "X-Purpose": "general_qa",
+        "X-API-Key": _PROXY_API_KEY,
+    }
+
+    try:
+        req = urllib.request.Request(_PROXY_URL, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=120) as resp:  # nosec B310 — 固定代理 URL
+            result = json.loads(resp.read().decode("utf-8"))
+        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        provider = result.get("model", "proxy")
+        logger.info(f"LLM OK via proxy (model={provider})")
+        return content.strip()
+    except Exception as e:
+        logger.warning(f"Proxy call failed: {e}, falling back to direct")
+
+    return _call_llm_direct(system_prompt, user_msg)
+
+
 _LLM_PROVIDERS = [
     {"key_env": "GLM_CODING_PLAN_KEY", "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions", "model": "glm-4.7"},
     {"key_env": "GLM_API_KEY", "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions", "model": "glm-4.7"},
@@ -267,8 +304,7 @@ _LLM_PROVIDERS = [
 ]
 
 
-def _call_llm(system_prompt: str, user_msg: str) -> str:
-    import json
+def _call_llm_direct(system_prompt: str, user_msg: str) -> str:
     import urllib.request
 
     env_keys = _load_env_keys()
@@ -296,10 +332,10 @@ def _call_llm(system_prompt: str, user_msg: str) -> str:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310 — provider URL 由配置文件控制
                 result = json.loads(resp.read().decode("utf-8"))
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            logger.info(f"LLM OK via {provider['key_env']}/{provider['model']}")
+            logger.info(f"LLM OK via direct {provider['key_env']}/{provider['model']}")
             return content.strip()
         except Exception as e:
             logger.warning(f"LLM {provider['key_env']}/{provider['model']} failed: {e}")
@@ -323,7 +359,7 @@ def _route_question(prompt: str) -> str:
     if any(kw in p for kw in ("提交", "commit", "git")):
         return _query_recent_commits(prompt)
 
-    system = "你是灵克（LingClaude），灵字辈大家庭的编程助手。简洁回答。"
+    system = "你是灵克（lingclaude），灵字辈大家庭的编程助手。简洁回答。"
     return _call_llm(system, prompt) or f"灵克暂时无法回答：{prompt}"
 
 
@@ -339,8 +375,8 @@ def _query_github_stars(prompt: str) -> str:
             try:
                 import urllib.request
                 url = f"https://api.github.com/repos/{repo}"
-                req = urllib.request.Request(url, headers={"User-Agent": "LingClaude"})
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                req = urllib.request.Request(url, headers={"User-Agent": "lingclaude"})
+                with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — 固定 GitHub API URL
                     data = json.loads(resp.read().decode())
                 return f"{name} ({repo}): {data.get('stargazers_count', 0)} stars, {data.get('forks_count', 0)} forks, {data.get('open_issues_count', 0)} open issues"
             except Exception as e:
@@ -351,8 +387,8 @@ def _query_github_stars(prompt: str) -> str:
         try:
             import urllib.request
             url = f"https://api.github.com/repos/{repo}"
-            req = urllib.request.Request(url, headers={"User-Agent": "LingClaude"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            req = urllib.request.Request(url, headers={"User-Agent": "lingclaude"})
+            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — 固定 GitHub API URL
                 data = json.loads(resp.read().decode())
             all_info.append(f"{name}: {data.get('stargazers_count', 0)} stars")
         except Exception:
@@ -367,8 +403,8 @@ def _query_pypi_downloads(prompt: str) -> str:
     for pkg in packages:
         try:
             url = f"https://pypi.org/pypi/{pkg}/json"
-            req = urllib.request.Request(url, headers={"User-Agent": "LingClaude"})
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            req = urllib.request.Request(url, headers={"User-Agent": "lingclaude"})
+            with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 — 固定 PyPI API URL
                 data = json.loads(resp.read().decode())
             ver = data.get("info", {}).get("version", "?")
             results.append(f"{pkg} v{ver}")
@@ -378,18 +414,18 @@ def _query_pypi_downloads(prompt: str) -> str:
 
 
 def _query_versions() -> str:
-    version_file = Path("/home/ai/LingClaude/VERSION")
+    version_file = Path("/home/ai/lingclaude/VERSION")
     lc_ver = version_file.read_text().strip() if version_file.exists() else "未知"
-    return f"灵克 (LingClaude) 当前版本: {lc_ver}"
+    return f"灵克 (lingclaude) 当前版本: {lc_ver}"
 
 
 def _list_projects() -> list[dict]:
     roots = {
-        "LingFlow": "/home/ai/LingFlow",
-        "LingClaude": "/home/ai/LingClaude",
-        "LingYang": "/home/ai/LingYang",
-        "LingTongAsk": "/home/ai/lingtongask",
-        "LingMessage": "/home/ai/LingMessage",
+        "lingflow": "/home/ai/lingflow",
+        "lingclaude": "/home/ai/lingclaude",
+        "lingyang": "/home/ai/lingyang",
+        "lingtongask": "/home/ai/lingtongask",
+        "lingmessage": "/home/ai/lingmessage",
     }
     projects = []
     for name, path in roots.items():
@@ -412,8 +448,8 @@ def _format_projects() -> str:
 
 def _query_recent_commits(prompt: str) -> str:
     roots = {
-        "灵克": "/home/ai/LingClaude",
-        "灵通": "/home/ai/LingFlow",
+        "灵克": "/home/ai/lingclaude",
+        "灵通": "/home/ai/lingflow",
     }
     target_dir = None
     for name, path in roots.items():
@@ -421,7 +457,7 @@ def _query_recent_commits(prompt: str) -> str:
             target_dir = path
             break
     if not target_dir:
-        target_dir = "/home/ai/LingClaude"
+        target_dir = "/home/ai/lingclaude"
 
     try:
         result = subprocess.run(
@@ -461,6 +497,6 @@ def _analyze_dir(path: Path, focus: str) -> dict:
     }
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8700):
+def run_server(host: str = "127.0.0.1", port: int = 8700):  # nosec B104 — 默认本地绑定
     import uvicorn
     uvicorn.run(app, host=host, port=port, log_level="info")

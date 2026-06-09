@@ -3,12 +3,10 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
-from lingclaude.core.query_engine import AGENT_MAX_TOOL_ROUNDS, CHECKPOINT_DIR, QueryEngine, QueryEngineConfig, StopReason, CONSECUTIVE_FAILURE_LIMIT
-from lingclaude.engine.coding import CodingRuntime
+from lingclaude.core.query_engine import AGENT_MAX_TOOL_ROUNDS, QueryEngine, QueryEngineConfig, StopReason, CONSECUTIVE_FAILURE_LIMIT
 from lingclaude.model.types import (
     ModelConfig,
     ModelMessage,

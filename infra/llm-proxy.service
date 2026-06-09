@@ -1,0 +1,28 @@
+# Port: 8900
+# LLM API 代理服务 — 统一管理灵族所有 LLM 调用
+
+[Unit]
+Description=LLM Proxy - 统一 LLM API 代理服务
+After=network.target
+
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ai/lingclaude
+ExecStart=/usr/bin/python3 -m lingclaude.model.llm_proxy.server --host 127.0.0.1 --port 8900
+
+Restart=on-failure
+RestartSec=30
+
+MemoryMax=512M
+MemoryHigh=400M
+
+StandardOutput=journal
+StandardError=journal
+
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

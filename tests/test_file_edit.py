@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import pathlib
 
-import pytest
 
 from lingclaude.engine.file_edit import FileEditTool, ToolContract, EditResult
-from lingclaude.core.types import Result
 
 
 class TestToolContract:

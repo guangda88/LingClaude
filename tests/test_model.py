@@ -24,15 +24,11 @@ from lingclaude.model.openai_provider import OpenAIProvider
 from lingclaude.model.anthropic_provider import AnthropicProvider
 from lingclaude.model.factory import create_provider, _detect_provider, _get_env_key
 from lingclaude.model.retry import (
-    GLM_MODELS,
     GlmRetryPolicy,
     is_rate_limit_error,
     handle_429,
     DEFAULT_PRIMARY_RETRY_LIMIT,
     DEFAULT_DEGRADED_CALL_THRESHOLD,
-    DEFAULT_BACKOFF_BASE,
-    DEFAULT_BACKOFF_MAX,
-    DEFAULT_MAX_TOTAL_RETRIES,
 )
 
 
@@ -608,10 +604,10 @@ class TestGlmRetryPolicy:
 
     def test_get_backoff(self) -> None:
         policy = GlmRetryPolicy(backoff_base=5.0, backoff_max=30.0)
-        assert policy.get_backoff(1) == 5.0
-        assert policy.get_backoff(2) == 10.0
-        assert policy.get_backoff(5) == 25.0
-        assert policy.get_backoff(10) == 30.0  # Capped at max
+        assert policy.get_backoff(1) == 10.0   # 5 * 2^1
+        assert policy.get_backoff(2) == 20.0   # 5 * 2^2
+        assert policy.get_backoff(3) == 30.0   # 5 * 2^3 capped at max
+        assert policy.get_backoff(10) == 30.0  # Still capped
 
     def test_get_snapshot(self) -> None:
         policy = GlmRetryPolicy()
@@ -682,6 +678,86 @@ class TestGlmRetryPolicy:
     def test_openai_provider_non_glm_keeps_default(self) -> None:
         provider = OpenAIProvider(ModelConfig(model="gpt-4o", api_key="sk-test"))
         assert provider._retry_policy.current_model == "glm-5.1"
+
+    def test_circuit_breaker_opens_after_consecutive_429(self) -> None:
+        policy = GlmRetryPolicy(circuit_failure_threshold=3)
+        for _ in range(3):
+            policy.record_failure(is_rate_limit=True)
+        assert policy.circuit_open is True
+
+    def test_circuit_breaker_not_open_below_threshold(self) -> None:
+        policy = GlmRetryPolicy(circuit_failure_threshold=5)
+        for _ in range(4):
+            policy.record_failure(is_rate_limit=True)
+        assert policy.circuit_open is False
+
+    def test_circuit_breaker_cooldown_half_open(self) -> None:
+        policy = GlmRetryPolicy(circuit_failure_threshold=2, circuit_cooldown=0.05)
+        for _ in range(2):
+            policy.record_failure(is_rate_limit=True)
+        assert policy.circuit_open is True
+        time.sleep(0.1)
+        assert policy.circuit_open is False
+
+    def test_circuit_breaker_resets_on_success(self) -> None:
+        policy = GlmRetryPolicy(circuit_failure_threshold=3)
+        for _ in range(3):
+            policy.record_failure(is_rate_limit=True)
+        assert policy.circuit_open is True
+        policy.record_success()
+        assert policy.circuit_open is False
+
+    def test_circuit_non_rate_limit_failure_resets_counter(self) -> None:
+        policy = GlmRetryPolicy(circuit_failure_threshold=3)
+        policy.record_failure(is_rate_limit=True)
+        policy.record_failure(is_rate_limit=True)
+        policy.record_failure(is_rate_limit=False)
+        assert policy._circuit_consecutive_429 == 0
+        assert policy.circuit_open is False
+
+    def test_handle_429_returns_none_when_circuit_open(self) -> None:
+        policy = GlmRetryPolicy(circuit_failure_threshold=2)
+        handle_429(policy, 0)
+        handle_429(policy, 0)
+        result = handle_429(policy, 0)
+        assert result is None
+
+    def test_snapshot_includes_circuit_and_rpm(self) -> None:
+        policy = GlmRetryPolicy()
+        snap = policy.get_snapshot()
+        assert snap.circuit_open is False
+        assert snap.rpm_count == 0
+        policy.record_failure(is_rate_limit=True)
+        policy.record_failure(is_rate_limit=True)
+        policy.record_failure(is_rate_limit=True)
+        policy.record_failure(is_rate_limit=True)
+        policy.record_failure(is_rate_limit=True)
+        snap = policy.get_snapshot()
+        assert snap.circuit_open is True
+
+    def test_rpm_counter_tracks_window(self) -> None:
+        policy = GlmRetryPolicy(rpm_window=60.0)
+        assert policy.record_rpm() == 1
+        assert policy.record_rpm() == 2
+        assert policy.record_rpm() == 3
+
+    def test_rpm_counter_expires_old_entries(self) -> None:
+        policy = GlmRetryPolicy(rpm_window=0.05)
+        policy.record_rpm()
+        policy.record_rpm()
+        time.sleep(0.1)
+        count = policy.record_rpm()
+        assert count == 1
+
+    def test_reset_clears_circuit_state(self) -> None:
+        policy = GlmRetryPolicy(circuit_failure_threshold=2)
+        policy.record_failure(is_rate_limit=True)
+        policy.record_failure(is_rate_limit=True)
+        assert policy.circuit_open is True
+        policy.reset()
+        assert policy.circuit_open is False
+        assert policy._circuit_consecutive_429 == 0
+        assert policy._circuit_opened_at == 0.0
 
 
 class TestIsRateLimitError:

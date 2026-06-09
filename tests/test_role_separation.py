@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import pytest
 from lingclaude.core.role_separation import (
     AgentRoles,
-    Role,
     RoleConflictChecker,
     RoleType,
     create_lingclaude_role_separation,
@@ -220,7 +218,7 @@ class TestRoleConfigPersistence:
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / "role_config.json"
 
-            checker = create_lingclaude_role_separation()
+            create_lingclaude_role_separation()
             save_role_config(config_path)
 
             import json

@@ -3,8 +3,6 @@ from __future__ import annotations
 import pytest
 
 from lingclaude.engine.mcp_proxy import (
-    MCPServerInfo,
-    ToolCallResult,
     register_server,
     find_server,
     list_all_tools,
@@ -191,6 +189,8 @@ class TestInitFromLingflowRegistry:
     def test_init(self) -> None:
         from lingclaude.engine.mcp_proxy import init_from_lingflow_registry
         count = init_from_lingflow_registry()
+        if count == 0:
+            pytest.skip("lingflow_plus not available")
         assert count >= 10
         info = find_server("add_memo")
         assert info is not None
@@ -200,16 +200,20 @@ class TestInitFromLingflowRegistry:
 
     def test_stats_after_init(self) -> None:
         from lingclaude.engine.mcp_proxy import init_from_lingflow_registry
-        init_from_lingflow_registry()
+        count = init_from_lingflow_registry()
+        if count == 0:
+            pytest.skip("lingflow_plus not available")
         stats = get_stats()
         assert stats["total_servers"] >= 12
         assert stats["total_tools"] == 152
 
     def test_find_tool_across_servers(self) -> None:
         from lingclaude.engine.mcp_proxy import init_from_lingflow_registry
-        init_from_lingflow_registry()
-        assert find_server("read_file").key == "lingke"
-        assert find_server("list_skills").key == "lingtong"
+        count = init_from_lingflow_registry()
+        if count == 0:
+            pytest.skip("lingflow_plus not available")
+        assert find_server("read_file").key == "lingclaude"
+        assert find_server("list_skills").key == "lingflow"
         assert find_server("add_memo").key == "lingyi"
         assert find_server("execute_command").key == "lingxi"
         assert find_server("hello_world").key == "zhibridge"

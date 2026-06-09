@@ -5,7 +5,6 @@ from lingclaude.core.cognitive_rhythm import (
     CognitiveRhythm,
     RhythmPhase,
     ImbalanceType,
-    RhythmSnapshot,
     cognitive_rhythm_hook,
 )
 from lingclaude.core.hooks import HookContext, HookType

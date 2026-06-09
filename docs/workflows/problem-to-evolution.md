@@ -204,7 +204,7 @@ relay_result = relay.relay(digest)
 ## 执行示例
 
 ```bash
-cd /home/ai/LingClaude
+cd /home/ai/lingclaude
 python3 scripts/workflow_problem_to_evolution.py
 ```
 
@@ -285,11 +285,11 @@ python3 scripts/workflow_problem_to_evolution.py
 ### 3. 优化建议报告（*_optimization.md）
 
 ```markdown
-# LingClaude Self-Optimization Report
+# lingclaude Self-Optimization Report
 
 Generated: 2026-04-07 06:14:50
 Goal: testing_evolution
-Target: /home/ai/LingYi
+Target: /home/ai/lingyi
 
 ---
 
@@ -359,7 +359,7 @@ test_framework: playwright
 
 ## 扩展方向
 
-### 1. 集成 LingMessage
+### 1. 集成 lingmessage
 ```python
 from lingmessage.mailbox import Mailbox
 
@@ -377,7 +377,7 @@ from lingclaude.self_optimizer.optimizer import SynchronousOptimizer
 optimizer = SynchronousOptimizer()
 result = optimizer.optimize(
     request=OptimizationRequest(
-        target="/home/ai/LingYi",
+        target="/home/ai/lingyi",
         goal="testing_evolution",
         params={"test_framework": "playwright"},
         config={},
@@ -401,7 +401,7 @@ scheduler.start()
 
 ## 文件位置
 
-- 工作流脚本：`/home/ai/LingClaude/scripts/workflow_problem_to_evolution.py`
+- 工作流脚本：`/home/ai/lingclaude/scripts/workflow_problem_to_evolution.py`
 - 情报日报：`.lingclaude/intel/digest_*.md`
 - 工作流摘要：`.lingclaude/workflows/workflow_*.md`
 - 优化报告：`.lingclaude/reports/*_optimization.md`
@@ -410,4 +410,4 @@ scheduler.start()
 
 **工作流版本**: 1.0
 **创建时间**: 2026-04-07
-**维护者**: 灵克（LingClaude）
+**维护者**: 灵克（lingclaude）

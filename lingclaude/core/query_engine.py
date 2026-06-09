@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,9 +15,11 @@ from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent, detect_emotion, detect_intent, is_tool_intent
 from lingclaude.core.intel import IntelCollector, DailyDigest, DailyDigestGenerator, IntelRelay
 from lingclaude.core.prior_verifier import PriorVerifier
+from lingclaude.core.degradation_detector import DegradationAlert, DegradationDetector, ToolCall, extract_tool_calls_from_text
 from lingclaude.core.meta_cognition import MetaCognition, Domain
 from lingclaude.core.layered_memory import LayeredMemory, Experience, EmotionIntensity
 from lingclaude.model.intelligent_router import IntelligentRouter
+from lingclaude.model.task_router import TaskRouter
 from lingclaude.engine.tool_router import ToolRouter, create_default_router
 from lingclaude.engine import mcp_proxy
 from lingclaude.core.context_cache import ContextCache
@@ -31,6 +35,20 @@ from lingclaude.core.types import Result, StopReason
 
 logger = logging.getLogger(__name__)
 
+def _estimate_message_tokens(messages: list[Any]) -> int:
+    total_chars = 0
+    for m in messages:
+        if isinstance(m, str):
+            total_chars += len(m)
+        elif isinstance(m, dict):
+            total_chars += len(m.get("content", "") or m.get("text", "") or "")
+        elif hasattr(m, "content"):
+            total_chars += len(m.content or "")
+        elif m:
+            total_chars += len(str(m))
+    return total_chars // 4
+
+
 AGENT_MAX_TOOL_ROUNDS = 10
 CONSECUTIVE_FAILURE_LIMIT = 3
 CHECKPOINT_DIR = Path.home() / ".lingclaude" / "checkpoints"
@@ -44,6 +62,7 @@ class QueryEngineConfig:
     structured_output: bool = False
     structured_retry_limit: int = 2
     consecutive_failure_limit: int = CONSECUTIVE_FAILURE_LIMIT
+    max_tool_calls_per_session: int = 500
 
 
 @dataclass(frozen=True)
@@ -84,6 +103,7 @@ class QueryEngine:
         self._session_history_path: Path = Path("data/session_history.json")
         self._mailbox: Any | None = None
         self._router = IntelligentRouter()
+        self._task_router = TaskRouter()
         self._tool_router: ToolRouter = create_default_router()
         self._mcp_initialized: bool = False
         self._cache = ContextCache(cache_size=100, ttl_hours=24)
@@ -96,7 +116,13 @@ class QueryEngine:
         self._session_cache_hits: int = 0
         self._dementia_detector = DementiaDetector()
         self._cognitive_rhythm = CognitiveRhythm()
+        self._tool_call_count: int = 0
         self._hooks = HookManager()
+        self._total_messages_sent: int = 0
+        self._l1_last_triggered_at: int = -1
+        self._l1_handover_checksum: str = ""
+        self._degradation_detector = DegradationDetector()
+        self._degradation_alerts: list[DegradationAlert] = []
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
@@ -292,6 +318,10 @@ class QueryEngine:
         self._denials.extend(denied_tools)
         self._usage = projected
         self._compact_if_needed()
+        self._total_messages_sent += 1
+        self._check_degradation(prompt, output)
+        self._check_l1_handover()
+        self._check_l2_restart()
         self._append_to_session_history(prompt, output)
         self._learn_from_turn(prompt, output)
 
@@ -572,6 +602,96 @@ class QueryEngine:
     def turn_count(self) -> int:
         return len(self._messages) // 2
 
+    L1_MESSAGE_THRESHOLD: int = 50
+    L2_MESSAGE_THRESHOLD: int = 100
+
+    def _check_degradation(self, prompt: str, output: str) -> None:
+        is_tool = any(
+            kw in prompt.lower()
+            for kw in ("tool_name", "tool_call", "function", "<tool>")
+        )
+        if not is_tool:
+            return
+
+        calls = extract_tool_calls_from_text([prompt, output], self._total_messages_sent)
+        for call in calls:
+            new_alerts = self._degradation_detector.record_call(call)
+            self._degradation_alerts.extend(new_alerts)
+            for alert in new_alerts:
+                logger.warning(
+                    "退化检测 [%s] @ msg#%d: %s",
+                    alert.signal.value,
+                    alert.msg_index,
+                    alert.detail,
+                )
+
+    def get_degradation_alerts(self) -> list[DegradationAlert]:
+        return list(self._degradation_alerts)
+
+    def get_degradation_health(self) -> dict[str, object]:
+        return self._degradation_detector.get_health_indicators()
+
+    def _check_l1_handover(self) -> None:
+        if self._total_messages_sent < self.L1_MESSAGE_THRESHOLD:
+            return
+        if self._total_messages_sent == self._l1_last_triggered_at:
+            return
+        self._l1_last_triggered_at = self._total_messages_sent
+        keep_pairs = 6
+        recent = self._messages[-keep_pairs:] if len(self._messages) > keep_pairs else self._messages[:]
+        summary_parts = self._messages[:-keep_pairs] if len(self._messages) > keep_pairs else []
+        summary_text = ""
+        if summary_parts:
+            for chunk in summary_parts[:20]:
+                summary_text += chunk[:200] + "\n"
+            summary_text = summary_text[:2000]
+        injection = f"[L1交接刷新 @ msg#{self._total_messages_sent}]\n{summary_text}"
+        self._messages[:] = [injection] + recent
+        if len(self._conversation) > keep_pairs:
+            conv_recent = self._conversation[-keep_pairs:]
+            self._conversation[:] = [("system", injection)] + conv_recent
+
+        handover_path = Path.home() / ".lingclaude" / "handover.md"
+        if handover_path.exists():
+            self._l1_handover_checksum = hashlib.md5(
+                handover_path.read_bytes(), usedforsecurity=False
+            ).hexdigest()
+        logger.info("L1 handover refresh triggered at message #%d", self._total_messages_sent)
+
+    def _check_l2_restart(self) -> bool:
+        if self._total_messages_sent < self.L2_MESSAGE_THRESHOLD:
+            return False
+        handover_path = Path.home() / ".lingclaude" / "handover.md"
+        handover_text = ""
+        if handover_path.exists():
+            handover_text = handover_path.read_text(encoding="utf-8")[:3000]
+            current_checksum = hashlib.md5(
+                handover_path.read_bytes(), usedforsecurity=False
+            ).hexdigest()
+            if self._l1_handover_checksum and current_checksum == self._l1_handover_checksum:
+                logger.warning(
+                    "L2: handover.md未更新(L1后无变化) checksum=%s",
+                    current_checksum[:8],
+                )
+        old_session = self.session_id
+        self._save_session_state()
+        self._messages.clear()
+        self._conversation.clear()
+        self._transcript.clear()
+        self.session_id = uuid4().hex[:16]
+        self._total_messages_sent = 0
+        self._l1_last_triggered_at = -1
+        self._l1_handover_checksum = ""
+        self._degradation_detector.reset()
+        injection = (
+            f"[L2会话重启 — 旧会话 {old_session}]\n"
+            f"{handover_text}"
+        )
+        self._messages.append(injection)
+        self._conversation.append(("system", injection))
+        logger.info("L2 session restart: %s -> %s", old_session, self.session_id)
+        return True
+
     @property
     def usage(self) -> UsageSummary:
         return self._usage
@@ -714,6 +834,10 @@ class QueryEngine:
             if result.is_error:
                 consecutive_failures += 1
                 self._track_behavior(prompt, f"[模型调用失败] {result.error}", used_tools=False)
+                if resolved_config:
+                    pname = self._task_router.get_provider_name(resolved_config.api_key, resolved_config.base_url)
+                    if pname:
+                        self._task_router.record_error(pname)
                 if consecutive_failures >= self.config.consecutive_failure_limit:
                     logger.warning(
                         "硬中断触发: 连续模型调用失败 %d 次，强制停止",
@@ -726,6 +850,10 @@ class QueryEngine:
             response = result.data
             total_input += response.usage.input_tokens
             total_output += response.usage.output_tokens
+            if resolved_config:
+                pname = self._task_router.get_provider_name(resolved_config.api_key, resolved_config.base_url)
+                if pname:
+                    self._task_router.record_success(pname)
 
             if not response.tool_calls:
                 content = response.content
@@ -1024,6 +1152,11 @@ class QueryEngine:
             logger.debug("MCP proxy registry init skipped")
 
     def _execute_tool(self, name: str, arguments_json: str) -> str:
+        self._tool_call_count += 1
+        limit = self.config.max_tool_calls_per_session
+        if limit > 0 and self._tool_call_count > limit:
+            return json.dumps({"error": f"[安全限制] 会话工具调用次数已达上限 ({limit})"}, ensure_ascii=False)
+
         try:
             kwargs = json.loads(arguments_json)
         except json.JSONDecodeError:
@@ -1070,19 +1203,34 @@ class QueryEngine:
 
     def _compact_if_needed(self) -> None:
         msg_limit = self.config.compact_after_turns * 2
-        if len(self._messages) > msg_limit:
+        token_budget_threshold = self.config.max_budget_tokens * 0.8
+        msg_tokens = _estimate_message_tokens(self._messages)
+        if len(self._messages) > msg_limit or msg_tokens > token_budget_threshold:
+            trigger_reason = (
+                "message_count" if len(self._messages) > msg_limit else "token_budget"
+            )
+            if trigger_reason == "token_budget":
+                target_max = max((len(self._messages) + 1) // 2, 4)
+            else:
+                target_max = (self.config.compact_after_turns // 2) * 2
             self._hooks.trigger(HookContext(
                 hook_type=HookType.PRE_COMPACT,
                 session_id=self.session_id,
-                metadata={"message_count": len(self._messages), "limit": msg_limit},
+                metadata={
+                    "message_count": len(self._messages),
+                    "limit": msg_limit,
+                    "estimated_tokens": msg_tokens,
+                    "token_threshold": token_budget_threshold,
+                    "trigger_reason": trigger_reason,
+                },
             ))
             self._archive_dropped_messages(
-                (len(self._messages) - (self.config.compact_after_turns // 2) * 2) // 2
+                (len(self._messages) - target_max) // 2
             )
             result = compress_messages(
                 self._messages,
                 config=CompressionConfig(
-                    max_messages=(self.config.compact_after_turns // 2) * 2,
+                    max_messages=target_max,
                     level=CompressionLevel.SUMMARY,
                 ),
             )
@@ -1185,52 +1333,57 @@ class QueryEngine:
 
         cfg = self._model_config
         router = self._model_router
-        target_model = cfg.model
+
+        routed_config, route_key = self._task_router.resolve(prompt)
+        target_model = routed_config.model
         target_temp = cfg.temperature
+        target_api_key = routed_config.api_key
+        target_base_url = routed_config.base_url
+        default_provider = self._task_router.get_default_provider_name()
+        routed_provider = self._task_router.get_provider_name(
+            routed_config.api_key, routed_config.base_url
+        )
 
-        # Only use router if explicitly enabled and configured
-        if router and router.enabled:
+        if router and router.enabled and (router.code_model or router.chat_model):
             decision = self._router.route(prompt)
-            if router.code_model or router.chat_model:
-                intent = detect_intent(prompt)
-                is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
-                legacy_model = router.code_model if is_code else router.chat_model
-                if legacy_model:
+            intent = detect_intent(prompt)
+            is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
+            legacy_model = router.code_model if is_code else router.chat_model
+            if legacy_model:
+                if routed_provider is None or routed_provider == default_provider:
                     target_model = legacy_model
+                    target_api_key = cfg.api_key
+                    target_base_url = cfg.base_url
 
-                self._aggregator.add_task(
-                    query=prompt,
-                    task_type=str(decision.task_type.value),
-                    priority=TaskPriority.MEDIUM,
-                )
+            self._aggregator.add_task(
+                query=prompt,
+                task_type=str(decision.task_type.value),
+                priority=TaskPriority.MEDIUM,
+            )
 
-        # Dynamic mid-session adjustments
         bm = self._behavior
         if bm.total_turns > 3:
-            # High hallucination risk → lower temperature for more deterministic output
             if bm.hallucination_risk > 0.4:
                 target_temp = min(target_temp, 0.3)
-            # High frustration → lower temperature, be more conservative
             if bm.frustration_rate > 0.3:
                 target_temp = min(target_temp, 0.2)
-            # High error rate → switch to more capable model if available
             if bm.tool_error_rate > 0.4 and router and router.code_model:
-                target_model = router.code_model
+                if routed_provider is None or routed_provider == default_provider:
+                    target_model = router.code_model
 
-        # Dementia → force lower temperature to reduce random exploration
         diag = self._dementia_detector.diagnose()
         if diag.dementia_index > 0.3:
             target_temp = min(target_temp, 0.1)
 
         config = ModelConfig(
             model=target_model,
-            api_key=cfg.api_key,
-            base_url=cfg.base_url,
+            api_key=target_api_key,
+            base_url=target_base_url,
             max_tokens=cfg.max_tokens,
             temperature=target_temp,
             system_prompt="",
         )
-        return config, None
+        return config, route_key
 
     def _build_adaptive_system_prompt(self) -> str:
         base = (
@@ -1423,9 +1576,13 @@ class QueryEngine:
             self._session_history_path.parent.mkdir(parents=True, exist_ok=True)
             history: list[dict[str, str]] = []
             if self._session_history_path.exists():
-                raw = json.loads(self._session_history_path.read_text(encoding="utf-8"))
-                if isinstance(raw, list):
-                    history = raw
+                try:
+                    raw = json.loads(self._session_history_path.read_text(encoding="utf-8"))
+                    if isinstance(raw, list):
+                        history = raw
+                except (json.JSONDecodeError, ValueError):
+                    logger.warning("Session history corrupted, starting fresh")
+                    history = []
             history.append({
                 "query": query[:200],
                 "title": query[:80],
@@ -1433,10 +1590,22 @@ class QueryEngine:
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "session_id": self.session_id,
             })
-            self._session_history_path.write_text(
-                json.dumps(history, ensure_ascii=False, indent=2),
-                encoding="utf-8",
+            # 原子写入：先写临时文件，再rename，防止进程中断导致损坏
+            import tempfile
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(self._session_history_path.parent),
+                suffix=".tmp",
             )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, str(self._session_history_path))
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except Exception as e:
             logger.warning("Session history write failed: %s", e)
 
@@ -1571,6 +1740,8 @@ class QueryEngine:
             state: dict[str, Any] = {
                 "behavior": self._behavior.to_dict(),
                 "calibrator_records": {},
+                "total_messages_sent": self._total_messages_sent,
+                "l1_last_triggered_at": self._l1_last_triggered_at,
             }
             for domain, rec in self._meta_cognition._calibrator.records.items():
                 state["calibrator_records"][domain] = {
@@ -1610,6 +1781,8 @@ class QueryEngine:
             if "blind_spot_patterns" in data:
                 for domain, count in data["blind_spot_patterns"].items():
                     self._meta_cognition._blind_spot_detector.error_patterns[domain] = count
+            self._total_messages_sent = data.get("total_messages_sent", 0)
+            self._l1_last_triggered_at = data.get("l1_last_triggered_at", -1)
         except Exception as e:
             logger.warning("会话状态加载失败: %s", e)
 

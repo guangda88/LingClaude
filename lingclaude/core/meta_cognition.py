@@ -6,13 +6,18 @@ Three components:
   1. CognitiveBoundary — tracks domains where the model is strong/weak/unknown
   2. ConfidenceCalibrator — adjusts confidence based on historical accuracy
   3. BlindSpotDetector — discovers patterns of recurring errors
+
+Persistence:
+  save/load to JSON — calibration data and blind spots survive session restarts.
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -140,15 +145,20 @@ class BlindSpotDetector:
 
 
 class MetaCognition:
-    def __init__(self) -> None:
+    _DEFAULT_PERSIST_PATH = Path(".lingclaude/meta_cognition.json")
+
+    def __init__(self, persist_path: Path | None = None) -> None:
         self._calibrator = ConfidenceCalibrator()
         self._blind_spot_detector = BlindSpotDetector()
         self._domain_map: dict[str, Domain] = {
             d.value: d for d in Domain
         }
+        self._persist_path = persist_path or self._DEFAULT_PERSIST_PATH
+        self.load(self._persist_path)
 
     def record_success(self, domain: Domain) -> None:
         self._calibrator.record_outcome(domain, correct=True)
+        self.save(self._persist_path)
 
     def record_failure(
         self,
@@ -162,6 +172,7 @@ class MetaCognition:
             timestamp=timestamp,
         )
         self._blind_spot_detector.record_error(domain, error_description)
+        self.save(self._persist_path)
 
     def get_snapshot(self) -> MetaCognitiveSnapshot:
         boundaries: list[CognitiveBoundary] = []
@@ -219,6 +230,47 @@ class MetaCognition:
         if adjusted >= 0.4:
             return ConfidenceLevel.MEDIUM
         return ConfidenceLevel.LOW
+
+    def save(self, path: Path | None = None) -> None:
+        path = path or self._persist_path
+        data: dict = {
+            "calibrator": {
+                key: {"correct": rec.correct, "incorrect": rec.incorrect,
+                      "last_error": rec.last_error, "last_error_time": rec.last_error_time}
+                for key, rec in self._calibrator.records.items()
+            },
+            "blind_spot_detector": {
+                "error_patterns": self._blind_spot_detector.error_patterns,
+                "error_descriptions": self._blind_spot_detector.error_descriptions,
+            },
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            logger.warning("Failed to save meta-cognition state to %s", path)
+
+    def load(self, path: Path | None = None) -> None:
+        path = path or self._persist_path
+        if not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Failed to load meta-cognition state from %s", path)
+            return
+
+        for key, rec_data in data.get("calibrator", {}).items():
+            self._calibrator.records[key] = _DomainRecord(
+                correct=rec_data.get("correct", 0),
+                incorrect=rec_data.get("incorrect", 0),
+                last_error=rec_data.get("last_error", ""),
+                last_error_time=rec_data.get("last_error_time", ""),
+            )
+
+        bsd = data.get("blind_spot_detector", {})
+        self._blind_spot_detector.error_patterns = bsd.get("error_patterns", {})
+        self._blind_spot_detector.error_descriptions = bsd.get("error_descriptions", {})
 
     def _build_summary(
         self,

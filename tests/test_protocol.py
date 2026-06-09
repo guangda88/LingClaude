@@ -1,4 +1,4 @@
-"""Tests for LingMessage protocol enhancement — M1灵信协议强化"""
+"""Tests for lingmessage protocol enhancement — M1灵信协议强化"""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

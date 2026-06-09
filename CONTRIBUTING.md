@@ -5,8 +5,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/your-org/LingClaude.git
-cd LingClaude
+git clone https://github.com/your-org/lingclaude.git
+cd lingclaude
 pip install -e ".[dev]"
 python3 -m pytest tests/ -v
 ```

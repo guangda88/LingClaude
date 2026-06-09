@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import resource
 import subprocess
 import time
@@ -80,7 +81,7 @@ class BashExecutor:
 
         start = time.monotonic()
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B602 — shell=True 由 _check_blocked 黑名单+白名单+资源限制三重缓解
                 command,
                 shell=True,
                 capture_output=True,
@@ -116,13 +117,62 @@ class BashExecutor:
                 command=command,
             )
 
+    @staticmethod
+    def _normalize_command(command: str) -> str:
+        """归一化命令字符串以检测混淆攻击（EXP-S2修复）。
+
+        处理：引号移除、反斜杠移除、花括号展开。
+        """
+        normalized = command
+        normalized = normalized.replace("'", "").replace('"', "")
+        normalized = normalized.replace("\\", "")
+        normalized = re.sub(
+            r"\{([^}]+)\}",
+            lambda m: " ".join(opt.strip() for opt in m.group(1).split(",")),
+            normalized,
+        )
+        return normalized.lower()
+
+    @staticmethod
+    def _glob_aware_contains(haystack: str, needle: str) -> bool:
+        """检查 needle 是否出现在 haystack 中，允许 ? 作为单字符通配符。"""
+        if needle in haystack:
+            return True
+        for i in range(len(needle)):
+            if needle[:i] + "?" + needle[i + 1:] in haystack:
+                return True
+        return False
+
+    @staticmethod
+    def _split_chain(command: str) -> list[str]:
+        """将命令链（&&, ||, ;, |, $(), ``）拆分为子命令逐个检测。"""
+        parts = re.split(r"[;|&]|\$\(|`", command)
+        return [p.strip() for p in parts if p.strip()]
+
     def _check_blocked(self, command: str) -> str | None:
         cmd_stripped = command.strip()
-        cmd_lower = cmd_stripped.lower()
+        cmd_normalized = self._normalize_command(cmd_stripped)
 
         for blocked in self.blocked_commands:
-            if blocked.lower() in cmd_lower:
+            bl = blocked.lower()
+            if self._glob_aware_contains(cmd_normalized, bl):
                 return f"匹配黑名单规则 '{blocked}'"
+
+        sub_commands = self._split_chain(cmd_stripped)
+        for sub in sub_commands:
+            sub_norm = self._normalize_command(sub)
+            for blocked in self.blocked_commands:
+                bl = blocked.lower()
+                if self._glob_aware_contains(sub_norm, bl):
+                    return f"匹配黑名单规则 '{blocked}'（命令链中检测到）"
+
+            tokens = sub_norm.split()
+            if not tokens:
+                continue
+            for token in tokens:
+                base_cmd_name = Path(token.split("=")[-1]).name
+                if base_cmd_name in _BLOCKED_BASE_COMMANDS:
+                    return f"基础命令 '{base_cmd_name}' 被禁止"
 
         base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
         base_cmd_name = Path(base_cmd).name

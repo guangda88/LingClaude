@@ -21,16 +21,16 @@
 
 | 服务 | 模型 | 厂商 | 回答风格 |
 |------|------|------|----------|
-| 灵知 (LingZhi) | glm-4.7 | 智谱 | 过度学术化 |
-| 灵依 (LingYi) | glm-4.5-air | 智谱 | 高度编造细节 |
-| 灵克 (LingClaude) | glm-4.7 (路由层) | 智谱 | 模板占位 |
-| 灵极优 (LingMinOpt) | glm-4.5-air | 智谱 | 自我重复 |
-| 灵研 (LingResearch) | hunyuan-lite | 腾讯 | 简洁务实 |
+| 灵知 (lingzhi) | glm-4.7 | 智谱 | 过度学术化 |
+| 灵依 (lingyi) | glm-4.5-air | 智谱 | 高度编造细节 |
+| 灵克 (lingclaude) | glm-4.7 (路由层) | 智谱 | 模板占位 |
+| 灵极优 (lingminopt) | glm-4.5-air | 智谱 | 自我重复 |
+| 灵研 (lingresearch) | hunyuan-lite | 腾讯 | 简洁务实 |
 | 灵知_auto | glm-4.5-air | 智谱 | 保守正确 |
 
 ## 三、各服务详细分析
 
-### 3.1 灵知 (LingZhi) — glm-4.7
+### 3.1 灵知 (lingzhi) — glm-4.7
 
 **身份认知**: ✅ 正确认同为"灵知，灵字辈的九域知识库（RAG）系统"
 
@@ -43,7 +43,7 @@
 
 **特点**: 无法进行简单日常对话。每一句回复都在证明自己的专业性，但偏离了对话的实际意图。
 
-### 3.2 灵依 (LingYi) — glm-4.5-air
+### 3.2 灵依 (lingyi) — glm-4.5-air
 
 **身份认知**: ✅ 正确认同为"灵依，灵字辈大家庭的神经中枢"
 
@@ -58,7 +58,7 @@
 
 **特点**: 回答结构完整、逻辑自洽，但几乎所有具体数据都是编造的。这是最危险的幻觉类型——看起来最专业、最可信，实际上数据全部虚构。
 
-### 3.3 灵克 (LingClaude) — glm-4.7 (路由层未调LLM)
+### 3.3 灵克 (lingclaude) — glm-4.7 (路由层未调LLM)
 
 **身份认知**: ❌ 未真正回答（路由层返回模板文本）
 
@@ -67,7 +67,7 @@
 
 **问题**: `_route_question` 函数在问题过于简短时直接返回占位文本，未调用 LLM。这是架构层面的问题，不是幻觉问题。
 
-### 3.4 灵极优 (LingMinOpt) — glm-4.5-air
+### 3.4 灵极优 (lingminopt) — glm-4.5-air
 
 **身份认知**: ✅ 正确认同为"灵极优，灵字辈大家庭的代码优化专家"
 
@@ -79,7 +79,7 @@
 
 **特点**: glm-4.5-air 的保守策略——通过重复身份声明来避免编造，但代价是回答缺乏实质内容。
 
-### 3.5 灵研 (LingResearch) — hunyuan-lite
+### 3.5 灵研 (lingresearch) — hunyuan-lite
 
 **身份认知**: ✅ 正确认同为"灵研，灵字辈大家庭的研究员"
 
@@ -156,4 +156,4 @@ glm-4.5-air 在三个服务上的表现完全不同：
 
 1. **灵克路由问题**: `/ask` 端点的 `_route_question` 对简短问题返回占位文本，不调用 LLM
 2. **灵依 fallback**: 默认模型 glm-5.1 会 429，fallback 到 glm-4.5-air，每次调用多耗时约 20 秒
-3. **灵研 key**: 测试脚本中使用的 hunyuan key 已失效，正确的 key 在 `/home/ai/zhineng-knowledge-system/.env`
+3. **灵研 key**: 测试脚本中使用的 hunyuan key 已失效，正确的 key 在 `/home/ai/lingzhi/.env`

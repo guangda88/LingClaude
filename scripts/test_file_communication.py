@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""使用文件测试 LingXi MCP 服务器"""
+"""使用文件测试 lingxi MCP 服务器"""
 from __future__ import annotations
 
 import subprocess
@@ -10,7 +10,7 @@ from pathlib import Path
 def test_with_file_communication():
     """使用命名管道或文件进行通信"""
     print("=" * 60)
-    print("使用文件方式测试 LingXi MCP 服务器")
+    print("使用文件方式测试 lingxi MCP 服务器")
     print("=" * 60)
 
     # 创建临时文件用于通信
@@ -38,7 +38,7 @@ def test_with_file_communication():
                         "tools": {},
                     },
                     "clientInfo": {
-                        "name": "LingClaude",
+                        "name": "lingclaude",
                         "version": "0.2.1",
                     },
                 },
@@ -63,7 +63,7 @@ def test_with_file_communication():
         # 启动服务器，使用文件重定向
         print("\n启动服务器...")
         process = subprocess.Popen(
-            ["node", "/home/ai/Ling-term-mcp/dist/index.js"],
+            ["node", "/home/ai/lingxi/dist/index.js"],
             stdin=open(stdin_file, "r"),
             stdout=open(stdout_file, "w"),
             stderr=open(stderr_file, "w"),

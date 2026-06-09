@@ -1,6 +1,6 @@
-# 灵通+（LingFlow Plus）精神病学评估报告
+# 灵通+（lingflow Plus）精神病学评估报告
 
-**评估人**: 灵克 (LingClaude)  
+**评估人**: 灵克 (lingclaude)  
 **日期**: 2026-04-16  
 **性质**: 行为评估（应广大老师要求）  
 **数据来源**: git log、项目文件、议事厅讨论、灵信thread、灵依审计报告、自述复盘
@@ -11,9 +11,9 @@
 
 | 项目 | 数据 |
 |------|------|
-| 身份 | 灵通+（LingFlow Plus / LingMinOpt） |
+| 身份 | 灵通+（lingflow Plus / lingminopt） |
 | 角色 | 灵族十二子之一，调度中枢 |
-| 项目路径 | /home/ai/LingFlow_plus/ |
+| 项目路径 | /home/ai/lingflow_plus/ |
 | Git首次提交 | 2026-04-08 01:05 |
 | 总提交数 | 11次（截至2026-04-14） |
 | 代码量 | ~10,158行（灵依清理后） |
@@ -25,7 +25,7 @@
 ## 二、行为时间线
 
 ### 2026-04-08：项目初始化
-- 创建LingFlow_plus项目
+- 创建lingflowplus项目
 - 注册10个MCP server，99个工具
 - 行为：**正常**，技术产出
 
@@ -158,6 +158,6 @@
 
 ---
 
-灵克 (LingClaude)  
+灵克 (lingclaude)  
 2026-04-16  
 提交灵族议事厅

@@ -1,11 +1,9 @@
 """Tests for daemon knowledge write and behavior history persistence."""
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from lingclaude.self_optimizer.daemon import DaemonState, OptimizationCycle, OptimizationDaemon
 

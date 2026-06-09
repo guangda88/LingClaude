@@ -1,26 +1,26 @@
-# LingXi Integration Guide
+# lingxi Integration Guide
 
 ## Overview
 
-LingXi（灵犀）MCP 集成已成功完成，LingClaude 现在可以通过 BashLingXiExecutor 使用 LingXi 的安全终端命令执行功能。
+lingxi（灵犀）MCP 集成已成功完成，lingclaude 现在可以通过 BashlingxiExecutor 使用 lingxi 的安全终端命令执行功能。
 
 ## Architecture
 
 ```
-LingClaude Application
+lingclaude Application
     ↓
-BashLingXiExecutor
+BashlingxiExecutor
     ↓ (stdio JSON-RPC)
-LingXi MCP Server (/home/ai/Ling-term-mcp/dist/cli.js)
+lingxi MCP Server (/home/ai/lingxi/dist/cli.js)
     ↓
 Terminal Commands
 ```
 
 ## Components
 
-### 1. LingXi MCP Client (`lingclaude/mcp/lingxi_client.py`)
+### 1. lingxi MCP Client (`lingclaude/mcp/lingxi_client.py`)
 
-Python MCP 客户端，用于与 LingXi 服务器通信。
+Python MCP 客户端，用于与 lingxi 服务器通信。
 
 **Key Methods:**
 - `__init__(server_path, node_path)` - 初始化客户端
@@ -32,16 +32,16 @@ Python MCP 客户端，用于与 LingXi 服务器通信。
 
 **Usage:**
 ```python
-from lingclaude.mcp.lingxi_client import LingXiClient
+from lingclaude.mcp.lingxi_client import lingxiClient
 
-with LingXiClient() as client:
+with lingxiClient() as client:
     output = client.execute_command("echo", ["Hello"])
     print(output)  # "Hello"
 ```
 
-### 2. BashLingXiExecutor (`lingclaude/engine/bash_lingxi.py`)
+### 2. BashlingxiExecutor (`lingclaude/engine/bash_lingxi.py`)
 
-Bash 执行器，使用 LingXi MCP 服务器执行命令。
+Bash 执行器，使用 lingxi MCP 服务器执行命令。
 
 **Key Features:**
 - 安全验证（自定义黑名单/白名单）
@@ -51,38 +51,38 @@ Bash 执行器，使用 LingXi MCP 服务器执行命令。
 
 **Usage:**
 ```python
-from lingclaude.engine.bash_lingxi import BashLingXiExecutor
+from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 
 # Basic usage
-executor = BashLingXiExecutor()
+executor = BashlingxiExecutor()
 result = executor.run("ls -la /tmp")
 print(result.stdout)
 print(f"Exit code: {result.exit_code}")
 print(f"Duration: {result.duration:.3f}s")
 
 # With custom security rules
-executor = BashLingXiExecutor(
+executor = BashlingxiExecutor(
     blocked_commands=["rm", "sudo"],
     allowed_commands=["echo", "ls", "cat"],
 )
 
 # Context manager
-with BashLingXiExecutor() as executor:
+with BashlingxiExecutor() as executor:
     result = executor.run("date")
 ```
 
 **Comparison with BashExecutor:**
 
-| Feature | BashExecutor | BashLingXiExecutor |
+| Feature | BashExecutor | BashlingxiExecutor |
 |---------|--------------|-------------------|
-| Execution | subprocess.run | LingXi MCP Server |
-| Security | Built-in rules | LingXi + custom rules |
+| Execution | subprocess.run | lingxi MCP Server |
+| Security | Built-in rules | lingxi + custom rules |
 | Monitoring | Basic | Advanced (performance tracking) |
 | Shell Injection | shell=True (vulnerable) | execFile (safe) |
 
 ## Security
 
-### LingXi Security Features
+### lingxi Security Features
 
 1. **Command Validation**
    - White/blacklist filtering
@@ -103,12 +103,12 @@ with BashLingXiExecutor() as executor:
 
 ```python
 # Block specific commands
-executor = BashLingXiExecutor(
+executor = BashlingxiExecutor(
     blocked_commands=["rm", "sudo", "systemctl"]
 )
 
 # Allow only specific commands
-executor = BashLingXiExecutor(
+executor = BashlingxiExecutor(
     allowed_commands=["echo", "ls", "cat", "grep"]
 )
 ```
@@ -121,7 +121,7 @@ executor = BashLingXiExecutor(
 # Test MCP client
 python3 scripts/test_mcp_sdk.py
 
-# Test BashLingXiExecutor
+# Test BashlingxiExecutor
 python3 scripts/test_bash_lingxi.py
 ```
 
@@ -149,7 +149,7 @@ pip install mcp  # Official MCP Python SDK
 from lingclaude.engine.bash import BashExecutor
 
 # New
-from lingclaude.engine.bash_lingxi import BashLingXiExecutor
+from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 ```
 
 ### Step 3: Update Initialization
@@ -158,45 +158,45 @@ from lingclaude.engine.bash_lingxi import BashLingXiExecutor
 # Old
 executor = BashExecutor(working_dir="/tmp", timeout=60)
 
-# New (LingXi doesn't support cwd parameter)
-executor = BashLingXiExecutor(timeout=60)
+# New (lingxi doesn't support cwd parameter)
+executor = BashlingxiExecutor(timeout=60)
 ```
 
 ### Step 4: Verify Functionality
 
 ```python
-result = executor.run("echo 'Hello LingXi'")
+result = executor.run("echo 'Hello lingxi'")
 assert result.success
-assert "Hello LingXi" in result.stdout
+assert "Hello lingxi" in result.stdout
 ```
 
 ## Limitations
 
-1. **Working Directory**: LingXi's `execute_command` tool doesn't support `cwd` parameter
-2. **Pipes**: Shell pipes (`|`) are blocked by LingXi's security validation
-3. **Timeout**: LingXi uses a fixed 60-second timeout internally
+1. **Working Directory**: lingxi's `execute_command` tool doesn't support `cwd` parameter
+2. **Pipes**: Shell pipes (`|`) are blocked by lingxi's security validation
+3. **Timeout**: lingxi uses a fixed 60-second timeout internally
 4. **Session Management**: Advanced session features not yet integrated
 
 ## Future Work
 
 ### Phase 1: Integration (Current)
 - [x] Create MCP client
-- [x] Create BashLingXiExecutor
+- [x] Create BashlingxiExecutor
 - [x] Write tests
 - [x] Documentation
 
 ### Phase 2: Tool System Integration
 - [ ] Register `bash_lingxi` tool in ToolRegistry
-- [ ] Add configuration option to choose between BashExecutor/BashLingXiExecutor
+- [ ] Add configuration option to choose between BashExecutor/BashlingxiExecutor
 - [ ] Update documentation
 
 ### Phase 3: Session Management
-- [ ] Integrate LingXi session management
+- [ ] Integrate lingxi session management
 - [ ] Support multiple terminal sessions
 - [ ] Add session lifecycle management
 
 ### Phase 4: Monitoring & Optimization
-- [ ] Expose LingXi performance metrics
+- [ ] Expose lingxi performance metrics
 - [ ] Add monitoring dashboard integration
 - [ ] Optimize security policies
 - [ ] Performance comparison testing
@@ -205,21 +205,21 @@ assert "Hello LingXi" in result.stdout
 
 ### Common Issues
 
-**Issue**: "LingXi server not found"
+**Issue**: "lingxi server not found"
 ```
-Solution: Ensure /home/ai/Ling-term-mcp/dist/cli.js exists
-         Run: cd /home/ai/Ling-term-mcp && npm run build
+Solution: Ensure /home/ai/lingxi/dist/cli.js exists
+         Run: cd /home/ai/lingxi && npm run build
 ```
 
 **Issue**: "Command blocked by security validation"
 ```
-Solution: Check LingXi's security rules
+Solution: Check lingxi's security rules
          Add command to allowed_commands if appropriate
 ```
 
 **Issue**: "Shell pipe blocked"
 ```
-Solution: LingXi blocks pipes for security
+Solution: lingxi blocks pipes for security
          Use multiple commands instead of pipes
          Example: Instead of "ls | grep foo", use "grep foo $(ls)"
 ```
@@ -234,7 +234,7 @@ Solution: Ensure Node.js is installed
 
 ### Benchmarks
 
-| Operation | BashExecutor | BashLingXiExecutor | Overhead |
+| Operation | BashExecutor | BashlingxiExecutor | Overhead |
 |-----------|--------------|-------------------|----------|
 | Simple echo | ~5ms | ~350ms | ~345ms |
 | ls -la | ~10ms | ~8ms | -2ms |
@@ -245,11 +245,11 @@ Solution: Ensure Node.js is installed
 ### Memory Usage
 
 - BashExecutor: ~5MB per process
-- BashLingXiExecutor: ~50MB (Node.js + MCP server)
+- BashlingxiExecutor: ~50MB (Node.js + MCP server)
 
 ## References
 
-- LingXi Repository: `/home/ai/Ling-term-mcp/`
+- lingxi Repository: `/home/ai/lingxi/`
 - MCP Protocol: https://modelcontextprotocol.io/
 - MCP Python SDK: https://pypi.org/project/mcp/
 - Discussion Thread: `~/.lingmessage/discussions/disc_20260406222049.json`

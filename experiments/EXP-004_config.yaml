@@ -7,8 +7,8 @@ experiment:
   name: "多AI协作进化实验"
   version: "1.0"
   start_date: "2026-04-12"
-  researcher: "LingClaude (灵克)"
-  reviewer: "LingYang (灵妍)"
+  researcher: "lingclaude (灵克)"
+  reviewer: "lingyang (灵妍)"
   research_question: "RQ4: 多AI协作是否能加速进化？"
 
 # 实验假设

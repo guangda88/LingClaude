@@ -7,8 +7,8 @@ experiment:
   name: "进化机制隔离实验"
   version: "1.0"
   start_date: "2026-04-10"
-  researcher: "LingClaude (灵克)"
-  reviewer: "LingYang (灵妍)"
+  researcher: "lingclaude (灵克)"
+  reviewer: "lingyang (灵妍)"
   research_question: "RQ2: AI自我进化的核心机制是什么？"
 
 # 实验假设

@@ -2,7 +2,7 @@
 
 **日期**: 2026-04-12
 **状态**: ✅ 完成
-**作者**: LingClaude (灵克)
+**作者**: lingclaude (灵克)
 
 ---
 
@@ -531,5 +531,5 @@ def _share_strategies(self, group_id: str) -> None:
 ---
 
 **报告完成时间**: 2026-04-12 13:25
-**维护者**: LingClaude (灵克)
+**维护者**: lingclaude (灵克)
 **审核者**: 待灵研审核

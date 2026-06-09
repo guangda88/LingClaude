@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.safe_db import safe_commit, safe_connect
+
 from lingclaude.core.types import Result
 from lingclaude.self_optimizer.learner.models import (
     FeedbackCategory,
@@ -62,7 +64,7 @@ class KnowledgeBase:
 
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = safe_connect(self.db_path)
             self._conn.row_factory = sqlite3.Row
         return self._conn
 
@@ -110,7 +112,7 @@ class KnowledgeBase:
                     json.dumps({}),
                 ),
             )
-            conn.commit()
+            safe_commit(conn)
             return Result.ok(True)
         except Exception as e:
             logger.warning("添加规则失败: %s", rule.id, exc_info=True)
@@ -193,7 +195,7 @@ class KnowledgeBase:
                 "UPDATE rules SET status = ?, updated_at = ? WHERE id = ?",
                 (status, datetime.now().isoformat(), rule_id),
             )
-            conn.commit()
+            safe_commit(conn)
             return Result.ok(cursor.rowcount > 0)
         except Exception as e:
             logger.warning("更新规则状态失败: %s", rule_id, exc_info=True)
@@ -204,7 +206,7 @@ class KnowledgeBase:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute("DELETE FROM rules WHERE id = ?", (rule_id,))
-            conn.commit()
+            safe_commit(conn)
             return Result.ok(cursor.rowcount > 0)
         except Exception as e:
             logger.warning("删除规则失败: %s", rule_id, exc_info=True)

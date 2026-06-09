@@ -2,7 +2,7 @@
 
 **版本：** v1.0
 **完成日期：** 2026-04-10
-**作者：** LingClaude (灵克)
+**作者：** lingclaude (灵克)
 
 ---
 
@@ -401,8 +401,8 @@ pip install numpy pyyaml matplotlib
 
 ## 联系方式
 
-**实验框架作者：** LingClaude (灵克)
-**项目地址：** /home/ai/LingClaude/experiments/
+**实验框架作者：** lingclaude (灵克)
+**项目地址：** /home/ai/lingclaude/experiments/
 **文档版本：** v1.0
 
 **实验愉快！**

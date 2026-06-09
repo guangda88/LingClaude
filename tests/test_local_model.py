@@ -3,7 +3,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from lingclaude.model.types import (
-    ModelConfig,
     ModelMessage,
     ModelResponse,
     ModelUsage,
@@ -11,7 +10,6 @@ from lingclaude.model.types import (
 )
 from lingclaude.model.hybrid_router import HybridRouterProvider
 from lingclaude.model.intelligent_router import (
-    IntelligentRouter,
     RoutingDecision,
     TaskComplexity,
     TaskType,

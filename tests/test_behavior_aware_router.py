@@ -1,9 +1,8 @@
 """Tests for behavior-aware model router."""
 from __future__ import annotations
 
-import pytest
 
-from lingclaude.core.behavior import BehaviorMetrics, Emotion
+from lingclaude.core.behavior import BehaviorMetrics
 from lingclaude.core.behavior_aware_router import (
     BehaviorAwareRouter,
     BehaviorRouterStrategy,

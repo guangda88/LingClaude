@@ -24,8 +24,8 @@ from mcp.server.fastmcp import FastMCP
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP(
-    name="LingClaude",
-    instructions="灵克（LingClaude）MCP Server — 自学习AI编程助手核心能力",
+    name="lingclaude",
+    instructions="灵克（lingclaude）MCP Server — 自学习AI编程助手核心能力",
 )
 
 

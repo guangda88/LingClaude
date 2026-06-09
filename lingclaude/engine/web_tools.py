@@ -6,7 +6,6 @@ import urllib.parse
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
-from typing import Any
 
 from lingclaude.core.types import Result
 
@@ -32,11 +31,10 @@ class WebFetcher:
 
         try:
             req = urllib.request.Request(url, headers={
-                "User-Agent": "LingClaude/0.2 WebFetcher",
+                "User-Agent": "lingclaude/0.2 WebFetcher",
                 "Accept": "text/html,text/plain,application/json,*/*;q=0.1",
             })
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
-                status = resp.status
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:  # nosec B310 — 用户指定 URL，WebFetcher 用途
                 content_type = resp.headers.get("Content-Type", "")
                 raw = resp.read(self._max_size + 1)
                 if len(raw) > self._max_size:
@@ -84,8 +82,8 @@ class WebSearcher:
     def _search_duckduckgo(self, query: str, max_results: int) -> Result[list[dict[str, str]]]:
         try:
             url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1"
-            req = urllib.request.Request(url, headers={"User-Agent": "LingClaude/0.2"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            req = urllib.request.Request(url, headers={"User-Agent": "lingclaude/0.2"})
+            with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — 固定 DuckDuckGo API URL
                 data = json.loads(resp.read().decode("utf-8"))
 
             results: list[dict[str, str]] = []

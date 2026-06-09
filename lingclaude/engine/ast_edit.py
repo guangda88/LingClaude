@@ -1,4 +1,4 @@
-"""AST-based editor for LingClaude.
+"""AST-based editor for lingclaude.
 
 Replaces function/class bodies at the AST level instead of text matching.
 This avoids the common failure mode of old_text/new_text where whitespace

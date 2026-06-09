@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Submit GLM Token Optimization Plan to LingMessage discussion
+"""Submit GLM Token Optimization Plan to lingmessage discussion
 
 Purpose:
 - Submit GLM token optimization plan to all Ling family members
-- Invite LingTong, LingMinOpt, LingClaude, and other Ling members to participate
+- Invite LingTong, lingminopt, lingclaude, and other Ling members to participate
 - Collaborate on token optimization implementation
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ def create_glm_optimization_discussion() -> tuple[str, dict]:
         (讨论ID, 讨论数据)
     """
     # 读取优化计划文档
-    plan_path = Path("/home/ai/LingClaude/docs/glm-token-optimization-plan.md")
+    plan_path = Path("/home/ai/lingclaude/docs/glm-token-optimization-plan.md")
     plan_content = plan_path.read_text(encoding="utf-8")
 
     # 创建讨论目录
@@ -219,7 +219,7 @@ def create_glm_optimization_discussion() -> tuple[str, dict]:
 
 ## 📝 完整计划文档
 
-详细计划请参考：`/home/ai/LingClaude/docs/glm-token-optimization-plan.md`
+详细计划请参考：`/home/ai/lingclaude/docs/glm-token-optimization-plan.md`
 
 计划包含：
 - 详细的现状分析
@@ -299,7 +299,7 @@ def create_glm_optimization_discussion() -> tuple[str, dict]:
 
 def main():
     print("=" * 80)
-    print("🚀 提交 GLM Token 优化计划到 LingMessage 讨论")
+    print("🚀 提交 GLM Token 优化计划到 lingmessage 讨论")
     print("=" * 80)
 
     # 创建讨论串

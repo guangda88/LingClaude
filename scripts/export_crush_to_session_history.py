@@ -9,7 +9,7 @@ from pathlib import Path
 def export_crush_sessions_to_history(
     crush_db: Path,
     output_path: Path,
-    project_filter: str = "LingClaude",
+    project_filter: str = "lingclaude",
     since_hours: int = 24,
 ) -> int:
     if not crush_db.exists():

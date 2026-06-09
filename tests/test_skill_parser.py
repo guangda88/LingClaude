@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import pytest
 from pathlib import Path
-import tempfile
 
 from lingclaude.core.skill_parser import (
     parse_skill_md,
@@ -12,7 +10,6 @@ from lingclaude.core.skill_parser import (
     is_read_only_tool,
     _READ_ONLY_TOOLS,
 )
-from lingclaude.core.types import Result
 
 
 class TestParseSkillMd:

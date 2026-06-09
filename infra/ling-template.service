@@ -5,7 +5,7 @@
 # 使用方法:
 #   1. 复制此模板: cp ling-template.service my-service.service
 #   2. 替换所有 {{占位符}}
-#   3. 运行 lint: python3 /home/ai/LingClaude/scripts/ling-systemd-lint.py my-service.service
+#   3. 运行 lint: python3 /home/ai/lingclaude/scripts/ling-systemd-lint.py my-service.service
 #   4. 复制到 ~/.config/systemd/user/
 #   5. systemctl --user daemon-reload && systemctl --user enable --now my-service
 

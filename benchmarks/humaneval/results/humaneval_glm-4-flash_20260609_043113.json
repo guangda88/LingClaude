@@ -1,0 +1,52 @@
+{
+  "model": "glm-4-flash",
+  "benchmark": "HumanEval",
+  "timestamp": "2026-06-08T20:31:13.945878+00:00",
+  "total": 10,
+  "passed": 10,
+  "failed": 0,
+  "errors": 0,
+  "pass_at_1": 1.0,
+  "details": [
+    {
+      "task_id": "HumanEval/0",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/1",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/2",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/3",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/4",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/5",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/6",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/7",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/8",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/9",
+      "status": "PASS"
+    }
+  ]
+}

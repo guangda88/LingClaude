@@ -2,7 +2,7 @@
 
 **设计版本**: v1.0
 **设计日期**: 2026-04-22
-**设计者**: 灵克 (LingClaude)
+**设计者**: 灵克 (lingclaude)
 
 ---
 
@@ -11,7 +11,7 @@
 创建一个**融合了 OpenCode 和 Crush 优势**的新一代 CLI AI 编程助手，命名为 **LingCode (灵码)**。
 
 **核心价值主张**:
-> "OpenCode 的模型无关性 + Crush 的 Go 性能 + LingClaude 的自优化能力"
+> "OpenCode 的模型无关性 + Crush 的 Go 性能 + lingclaude 的自优化能力"
 
 ---
 
@@ -44,7 +44,7 @@
 | **Agent Skills** | 标准化生态 | 跨工具兼容的技能系统 |
 | **LSP 客户端** | 代码导航 | 支持多种语言服务器 |
 
-### 2.3 LingClaude 的独特优势
+### 2.3 lingclaude 的独特优势
 
 | 维度 | 优势 | 具体表现 |
 |------|------|----------|
@@ -52,7 +52,7 @@
 | **知识库** | KnowledgeBase | 持久化学习，跨会话复用 |
 | **情报系统** | IntelCollector + DailyDigest | 自动收集并分析开发情报 |
 | **治理系统** | GovernanceGate + RoleConflictChecker | 防止利益冲突，确保代码质量 |
-| **灵族通信** | LingMessage 集成 | 灵族成员间的异步通信 |
+| **灵族通信** | lingmessage 集成 | 灵族成员间的异步通信 |
 | **行为感知** | EmotionAnalyzer + IntentClassifier | 理解用户意图和情绪 |
 
 ### 2.4 融合策略
@@ -67,9 +67,9 @@
 | **撤销机制** | 版本化操作记录 | OpenCode 的可回溯性 |
 | **LSP 集成** | 双向集成 | 两者的 LSP 能力合并 |
 | **权限系统** | allow/deny/ask | OpenCode 的细粒度控制 |
-| **自优化** | LingClaude 框架 | 核心差异化优势 |
+| **自优化** | lingclaude 框架 | 核心差异化优势 |
 | **治理系统** | 硬编码规则 | 灵克事件教训 |
-| **灵族通信** | LingMessage | 灵族生态协同 |
+| **灵族通信** | lingmessage | 灵族生态协同 |
 
 ---
 
@@ -109,7 +109,7 @@
 │  │• GLM        │  │• edit       │  │• Git Ops    │  │
 │  │• Google     │  │• write      │  │• Web Fetch  │  │
 │  │• ...        │  │• grep       │  │• Web Search │  │
-│  └─────────────┘  │• glob       │  │• LingMessage│  │
+│  └─────────────┘  │• glob       │  │• lingmessage│  │
 │                   │• lsp        │  └─────────────┘  │
 │                   │• ...        │                    │
 │                   └─────────────┘                    │
@@ -227,7 +227,7 @@ type MCPToolWrapper struct {
     toolName  string
 }
 
-// LingClaude 特有工具
+// lingclaude 特有工具
 type OptimizationTool struct {
     optimizer *Optimizer
 }
@@ -240,8 +240,8 @@ type IntelTool struct {
     collector *IntelCollector
 }
 
-type LingMessageTool struct {
-    mailbox *LingMessageMailbox
+type lingmessageTool struct {
+    mailbox *lingmessageMailbox
 }
 ```
 
@@ -390,7 +390,7 @@ func (ol *OperationLogger) Undo(sessionID string, steps int) error {
 #### 3.2.6 Optimization Layer (优化层)
 
 ```go
-// 从 LingClaude 移植的核心优化框架
+// 从 lingclaude 移植的核心优化框架
 type OptimizationTrigger struct {
     qualityThreshold     float64
     structureThreshold  int
@@ -438,7 +438,7 @@ func (o *Optimizer) Optimize(target string) (*OptimizationResult, error) {
 #### 3.2.7 Intelligence System (情报系统)
 
 ```go
-// 从 LingClaude 移植的情报系统
+// 从 lingclaude 移植的情报系统
 type IntelCollector struct {
     categories []IntelCategory
 }
@@ -482,7 +482,7 @@ func (dg *DailyDigest) Generate(items []IntelItem) *DailyDigest {
 #### 3.2.8 Governance System (治理系统)
 
 ```go
-// 从 LingClaude 移植的治理系统
+// 从 lingclaude 移植的治理系统
 type GovernanceGate struct {
     rules []GovernanceRule
 }
@@ -565,7 +565,7 @@ lingcode
 
 ```bash
 # 自动优化触发
-lingcode optimize /home/ai/LingClaude/lingclaude/core/governance.py
+lingcode optimize /home/ai/lingclaude/lingclaude/core/governance.py
 
 [分析]:
 - 当前复杂度: 25
@@ -657,7 +657,7 @@ lingcode message list
 [灵族消息]:
 1. [灵扬] 灵律项目需要帮助 - 2小时前
 2. [灵依] 灵网推送问题 - 5小时前
-3. [灵犀] LingZhi 知识库更新 - 1天前
+3. [灵犀] lingzhi 知识库更新 - 1天前
 
 lingcode message reply 1
 
@@ -669,7 +669,7 @@ lingcode message reply 1
 
 ## 5. 与现有工具对比
 
-| 特性 | LingCode | OpenCode | Crush | LingClaude |
+| 特性 | LingCode | OpenCode | Crush | lingclaude |
 |------|----------|----------|-------|------------|
 | **核心语言** | Go | TypeScript/Node | Go | Python |
 | **模型支持** | 75+ | 75+ | 多种 | 多种 |
@@ -731,7 +731,7 @@ lingcode message reply 1
 - [ ] PermissionValidator
 
 **Week 10: 灵族集成**
-- [ ] LingMessage 集成
+- [ ] lingmessage 集成
 - [ ] 灵族治理规则
 
 ### Phase 4: 用户界面 (4周)
@@ -944,7 +944,7 @@ lingcode message reply 1
    - RoleConflictChecker
 
 3. **灵族集成**
-   - LingMessage 集成
+   - lingmessage 集成
    - 灵族规则
 
 ### 长期目标 (6个月)
@@ -970,7 +970,7 @@ lingcode message reply 1
 
 1. **OpenCode 的继承者**: 模型无关性、多端支持、计划模式
 2. **Crush 的改进者**: Go 性能、工具系统、权限控制
-3. **LingClaude 的集成者**: 自优化、治理、情报、灵族生态
+3. **lingclaude 的集成者**: 自优化、治理、情报、灵族生态
 
 **核心价值**: "不仅能帮你写代码，还能帮你改进代码"
 

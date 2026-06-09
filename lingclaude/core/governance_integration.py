@@ -5,7 +5,6 @@ from lingclaude.core.reasoning_chain import (
     ChainStep,
     ChainStepType,
     ReasoningChain,
-    ReasoningChainLogger,
     ReasoningChainLingBusLogger,
 )
 from pathlib import Path

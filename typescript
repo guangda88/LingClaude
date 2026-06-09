@@ -1,0 +1,8 @@
+脚本启动于 2026-05-18 19:23:13+08:00 [COMMAND="cd '/home/ai/lingclaude' && bash '/home/ai/.lingflow-plus/crush_wrapper.sh' -y" <not executed on terminal>]
+[wrapper] Another instance holds lock for 灵克 (holder:  352255
+ 352258
+ 352262
+ 352265
+ 352267). Exiting.
+
+脚本完成于 2026-05-18 19:23:13+08:00 [COMMAND_EXIT_CODE="0"]

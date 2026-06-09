@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""简单测试 - 直接与 LingXi MCP 服务器通信"""
+"""简单测试 - 直接与 lingxi MCP 服务器通信"""
 from __future__ import annotations
 
 import subprocess
@@ -14,7 +14,7 @@ def test_direct_communication():
     print("=" * 60)
 
     # 检查服务器
-    server_path = Path("/home/ai/Ling-term-mcp/dist/index.js")
+    server_path = Path("/home/ai/lingxi/dist/index.js")
     if not server_path.exists():
         print(f"✗ 服务器不存在: {server_path}")
         return False
@@ -54,7 +54,7 @@ def test_direct_communication():
                     "tools": {},
                 },
                 "clientInfo": {
-                    "name": "LingClaude",
+                    "name": "lingclaude",
                     "version": "0.2.1",
                 },
             },

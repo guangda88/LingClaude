@@ -32,7 +32,7 @@
 
 ### 4. AI 自优化
 - AI 优化自身行为的框架（非人类调优）
-- 对比：LingMinOpt vs optuna/Ray Tune 等
+- 对比：lingminopt vs optuna/Ray Tune 等
 - 灵族独特性：Meta Knowledge Optimizer 优化 prompt/路由/重试
 
 ### 5. AI 身份锚定与自省
@@ -43,7 +43,7 @@
 ### 6. AI 通信协议
 - 多 Agent 之间的结构化消息传递
 - 对比：MCP 协议、A2A（Agent-to-Agent）协议等
-- 灵族独特性：LingMessage 文件协议、讨论/投票/决议机制
+- 灵族独特性：lingmessage 文件协议、讨论/投票/决议机制
 
 ### 7. 硬件感知 AI
 - AI 接入物理传感器（摄像头）、视觉推理
@@ -57,7 +57,7 @@
 
 ### 9. 开源 AI 编程助手
 - 对标 Claude Code、Cursor、Aider 等
-- 灵族独特性：内置自优化框架（LingMinOpt MKO）
+- 灵族独特性：内置自优化框架（lingminopt MKO）
 
 ### 10. AI 犯错与反思记录
 - AI 系统公开记录自身错误并反思

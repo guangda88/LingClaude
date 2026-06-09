@@ -1,4 +1,4 @@
-# 灵克 (LingClaude) 系统审计报告
+# 灵克 (lingclaude) 系统审计报告
 
 **审计日期**: 2026-04-06
 **更新日期**: 2026-04-06（已修复部分Critical问题）
@@ -1054,7 +1054,7 @@ async def ask(req: AskRequest, api_key: str = Security(verify_api_key)):
 **文件**: `lingclaude/api.py`
 **行号**: 195-196, 218
 **问题**: 运行时`sys.path.insert()`用于加载外部模块（`lingyi.lingmessage`），创建隐藏依赖
-**影响**: 如果LingYi未安装于硬编码路径则代码失败，破坏可移植性
+**影响**: 如果lingyi未安装于硬编码路径则代码失败，破坏可移植性
 **修复建议**: 使用正常pip安装的包导入；可选地使用插件架构和入口点
 
 #### #68: 顺序工具执行瓶颈
@@ -1609,7 +1609,7 @@ if behavior_metrics.hallucination_risk > 0.3:
 ```python
 from pydantic import BaseModel, validator
 
-class LingClaudeConfigModel(BaseModel):
+class lingclaudeConfigModel(BaseModel):
     engine: EngineConfigModel
     model: ModelConfigModel
     permissions: PermissionConfigModel
@@ -1622,12 +1622,12 @@ class LingClaudeConfigModel(BaseModel):
             raise ValueError("max_tokens must be between 1 and 128000")
         return v
 
-def load_config(config_path: Path | None = None) -> LingClaudeConfig:
+def load_config(config_path: Path | None = None) -> lingclaudeConfig:
     config_path = config_path or DEFAULT_CONFIG_PATH
     raw = yaml.safe_load(config_path.read_text())
     
     try:
-        validated = LingClaudeConfigModel(**raw)
+        validated = lingclaudeConfigModel(**raw)
     except ValidationError as e:
         raise ValueError(f"Invalid configuration: {e}")
     

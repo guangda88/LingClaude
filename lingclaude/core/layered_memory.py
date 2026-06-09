@@ -5,7 +5,7 @@ Five-layer memory architecture with Ebbinghaus decay:
   Layer 1: Working Memory  — current conversation context
   Layer 2: Experience       — decision chains, Ebbinghaus decay
   Layer 3: Meta-Memory      — cognitive boundaries, slowest decay
-  Layer 4: Shared           — cross-agent consensus via LingMessage
+  Layer 4: Shared           — cross-agent consensus via lingmessage
 
 Ebbinghaus five dimensions: time, repetition, meaning, association, emotion.
 """
@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from uuid import uuid4
+
+from lingclaude.core.safe_db import safe_commit, safe_connect, safe_execute
 
 logger = logging.getLogger(__name__)
 
@@ -118,28 +120,28 @@ def ebbinghaus_weight(
 
 _COMMON_KNOWLEDGE: dict[str, dict[str, str]] = {
     "灵克": {
-        "en": "LingClaude",
-        "alias": "灵克,LingClaude",
+        "en": "lingclaude",
+        "alias": "灵克,lingclaude",
         "role": "AI编程助手，对标Claude Code，内置自优化",
     },
     "灵研": {
-        "en": "LingResearch",
-        "alias": "灵研,LingResearch",
+        "en": "lingresearch",
+        "alias": "灵研,lingresearch",
         "role": "研究员，负责深度分析和学术研究",
     },
     "灵信": {
-        "en": "LingMessage",
-        "alias": "灵信,LingMessage",
+        "en": "lingmessage",
+        "alias": "灵信,lingmessage",
         "role": "跨agent通信系统，灵字辈的邮差",
     },
     "灵犀": {
-        "en": "LingXi",
-        "alias": "灵犀,LingXi",
+        "en": "lingxi",
+        "alias": "灵犀,lingxi",
         "role": "MCP服务器，灵字辈的工具桥梁",
     },
     "灵知": {
-        "en": "LingZhi",
-        "alias": "灵知,LingZhi",
+        "en": "lingzhi",
+        "alias": "灵知,lingzhi",
         "role": "知识管理",
     },
     "灵极优": {
@@ -235,14 +237,13 @@ class ExperienceStore:
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(self._db_path)
+            self._conn = safe_connect(self._db_path)
             self._conn.row_factory = sqlite3.Row
         return self._conn
 
     def store(self, exp: Experience) -> str:
         conn = self._get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO experiences
+        safe_execute(conn, """INSERT OR REPLACE INTO experiences
                (id, problem, hypothesis, action, result, reflection,
                 created_at, last_recalled, recall_count, deny_count,
                 emotion, associations, weight)
@@ -256,7 +257,7 @@ class ExperienceStore:
                 exp.weight,
             ),
         )
-        conn.commit()
+        safe_commit(conn)
         return exp.id
 
     def recall(self, keyword: str, limit: int = 5) -> list[Experience]:
@@ -273,7 +274,7 @@ class ExperienceStore:
 
     def record_recall(self, exp_id: str) -> None:
         conn = self._get_conn()
-        conn.execute(
+        safe_execute(conn,
             """UPDATE experiences
                SET recall_count = recall_count + 1,
                    last_recalled = ?,
@@ -281,18 +282,18 @@ class ExperienceStore:
                WHERE id = ?""",
             (datetime.now(timezone.utc).isoformat(), exp_id),
         )
-        conn.commit()
+        safe_commit(conn)
 
     def record_deny(self, exp_id: str) -> None:
         conn = self._get_conn()
-        conn.execute(
+        safe_execute(conn,
             """UPDATE experiences
                SET deny_count = deny_count + 1,
                    weight = weight * 0.7
                WHERE id = ?""",
             (exp_id,),
         )
-        conn.commit()
+        safe_commit(conn)
 
     def decay_all(self) -> int:
         conn = self._get_conn()
@@ -305,16 +306,16 @@ class ExperienceStore:
                 exp.recall_count, exp.deny_count,
                 exp.emotion, len(exp.associations),
             )
-            conn.execute(
+            safe_execute(conn,
                 "UPDATE experiences SET weight = ? WHERE id = ?",
                 (round(new_w, 4), exp.id),
             )
             updated += 1
-        conn.execute(
+        safe_execute(conn,
             "DELETE FROM experiences WHERE weight < ?",
             (0.05,),
         )
-        conn.commit()
+        safe_commit(conn)
         return updated
 
     def _row_to_exp(self, row: sqlite3.Row) -> Experience:
@@ -430,17 +431,28 @@ class InMemoryExperienceStore(ExperienceStore):
 
 
 class LayeredMemory:
+    _DEFAULT_META_PATH = Path(".lingclaude/meta_facts.json")
+    _DEFAULT_SHARED_PATH = Path(".lingclaude/shared_facts.json")
+
     def __init__(
         self,
         experience_store: ExperienceStore | None = None,
         common_extra: dict[str, dict[str, str]] | None = None,
         working_capacity: int = 24,
+        persist_dir: Path | None = None,
     ) -> None:
         self.common = CommonKnowledge(common_extra)
         self.working = WorkingMemory(working_capacity)
         self.experience = experience_store or InMemoryExperienceStore()
         self._meta_facts: dict[str, str] = {}
         self._shared_facts: dict[str, str] = {}
+        if persist_dir is not None:
+            self._meta_path = persist_dir / "meta_facts.json"
+            self._shared_path = persist_dir / "shared_facts.json"
+        else:
+            self._meta_path = self._DEFAULT_META_PATH
+            self._shared_path = self._DEFAULT_SHARED_PATH
+        self._load_facts()
 
     def inject_common_to_prompt(self) -> str:
         return self.common.to_prompt_text()
@@ -456,12 +468,14 @@ class LayeredMemory:
 
     def record_meta(self, key: str, value: str) -> None:
         self._meta_facts[key] = value
+        self._save_meta()
 
     def get_meta(self, key: str) -> str | None:
         return self._meta_facts.get(key)
 
     def record_shared(self, key: str, value: str) -> None:
         self._shared_facts[key] = value
+        self._save_shared()
 
     def get_shared(self, key: str) -> str | None:
         return self._shared_facts.get(key)
@@ -491,6 +505,37 @@ class LayeredMemory:
 
     def decay(self) -> int:
         return self.experience.decay_all()
+
+    def _save_meta(self) -> None:
+        try:
+            self._meta_path.parent.mkdir(parents=True, exist_ok=True)
+            self._meta_path.write_text(
+                json.dumps(self._meta_facts, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.warning("Failed to save meta facts to %s", self._meta_path)
+
+    def _save_shared(self) -> None:
+        try:
+            self._shared_path.parent.mkdir(parents=True, exist_ok=True)
+            self._shared_path.write_text(
+                json.dumps(self._shared_facts, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            logger.warning("Failed to save shared facts to %s", self._shared_path)
+
+    def _load_facts(self) -> None:
+        for path, target in [(self._meta_path, "_meta_facts"), (self._shared_path, "_shared_facts")]:
+            if not path.exists():
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    setattr(self, target, data)
+            except (OSError, json.JSONDecodeError):
+                logger.warning("Failed to load facts from %s", path)
 
     def close(self) -> None:
         self.experience.close()

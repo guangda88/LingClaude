@@ -120,7 +120,7 @@ def demo_analyzer():
     # 加载数据（如果有）
     try:
         analyzer.load_data("DEMO-001")
-    except:
+    except (FileNotFoundError, ValueError, KeyError):
         print("没有找到实验数据，跳过分析器演示")
         return
 

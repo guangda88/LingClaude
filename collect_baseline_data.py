@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Collect baseline data for LingZiBei self-governance framework.
-This script analyzes LingMessage threads to extract performance metrics.
+This script analyzes lingmessage threads to extract performance metrics.
 """
 
 import json
@@ -66,7 +66,7 @@ def parse_timestamp(ts: str) -> datetime:
     """Parse ISO timestamp."""
     try:
         return datetime.fromisoformat(ts.replace('Z', '+00:00'))
-    except:
+    except (ValueError, TypeError):
         return None
 
 

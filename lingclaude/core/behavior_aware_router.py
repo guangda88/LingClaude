@@ -1,6 +1,6 @@
 """Behavior-Aware Model Router for GLM Token Optimization.
 
-This module integrates with LingClaude's behavior metrics to dynamically
+This module integrates with lingclaude's behavior metrics to dynamically
 adjust model selection based on hallucination risk, user frustration,
 and error rates.
 

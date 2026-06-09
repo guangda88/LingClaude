@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -18,6 +17,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+from lingclaude.core.safe_db import safe_commit, safe_connect
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ class TaskAggregator:
 
     def _init_db(self) -> None:
         """初始化数据库"""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         # 任务表
@@ -182,7 +183,7 @@ class TaskAggregator:
             ON task_groups(relevance_key)
         """)
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
     def add_task(
@@ -211,7 +212,7 @@ class TaskAggregator:
         context = context or {}
         metadata = metadata or {}
 
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -229,7 +230,7 @@ class TaskAggregator:
             TaskStatus.PENDING.value,
         ))
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
         return task_id
@@ -243,7 +244,7 @@ class TaskAggregator:
         Returns:
             任务列表
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         query = """
@@ -323,7 +324,7 @@ class TaskAggregator:
                 group_id = f"group_{uuid.uuid4().hex[:12]}"
 
                 # 保存任务组
-                conn = sqlite3.connect(str(self.db_path))
+                conn = safe_connect(self.db_path)
                 cursor = conn.cursor()
 
                 cursor.execute("""
@@ -352,7 +353,7 @@ class TaskAggregator:
                         WHERE id = ?
                     """, (TaskStatus.QUEUED.value, task.id))
 
-                conn.commit()
+                safe_commit(conn)
                 conn.close()
 
                 # 创建任务组对象
@@ -374,7 +375,7 @@ class TaskAggregator:
         Returns:
             任务组或 None
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         # 获取任务组信息
@@ -426,7 +427,7 @@ class TaskAggregator:
         Args:
             group_id: 任务组 ID
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         # 更新任务组状态
@@ -443,7 +444,7 @@ class TaskAggregator:
             WHERE id IN (SELECT task_id FROM task_group_members WHERE group_id = ?)
         """, (TaskStatus.COMPLETED.value, group_id))
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
     def get_stats(self) -> AggregationStats:
@@ -452,7 +453,7 @@ class TaskAggregator:
         Returns:
             聚合统计
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         # 总任务数

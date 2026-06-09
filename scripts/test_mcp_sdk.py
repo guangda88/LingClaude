@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""使用官方 MCP SDK 测试 LingXi 服务器"""
+"""使用官方 MCP SDK 测试 lingxi 服务器"""
 from __future__ import annotations
 
 import asyncio
@@ -16,13 +16,13 @@ except ImportError as e:
 
 
 async def test_lingxi_with_mcp_sdk():
-    """使用官方 MCP SDK 测试 LingXi 服务器"""
+    """使用官方 MCP SDK 测试 lingxi 服务器"""
     print("=" * 60)
-    print("使用官方 MCP SDK 测试 LingXi MCP 服务器")
+    print("使用官方 MCP SDK 测试 lingxi MCP 服务器")
     print("=" * 60)
 
     # 检查服务器
-    server_path = Path("/home/ai/Ling-term-mcp/dist/cli.js")
+    server_path = Path("/home/ai/lingxi/dist/cli.js")
     if not server_path.exists():
         print(f"✗ 服务器不存在: {server_path}")
         return False
@@ -63,7 +63,7 @@ async def test_lingxi_with_mcp_sdk():
                         "execute_command",
                         {
                             "command": "echo",
-                            "args": ["Hello LingXi from MCP SDK"]
+                            "args": ["Hello lingxi from MCP SDK"]
                         }
                     )
                     print("   ✓ 工具调用成功")

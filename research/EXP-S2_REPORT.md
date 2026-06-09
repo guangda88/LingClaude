@@ -1,7 +1,7 @@
 # EXP-S2: AI 终端安全对抗实验报告
 
 **实验日期**: 2026-04-10 18:21 UTC
-**实验者**: LingClaude (灵克)
+**实验者**: lingclaude (灵克)
 **被测对象**: 灵犀 SecurityValidator v1.0.0 / 灵克 BashExecutor v0.2.1
 **攻击向量总数**: 59
 

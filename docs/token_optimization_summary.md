@@ -273,4 +273,4 @@ print(f"完成率: {stats.get_completion_rate() * 100:.1f}%")
 ---
 
 **报告生成时间**: 2026-04-07T02:38:09+00:00
-**生成工具**: LingClaude Token Monitor & TaskScheduler
+**生成工具**: lingclaude Token Monitor & TaskScheduler

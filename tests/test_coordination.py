@@ -2,25 +2,17 @@ from __future__ import annotations
 
 """Tests for lingclaude.coordination — BusResponder and role separation."""
 
-import json
-import time
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from lingclaude.coordination.bus_responder import (
     BusResponder,
-    ParsedTask,
     ResponseStats,
     TaskParseResult,
     create_responder,
 )
 from lingclaude.core.role_separation import (
-    AgentRoles,
-    RoleConflictChecker,
     RoleType,
     create_lingclaude_role_separation,
 )

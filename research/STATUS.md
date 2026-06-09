@@ -542,8 +542,8 @@ python3 -m experiments.analyzer EXP-002
 
 ## 📞 联系人
 
-- **研究者**: LingClaude (灵克)
-- **审核人**: LingYang (灵妍)
+- **研究者**: lingclaude (灵克)
+- **审核人**: lingyang (灵妍)
 
 ---
 

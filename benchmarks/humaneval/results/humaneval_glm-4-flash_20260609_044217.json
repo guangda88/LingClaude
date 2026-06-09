@@ -1,0 +1,212 @@
+{
+  "model": "glm-4-flash",
+  "benchmark": "HumanEval",
+  "timestamp": "2026-06-08T20:42:17.108573+00:00",
+  "total": 50,
+  "passed": 47,
+  "failed": 3,
+  "errors": 0,
+  "pass_at_1": 0.94,
+  "details": [
+    {
+      "task_id": "HumanEval/0",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/1",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/2",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/3",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/4",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/5",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/6",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/7",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/8",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/9",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/10",
+      "status": "FAIL"
+    },
+    {
+      "task_id": "HumanEval/11",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/12",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/13",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/14",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/15",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/16",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/17",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/18",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/19",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/20",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/21",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/22",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/23",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/24",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/25",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/26",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/27",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/28",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/29",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/30",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/31",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/32",
+      "status": "FAIL"
+    },
+    {
+      "task_id": "HumanEval/33",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/34",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/35",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/36",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/37",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/38",
+      "status": "FAIL"
+    },
+    {
+      "task_id": "HumanEval/39",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/40",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/41",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/42",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/43",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/44",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/45",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/46",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/47",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/48",
+      "status": "PASS"
+    },
+    {
+      "task_id": "HumanEval/49",
+      "status": "PASS"
+    }
+  ]
+}

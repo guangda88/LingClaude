@@ -94,7 +94,7 @@ class GovernanceVerifier:
 
         voter = vote.get("voter", "")
         reason = vote.get("reason", "")
-        timestamp = vote.get("timestamp", "")
+        vote.get("timestamp", "")
 
         review = self.check_structured_review(reason, voter)
         results.append({"layer": "L1_structured_review", **_to_dict(review)})
@@ -113,7 +113,7 @@ class GovernanceVerifier:
 
     def check_participation(self, vote: dict[str, Any]) -> ParticipationCheck:
         reason = vote.get("reason", "")
-        source = vote.get("source", "")
+        vote.get("source", "")
         metadata = vote.get("metadata", {})
 
         source_type = metadata.get("source_type", "")

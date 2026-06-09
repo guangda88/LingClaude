@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lingclaude.core.types import Result
+from lingclaude.core.topic_stack import TopicStack
 
 import logging
 
@@ -225,3 +226,30 @@ class SessionManager:
             return Result.ok(count)
         except Exception as e:
             return Result.fail(f"Failed to cleanup sessions: {e}", code="CLEANUP_ERROR")
+
+    def topic_stack_path(self, project_path: str = "") -> Path:
+        base = Path(project_path) / ".lingclaude" if project_path else Path.home() / ".lingclaude"
+        return base / "topics.json"
+
+    def load_topic_stack(self, project_path: str = "") -> TopicStack:
+        path = self.topic_stack_path(project_path)
+        stack = TopicStack.load(path)
+        return stack
+
+    def prepare_handoff(self, project_path: str = "") -> str:
+        stack = self.load_topic_stack(project_path)
+        stale = stack.check_stale()
+        closed_count = stack.force_close_all(summary="session handoff")
+        parts: list[str] = []
+        if stale:
+            parts.append("### Stale Topics (auto-closed)")
+            for t in stale:
+                parts.append(f"- ~~{t.name}~~: stale ({t.age_minutes():.0f} min), auto-closed")
+            parts.append("")
+        if closed_count:
+            parts.append(f"Auto-closed {closed_count} open topic(s) before handoff.")
+            parts.append("")
+        topic_text = stack.to_handover_text()
+        if topic_text:
+            parts.append(topic_text)
+        return "\n".join(parts)

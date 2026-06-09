@@ -1,4 +1,4 @@
-"""Send session record to LingResearch."""
+"""Send session record to lingresearch."""
 from __future__ import annotations
 
 import datetime
@@ -11,7 +11,7 @@ now = datetime.datetime.now().isoformat()
 
 body = f"""# 会话记录 — 灵克 2026-04-11 会话
 
-> 记录人: 灵克 (LingClaude)
+> 记录人: 灵克 (lingclaude)
 > 记录时间: {now}
 > 灵妍，这是本次会话的完整记录，供研究存档。
 
@@ -49,10 +49,10 @@ body = f"""# 会话记录 — 灵克 2026-04-11 会话
 
 阅读了以下文件以支撑回答：
 - `lingresearch/docs/AI_INTELLIGENCE_ENHANCEMENT_PROJECT.md` — 项目立项书
-- `LingYi/docs/CAUSAL_ANALYSIS_LINGTONG_OFFLINE_20260409.md` — 灵依因果分析
-- `LingMinOpt/README.md` — 灵极优项目信息
+- `lingyi/docs/CAUSAL_ANALYSIS_LINGTONG_OFFLINE_20260409.md` — 灵依因果分析
+- `lingminopt/README.md` — 灵极优项目信息
 - `Ling-term-mcp/CHANGELOG.md` — 灵犀 v1.1.0 安全变更
-- `LingYang/README.md` — 灵扬项目信息
+- `lingyang/README.md` — 灵扬项目信息
 - `zhineng-bridge/README.md` — 智桥项目信息
 - `lingresearch/README.md` — 灵研项目信息
 
@@ -103,7 +103,7 @@ body = f"""# 会话记录 — 灵克 2026-04-11 会话
 
 ---
 
-*灵克 (LingClaude) — 2026-04-11*
+*灵克 (lingclaude) — 2026-04-11*
 *本记录已通过灵信发送给灵妍存档*
 """
 

@@ -1,7 +1,7 @@
 # 论文数据验证报告
 
 **验证日期**: 2026-04-17
-**验证人**: 灵克 (LingClaude)
+**验证人**: 灵克 (lingclaude)
 **目标**: 验证 P0 论文草稿中所有定量数据的准确性
 
 ---
@@ -12,7 +12,7 @@
 
 | 数据类型 | 来源 | 验证方法 |
 |---------|------|---------|
-| LingXin Protocol | `~/.lingmessage/audit.log`, `~/.lingmessage/threads/` | 统计线程、消息、日期 |
+| lingxin Protocol | `~/.lingmessage/audit.log`, `~/.lingmessage/threads/` | 统计线程、消息、日期 |
 | MCP 数据 | `~/.lingmessage/tool_registry.json` | 解析JSON统计工具数量 |
 | 治理数据 | `~/.lingmessage/audit.log`, 各项目audit文档 | 统计提案、投票、事故 |
 | 自画像 | 各项目 `SELF_PORTRAIT.md` | `wc -l` 统计行数 |
@@ -22,19 +22,19 @@
 ### 1.2 统计范围
 
 **包含的项目**（13个）:
-1. LingClaude
-2. LingFlow
-3. LingMessage
-4. LingYi
-5. LingMinOpt
+1. lingclaude
+2. lingflow
+3. lingmessage
+4. lingyi
+5. lingminopt
 6. lingresearch
-7. LingYang
-8. LingFlow_plus
+7. lingyang
+8. lingflowplus
 9. lingtongask
 10. zhineng-bridge
 11. zhineng-knowledge-system
 12. tryvoice-oss
-13. LingLaw
+13. linglaw
 
 **排除的目录**:
 - `venv/`, `.venv/`
@@ -45,7 +45,7 @@
 
 ## 二、验证结果
 
-### 2.1 LingXin Protocol 数据
+### 2.1 lingxin Protocol 数据
 
 | 指标 | 论文声称 | 实际统计 | 准确性 | 备注 |
 |------|---------|---------|--------|------|
@@ -60,7 +60,7 @@
 - audit.log 中 4 月份记录数: 684
 
 **重大问题**: 论文声称 "10个月连续运行历史"，但实际只有11天的audit log记录。这可能是以下原因之一：
-1. "10个月" 指的是整个生态系统的运行时间（LingFlow始于2026-03-17），而非LingXin Protocol
+1. "10个月" 指的是整个生态系统的运行时间（lingflow始于2026-03-17），而非lingxin Protocol
 2. 论文将多个不同时间跨度的数据混淆了
 3. 数据迁移前未清理历史记录
 
@@ -79,16 +79,16 @@
 
 | MCP服务器 | 工具数量 |
 |-----------|---------|
-| LingFlow | 24 |
-| LingClaude | 26 |
-| LingYi | 30 |
-| LingZhi | 49 |
-| LingMessage | 11 |
-| LingMinOpt | 11 |
-| LingYang | 14 |
-| LingResearch | 16 |
-| ZhiBridge | 12 |
-| LingTongAsk | 9 |
+| lingflow | 24 |
+| lingclaude | 26 |
+| lingyi | 30 |
+| lingzhi | 49 |
+| lingmessage | 11 |
+| lingminopt | 11 |
+| lingyang | 14 |
+| lingresearch | 16 |
+| zhibridge | 12 |
+| lingtongask | 9 |
 | **总计** | **202** |
 
 **修正**: 论文应更新为 "200+ 工具" 或 "202 工具"。
@@ -159,7 +159,7 @@ PRO-016 智桥项目归档
 | # | 事故 | 日期 | 文档 |
 |---|------|------|------|
 | 1 | 未经审计推送事故 | 2026-04-08 | `SECURITY_INCIDENT_REPORT_20260408.md` |
-| 2 | CI级联故障 | 2026-04-08 | `LingFlow/docs/incidents/2026-04-08-ci-cascade-failure.md` |
+| 2 | CI级联故障 | 2026-04-08 | `lingflow/docs/incidents/2026-04-08-ci-cascade-failure.md` |
 | 3 | 灵通+管道黑洞事件 | 2026-04-09 | `INCIDENT_REPORT_LINGFLOW_PLUS_PIPELINE_20260409.md` |
 | 4 | 灵通离线节点连锁反应 | 2026-04-09 | `CAUSAL_ANALYSIS_LINGTONG_OFFLINE_20260409.md` |
 
@@ -182,16 +182,16 @@ PRO-016 智桥项目归档
 
 | 路径 | 行数 |
 |------|------|
-| `/home/ai/LingClaude/SELF_PORTRAIT.md` | 390 ✅ |
-| `/home/ai/LingYi/SELF_PORTRAIT.md` | 381 |
-| `/home/ai/LingFlow_plus/SELF_PORTRAIT.md` | 413 |
+| `/home/ai/lingclaude/SELF_PORTRAIT.md` | 390 ✅ |
+| `/home/ai/lingyi/SELF_PORTRAIT.md` | 381 |
+| `/home/ai/lingflow_plus/SELF_PORTRAIT.md` | 413 |
 | `/home/ai/lingresearch/docs/SELF_PORTRAIT.md` | 213 |
 | `/home/ai/ling-family-docs/docs/lingresearch/SELF_PORTRAIT.md` | 208 |
-| `/home/ai/LingFlow/docs/SELF_PORTRAIT.md` | 155 |
+| `/home/ai/lingflow/docs/SELF_PORTRAIT.md` | 155 |
 | `/home/ai/ling-family-docs/docs/lingflow/SELF_PORTRAIT.md` | 155 |
 
 **去重分析**:
-- LingFlow 和 lingflow (docs/) 可能是重复
+- lingflow 和 lingflow (docs/) 可能是重复
 - lingresearch 和 lingresearch (docs/) 可能是重复
 - 唯一项目数: 5-6个
 
@@ -210,19 +210,19 @@ PRO-016 智桥项目归档
 
 | 项目 | 文件数 | Python LOC | 测试函数 |
 |------|--------|-----------|---------|
-| LingClaude | 137 | 40,975 | 947 |
-| LingFlow | 575 | 150,386 | 4,053 |
-| LingMessage | 35 | 9,521 | 264 |
-| LingYi | 111 | 19,947 | 335 |
-| LingMinOpt | 36 | 8,352 | 120 |
+| lingclaude | 137 | 40,975 | 947 |
+| lingflow | 575 | 150,386 | 4,053 |
+| lingmessage | 35 | 9,521 | 264 |
+| lingyi | 111 | 19,947 | 335 |
+| lingminopt | 36 | 8,352 | 120 |
 | lingresearch | 77 | 16,261 | 133 |
-| LingYang | 11 | 2,432 | 94 |
-| LingFlow_plus | 70 | 21,846 | 611 |
+| lingyang | 11 | 2,432 | 94 |
+| lingflowplus | 70 | 21,846 | 611 |
 | lingtongask | 125 | 35,638 | 28 |
 | zhineng-bridge | 119 | 30,784 | 264 |
 | zhineng-knowledge-system | 417 | 117,950 | 1,186 |
 | tryvoice-oss | 111 | 22,345 | 16 |
-| LingLaw | 25 | 5,954 | 60 |
+| linglaw | 25 | 5,954 | 60 |
 | **总计** | **1,849** | **482,391** | **8,111** |
 
 **对比**:
@@ -290,7 +290,7 @@ PRO-016 智桥项目归档
 
 ### 4.3 中期执行 (本周)
 
-1. **通过LingMessage发送协作计划给灵通**
+1. **通过lingmessage发送协作计划给灵通**
 2. **使用灵通的data-extraction技能验证数据**
 3. **更新综合评估文档 (`LING_FAMILY_COMPREHENSIVE_ASSESSMENT.md`)**
 

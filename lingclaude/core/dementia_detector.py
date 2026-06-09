@@ -20,7 +20,6 @@ import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +39,7 @@ class ToolCallFingerprint:
 
     @classmethod
     def from_call(cls, tool_name: str, arguments_json: str) -> ToolCallFingerprint:
-        args_hash = hashlib.md5(arguments_json.encode()).hexdigest()[:12]
+        args_hash = hashlib.md5(arguments_json.encode(), usedforsecurity=False).hexdigest()[:12]
         return cls(tool_name=tool_name, args_hash=args_hash)
 
 

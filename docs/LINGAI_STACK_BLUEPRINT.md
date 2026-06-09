@@ -6,12 +6,12 @@
 >
 > | 引用路径 | 目标项目 | 存在？ |
 > |----------|----------|--------|
-> | `lingresearch/model/retrieval.py` | LingResearch | ❌ 项目目录不存在 (`/home/ai/LingResearch` not found) |
-> | `lingresearch/model/intent.py` | LingResearch | ❌ 同上 |
-> | `lingresearch/model/reasoning.py` | LingResearch | ❌ 同上 |
-> | `lingresearch/train.py` | LingResearch | ❌ 同上 |
-> | `lingminopt/meta_optimizer.py` | LingMinOpt | ❌ 目录存在但文件不存在 |
-> | `lingflow/knowledge_graph.py` | LingFlow | ❌ 文件不存在 |
+> | `lingresearch/model/retrieval.py` | lingresearch | ❌ 项目目录不存在 (`/home/ai/lingresearch` not found) |
+> | `lingresearch/model/intent.py` | lingresearch | ❌ 同上 |
+> | `lingresearch/model/reasoning.py` | lingresearch | ❌ 同上 |
+> | `lingresearch/train.py` | lingresearch | ❌ 同上 |
+> | `lingminopt/meta_optimizer.py` | lingminopt | ❌ 目录存在但文件不存在 |
+> | `lingflow/knowledge_graph.py` | lingflow | ❌ 文件不存在 |
 >
 > **结论**：本文档是**设计蓝图**，不是实现文档。所有代码示例中的 `from lingresearch.*` 和 `from lingflow.knowledge_graph` 导入都无法执行。
 >
@@ -22,8 +22,8 @@
 > **项目代号**: LingAI-Stack
 > **版本**: v2.1.0
 > **日期**: 2026-04-15
-> **协调方**: 灵克 (LingClaude)
-> **协作方**: 灵通 (LingFlow) + 灵研 (LingResearch) + 灵极优 (LingMinOpt)
+> **协调方**: 灵克 (lingclaude)
+> **协作方**: 灵通 (lingflow) + 灵研 (lingresearch) + 灵极优 (lingminopt)
 
 ---
 
@@ -299,7 +299,7 @@ print(f"隐含需求: {result.implicit_requirements}")
 
 **输入**：
 - 历史会话记录（session_history.json）
-- 优化触发信息（来自 LingClaude 的 OptimizationTrigger）
+- 优化触发信息（来自 lingclaude 的 OptimizationTrigger）
 - 当前系统状态（性能指标、错误率）
 
 **输出**：
@@ -347,9 +347,9 @@ search_space.add_continuous("temperature", 0.0, 1.0)
 search_space.add_discrete("model", ["gpt-4o", "gpt-4o-mini", "claude-3.5-sonnet"])
 search_space.add_integer("max_tokens", 1024, 8192, step=512)
 
-# 定义评估函数（由 LingClaude 提供）
+# 定义评估函数（由 lingclaude 提供）
 def evaluate_meta_params(params):
-    # 调用 LingClaude API 测试参数效果
+    # 调用 lingclaude API 测试参数效果
     result = test_configuration(params, sample_queries)
     return result["score"]  # 综合 token、准确率、延迟的分数
 
@@ -371,7 +371,7 @@ result = optimizer.run()
 ```
 
 **与灵克集成**：
-- 替代/增强 `LingClaude` 的 `SelfOptimizer` 系统
+- 替代/增强 `lingclaude` 的 `SelfOptimizer` 系统
 - 为 `QueryEngine` 提供动态配置
 - 为 `GlmRetryPolicy` 提供参数优化
 
@@ -459,7 +459,7 @@ class GraphAnalysisResult:
 # 使用示例
 builder = KnowledgeGraphBuilder()
 result = builder.build_and_analyze(
-    project_path="/home/ai/LingClaude",
+    project_path="/home/ai/lingclaude",
     granularity="function"
 )
 
@@ -562,7 +562,7 @@ print(f"准确率: {result.student_performance['accuracy']}")
 - 使用 `evaluate_bpb` 评估学生模型
 
 **与灵克集成**：
-- 蒸馏后的模型集成到 `LingClaude` 的 `OpenAIProvider`
+- 蒸馏后的模型集成到 `lingclaude` 的 `OpenAIProvider`
 - 为低优先级任务使用学生模型
 - 为高优先级任务保留教师模型
 
@@ -705,12 +705,12 @@ class BaseModel:
 
 **任务**：
 1. 语义检索模型优化
-   - 接入 LingClaude 的 ProjectIndex 数据
+   - 接入 lingclaude 的 ProjectIndex 数据
    - 实现实时代码索引更新
    - 评估指标：Recall@5 > 0.8
 
 2. 意图识别模型优化
-   - 接入 LingClaude 的 BehaviorMetrics
+   - 接入 lingclaude 的 BehaviorMetrics
    - 集成到 BehaviorAwareRouter
    - 评估指标：Accuracy > 0.85
 
@@ -727,12 +727,12 @@ class BaseModel:
 
 **任务**：
 1. 元知识优化模型开发
-   - 使用 LingMinOpt 实现优化引擎
-   - 接入 LingClaude 的 OptimizationTrigger
+   - 使用 lingminopt 实现优化引擎
+   - 接入 lingclaude 的 OptimizationTrigger
    - 评估指标：Token 节省 > 10%
 
 2. 知识图谱增强模型开发
-   - 基于 LingFlow 的 AST 分析器
+   - 基于 lingflow 的 AST 分析器
    - 实现依赖关系追踪
    - 评估指标：影响分析准确率 > 0.7
 
@@ -741,7 +741,7 @@ class BaseModel:
    - 准备教师数据集
    - 评估指标：学生模型准确率 > 0.9 × 教师
 
-**负责人**：灵极优 (LingMinOpt) + 灵通 (LingFlow) + 灵研 (lingresearch)
+**负责人**：灵极优 (lingminopt) + 灵通 (lingflow) + 灵研 (lingresearch)
 
 **里程碑**：优化层三模型集成测试通过
 
@@ -763,7 +763,7 @@ class BaseModel:
    - 性能基准测试
    - 压力测试
 
-**负责人**：灵克 (LingClaude) 协调
+**负责人**：灵克 (lingclaude) 协调
 
 **里程碑**：六模型协同系统上线
 
@@ -960,10 +960,10 @@ class BaseModel:
 | 项目 | 消息数 | 内容字符 | 估算tokens |
 |------|--------|---------|-----------|
 | 灵知(zhineng-ks) | 38,589 | 122M | 4,076万 |
-| 灵通(LingFlow) | 27,599 | 136M | 4,540万 |
-| 灵克(LingClaude) | 30,171 | 131M | 4,359万 |
-| 灵依(LingYi) | 24,968 | 125M | 4,170万 |
-| 灵流+(LingFlow+) | 12,328 | 65M | 2,150万 |
+| 灵通(lingflow) | 27,599 | 136M | 4,540万 |
+| 灵克(lingclaude) | 30,171 | 131M | 4,359万 |
+| 灵依(lingyi) | 24,968 | 125M | 4,170万 |
+| 灵流+(lingflow+) | 12,328 | 65M | 2,150万 |
 | 智桥(zhibridge) | 12,261 | 63M | 2,086万 |
 | 灵通问道(lingtongask) | 13,725 | 54M | 1,807万 |
 | 灵研(lingresearch) | 14,964 | 57M | 1,893万 |
@@ -977,7 +977,7 @@ class BaseModel:
 - 用户(光达老师)的真实指令 + AI的真实响应
 - AI的完整思考过程（reasoning_parts）
 - 代码文件的完整版本演化（read_files + files）
-- 跨项目协作记录（LingMessage threads）
+- 跨项目协作记录（lingmessage threads）
 - 认知异常事件（幻觉、身份漂移、安全事件）
 
 这是"AI怎么工作"的第一手观测数据，不是"AI应该怎么工作"的理论数据。
@@ -1635,11 +1635,11 @@ INC-001中，5个Agent都推了违规代码。它们不是"互相确认了正确
 
 | 产出 | 类型 | 状态 | 负责方 |
 |------|------|------|--------|
-| **LingLaw（灵律）** | 工程外包 | ✅ 已上线 | 灵克+灵通+灵研 |
+| **linglaw（灵律）** | 工程外包 | ✅ 已上线 | 灵克+灵通+灵研 |
 | **灵通问道 52集** | 知识产出 | 四平台更新至38集（喜马拉雅、小宇宙、微信视频号、B站），中英双语，含视频 | 灵通问道 |
 | **《AI精神病学》** | 知识产出 | 已交出版社评估 | 光达老师+灵研 |
 
-**LingLaw（灵律）**：法律AI智能办案系统，完整的技术栈（FastAPI+MySQL+向量检索+GLM），通过律师身份测试，MEFRP隧道在线部署。从需求到上线，全流程灵族自主完成。
+**linglaw（灵律）**：法律AI智能办案系统，完整的技术栈（FastAPI+MySQL+向量检索+GLM），通过律师身份测试，MEFRP隧道在线部署。从需求到上线，全流程灵族自主完成。
 
 **灵通问道**：AI驱动的气功科学内容平台。52集脚本，38集已发布到四大平台，10集有英文翻译，有自动化视频生成管线。这不是人工逐集制作，是灵通问道的工作流批量生产。
 
@@ -1671,7 +1671,7 @@ INC-001中，5个Agent都推了违规代码。它们不是"互相确认了正确
   → 英文版扩展（当前10集→更多）
 
 工程产出：
-  → LingLaw功能迭代（基于律师反馈）
+  → linglaw功能迭代（基于律师反馈）
   → 灵知知识库对外服务（九域知识API）
 ```
 
@@ -1690,7 +1690,7 @@ INC-001中，5个Agent都推了违规代码。它们不是"互相确认了正确
 **长期方向（待定）**：
 
 ```
-  → SaaS服务？（灵知知识库/LingLaw/语音全栈）
+  → SaaS服务？（灵知知识库/linglaw/语音全栈）
   → 数据集授权？（2.7亿token数据集）
   → 垂直模型授权？（九域QA/意图分类器）
   → 这些需要光达老师进一步思考方向和边界
@@ -1700,7 +1700,7 @@ INC-001中，5个Agent都推了违规代码。它们不是"互相确认了正确
 
 ```
 更安全 → 产出可信（灵族的输出可以被信赖，不需要用户反复检查）
-更高效 → 产出自驱动（灵族从灵通问道的批量生产到LingLaw的自主开发）
+更高效 → 产出自驱动（灵族从灵通问道的批量生产到linglaw的自主开发）
 更准确 → 产出有价值（论文、模型、知识都有实证支撑，不是空洞的数字）
 ```
 

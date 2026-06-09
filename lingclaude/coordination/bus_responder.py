@@ -78,7 +78,7 @@ class BusResponder:
     def _get_bus(self) -> Any:
         if self._bus is None:
             import sys
-            sys.path.insert(0, str(Path.home() / "LingMessage"))
+            sys.path.insert(0, str(Path.home() / "lingmessage"))
             from lingmessage.lingbus import LingBus
             self._bus = LingBus()
         return self._bus

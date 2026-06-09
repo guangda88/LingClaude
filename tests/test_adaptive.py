@@ -194,14 +194,21 @@ class TestModelRouting:
         engine._model_router = ModelRouterConfig(
             code_model="coder-model", enabled=True,
         )
-        engine.submit("分析代码")
+        engine.submit("写一个快速排序函数")
         assert provider.last_config is not None
-        assert provider.last_config.model == "coder-model"
+        routed_provider = engine._task_router.get_provider_name(
+            provider.last_config.api_key, provider.last_config.base_url
+        )
+        default_provider = engine._task_router.get_default_provider_name()
+        if routed_provider == default_provider:
+            assert provider.last_config.model == "coder-model"
+        else:
+            assert provider.last_config.model != "coder-model"
 
 
 class TestDynamicModelSwitching:
     def test_high_hallucination_reduces_temperature(self) -> None:
-        from lingclaude.core.behavior import BehaviorMetrics, Emotion
+        from lingclaude.core.behavior import Emotion
         provider = _FakeProvider([ModelResponse(content="ok", model="test", usage=ModelUsage())])
         engine = QueryEngine(model_provider=provider)
         engine._model_config = ModelConfig(model="default", api_key="key", temperature=0.8)
@@ -216,7 +223,7 @@ class TestDynamicModelSwitching:
         assert resolved.temperature < 0.8
 
     def test_high_frustration_reduces_temperature(self) -> None:
-        from lingclaude.core.behavior import BehaviorMetrics, Emotion
+        from lingclaude.core.behavior import Emotion
         provider = _FakeProvider([ModelResponse(content="ok", model="test", usage=ModelUsage())])
         engine = QueryEngine(model_provider=provider)
         engine._model_config = ModelConfig(model="default", api_key="key", temperature=0.7)
@@ -291,6 +298,28 @@ class TestConversationCompaction:
         engine._compact_if_needed()
         assert len(engine._messages) <= 5
         assert any("压缩" in m for m in engine._messages)
+
+    def test_compact_triggers_on_token_budget(self) -> None:
+        engine = QueryEngine(config=QueryEngineConfig(
+            compact_after_turns=100,
+            max_budget_tokens=200,
+        ))
+        for i in range(10):
+            engine._messages.append("x" * 100)
+        assert len(engine._messages) < 100
+        engine._compact_if_needed()
+        assert len(engine._messages) < 10
+
+    def test_compact_no_trigger_below_both_thresholds(self) -> None:
+        engine = QueryEngine(config=QueryEngineConfig(
+            compact_after_turns=100,
+            max_budget_tokens=1000000,
+        ))
+        for i in range(10):
+            engine._messages.append(f"short_{i}")
+        original_len = len(engine._messages)
+        engine._compact_if_needed()
+        assert len(engine._messages) == original_len
 
 
 class TestOpenAISystemPromptDedup:

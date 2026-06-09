@@ -106,7 +106,7 @@ class VerificationConfig:
 
 
 @dataclass(frozen=True)
-class LingClaudeConfig:
+class lingclaudeConfig:
     engine: EngineConfig = field(default_factory=EngineConfig)
     permissions: PermissionConfig = field(default_factory=PermissionConfig)
     triggers: TriggerConfig = field(default_factory=TriggerConfig)
@@ -119,7 +119,7 @@ class LingClaudeConfig:
     log_level: str = "INFO"
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> LingClaudeConfig:
+    def from_dict(cls, raw: dict[str, Any]) -> lingclaudeConfig:
         engine_raw = raw.get("engine", {})
         perm_raw = raw.get("permissions", {})
         trig_raw = raw.get("self_optimizer", {}).get("triggers", {})
@@ -209,7 +209,7 @@ def find_config_path() -> Path | None:
     return None
 
 
-def load_config(path: Path | None = None) -> LingClaudeConfig:
+def load_config(path: Path | None = None) -> lingclaudeConfig:
     if path is not None:
         target = path
     else:
@@ -217,6 +217,6 @@ def load_config(path: Path | None = None) -> LingClaudeConfig:
     if target.exists():
         raw = yaml.safe_load(target.read_text())
         if raw is None:
-            return LingClaudeConfig()
-        return LingClaudeConfig.from_dict(raw)
-    return LingClaudeConfig()
+            return lingclaudeConfig()
+        return lingclaudeConfig.from_dict(raw)
+    return lingclaudeConfig()

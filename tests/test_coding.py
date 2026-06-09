@@ -1,12 +1,13 @@
 """Tests for CodingRuntime"""
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from lingclaude.core.config import LingClaudeConfig, OptimizerConfig, PermissionConfig
+from lingclaude.core.config import lingclaudeConfig, OptimizerConfig, PermissionConfig
 from lingclaude.engine.coding import CodingRuntime
 
 
@@ -32,7 +33,7 @@ class TestCodingRuntimeInit:
 
     def test_init_custom_config(self):
         """Test initialization with custom config"""
-        config = LingClaudeConfig(
+        config = lingclaudeConfig(
             optimizer=OptimizerConfig(timeout_seconds=60),
             permissions=PermissionConfig(deny_tools=["bash"]),
         )
@@ -85,6 +86,10 @@ class TestBashHandlers:
         result = runtime._bash_handler(command="exit 1")
         assert result["exit_code"] == 1
 
+    @pytest.mark.skipif(
+        os.environ.get("LINGXI_AVAILABLE") != "1",
+        reason="lingxi MCP server not available (requires LINGXI_AVAILABLE=1)"
+    )
     def test_bash_lingxi_handler(self):
         """Test bash_lingxi handler"""
         runtime = CodingRuntime()
@@ -99,7 +104,7 @@ class TestFileHandlers:
     @pytest.fixture
     def test_dir(self):
         """Create test directory within project"""
-        test_root = Path("/home/ai/LingClaude/tests/temp_test_files")
+        test_root = Path("/home/ai/lingclaude/tests/temp_test_files")
         test_root.mkdir(exist_ok=True)
         yield test_root
         # Cleanup
@@ -212,7 +217,7 @@ class TestGlobGrepHandlers:
     @pytest.fixture
     def test_dir(self):
         """Create test directory with test files"""
-        test_root = Path("/home/ai/LingClaude/tests/temp_test_files2")
+        test_root = Path("/home/ai/lingclaude/tests/temp_test_files2")
         test_root.mkdir(exist_ok=True)
         (test_root / "test1.txt").write_text("content1", encoding="utf-8")
         (test_root / "test2.py").write_text("content2", encoding="utf-8")
@@ -361,7 +366,7 @@ class TestAstHandlers:
     @pytest.fixture
     def test_dir(self):
         """Create test directory"""
-        test_root = Path("/home/ai/LingClaude/tests/temp_test_files3")
+        test_root = Path("/home/ai/lingclaude/tests/temp_test_files3")
         test_root.mkdir(exist_ok=True)
         yield test_root
         # Cleanup
@@ -412,7 +417,7 @@ class TestExecuteTool:
     def test_execute_tool_permission_blocked(self):
         """Test execute_tool with blocked tool"""
         from lingclaude.core.config import PermissionConfig
-        config = LingClaudeConfig(permissions=PermissionConfig(deny_tools=["bash"]))
+        config = lingclaudeConfig(permissions=PermissionConfig(deny_tools=["bash"]))
         runtime = CodingRuntime(config=config)
         result = runtime.execute_tool("bash", command="echo test")
         assert "error" in result
@@ -432,7 +437,7 @@ class TestAnalyze:
     @pytest.fixture
     def temp_dir(self):
         """Create temporary directory with Python files"""
-        test_root = Path("/home/ai/LingClaude/tests/temp_test_files_analyze")
+        test_root = Path("/home/ai/lingclaude/tests/temp_test_files_analyze")
         test_root.mkdir(exist_ok=True)
         (test_root / "test1.py").write_text("""
 def short():
@@ -472,7 +477,7 @@ class TestOptimize:
     @pytest.fixture
     def temp_dir(self):
         """Create temporary directory"""
-        test_root = Path("/home/ai/LingClaude/tests/temp_test_files_optimize")
+        test_root = Path("/home/ai/lingclaude/tests/temp_test_files_optimize")
         test_root.mkdir(exist_ok=True)
         yield test_root
         # Cleanup
@@ -552,7 +557,7 @@ class TestIndexProjectHandler:
     @pytest.fixture
     def test_dir(self):
         """Create test directory with Python files"""
-        test_root = Path("/home/ai/LingClaude/tests/temp_test_files4")
+        test_root = Path("/home/ai/lingclaude/tests/temp_test_files4")
         test_root.mkdir(exist_ok=True)
         (test_root / "test1.py").write_text("""
 def foo():
@@ -585,7 +590,7 @@ class TestPermissionIntegration:
     def test_permission_blocks_tool(self):
         """Test that permissions block tools"""
         from lingclaude.core.config import PermissionConfig
-        config = LingClaudeConfig(permissions=PermissionConfig(deny_tools=["bash", "write"]))
+        config = lingclaudeConfig(permissions=PermissionConfig(deny_tools=["bash", "write"]))
         runtime = CodingRuntime(config=config)
 
         # Bash should be blocked
@@ -601,7 +606,7 @@ class TestPermissionIntegration:
     def test_permission_prefix_blocks(self):
         """Test that prefix permissions work"""
         from lingclaude.core.config import PermissionConfig
-        config = LingClaudeConfig(permissions=PermissionConfig(deny_prefixes=["/etc"]))
+        config = lingclaudeConfig(permissions=PermissionConfig(deny_prefixes=["/etc"]))
         runtime = CodingRuntime(config=config)
 
         # Read from /etc should be blocked

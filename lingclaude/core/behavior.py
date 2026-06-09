@@ -1,6 +1,6 @@
 """Behavior awareness: emotion detection, intent analysis, quality tracking.
 
-Tracks how LingClaude behaves during conversations and detects issues like
+Tracks how lingclaude behaves during conversations and detects issues like
 hallucination (answering code questions without reading files) so that
 self-optimization can be triggered automatically.
 """

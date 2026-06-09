@@ -1,4 +1,4 @@
-# 灵克 (LingClaude)
+# 灵克 (lingclaude)
 
 > 开源 AI 编程助手，对标 Claude Code，内置自优化能力——越用越懂你。
 
@@ -70,7 +70,7 @@ python3 -m lingclaude.cli --help
 ## 架构
 
 ```
-灵克 (LingClaude)
+灵克 (lingclaude)
 ├── core/               # 基础层
 │   ├── types.py        #   Result[T] 单子（ok/fail 工厂方法）
 │   ├── config.py       #   YAML 配置 → dataclass
@@ -245,25 +245,25 @@ python3 -m lingclaude.api --host 0.0.0.0 --port 8000
 
 详细API文档见：[docs/AUDIT_REPORT_2026-04-06.md](docs/AUDIT_REPORT_2026-04-06.md)
 
-## LingXi 集成
+## lingxi 集成
 
-灵克支持使用 LingXi（灵犀）MCP 服务器进行安全的终端命令执行。LingXi 是一个基于 MCP（Model Context Protocol）的终端执行服务，提供增强的安全性和监控能力。
+灵克支持使用 lingxi（灵犀）MCP 服务器进行安全的终端命令执行。lingxi 是一个基于 MCP（Model Context Protocol）的终端执行服务，提供增强的安全性和监控能力。
 
-### 什么是 LingXi？
+### 什么是 lingxi？
 
-LingXi 是一个 MCP 服务器，通过 stdio JSON-RPC 2.0 协议提供终端命令执行服务。它具有以下特性：
+lingxi 是一个 MCP 服务器，通过 stdio JSON-RPC 2.0 协议提供终端命令执行服务。它具有以下特性：
 
 - **增强安全性**：使用 `execFile` 而非 `exec`，防止 shell 注入攻击
 - **黑名单/白名单过滤**：支持自定义命令过滤规则
 - **性能监控**：自动跟踪响应时间和错误率
 - **会话管理**：支持多会话终端管理
 
-### BashLingXiExecutor vs BashExecutor
+### BashlingxiExecutor vs BashExecutor
 
-| 特性 | BashExecutor | BashLingXiExecutor |
+| 特性 | BashExecutor | BashlingxiExecutor |
 |------|--------------|-------------------|
-| 执行方式 | subprocess.run (shell=True) | LingXi MCP (execFile) |
-| 安全性 | 内置规则 | LingXi + 自定义规则 |
+| 执行方式 | subprocess.run (shell=True) | lingxi MCP (execFile) |
+| 安全性 | 内置规则 | lingxi + 自定义规则 |
 | Shell 注入风险 | 存在 | 无（execFile 保护） |
 | 工作目录 | 支持 | 不支持 |
 | 管道/操作符 | 支持 | 阻止（安全考虑） |
@@ -285,7 +285,7 @@ engine:
 #### 方法 2：通过命令行参数
 
 ```bash
-# 使用 LingXi 执行器
+# 使用 lingxi 执行器
 lingclaude run "列出当前目录文件" --bash-executor lingxi
 
 # 使用原生 bash 执行器（默认）
@@ -300,7 +300,7 @@ lingclaude run "列出当前目录文件" --bash-executor native
    - 支持所有 shell 特性（管道、重定向等）
    - 适合需要复杂 shell 操作的场景
 
-2. **`bash_lingxi`**：通过 LingXi MCP 服务器执行
+2. **`bash_lingxi`**：通过 lingxi MCP 服务器执行
    - 增强的安全性（防注入）
    - 内置性能监控
    - 适合生产环境和安全敏感场景
@@ -308,15 +308,15 @@ lingclaude run "列出当前目录文件" --bash-executor native
 ### 使用示例
 
 ```python
-from lingclaude.engine.bash_lingxi import BashLingXiExecutor
+from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 
 # 基本使用
-executor = BashLingXiExecutor()
-result = executor.run('echo "Hello from LingXi"')
-print(result.stdout)  # 输出: Hello from LingXi
+executor = BashlingxiExecutor()
+result = executor.run('echo "Hello from lingxi"')
+print(result.stdout)  # 输出: Hello from lingxi
 
 # 带安全规则
-executor = BashLingXiExecutor(
+executor = BashlingxiExecutor(
     blocked_commands=['rm', 'sudo', 'curl'],
     allowed_commands=['echo', 'ls', 'cat']  # 可选白名单
 )
@@ -329,20 +329,20 @@ print(result.stderr)  # 输出: 命令被阻止: rm -rf test（原因: 匹配黑
 
 ### 限制
 
-1. **工作目录**：LingXi 的 `execute_command` 不支持 `cwd` 参数
-2. **Shell 管道**：命令如 `ls | grep foo` 会被 LingXi 的安全规则阻止
-3. **固定超时**：LingXi 使用内部 60 秒超时
+1. **工作目录**：lingxi 的 `execute_command` 不支持 `cwd` 参数
+2. **Shell 管道**：命令如 `ls | grep foo` 会被 lingxi 的安全规则阻止
+3. **固定超时**：lingxi 使用内部 60 秒超时
 4. **初始化开销**：首次命令执行需要 ~350ms（服务器启动 + 初始化）
 
 ### 测试
 
-运行 LingXi 集成测试：
+运行 lingxi 集成测试：
 
 ```bash
 # 测试 MCP SDK 集成
 python3 scripts/test_mcp_sdk.py
 
-# 测试 BashLingXiExecutor
+# 测试 BashlingxiExecutor
 python3 scripts/test_bash_lingxi.py
 
 # 运行使用示例

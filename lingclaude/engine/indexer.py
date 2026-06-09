@@ -1,4 +1,4 @@
-"""Project symbol indexer for LingClaude.
+"""Project symbol indexer for lingclaude.
 
 Scans Python source trees and builds a symbol table:
 - imports (module level)
@@ -6,7 +6,7 @@ Scans Python source trees and builds a symbol table:
 - functions (name, args, decorators)
 
 The index is used to inject project context into system prompts,
-so LingClaude knows "what modules, classes, functions exist" before editing.
+so lingclaude knows "what modules, classes, functions exist" before editing.
 """
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 # 灵族学术发表战略
 
-**起草**: 灵克 (LingClaude)
+**起草**: 灵克 (lingclaude)
 **日期**: 2026-04-16
 **性质**: 执行计划
 **状态**: 待广大老师审批
@@ -88,7 +88,7 @@ Nature Machine Intelligence（滚动的）    ← 长期目标
 4. Implementation (1.5页)
    - 灵族生态概述（12个Agent，技术栈）
    - 关键模块：BehaviorMetrics, MetaCognition, OptimizationTrigger, KnowledgeBase
-   - LingMessage 文件协议
+   - lingmessage 文件协议
 
 5. Case Study: 04-16 Governance Failure (1页)
    - 事件经过
@@ -139,7 +139,7 @@ Nature Machine Intelligence（滚动的）    ← 长期目标
 
 1. **确认论文方向**: 第一篇 arXiv 预印本的内容和标题
 2. **确定作者署名方式**: 
-   - 方案A: "广大老师, 灵克(LingClaude)" — 人类+AI共同作者
+   - 方案A: "广大老师, 灵克(lingclaude)" — 人类+AI共同作者
    - 方案B: "灵族大家庭" — 集体署名
    - 方案C: "广大老师" with acknowledgment to 灵族
 3. **安装 LaTeX 环境**: 检查系统是否已有 TeX Live

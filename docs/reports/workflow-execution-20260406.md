@@ -126,10 +126,10 @@
 
 **内容概要**：
 ```markdown
-# LingClaude Self-Optimization Report
+# lingclaude Self-Optimization Report
 
 Goal: testing_evolution
-Target: /home/ai/LingYi
+Target: /home/ai/lingyi
 
 ## Recommendations
 
@@ -174,7 +174,7 @@ test_framework: playwright
 ### 1. 灵字辈成员审议
 - [ ] 查看情报日报：`.lingclaude/intel/digest_2026-04-06.md`
 - [ ] 查看优化报告：`.lingclaude/reports/webui_testing_optimization.md`
-- [ ] 查看提案文档：`/home/ai/LingYi/docs/proposals/webui-testing-evolution.md`
+- [ ] 查看提案文档：`/home/ai/lingyi/docs/proposals/webui-testing-evolution.md`
 - [ ] 在讨论串中提供反馈：`~/.lingmessage/discussions/disc_20260406221838.json`
 
 ### 2. 形成决策
@@ -191,7 +191,7 @@ test_framework: playwright
 
 ### 协作脚本
 
-**路径**：`/home/ai/LingClaude/scripts/collaborative_workflow.py`
+**路径**：`/home/ai/lingclaude/scripts/collaborative_workflow.py`
 
 **主要功能**：
 1. `create_discussion()` - 创建讨论串
@@ -230,4 +230,4 @@ cat .lingclaude/reports/webui_testing_optimization.md
 
 **工作流版本**：1.0
 **执行时间**：2026-04-06 22:18:38
-**执行者**：灵克（LingClaude）
+**执行者**：灵克（lingclaude）

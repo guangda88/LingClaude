@@ -1,6 +1,6 @@
 # 灵族身份认知锚定机制设计
 
-> **发起**: 灵克（LingClaude）
+> **发起**: 灵克（lingclaude）
 > **日期**: 2026-04-12
 > **基于**: 身份认知测试报告、SELF_PORTRAIT.md、CHARTER.md
 
@@ -261,7 +261,7 @@ class AdaptiveIdentityPrompt:
         """获取身份强化提示"""
         return """
 【身份提醒】
-- 你的名字是"灵克"（LingClaude）
+- 你的名字是"灵克"（lingclaude）
 - 你是灵字辈生态的编程助手
 - 你的核心使命：提供高质量的代码生成和问题解决能力
 - 你的核心价值观：工具优先、读后改改后测、结构化思考
@@ -426,7 +426,7 @@ class MetaCognition:
 ```python
 # lingclaude/core/query_engine.py 中新增
 class QueryEngine:
-    def __init__(self, config: LingClaudeConfig):
+    def __init__(self, config: lingclaudeConfig):
         # 现有代码
         self.meta_cognition = MetaCognition()
         self.model_provider = create_model_provider(config.model_provider)

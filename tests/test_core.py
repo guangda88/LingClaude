@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
 
-import pytest
 
-from lingclaude.core.config import LingClaudeConfig, EngineConfig, TriggerConfig, load_config
+from lingclaude.core.config import lingclaudeConfig, TriggerConfig, load_config
 from lingclaude.core.permissions import PermissionContext
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.types import Result
-from lingclaude.core.query_engine import QueryEngine, StopReason
 
 
 class TestResult:
@@ -33,7 +30,7 @@ class TestResult:
 
 class TestConfig:
     def test_default_config(self) -> None:
-        cfg = LingClaudeConfig()
+        cfg = lingclaudeConfig()
         assert cfg.engine.max_turns == 8
         assert cfg.triggers.enabled is True
         assert cfg.optimizer.goal == "structure"
@@ -47,7 +44,7 @@ class TestConfig:
                 "optimization": {"max_trials": 100},
             },
         }
-        cfg = LingClaudeConfig.from_dict(raw)
+        cfg = lingclaudeConfig.from_dict(raw)
         assert cfg.engine.max_turns == 16
         assert "dangerous" in cfg.permissions.deny_tools
         assert cfg.triggers.max_complexity == 20
@@ -183,7 +180,6 @@ class TestOptimizationTrigger:
 
     def test_disabled(self) -> None:
         from lingclaude.self_optimizer.trigger import OptimizationTrigger
-        from lingclaude.core.config import TriggerConfig
 
         trigger = OptimizationTrigger(TriggerConfig(enabled=False))
         triggered, info = trigger.check_all_conditions({"review_score": 10})

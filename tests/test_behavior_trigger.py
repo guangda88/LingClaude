@@ -7,7 +7,7 @@ import pytest
 
 from lingclaude.core.config import TriggerConfig
 from lingclaude.self_optimizer.daemon import DaemonState, OptimizationDaemon
-from lingclaude.self_optimizer.trigger import OptimizationTrigger, TriggerInfo
+from lingclaude.self_optimizer.trigger import OptimizationTrigger
 
 
 class TestCheckBehavior:

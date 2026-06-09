@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig
-from lingclaude.core.dementia_detector import CognitiveState
-from lingclaude.core.hooks import HookContext, HookManager, HookType
+from lingclaude.core.hooks import HookContext, HookType
 from lingclaude.model.types import (
     ModelConfig,
     ModelMessage,
@@ -113,7 +111,7 @@ class TestLongSessionStress:
         compression_fired = False
 
         for turn in range(20):
-            result = engine.submit(f"分析{file_path}的第{turn+1}个函数")
+            engine.submit(f"分析{file_path}的第{turn+1}个函数")
             msg_count_after = len(engine._messages)
 
             if msg_count_after < max_messages_seen:
@@ -217,9 +215,8 @@ class TestLongSessionStress:
 
         # After all turns with compact_after_turns=5, compression should have fired multiple times
         # Check layered memory for archived cognitive anchors via recall
-        anchor_found = False
         recalled = engine._layered_memory.experience.recall("压缩归档")
-        anchor_found = len(recalled) > 0
+        len(recalled) > 0
 
         # Also check that messages list is bounded (not 50+ entries)
         assert len(engine._messages) <= 20, (
@@ -276,12 +273,10 @@ class TestLongSessionStress:
             engine._hooks.register(f"log_{ht.value}", ht, log_hook)
 
         from lingclaude.core.types import StopReason
-        final_result = None
         turn_count = 0
 
         for turn in range(40):
             result = engine.submit(f"分析{file_path}的第{turn+1}个函数")
-            final_result = result
             turn_count += 1
             if result.stop_reason != StopReason.COMPLETED:
                 break

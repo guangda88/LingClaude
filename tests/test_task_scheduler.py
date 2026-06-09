@@ -228,7 +228,7 @@ class TestTaskScheduler:
         task1 = scheduler.add_task("task 1")
         task2 = scheduler.add_task("task 2")
 
-        batch = scheduler.get_next_batch()
+        scheduler.get_next_batch()
 
         scheduler.mark_completed(task1, tokens_used=1000, success=True)
         scheduler.mark_completed(task2, tokens_used=1500, success=True)
@@ -249,7 +249,7 @@ class TestTaskScheduler:
         scheduler.add_task("task 2")
         task1_id = scheduler.add_task("task 3")
 
-        batch = scheduler.get_next_batch()
+        scheduler.get_next_batch()
         scheduler.mark_completed(task1_id, tokens_used=1000, success=True)
 
         stats = scheduler.get_stats()

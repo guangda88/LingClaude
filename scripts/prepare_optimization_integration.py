@@ -1,6 +1,6 @@
 """Integration Script for GLM Token Optimizations
 
-此脚本将所有优化集成到 LingClaude 中：
+此脚本将所有优化集成到 lingclaude 中：
 1. 智能模型路由器
 2. 上下文缓存
 3. 任务聚合
@@ -100,7 +100,7 @@ def create_integration_guide() -> str:
 
 ## 概述
 
-本指南说明如何将 GLM Token 优化功能集成到 LingClaude 中。
+本指南说明如何将 GLM Token 优化功能集成到 lingclaude 中。
 
 ## 优化组件
 
@@ -336,8 +336,8 @@ class OptimizedQueryEngine(QueryEngine):
 ## 联系和支持
 
 如有问题，请参考：
-- 优化计划文档：`/home/ai/LingClaude/docs/glm-token-optimization-plan.md`
-- LingMessage 讨论串：`~/.lingmessage/discussions/disc_20260406233215.json`
+- 优化计划文档：`/home/ai/lingclaude/docs/glm-token-optimization-plan.md`
+- lingmessage 讨论串：`~/.lingmessage/discussions/disc_20260406233215.json`
 
 ---
 
@@ -395,7 +395,7 @@ def main():
 
     print("\n  2. 上下文缓存...")
     cache = ContextCache(cache_size=50)
-    test_file = Path("/home/ai/LingClaude/README.md")
+    test_file = Path("/home/ai/lingclaude/README.md")
     if test_file.exists():
         content, hit = cache.read_file(str(test_file))
         print(f"     文件长度: {len(content)} 字符")

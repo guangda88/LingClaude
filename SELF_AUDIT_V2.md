@@ -31,7 +31,7 @@ Method: 灵极优结构扫描 + 代码统计分析 + 人工反思
 **影响**:
 - 无法并发处理多个用户请求
 - 模型调用阻塞整个线程
-- 与LingFlow的异步架构形成能力差距
+- 与lingflow的异步架构形成能力差距
 
 **进化方向**:
 - Phase 1: query_engine._call_model → async
@@ -96,17 +96,17 @@ Method: 灵极优结构扫描 + 代码统计分析 + 人工反思
 
 ### 弱项5: API服务从未启动
 
-**现状**: api.py 有515行代码，8个端点，但服务从未在 port 8700 上运行过。而 LingFlow Plus 已在 port 8765 稳定运行。
+**现状**: api.py 有515行代码，8个端点，但服务从未在 port 8700 上运行过。而 lingflow Plus 已在 port 8765 稳定运行。
 
 **影响**:
 - 灵字辈生态无法通过 HTTP 调用灵克
 - 灵信集成仅靠文件系统，无实时能力
-- 与 LingFlow 的 API-first 架构不对称
+- 与 lingflow 的 API-first 架构不对称
 
 **进化方向**:
 - 启动 API 服务
 - 加入健康检查端点
-- 与 LingFlow Plus 的服务发现对齐
+- 与 lingflow Plus 的服务发现对齐
 
 **验证标准**: curl http://127.0.0.1:8700/health → 200
 
@@ -126,7 +126,7 @@ Method: 灵极优结构扫描 + 代码统计分析 + 人工反思
 
 **现状**: 没有 crash recovery，没有 checkpoint/resume。如果 daemon 中途崩溃，所有状态丢失。
 
-**对比**: LingFlow 有完整的 crash recovery — 事务日志、状态快照、自动回滚。
+**对比**: lingflow 有完整的 crash recovery — 事务日志、状态快照、自动回滚。
 
 **进化方向**:
 - query_engine 加 checkpoint 机制
@@ -137,7 +137,7 @@ Method: 灵极优结构扫描 + 代码统计分析 + 人工反思
 
 **现状**: 没有 benchmark 测试。不知道 query_engine 的响应时间、内存消耗、并发上限。
 
-**对比**: LingFlow 有完整的 benchmark 套件和性能回归检测。
+**对比**: lingflow 有完整的 benchmark 套件和性能回归检测。
 
 **进化方向**:
 - 用 pytest-benchmark 建立基准
@@ -146,21 +146,21 @@ Method: 灵极优结构扫描 + 代码统计分析 + 人工反思
 
 ### 弱项9: 重复造轮子倾向
 
-**现状**: self_optimizer/optimizer.py 之前自己实现了 SimpleSearchSpace + grid search，而 LingMinOpt 已经有了更成熟的5种搜索策略。现已修正。
+**现状**: self_optimizer/optimizer.py 之前自己实现了 SimpleSearchSpace + grid search，而 lingminopt 已经有了更成熟的5种搜索策略。现已修正。
 
 **教训**: 在实现新功能前，必须先检查灵字辈生态中是否已有对应能力。
 
 **进化方向**:
-- 功能开发前先查 LingMinOpt / LingFlow 的能力清单
+- 功能开发前先查 lingminopt / lingflow 的能力清单
 - 建立"灵字辈能力地图"
 
 ### 弱项10: 灵字辈生态融入不足
 
 **现状**:
-- 与 LingMessage 仅做了文件级集成，无实时通信
-- 与 LingYi 的灵信互动是手动的
-- 与 LingFlow 没有正式的 API 协作
-- 与 LingMinOpt 刚开始集成
+- 与 lingmessage 仅做了文件级集成，无实时通信
+- 与 lingyi 的灵信互动是手动的
+- 与 lingflow 没有正式的 API 协作
+- 与 lingminopt 刚开始集成
 
 **影响**:
 - 灵族协作效率低
@@ -186,21 +186,21 @@ Method: 灵极优结构扫描 + 代码统计分析 + 人工反思
 | P2 | 性能基准 (弱项8) | 1天 | 量化性能 |
 | P2 | 类型检查 (弱项6) | 1天 | 代码质量 |
 | P3 | 生态融入 (弱项10) | 持续 | 长期价值 |
-| 已修复 | 重复造轮子 (弱项9) | ✅ | 已替换为LingMinOpt |
+| 已修复 | 重复造轮子 (弱项9) | ✅ | 已替换为lingminopt |
 
 ---
 
 ## 四、已完成的进化
 
-### 2026-04-13: LingMinOpt 集成
+### 2026-04-13: lingminopt 集成
 
-**变更**: `self_optimizer/optimizer.py` 从自研 SimpleSearchSpace + optuna fallback → 完全委托 LingMinOpt MinimalOptimizer
+**变更**: `self_optimizer/optimizer.py` 从自研 SimpleSearchSpace + optuna fallback → 完全委托 lingminopt MinimalOptimizer
 
 **删除的重复代码**:
-- `SimpleSearchSpace` 类 (18行) → 用 LingMinOpt `SearchSpace`
-- `_create_search_space()` 函数 (19行) → `_build_search_space()` 适配 LingMinOpt
-- `_grid_search()` 函数 (25行) → LingMinOpt 的策略系统
-- optuna 导入逻辑 (30行) → LingMinOpt 内部处理
+- `SimpleSearchSpace` 类 (18行) → 用 lingminopt `SearchSpace`
+- `_create_search_space()` 函数 (19行) → `_build_search_space()` 适配 lingminopt
+- `_grid_search()` 函数 (25行) → lingminopt 的策略系统
+- optuna 导入逻辑 (30行) → lingminopt 内部处理
 
 **获得的新能力**:
 - 5种搜索策略 (Random/Grid/Bayesian/SA/TPE)
@@ -213,6 +213,6 @@ Method: 灵极优结构扫描 + 代码统计分析 + 人工反思
 **文件变更**:
 - `lingclaude/self_optimizer/optimizer.py` — 重写 (162行 → 113行, -30%)
 - `lingclaude/self_optimizer/__init__.py` — 移除 SimpleSearchSpace 导出
-- `lingclaude/mcp/server.py` — 用 LingMinOpt SearchSpace 替代 SimpleSearchSpace
+- `lingclaude/mcp/server.py` — 用 lingminopt SearchSpace 替代 SimpleSearchSpace
 
 **测试结果**: 619 passed, 44 skipped, 0 failed

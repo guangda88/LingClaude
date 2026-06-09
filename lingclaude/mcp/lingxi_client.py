@@ -1,4 +1,4 @@
-"""LingXi MCP Client - 灵犀 MCP 客户端"""
+"""lingxi MCP Client - 灵犀 MCP 客户端"""
 from __future__ import annotations
 
 import json
@@ -22,21 +22,21 @@ class MCPResponse:
     result: Optional[dict[str, Any]] = None
     error: Optional[dict[str, Any]] = None
 
-class LingXiClient:
-    """LingXi MCP 客户端
+class lingxiClient:
+    """lingxi MCP 客户端
 
-    通过 stdio JSON-RPC 与 LingXi MCP 服务器通信
+    通过 stdio JSON-RPC 与 lingxi MCP 服务器通信
     """
 
     def __init__(
         self,
-        server_path: str = "/home/ai/Ling-term-mcp/dist/cli.js",
+        server_path: str = "/home/ai/lingxi/dist/cli.js",
         node_path: str = "node",
     ):
         """初始化客户端
 
         Args:
-            server_path: LingXi MCP 服务器路径
+            server_path: lingxi MCP 服务器路径
             node_path: Node.js 可执行文件路径
         """
         self.server_path = server_path
@@ -86,7 +86,7 @@ class LingXiClient:
                     "tools": {},
                 },
                 "clientInfo": {
-                    "name": "LingClaude",
+                    "name": "lingclaude",
                     "version": "0.2.1",
                 },
             },

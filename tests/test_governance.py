@@ -5,8 +5,6 @@ import tempfile
 from pathlib import Path
 
 from lingclaude.core.governance import (
-    ConflictRule,
-    GovernanceCheckResult,
     GovernanceGate,
 )
 from lingclaude.core.reasoning_chain import (

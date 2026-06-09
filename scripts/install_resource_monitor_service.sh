@@ -15,7 +15,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Get script directory
-SCRIPT_DIR="/home/ai/LingClaude/scripts"
+SCRIPT_DIR="/home/ai/lingclaude/scripts"
 
 # Check if service file exists
 if [ ! -f "$SCRIPT_DIR/ling-resource-monitor.service" ]; then

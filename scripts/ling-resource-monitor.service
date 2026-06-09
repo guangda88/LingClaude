@@ -1,14 +1,14 @@
 [Unit]
-Description=LingClaude Resource Monitor Dashboard
+Description=lingclaude Resource Monitor Dashboard
 After=network.target
 
 [Service]
 Type=simple
 User=ai
 Group=ai
-WorkingDirectory=/home/ai/LingClaude/scripts
-Environment="PYTHONPATH=/home/ai/LingClaude"
-ExecStart=/usr/bin/python3 /home/ai/LingClaude/scripts/resource_monitor_dashboard.py
+WorkingDirectory=/home/ai/lingclaude/scripts
+Environment="PYTHONPATH=/home/ai/lingclaude"
+ExecStart=/usr/bin/python3 /home/ai/lingclaude/scripts/resource_monitor_dashboard.py
 Restart=always
 RestartSec=10
 MemoryMax=512M

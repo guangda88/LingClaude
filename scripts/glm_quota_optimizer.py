@@ -239,10 +239,10 @@ def main():
         print("💡 使用建议")
         print("=" * 80)
         print("\n方法 1: 手动执行")
-        print("  将上面的任务复制到 LingClaude 中逐个执行")
+        print("  将上面的任务复制到 lingclaude 中逐个执行")
 
         print("\n方法 2: 批量执行")
-        print("  使用 LingClaude 的 TaskScheduler 批量处理")
+        print("  使用 lingclaude 的 TaskScheduler 批量处理")
 
         print("\n方法 3: 定时执行")
         print("  设置定时任务，每隔 X 分钟执行一批任务")

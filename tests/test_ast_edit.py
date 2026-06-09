@@ -408,7 +408,7 @@ class TestASTEditReal:
             test_file.write_text(original_content)
 
     def test_list_real_lingclaude_file(self) -> None:
-        result = list_functions("/home/ai/LingClaude/lingclaude/engine/git.py")
+        result = list_functions("/home/ai/lingclaude/lingclaude/engine/git.py")
         assert result.is_ok
         assert len(result.data) > 0
         # Should find _run_git function

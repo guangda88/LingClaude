@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""BashLingXiExecutor 使用示例"""
+"""BashlingxiExecutor 使用示例"""
 from __future__ import annotations
 
 import sys
@@ -8,27 +8,27 @@ from pathlib import Path
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lingclaude.engine.bash_lingxi import BashLingXiExecutor
+from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 
 
 def main():
-    """演示 BashLingXiExecutor 的使用"""
+    """演示 BashlingxiExecutor 的使用"""
     print("=" * 60)
-    print("BashLingXiExecutor 使用示例")
+    print("BashlingxiExecutor 使用示例")
     print("=" * 60)
 
     # 示例 1: 基本使用
     print("\n【示例 1】基本使用")
-    with BashLingXiExecutor() as executor:
-        result = executor.run("echo 'Hello from LingXi'")
-        print(f"命令: echo 'Hello from LingXi'")
+    with BashlingxiExecutor() as executor:
+        result = executor.run("echo 'Hello from lingxi'")
+        print(f"命令: echo 'Hello from lingxi'")
         print(f"输出: {result.stdout.strip()}")
         print(f"退出码: {result.exit_code}")
         print(f"耗时: {result.duration:.3f}s")
 
     # 示例 2: 带参数的命令
     print("\n【示例 2】带参数的命令")
-    with BashLingXiExecutor() as executor:
+    with BashlingxiExecutor() as executor:
         result = executor.run("ls", ["-la", "/tmp"])
         print(f"命令: ls -la /tmp")
         print(f"前 5 行输出:")
@@ -38,7 +38,7 @@ def main():
 
     # 示例 3: 带安全规则的执行器
     print("\n【示例 3】带安全规则的执行器")
-    executor = BashLingXiExecutor(
+    executor = BashlingxiExecutor(
         blocked_commands=["rm", "sudo", "systemctl"],
     )
 
@@ -58,7 +58,7 @@ def main():
 
     # 示例 4: 只允许特定命令
     print("\n【示例 4】只允许特定命令（白名单）")
-    executor = BashLingXiExecutor(
+    executor = BashlingxiExecutor(
         allowed_commands=["echo", "ls", "cat", "date"],
     )
 
@@ -77,7 +77,7 @@ def main():
 
     # 示例 5: 错误处理
     print("\n【示例 5】错误处理")
-    with BashLingXiExecutor() as executor:
+    with BashlingxiExecutor() as executor:
         result = executor.run("nonexistent_command_xyz")
         print(f"不存在的命令: nonexistent_command_xyz")
         print(f"输出: {result.stdout[:100]}...")
@@ -88,7 +88,7 @@ def main():
         else:
             print("✗ 错误未被捕获")
 
-    # 示例 6: 比较 BashExecutor 和 BashLingXiExecutor
+    # 示例 6: 比较 BashExecutor 和 BashlingxiExecutor
     print("\n【示例 6】安全特性比较")
     from lingclaude.engine.bash import BashExecutor
 
@@ -99,8 +99,8 @@ def main():
     print(f"  输出: {result.stdout.strip()}")
     print(f"  安全风险: 高 (shell 注入风险)")
 
-    print("\nBashLingXiExecutor (LingXi MCP):")
-    lingxi_exec = BashLingXiExecutor()
+    print("\nBashlingxiExecutor (lingxi MCP):")
+    lingxi_exec = BashlingxiExecutor()
     result = lingxi_exec.run("echo test")
     print(f"  禁止 shell 操作符: ✓")
     print(f"  输出: {result.stdout.strip()}")

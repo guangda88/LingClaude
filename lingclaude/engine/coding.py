@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lingclaude.core.config import LingClaudeConfig
+from lingclaude.core.config import lingclaudeConfig
 from lingclaude.core.permissions import PermissionContext
 from lingclaude.engine.bash import BashExecutor
-from lingclaude.engine.bash_lingxi import BashLingXiExecutor
+from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 from lingclaude.engine.file_ops import FileOps
 from lingclaude.engine.file_edit import FileEditTool
 from lingclaude.engine.file_read import FileReadTool
@@ -28,8 +28,8 @@ from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig
 
 
 class CodingRuntime:
-    def __init__(self, config: LingClaudeConfig | None = None, model_provider: Any | None = None) -> None:
-        self.config = config or LingClaudeConfig()
+    def __init__(self, config: lingclaudeConfig | None = None, model_provider: Any | None = None) -> None:
+        self.config = config or lingclaudeConfig()
         self._model_provider = model_provider
         self._pattern_recognizer = PatternRecognizer()
         self.verification_gate = VerificationGate()
@@ -37,8 +37,8 @@ class CodingRuntime:
 
     def _setup_tools(self) -> None:
         self.bash = BashExecutor(timeout=self.config.optimizer.timeout_seconds)
-        # Initialize BashLingXiExecutor with no restrictions (allow all commands)
-        self.bash_lingxi = BashLingXiExecutor(
+        # Initialize BashlingxiExecutor with no restrictions (allow all commands)
+        self.bash_lingxi = BashlingxiExecutor(
             timeout=self.config.optimizer.timeout_seconds,
             blocked_commands=[],
             allowed_commands=None,  # None means no whitelist restriction
@@ -71,7 +71,7 @@ class CodingRuntime:
         self.registry.register(
             ToolDefinition(
                 name="bash_lingxi",
-                description="Execute bash commands via LingXi MCP server (secure, monitored)",
+                description="Execute bash commands via lingxi MCP server (secure, monitored)",
                 parameters={"command": {"type": "string"}},
                 handler=self._bash_lingxi_handler,
                 security_scope="execute",

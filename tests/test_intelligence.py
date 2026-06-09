@@ -126,38 +126,79 @@ class TestBlindSpotDetector:
 
 
 class TestMetaCognition:
-    def test_record_success_and_failure(self):
-        mc = MetaCognition()
+    def test_record_success_and_failure(self, tmp_path):
+        mc = MetaCognition(persist_path=tmp_path / "mc.json")
         mc.record_success(Domain.CODE_GENERATION)
         mc.record_failure(Domain.DEBUGGING, error_description="wrong fix")
         snap = mc.get_snapshot()
         assert len(snap.boundaries) == 2
 
-    def test_snapshot_summary(self):
-        mc = MetaCognition()
+    def test_snapshot_summary(self, tmp_path):
+        mc = MetaCognition(persist_path=tmp_path / "mc.json")
         mc.record_success(Domain.CODE_GENERATION)
         snap = mc.get_snapshot()
         assert "校准" in snap.summary
 
-    def test_system_prompt_empty_when_confident(self):
-        mc = MetaCognition()
+    def test_system_prompt_empty_when_confident(self, tmp_path):
+        mc = MetaCognition(persist_path=tmp_path / "mc.json")
         for _ in range(5):
             mc.record_success(Domain.CODE_GENERATION)
         assert mc.get_system_prompt_injection() == ""
 
-    def test_system_prompt_injection_with_blind_spots(self):
-        mc = MetaCognition()
+    def test_system_prompt_injection_with_blind_spots(self, tmp_path):
+        mc = MetaCognition(persist_path=tmp_path / "mc.json")
         for _ in range(3):
             mc.record_failure(Domain.SECURITY, error_description="missed vuln")
         text = mc.get_system_prompt_injection()
         assert "盲区" in text
 
-    def test_classify_confidence_unknown_for_small_samples(self):
-        mc = MetaCognition()
+    def test_classify_confidence_unknown_for_small_samples(self, tmp_path):
+        mc = MetaCognition(persist_path=tmp_path / "mc.json")
         mc.record_success(Domain.CODE_GENERATION)
         snap = mc.get_snapshot()
         gen = [b for b in snap.boundaries if b.domain == Domain.CODE_GENERATION]
         assert gen[0].confidence == ConfidenceLevel.UNKNOWN
+
+    def test_save_and_load_roundtrip(self, tmp_path):
+        path = tmp_path / "mc.json"
+        mc1 = MetaCognition(persist_path=path)
+        mc1.record_success(Domain.CODE_GENERATION)
+        mc1.record_success(Domain.CODE_GENERATION)
+        mc1.record_failure(Domain.DEBUGGING, error_description="wrong fix", timestamp="t1")
+        mc1.record_failure(Domain.SECURITY, error_description="missed vuln")
+        mc1.record_failure(Domain.SECURITY, error_description="missed vuln")
+        snap1 = mc1.get_snapshot()
+
+        mc2 = MetaCognition(persist_path=path)
+        snap2 = mc2.get_snapshot()
+
+        assert snap2.calibration_score == pytest.approx(snap1.calibration_score)
+        assert len(snap2.blind_spots) == len(snap1.blind_spots)
+        assert "security" in snap2.blind_spots
+        assert snap2.summary == snap1.summary
+
+    def test_auto_load_on_init(self, tmp_path):
+        path = tmp_path / "mc.json"
+        mc1 = MetaCognition(persist_path=path)
+        mc1.record_success(Domain.CODE_GENERATION)
+        mc1.record_failure(Domain.DEBUGGING, error_description="err")
+
+        mc2 = MetaCognition(persist_path=path)
+        assert mc2._calibrator.records["code_generation"].correct == 1
+        assert mc2._calibrator.records["debugging"].incorrect == 1
+        assert mc2._blind_spot_detector.error_patterns["debugging"] == 1
+
+    def test_missing_file_ok(self, tmp_path):
+        mc = MetaCognition(persist_path=tmp_path / "nonexistent.json")
+        snap = mc.get_snapshot()
+        assert snap.calibration_score == pytest.approx(0.5)
+
+    def test_corrupt_file_ok(self, tmp_path):
+        path = tmp_path / "bad.json"
+        path.write_text("{invalid json")
+        mc = MetaCognition(persist_path=path)
+        snap = mc.get_snapshot()
+        assert snap.calibration_score == pytest.approx(0.5)
 
 
 # ── LayeredMemory ──────────────────────────────────────────
@@ -249,7 +290,7 @@ class TestCommonKnowledge:
         ck = CommonKnowledge()
         result = ck.lookup("灵克")
         assert result is not None
-        assert result["en"] == "LingClaude"
+        assert result["en"] == "lingclaude"
 
     def test_lookup_missing(self):
         ck = CommonKnowledge()
@@ -257,7 +298,7 @@ class TestCommonKnowledge:
 
     def test_search_by_en(self):
         ck = CommonKnowledge()
-        results = ck.search("LingResearch")
+        results = ck.search("lingresearch")
         assert len(results) >= 1
 
     def test_search_by_role(self):
@@ -269,7 +310,7 @@ class TestCommonKnowledge:
         ck = CommonKnowledge()
         text = ck.to_prompt_text()
         assert "灵克" in text
-        assert "LingClaude" in text
+        assert "lingclaude" in text
 
     def test_extra_facts(self):
         ck = CommonKnowledge(extra={"测试": {"en": "Test", "alias": "测试,Test", "role": "测试角色"}})
@@ -352,13 +393,13 @@ class TestInMemoryExperienceStore:
 
 
 class TestLayeredMemory:
-    def test_inject_common_to_prompt(self):
-        lm = LayeredMemory()
+    def test_inject_common_to_prompt(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path)
         text = lm.inject_common_to_prompt()
         assert "灵克" in text
 
-    def test_record_and_recall_experience(self):
-        lm = LayeredMemory()
+    def test_record_and_recall_experience(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path)
         exp = Experience.create(
             problem="import error in flask",
             reflection="check requirements.txt",
@@ -368,18 +409,18 @@ class TestLayeredMemory:
         results = lm.recall_experience("flask")
         assert len(results) == 1
 
-    def test_meta_facts(self):
-        lm = LayeredMemory()
+    def test_meta_facts(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.record_meta("boundary_debugging", "weak at async debugging")
         assert lm.get_meta("boundary_debugging") == "weak at async debugging"
 
-    def test_shared_facts(self):
-        lm = LayeredMemory()
+    def test_shared_facts(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.record_shared("consensus_style", "use pathlib not os.path")
         assert lm.get_shared("consensus_style") == "use pathlib not os.path"
 
-    def test_build_context_injection(self):
-        lm = LayeredMemory()
+    def test_build_context_injection(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.record_experience(Experience.create(
             problem="flask route error",
             reflection="check decorator order",
@@ -388,15 +429,32 @@ class TestLayeredMemory:
         assert "灵克" in ctx
         assert "flask" in ctx
 
-    def test_decay(self):
-        lm = LayeredMemory()
+    def test_decay(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.record_experience(Experience.create(problem="test"))
         count = lm.decay()
         assert count == 1
 
-    def test_close(self):
-        lm = LayeredMemory()
+    def test_close(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.close()
+
+    def test_meta_facts_persist(self, tmp_path):
+        lm1 = LayeredMemory(persist_dir=tmp_path)
+        lm1.record_meta("boundary_debugging", "weak at async debugging")
+        lm2 = LayeredMemory(persist_dir=tmp_path)
+        assert lm2.get_meta("boundary_debugging") == "weak at async debugging"
+
+    def test_shared_facts_persist(self, tmp_path):
+        lm1 = LayeredMemory(persist_dir=tmp_path)
+        lm1.record_shared("consensus_style", "use pathlib not os.path")
+        lm2 = LayeredMemory(persist_dir=tmp_path)
+        assert lm2.get_shared("consensus_style") == "use pathlib not os.path"
+
+    def test_missing_persist_dir_ok(self, tmp_path):
+        lm = LayeredMemory(persist_dir=tmp_path / "nonexistent")
+        lm.record_meta("k", "v")
+        assert lm.get_meta("k") == "v"
 
 
 # ── Integration: QueryEngine with intelligence modules ─────
@@ -414,7 +472,7 @@ class TestQueryEngineIntelligence:
         engine = QueryEngine()
         prompt = engine._build_adaptive_system_prompt()
         assert "灵克" in prompt
-        assert "LingClaude" in prompt
+        assert "lingclaude" in prompt
 
     def test_reset_clears_working_memory(self):
         from lingclaude.core.query_engine import QueryEngine

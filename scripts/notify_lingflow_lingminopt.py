@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""通知灵通和灵极优 - 通过 LingMessage 发起问题讨论
+"""通知灵通和灵极优 - 通过 lingmessage 发起问题讨论
 
 工作流：
-1. 通过 LingMessage 发起讨论串
+1. 通过 lingmessage 发起讨论串
 2. 通知灵通（LINGFLOW）收集情报
 3. 通知灵极优（LINGMINOPT）进行优化分析
 """
@@ -11,8 +11,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# 添加 LingMessage 到路径
-sys.path.insert(0, str(Path("/home/ai/LingMessage")))
+# 添加 lingmessage 到路径
+sys.path.insert(0, str(Path("/home/ai/lingmessage")))
 
 from lingmessage.mailbox import Mailbox
 from lingmessage.types import LingIdentity, Channel
@@ -72,7 +72,7 @@ def notify_lingflow_and_lingminopt(
 请各自完成以上任务，并在本讨论串中回复结果。
 
 ---
-*发起者：灵克（LingClaude）*
+*发起者：灵克（lingclaude）*
 """,
         )
 
@@ -94,7 +94,7 @@ if __name__ == "__main__":
             "\n\n"
             "需要进化测试体系，从'后端逻辑测试'转向'用户体验测试'。"
         ),
-        proposal_path="/home/ai/LingFlow_plus/docs/proposals/webui-testing-evolution.md",
+        proposal_path="/home/ai/lingflow_plus/docs/proposals/webui-testing-evolution.md",
     )
 
     print(message)

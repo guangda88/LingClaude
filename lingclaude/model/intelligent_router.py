@@ -43,11 +43,11 @@ class TaskType(Enum):
         query_lower = query.lower()
 
         # 代码生成
-        if any(kw in query_lower for kw in ["生成", "create", "write", "implement", "开发", "实现"]):
+        if any(kw in query_lower for kw in ["生成", "create", "write", "implement", "开发", "实现", "写", "编写", "编", "函数", "function"]):
             return cls.CODE_GENERATION
 
         # 代码分析
-        if any(kw in query_lower for kw in ["分析", "analyze", "review", "检查", "explain"]):
+        if any(kw in query_lower for kw in ["代码分析", "code analyze", "code review", "analyze code", "review code", "检查代码", "explain code", "检查", "explain"]):
             return cls.CODE_ANALYSIS
 
         # 代码重构
@@ -59,7 +59,7 @@ class TaskType(Enum):
             return cls.DEBUGGING
 
         # 文档
-        if any(kw in query_lower for kw in ["文档", "document", "注释", "comment", "说明"]):
+        if any(kw in query_lower for kw in ["文档", "document", "documentation", "注释", "comment", "说明", "readme"]):
             return cls.DOCUMENTATION
 
         # 搜索

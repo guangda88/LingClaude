@@ -343,7 +343,7 @@
 - [ ] 收集每日使用数据
 - [ ] 分析使用模式
 - [ ] 生成优化建议
-- [ ] 发送到LingMessage
+- [ ] 发送到lingmessage
 
 **时间**：3-4小时
 
@@ -594,18 +594,18 @@
 
 ### 8.2 相关文件
 
-- 配额用量截图：`/home/ai/LingClaude/tests/套餐用量.PNG`
+- 配额用量截图：`/home/ai/lingclaude/tests/套餐用量.PNG`
 - 本计划文档：`docs/glm-token-optimization-plan.md`
 
 ### 8.3 联系方式
 
 如有问题，请联系：
-- LingClaude 团队
-- LingMessage 讨论组
+- lingclaude 团队
+- lingmessage 讨论组
 
 ---
 
 **文档版本**：v1.0
 **创建日期**：2026-04-07
 **最后更新**：2026-04-07
-**负责人**：LingClaude AI 助手
+**负责人**：lingclaude AI 助手

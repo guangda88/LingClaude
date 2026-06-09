@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, TypeAlias
+
+from lingclaude.core.safe_db import safe_commit, safe_connect
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,7 @@ class TokenMonitor:
 
     def _init_db(self) -> None:
         """初始化数据库"""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         # 创建使用记录表
@@ -128,7 +129,7 @@ class TokenMonitor:
             )
         """)
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
     def record_usage(
@@ -152,7 +153,7 @@ class TokenMonitor:
             prompt_count: 提示词数量
             metadata: 额外元数据
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -164,7 +165,7 @@ class TokenMonitor:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (timestamp, model, task_type, total_tokens, input_tokens, output_tokens, prompt_count, metadata_json))
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
     def record_file_read(self, file_path: str, file_content: str) -> bool:
@@ -179,10 +180,10 @@ class TokenMonitor:
         """
         import hashlib
 
-        file_hash = hashlib.md5(file_content.encode()).hexdigest()
+        file_hash = hashlib.md5(file_content.encode(), usedforsecurity=False).hexdigest()
         is_duplicate = False
 
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -203,7 +204,7 @@ class TokenMonitor:
             VALUES (?, ?, ?, COALESCE((SELECT read_count FROM file_reads WHERE file_path = ?), 0) + 1)
         """, (timestamp, file_path, file_hash, file_path))
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
         return is_duplicate
@@ -220,7 +221,7 @@ class TokenMonitor:
         if date is None:
             date = datetime.now(timezone.utc).date().isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         # 总计
@@ -563,7 +564,7 @@ class TokenMonitor:
 """
 
         # 获取最近 7 天数据
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         for i in range(6, -1, -1):
@@ -603,7 +604,7 @@ class TokenMonitor:
 
     <footer>
         <p style="text-align: center; color: #666; margin-top: 50px;">
-            生成时间：{datetime.now(timezone.utc).isoformat()} | <a href="https://github.com/lingclaude/lingclaude">LingClaude Project</a>
+            生成时间：{datetime.now(timezone.utc).isoformat()} | <a href="https://github.com/lingclaude/lingclaude">lingclaude Project</a>
         </p>
     </footer>
 </body>
@@ -729,7 +730,7 @@ class TokenMonitor:
 """
 
         # 获取最近 7 天数据
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         for i in range(6, -1, -1):
@@ -760,7 +761,7 @@ class TokenMonitor:
 ---
 
 **生成时间**：{datetime.now(timezone.utc).isoformat()}
-**生成工具**：LingClaude Token Monitor
+**生成工具**：lingclaude Token Monitor
 """
 
         output_path.write_text(markdown, encoding="utf-8")

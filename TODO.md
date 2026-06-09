@@ -136,9 +136,9 @@ RQ5: 配方能否跨任务泛化？
 **状态**: ⏳ 进行中（3/10完成）
 
 #### 已完成
-- ✅ 灵依 (LingYi) - `/home/ai/LingYi/docs/LINGYI_PROFILE.md`
-- ✅ 灵通 (LingFlow) - `/home/ai/LingFlow/docs/SELF_PORTRAIT.md`
-- ✅ 灵克 (LingClaude) - `/home/ai/LingClaude/SELF_PORTRAIT.md`
+- ✅ 灵依 (lingyi) - `/home/ai/lingyi/docs/LINGYI_PROFILE.md`
+- ✅ 灵通 (lingflow) - `/home/ai/lingflow/docs/SELF_PORTRAIT.md`
+- ✅ 灵克 (lingclaude) - `/home/ai/lingclaude/SELF_PORTRAIT.md`
 
 #### 待完成
 - ⏳ 灵知 (lingzhi)
@@ -298,4 +298,4 @@ RQ5: 配方能否跨任务泛化？
 ---
 
 **最后更新**: 2026-04-12 14:15
-**维护者**: LingClaude (灵克)
+**维护者**: lingclaude (灵克)

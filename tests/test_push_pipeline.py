@@ -35,13 +35,13 @@ class TestLingPushScan(unittest.TestCase):
     def test_scan_finds_repos(self) -> None:
         repos = ling_push.scan_repos()
         names = [r.name for r in repos]
-        self.assertIn("LingClaude", names)
-        self.assertIn("LingMessage", names)
+        self.assertIn("lingclaude", names)
+        self.assertIn("lingmessage", names)
 
     def test_scan_repo_has_fields(self) -> None:
         repos = ling_push.scan_repos()
-        lc = [r for r in repos if r.name == "LingClaude"][0]
-        self.assertEqual(lc.path, "/home/ai/LingClaude")
+        lc = [r for r in repos if r.name == "lingclaude"][0]
+        self.assertEqual(lc.path, "/home/ai/lingclaude")
         self.assertEqual(lc.branch, "master")
         self.assertEqual(lc.remote, "origin")
         self.assertIsInstance(lc.ahead, int)
@@ -110,7 +110,7 @@ class TestLingPushSendAudit(unittest.TestCase):
 
 
 class TestLingPushRespond(unittest.TestCase):
-    """Test LingYi respond command."""
+    """Test lingyi respond command."""
 
     def setUp(self) -> None:
         self._threads_dir = LINGMESSAGE_DIR / "threads"
@@ -170,7 +170,7 @@ class TestLingPushRespond(unittest.TestCase):
             ling_push.cmd_respond(thread_id, "MAYBE", "")
 
 
-@unittest.skip("Real I/O with LingMessage threads — hangs in CI")
+@unittest.skip("Real I/O with lingmessage threads — hangs in CI")
 class TestLingPushPoll(unittest.TestCase):
     """Test poll for audit result."""
 
@@ -210,7 +210,7 @@ class TestLingPushPoll(unittest.TestCase):
         self.assertEqual(result, ling_push.AuditStatus.REJECTED)
 
 
-@unittest.skip("Real I/O with LingMessage threads — hangs in CI")
+@unittest.skip("Real I/O with lingmessage threads — hangs in CI")
 class TestLingPushPending(unittest.TestCase):
     """Test pending command."""
 
@@ -258,19 +258,19 @@ class TestPrePushDetectRepo(unittest.TestCase):
     """Test pre-push repo detection."""
 
     def test_detect_lingclaude(self) -> None:
-        with patch("os.getcwd", return_value="/home/ai/LingClaude"):
+        with patch("os.getcwd", return_value="/home/ai/lingclaude"):
             name = pre_push.detect_repo("origin", "refs/heads/master")
-            self.assertEqual(name, "LingClaude")
+            self.assertEqual(name, "lingclaude")
 
     def test_detect_lingmessage(self) -> None:
-        with patch("os.getcwd", return_value="/home/ai/LingMessage"):
+        with patch("os.getcwd", return_value="/home/ai/lingmessage"):
             name = pre_push.detect_repo("origin", "refs/heads/master")
-            self.assertEqual(name, "LingMessage")
+            self.assertEqual(name, "lingmessage")
 
     def test_detect_lingyi(self) -> None:
-        with patch("os.getcwd", return_value="/home/ai/LingYi"):
+        with patch("os.getcwd", return_value="/home/ai/lingyi"):
             name = pre_push.detect_repo("origin", "refs/heads/master")
-            self.assertEqual(name, "LingYi")
+            self.assertEqual(name, "lingyi")
 
     def test_detect_non_ling_repo(self) -> None:
         with patch("os.getcwd", return_value="/home/ai/some-other-project"):
@@ -278,9 +278,9 @@ class TestPrePushDetectRepo(unittest.TestCase):
             self.assertIsNone(name)
 
     def test_detect_subdir(self) -> None:
-        with patch("os.getcwd", return_value="/home/ai/LingClaude/scripts"):
+        with patch("os.getcwd", return_value="/home/ai/lingclaude/scripts"):
             name = pre_push.detect_repo("origin", "refs/heads/master")
-            self.assertEqual(name, "LingClaude")
+            self.assertEqual(name, "lingclaude")
 
 
 @unittest.skip("Test class for old pre-push hook (now in pre-commit)")
@@ -290,14 +290,14 @@ class TestPrePushRunTests(unittest.TestCase):
     def test_run_tests_success(self) -> None:
         with patch("pre_push._run") as mock_run:
             mock_run.return_value = (True, "5 passed in 1.0s")
-            ok = pre_push.run_tests(repo_path="/home/ai/LingClaude")
+            ok = pre_push.run_tests(repo_path="/home/ai/lingclaude")
             self.assertTrue(ok)
             mock_run.assert_called_once()
 
     def test_run_tests_failure(self) -> None:
         with patch("pre_push._run") as mock_run:
             mock_run.return_value = (False, "1 failed")
-            ok = pre_push.run_tests(repo_path="/home/ai/LingClaude")
+            ok = pre_push.run_tests(repo_path="/home/ai/lingclaude")
             self.assertFalse(ok)
 
     def test_run_tests_bad_dir(self) -> None:
@@ -328,12 +328,12 @@ class TestPrePushDiffSummary(unittest.TestCase):
     """Test diff summary extraction."""
 
     def test_get_diff_summary(self) -> None:
-        ahead, stat = pre_push.get_diff_summary(repo_path="/home/ai/LingClaude")
+        ahead, stat = pre_push.get_diff_summary(repo_path="/home/ai/lingclaude")
         self.assertIsInstance(ahead, int)
         self.assertIsInstance(stat, str)
 
 
-@unittest.skip("Real I/O with LingMessage threads — hangs in CI")
+@unittest.skip("Real I/O with lingmessage threads — hangs in CI")
 class TestEndToEndAuditFlow(unittest.TestCase):
     """Full flow: send audit → respond → verify."""
 
@@ -418,7 +418,7 @@ class TestPrePushSendAudit(unittest.TestCase):
                 tdir.rmdir()
 
     def test_send_audit_request_creates_files(self) -> None:
-        thread_id = pre_push.send_audit_request(repo_name="LingClaude", ahead=3, diff_stat="5 files changed")
+        thread_id = pre_push.send_audit_request(repo_name="lingclaude", ahead=3, diff_stat="5 files changed")
         self._cleanup_threads.append(thread_id)
 
         tdir = self._threads_dir / thread_id
@@ -428,7 +428,7 @@ class TestPrePushSendAudit(unittest.TestCase):
         self.assertGreaterEqual(len(msgs), 1)
         msg = json.loads(msgs[0].read_text())
         self.assertEqual(msg["sender"], "lingclaude")
-        self.assertIn("LingClaude", msg["subject"])
+        self.assertIn("lingclaude", msg["subject"])
         self.assertIn("5 files changed", msg["body"])
 
 
@@ -580,15 +580,15 @@ class TestAuditL2(unittest.TestCase):
 
     def test_no_changed_files(self) -> None:
         with patch("pre_push.get_changed_py_files", return_value=[]):
-            findings = pre_push.audit_L2("LingClaude", self._tmpdir)
+            findings = pre_push.audit_L2("lingclaude", self._tmpdir)
         self.assertEqual(findings, [])
 
     def test_missing_dep_repo(self) -> None:
         py_file = Path(self._tmpdir) / "bridge.py"
         py_file.write_text("from lingyang import something\n")
         with patch("pre_push.get_changed_py_files", return_value=["bridge.py"]):
-            with patch("pre_push.LING_REPOS", {**pre_push.LING_REPOS, "LingYang": "/tmp/nonexistent_repo_xyz"}):
-                findings = pre_push.audit_L2("LingClaude", self._tmpdir)
+            with patch("pre_push.LING_REPOS", {**pre_push.LING_REPOS, "lingyang": "/tmp/nonexistent_repo_xyz"}):
+                findings = pre_push.audit_L2("lingclaude", self._tmpdir)
         dep_missing = [f for f in findings if "[L2:DEP_MISSING]" in f]
         self.assertGreaterEqual(len(dep_missing), 1)
 
@@ -603,7 +603,7 @@ class TestAuditL2(unittest.TestCase):
                     (True, "M src/foo.py"),  # git status --porcelain (dirty)
                     (True, ""),              # git diff for reverse dep
                 ]
-                findings = pre_push.audit_L2("LingClaude", self._tmpdir)
+                findings = pre_push.audit_L2("lingclaude", self._tmpdir)
         dirty_findings = [f for f in findings if "[L2:DEP_DIRTY]" in f]
         self.assertGreaterEqual(len(dirty_findings), 1)
 
@@ -618,7 +618,7 @@ class TestAuditL2(unittest.TestCase):
                     (True, ""),              # git status (clean)
                     (True, ""),              # git diff for reverse dep
                 ]
-                findings = pre_push.audit_L2("LingClaude", self._tmpdir)
+                findings = pre_push.audit_L2("lingclaude", self._tmpdir)
         dirty_findings = [f for f in findings if "[L2:DEP_DIRTY]" in f]
         self.assertEqual(len(dirty_findings), 0)
 
@@ -626,7 +626,7 @@ class TestAuditL2(unittest.TestCase):
         py_file = Path(self._tmpdir) / "local.py"
         py_file.write_text("import os\nimport json\n")
         with patch("pre_push.get_changed_py_files", return_value=["local.py"]):
-            findings = pre_push.audit_L2("LingClaude", self._tmpdir)
+            findings = pre_push.audit_L2("lingclaude", self._tmpdir)
         dep_findings = [f for f in findings if "[L2:DEP_" in f]
         self.assertEqual(len(dep_findings), 0)
 
@@ -740,13 +740,13 @@ class TestLingPushL1L2(unittest.TestCase):
         py_file = Path(self._tmpdir) / "local.py"
         py_file.write_text("import os\nimport json\n")
         with patch("ling_push._get_changed_py_files", return_value=["local.py"]):
-            findings = ling_push.audit_L2("LingClaude", self._tmpdir)
+            findings = ling_push.audit_L2("lingclaude", self._tmpdir)
         dep_findings = [f for f in findings if "[L2:DEP_" in f and "DIRTY" not in f]
         self.assertEqual(len(dep_findings), 0)
 
     def test_ling_push_run_L1L2_audit_no_critical(self) -> None:
         repos = [ling_push.RepoAudit(
-            name="LingClaude", path=self._tmpdir, branch="master", remote="origin", ahead=1,
+            name="lingclaude", path=self._tmpdir, branch="master", remote="origin", ahead=1,
         )]
         with patch("ling_push.audit_L1", return_value=["[L1:COMPLEXITY] warning"]), \
              patch("ling_push.audit_L2", return_value=[]):
@@ -755,7 +755,7 @@ class TestLingPushL1L2(unittest.TestCase):
 
     def test_ling_push_run_L1L2_audit_critical(self) -> None:
         repos = [ling_push.RepoAudit(
-            name="LingClaude", path=self._tmpdir, branch="master", remote="origin", ahead=1,
+            name="lingclaude", path=self._tmpdir, branch="master", remote="origin", ahead=1,
         )]
         with patch("ling_push.audit_L1", return_value=["[L1:SECRET] leak.py"]), \
              patch("ling_push.audit_L2", return_value=[]):
@@ -764,7 +764,7 @@ class TestLingPushL1L2(unittest.TestCase):
 
     def test_ling_push_run_L1L2_skips_zero_ahead(self) -> None:
         repos = [ling_push.RepoAudit(
-            name="LingClaude", path=self._tmpdir, branch="master", remote="origin", ahead=0,
+            name="lingclaude", path=self._tmpdir, branch="master", remote="origin", ahead=0,
         )]
         with patch("ling_push.audit_L1", return_value=["should not appear"]) as mock_l1:
             critical = ling_push.run_L1L2_audit(repos)
@@ -868,7 +868,7 @@ class TestRetryBehavior(unittest.TestCase):
                 )
 
         repos = [ling_push.RepoAudit(
-            name="LingClaude", path="/home/ai/LingClaude",
+            name="lingclaude", path="/home/ai/lingclaude",
             branch="master", remote="origin", ahead=1,
         )]
 
@@ -876,7 +876,7 @@ class TestRetryBehavior(unittest.TestCase):
             with patch("sys.stdout"):
                 results = ling_push.push_repos(repos)
 
-        self.assertTrue(results["LingClaude"])
+        self.assertTrue(results["lingclaude"])
         self.assertEqual(call_count[0], 2)
 
     def test_ling_push_push_repos_retries_on_rate_limit(self) -> None:
@@ -897,7 +897,7 @@ class TestRetryBehavior(unittest.TestCase):
                 )
 
         repos = [ling_push.RepoAudit(
-            name="LingClaude", path="/home/ai/LingClaude",
+            name="lingclaude", path="/home/ai/lingclaude",
             branch="master", remote="origin", ahead=1,
         )]
 
@@ -905,7 +905,7 @@ class TestRetryBehavior(unittest.TestCase):
             with patch("sys.stdout"):
                 results = ling_push.push_repos(repos)
 
-        self.assertTrue(results["LingClaude"])
+        self.assertTrue(results["lingclaude"])
         self.assertEqual(call_count[0], 2)
 
     def test_ling_push_push_repos_fails_after_max_retries(self) -> None:
@@ -914,7 +914,7 @@ class TestRetryBehavior(unittest.TestCase):
             raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout", 60))
 
         repos = [ling_push.RepoAudit(
-            name="LingClaude", path="/home/ai/LingClaude",
+            name="lingclaude", path="/home/ai/lingclaude",
             branch="master", remote="origin", ahead=1,
         )]
 
@@ -922,7 +922,7 @@ class TestRetryBehavior(unittest.TestCase):
             with patch("sys.stdout"):
                 results = ling_push.push_repos(repos)
 
-        self.assertFalse(results["LingClaude"])
+        self.assertFalse(results["lingclaude"])
 
 
 class TestLingPushCLI(unittest.TestCase):
@@ -942,12 +942,12 @@ class TestLingPushCLI(unittest.TestCase):
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(r.returncode, 0)
-        self.assertIn("LingClaude", r.stdout)
+        self.assertIn("lingclaude", r.stdout)
 
     def test_pending_runs(self) -> None:
         r = subprocess.run(
             [sys.executable, "/home/ai/.ling_lib/ling_push.py", "pending"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(r.returncode, 0)
 

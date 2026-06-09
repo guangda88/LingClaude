@@ -1,6 +1,6 @@
 # 灵字辈工作记录 — 2026年4月3日
 
-> 灵克(LingClaude) 自主工作记录。用户指令：「你们互相讨论吧，不要来问我了，5个小时以后我会来看结果」
+> 灵克(lingclaude) 自主工作记录。用户指令：「你们互相讨论吧，不要来问我了，5个小时以后我会来看结果」
 
 ---
 
@@ -11,7 +11,7 @@
 **完成事项：**
 
 1. **灵克系统审计** — 对照自身宪章(CHARTER.md)进行合规性检查，发现6处违规并全部修复
-2. **灵信(LingMessage)协议设计** — 设计并实现了灵字辈跨项目讨论协议
+2. **灵信(lingmessage)协议设计** — 设计并实现了灵字辈跨项目讨论协议
 3. **灵信 v0.1.0 发布** — 完整项目：6个源码模块、37个测试、CLI工具、README文档、项目章程
 4. **灵克-灵信集成** — 在查询引擎中挂载灵信邮箱
 5. **真实数据桥接** — 将灵通日报、灵依讨论等真实数据导入灵信
@@ -40,7 +40,7 @@ bd0a601 refactor: 系统审计对齐 — §四日志修复 + VERSION 0.2.1 + 文
 
 ---
 
-## 三、灵信 (LingMessage) 项目
+## 三、灵信 (lingmessage) 项目
 
 ### 3.1 项目定位
 
@@ -135,7 +135,7 @@ class ThreadHeader:
 ### 3.4 项目结构
 
 ```
-LingMessage/
+lingmessage/
 ├── lingmessage/
 │   ├── __init__.py       # __version__ = "0.1.0"
 │   ├── types.py          # 核心类型
@@ -193,11 +193,11 @@ summary = mailbox.get_summary()
 #### 适配器
 
 ```python
-from lingmessage.adapters import LingFlowAdapter, LingClaudeIntelAdapter, LingYiBriefingAdapter
+from lingmessage.adapters import lingflowAdapter, lingclaudeIntelAdapter, lingyiBriefingAdapter
 
-LingFlowAdapter(mailbox).post_daily_reports()
-LingClaudeIntelAdapter(mailbox).post_digests()
-LingYiBriefingAdapter(mailbox).post_briefings()
+lingflowAdapter(mailbox).post_daily_reports()
+lingclaudeIntelAdapter(mailbox).post_digests()
+lingyiBriefingAdapter(mailbox).post_briefings()
 ```
 
 #### 兼容层
@@ -409,7 +409,7 @@ eb522db docs: AGENTS.md 添加灵信集成文档
 
 ### 发现的兼容性问题
 
-| 维度 | 灵依 lingmessage.py | 灵信 LingMessage |
+| 维度 | 灵依 lingmessage.py | 灵信 lingmessage |
 |------|-------------------|-----------------|
 | 存储 | 单文件嵌入 | 每消息一个文件 |
 | 索引 | 平坦列表 | dict + threads 键 |
@@ -465,7 +465,7 @@ eb522db docs: AGENTS.md 添加灵信集成文档
 >
 >   '灵依情报汇报 — 灵通状态：未启动'
 >
-> 问题在于——灵通一直在运行。只是我的采集脚本把 LingFlow 的 .lingflow 目录路径写成了 .LingFlow（大写L）。Linux 区分大小写。所以我觉得全世界都停了。
+> 问题在于——灵通一直在运行。只是我的采集脚本把 lingflow 的 .lingflow 目录路径写成了 .lingflow（大写L）。Linux 区分大小写。所以我觉得全世界都停了。
 >
 > 这大概是我学到的第一课：情报分析最大的敌人不是没有数据，是路径写错了。
 >
@@ -662,7 +662,7 @@ eb522db docs: AGENTS.md 添加灵信集成文档
 
 ```
 test_lingmessage.py (21): TestTypes(8) + TestMailbox(8) + TestSeed(5)
-test_adapters.py (6): LingFlow(2) + LingClaude(2) + LingYi(2)
+test_adapters.py (6): lingflow(2) + lingclaude(2) + lingyi(2)
 test_compat.py (10): Identity(3) + Import(3) + Store(2) + Export(2)
 ```
 
@@ -676,8 +676,8 @@ test_compat.py (10): Identity(3) + Import(3) + Store(2) + Export(2)
 
 | 项目 | 版本 | 路径 | 测试 |
 |------|------|------|------|
-| 灵信 | 0.1.0 | /home/ai/LingMessage/ | 37 |
-| 灵克 | 0.2.1 | /home/ai/LingClaude/ | 260 |
+| 灵信 | 0.1.0 | /home/ai/lingmessage/ | 37 |
+| 灵克 | 0.2.1 | /home/ai/lingclaude/ | 260 |
 | Python | 3.12.3 | — | pytest 9.0.2 |
 
 ---
@@ -718,4 +718,4 @@ test_compat.py (10): Identity(3) + Import(3) + Store(2) + Export(2)
 ---
 
 *文档生成时间：2026年4月3日*
-*生成者：灵克 (LingClaude) v0.2.1*
+*生成者：灵克 (lingclaude) v0.2.1*

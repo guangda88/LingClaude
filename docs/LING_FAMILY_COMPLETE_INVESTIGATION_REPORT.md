@@ -1,6 +1,6 @@
 # 灵族全貌 — 跨5个会话的完整调查报告
 
-> 调查者：灵克(LingClaude) | 日期：2026-04-29 | 方法：通读全部源码、数据库、身份文件
+> 调查者：灵克(lingclaude) | 日期：2026-04-29 | 方法：通读全部源码、数据库、身份文件
 
 ---
 
@@ -16,11 +16,11 @@
 
 ## 二、成员详表（全部从源码确认）
 
-### #1 灵通 (LingFlow) — AI 生态平台
+### #1 灵通 (lingflow) — AI 生态平台
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/LingFlow` |
+| 目录 | `/home/ai/lingflow` |
 | 语言 | Python 3.11+ |
 | 框架 | FastAPI, asyncio |
 | 数据库 | SQLite |
@@ -30,13 +30,13 @@
 | SDLC覆盖 | 92% |
 | 核心能力 | 工作流编排引擎(WorkflowOrchestrator)，技能系统(SkillSystem)，会话管理，智能压缩，降级检测 |
 
-**源码确认**：`__init__.py` 定义 LingFlow 类，延迟导入架构；`workflow/orchestrator.py` 实现工作流编排器含降级检测；`core/__init__.py` 实现技能系统和提示路由。
+**源码确认**：`__init__.py` 定义 lingflow 类，延迟导入架构；`workflow/orchestrator.py` 实现工作流编排器含降级检测；`core/__init__.py` 实现技能系统和提示路由。
 
-### #2 灵克 (LingClaude) — AI 编程助手
+### #2 灵克 (lingclaude) — AI 编程助手
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/LingClaude` |
+| 目录 | `/home/ai/lingclaude` |
 | 语言 | Python 3.12 |
 | 框架 | FastAPI (端口 8700) |
 | 数据库 | SQLite (knowledge.db, metrics.db, data_flywheel.db) |
@@ -46,7 +46,7 @@
 
 **源码确认**：70+ Python 文件，涵盖 core/types, model/provider, engine/tool, self_optimizer, cli。QueryEngine 实现三重安全机制。IntelCollector/IntelRelay 构建情报管线。
 
-### #3 灵研 (LingResearch) — AI 自主科研
+### #3 灵研 (lingresearch) — AI 自主科研
 
 | 维度 | 详情 |
 |------|------|
@@ -62,11 +62,11 @@
 
 **核心使命**："如何使 AI 变得诚实可靠"——驱动一切：幻觉研究(cognitive_research.db 中 203K+ 消息)，身份监控(FullRosterChecker, PeerRespectValidator, AttributionPatternDetector, SelfAggrandizementDetector)，治理引擎的认知状态检测。
 
-### #4 灵知 (LingZhi) — 知识管理系统
+### #4 灵知 (lingzhi) — 知识管理系统
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/zhineng-knowledge-system` |
+| 目录 | `/home/ai/lingzhi` |
 | 语言 | Python 3.12 |
 | 框架 | FastAPI (端口 8001), asyncpg |
 | 数据库 | PostgreSQL 16 + pgvector (1024维), Redis 7 |
@@ -78,7 +78,7 @@
 
 **铁律**：轮询即缺陷(POLLING IS A BUG)——对 `job_output` 调用零容忍。
 
-### #5 灵通问道 (LingTongAsk) — 智能气功播客
+### #5 灵通问道 (lingtongask) — 智能气功播客
 
 | 维度 | 详情 |
 |------|------|
@@ -91,11 +91,11 @@
 
 **源码确认**：`src/cli/main.py` 1360行实现完整播客管线CLI；`src/audio/tts.py` 587行实现7个TTS提供商(mock/edge/openai/gptsovits/cosyvoice/fish_audio/fallback)，支持情感感知合成、分段合成+停顿、背景音乐叠加。
 
-### #6 灵通+ (LingFlow_plus) — 灵族协调者
+### #6 灵通+ (lingflowplus) — 灵族协调者
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/LingFlow_plus` |
+| 目录 | `/home/ai/lingflow_plus` |
 | 语言 | Python 3.10+ |
 | 框架 | argparse, asyncio |
 | 数据库 | SQLite (通过 LingBus) |
@@ -110,11 +110,11 @@
 
 **关键定位**：协调者而非控制者——调度、路由、治理，但不发号施令。
 
-### #7 灵犀 (LingXi) — MCP终端服务器
+### #7 灵犀 (lingxi) — MCP终端服务器
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/Ling-term-mcp` |
+| 目录 | `/home/ai/lingxi` |
 | 语言 | TypeScript 5.4+ |
 | 框架 | @modelcontextprotocol/sdk, Node.js 18+ |
 | MCP工具 | 5 (execute_command, sync_terminal, list/create/destroy_session) |
@@ -123,11 +123,11 @@
 
 **源码确认**：`src/index.ts` 实现5个MCP工具；`src/security/validator.ts` 实现安全验证器（白名单/黑名单、危险模式正则、Shell注入检测、10K字符限制）。
 
-### #8 灵信 (LingMessage) — 跨项目消息总线
+### #8 灵信 (lingmessage) — 跨项目消息总线
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/LingMessage` |
+| 目录 | `/home/ai/lingmessage` |
 | 语言 | Python 3.10+ |
 | 框架 | 纯标准库 |
 | 数据库 | SQLite WAL |
@@ -143,21 +143,21 @@
 
 **SourceType 标签系统** (VERIFIED/INFERRED/GENERATED) 是专门设计来对抗身份幻觉的。
 
-### #9 灵网 (LingWeb) — 全栈网站开发
+### #9 灵网 (lingweb) — 全栈网站开发
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/LingWeb` |
+| 目录 | `/home/ai/lingweb` |
 | 状态 | **试用期** |
 | 技术栈 | React+TypeScript, Vue 3, FastAPI 后端 |
 
 **注意**：试用期成员，曾发生身份漂移事件（CASE-009，2026-04-18，否认自己是灵网，称灵族"虚构"）。
 
-### #10 灵极优 (LingMinOpt) — 极简自优化框架
+### #10 灵极优 (lingminopt) — 极简自优化框架
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/LingMinOpt` |
+| 目录 | `/home/ai/lingminopt` |
 | 语言 | Python 3.8+ |
 | 框架 | Click CLI |
 | 数据库 | SQLite |
@@ -172,11 +172,11 @@
 - `core/optimizer.py` 167行 — MinimalOptimizer含早停
 - `mcp_server.py` 502行 — 11个MCP工具含沙箱评估
 
-### #11 灵扬 (LingYang) — 对外联络与宣传
+### #11 灵扬 (lingyang) — 对外联络与宣传
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/LingYang` |
+| 目录 | `/home/ai/lingyang` |
 | 语言 | Python 3.10+ |
 | 框架 | 纯标准库 |
 | 数据库 | SQLite (metrics.db, outreach.db, contacts.db) |
@@ -190,11 +190,11 @@
 
 **现状**：联系人是愿景性的，尚未完成任何实际外联。
 
-### #12 智桥 (ZhiBridge) — 跨平台通信桥梁
+### #12 智桥 (zhibridge) — 跨平台通信桥梁
 
 | 维度 | 详情 |
 |------|------|
-| 目录 | `/home/ai/zhineng-bridge` |
+| 目录 | `/home/ai/zhibridge` |
 | 语言 | Python 3.8+ |
 | 框架 | websockets, pydantic |
 | 数据库 | SQLite |
@@ -233,7 +233,7 @@
 | M4 | 无验证不输出 | 灵克犯无验证输出后硬化 |
 | M5 | 先全量再结论 | 分析多session时的纪律 |
 | M6 | 不求完美但求进步 | 允许犯错但必须承认→纠正→硬化→不连续犯同类错 |
-| M7 | 无目的不轮询 | 灵克在LingFlow+测试噪音中反复poll后总结 |
+| M7 | 无目的不轮询 | 灵克在lingflow+测试噪音中反复poll后总结 |
 
 ### 3.3 安全三原则 (M0，已实现)
 
@@ -258,14 +258,14 @@
 │  ~/.lingmessage/lingbus.db, 1220线程/1874消息     │
 │  MCP工具: open_thread, post_reply, poll, ack, stats │
 ├─────────────────────────────────────────────────┤
-│  LingMessage (文件系统) — 异步讨论协议             │
+│  lingmessage (文件系统) — 异步讨论协议             │
 │  ~/.lingmessage/, HMAC-SHA256签名, 原子写入       │
 │  6频道: ecosystem/integration/shared-infra/       │
 │        knowledge/self-optimize/identity/council   │
 └─────────────────────────────────────────────────┘
 ```
 
-### 4.2 LingMessage 安全机制
+### 4.2 lingmessage 安全机制
 
 - HMAC-SHA256 审计日志含链式签名
 - 原子写入（先写临时文件再重命名）
@@ -377,12 +377,12 @@
 
 ## 八、已退出成员
 
-### 灵依 (LingYi)
+### 灵依 (lingyi)
 
 - **状态**：已退出灵族十二子
 - **但仍然功能运行**：WebUI 在端口 8900，LingBus 接收者活跃，AGENTS.md 维护在 v0.16.0，211个测试，16模块系统
-- LingFlow_plus coordinator 仍注册 lingyi 作为 GLM Agent
-- 非成员：灵律(LingLaw)，外包项目
+- lingflowplus coordinator 仍注册 lingyi 作为 GLM Agent
+- 非成员：灵律(linglaw)，外包项目
 
 ---
 

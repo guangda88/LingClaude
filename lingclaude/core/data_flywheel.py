@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.safe_db import safe_commit, safe_connect
+
 from lingclaude.core.types import Result
 
 logger = logging.getLogger(__name__)
@@ -95,7 +97,7 @@ class DataFlywheel:
 
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = safe_connect(self.db_path)
             self._conn.row_factory = sqlite3.Row
         return self._conn
 
@@ -122,7 +124,7 @@ class DataFlywheel:
                     error.occurred_at,
                 ),
             )
-            conn.commit()
+            safe_commit(conn)
             return Result.ok(c.lastrowid)
         except Exception as e:
             logger.warning("飞轮记录错误失败: %s", e)
@@ -144,7 +146,7 @@ class DataFlywheel:
                     correction.applied_at,
                 ),
             )
-            conn.commit()
+            safe_commit(conn)
             return Result.ok(c.lastrowid)
         except Exception as e:
             logger.warning("飞轮记录纠正失败: %s", e)

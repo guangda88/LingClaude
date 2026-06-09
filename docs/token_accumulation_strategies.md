@@ -152,7 +152,7 @@ EOF
 **实现方式：**
 
 ```python
-from lingclaude.core import QueryEngine, LingClaudeConfig
+from lingclaude.core import QueryEngine, lingclaudeConfig
 from datetime import datetime
 
 def is_busy_time() -> bool:
@@ -165,7 +165,7 @@ def get_current_config():
     """根据时间选择配置"""
     if is_busy_time():
         # 忙时：使用本地模型
-        return LingClaudeConfig.from_dict({
+        return lingclaudeConfig.from_dict({
             'model': {
                 'provider': 'openai',
                 'base_url': 'http://localhost:11434/v1',
@@ -176,7 +176,7 @@ def get_current_config():
         })
     else:
         # 闲时：使用云端 GLM
-        return LingClaudeConfig.from_dict({
+        return lingclaudeConfig.from_dict({
             'model': {
                 'provider': 'openai',
                 'base_url': 'https://api.deepseek.com/v1',
@@ -269,7 +269,7 @@ echo "$(date '+%Y-%m-%d %H:%M:%S') - 实现用户认证模块" >> ~/.lingclaude/
 while read -r line; do
     query=$(echo "$line" | cut -d' ' -f4-)
     echo "执行: $query"
-    # 使用 LingClaude 执行
+    # 使用 lingclaude 执行
     python3 -m lingclaude.cli "$query"
     echo "完成"
 done < ~/.lingclaude/tasks/todo.txt
@@ -282,7 +282,7 @@ rm ~/.lingclaude/tasks/todo.txt
 
 ```python
 # scripts/auto_router.py
-from lingclaude.core import QueryEngine, LingClaudeConfig
+from lingclaude.core import QueryEngine, lingclaudeConfig
 from datetime import datetime
 
 def is_busy_time() -> bool:
@@ -295,7 +295,7 @@ def auto_route_query(query: str):
     if is_busy_time():
         # 忙时：本地模型
         print("🏥 门诊时间 → 使用本地模型")
-        config = LingClaudeConfig.from_dict({
+        config = lingclaudeConfig.from_dict({
             'model': {
                 'provider': 'openai',
                 'base_url': 'http://localhost:11434/v1',
@@ -307,7 +307,7 @@ def auto_route_query(query: str):
     else:
         # 闲时：云端 GLM
         print("🌙 闲时 → 使用云端 GLM")
-        config = LingClaudeConfig.from_dict({
+        config = lingclaudeConfig.from_dict({
             'model': {
                 'provider': 'openai',
                 'base_url': 'https://api.deepseek.com/v1',

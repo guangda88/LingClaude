@@ -9,16 +9,16 @@
 > | `lingminopt.meta_optimizer` (作为单文件模块导入) | ❌ 不存在 | `meta_optimizer` 是一个**目录/包**，不是单文件。正确导入应为 `lingminopt.meta_optimizer.data_collector` 等 |
 > | `from lingminopt.meta_optimizer import DataCollector, SessionRecord` (第87行) | ❌ 无法执行 | `DataCollector` 在 `data_collector.py` 中，非 `__init__.py` 导出 |
 > | `from lingminopt.meta_optimizer import MetaOptimizer, ReportGenerator` (第258行) | ❌ 无法执行 | `MetaOptimizer` 在 `optimizer.py`，`ReportGenerator` 在 `report_generator.py` |
-> | `lingflow/model/retry.py` (第193-194行) | ❌ 不存在 | LingFlow 项目中无 `lingflow/model/` 目录，`GlmRetryPolicy` 类不存在于 LingFlow |
+> | `lingflow/model/retry.py` (第193-194行) | ❌ 不存在 | lingflow 项目中无 `lingflow/model/` 目录，`GlmRetryPolicy` 类不存在于 lingflow |
 >
 > **可验证信息**：
-> - `/home/ai/LingMinOpt/lingminopt/meta_optimizer/` 目录确实存在，包含：`data_collector.py`, `evaluators.py`, `feature_extractor.py`, `optimizer.py`, `report_generator.py`, `search_spaces.py`
-> - LingClaude 有 `lingclaude/model/retry.py`（灵克自己的重试策略），但灵通没有 `lingflow/model/retry.py`
+> - `/home/ai/lingminopt/lingminopt/meta_optimizer/` 目录确实存在，包含：`data_collector.py`, `evaluators.py`, `feature_extractor.py`, `optimizer.py`, `report_generator.py`, `search_spaces.py`
+> - lingclaude 有 `lingclaude/model/retry.py`（灵克自己的重试策略），但灵通没有 `lingflow/model/retry.py`
 >
 > **建议**：将本文档视为**蓝图/规划文档**而非已实现文档。实现前需根据实际代码结构调整导入路径。
 
-> **发起**: 灵克（LingClaude）
-> **协作**: 灵通（LingFlow）+ 灵极优（LingMinOpt）+ 灵研（LingResearch）
+> **发起**: 灵克（lingclaude）
+> **协作**: 灵通（lingflow）+ 灵极优（lingminopt）+ 灵研（lingresearch）
 > **日期**: 2026-04-12
 > **基于**: 灵族AI模型路线图v2.0 + 六模型能力栈架构v1.0 + 元知识优化方案v1.0
 
@@ -40,7 +40,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│           灵通 (LingFlow) 工作流引擎            │
+│           灵通 (lingflow) 工作流引擎            │
 ├─────────────────────────────────────────────────────┤
 │                                                     │
 │  AgentCoordinator                                   │
@@ -54,7 +54,7 @@
 └─────────────────────────────────────────────────────┘
                        ↓
 ┌─────────────────────────────────────────────────────┐
-│         灵极优 (LingMinOpt) 元知识优化              │
+│         灵极优 (lingminopt) 元知识优化              │
 ├─────────────────────────────────────────────────────┤
 │  MetaOptimizer                                     │
 │  ├── DataCollector (从灵通收集会话数据)             │
@@ -66,7 +66,7 @@
 └─────────────────────────────────────────────────────┘
                        ↑
 ┌─────────────────────────────────────────────────────┐
-│           灵研 (LingResearch) 数据支撑             │
+│           灵研 (lingresearch) 数据支撑             │
 ├─────────────────────────────────────────────────────┤
 │  真实标注数据                                       │
 │  ├── 意图分类：7,491条样本                        │
@@ -121,10 +121,10 @@ print(f"Success rate: {stats['success_rate']}")
 # lingflow/coordination/coordinator.py 集成点
 from pathlib import Path
 import json
-from lingflow.common.config import LingFlowConfig
+from lingflow.common.config import lingflowConfig
 
 class AgentCoordinator:
-    def __init__(self, config: LingFlowConfig):
+    def __init__(self, config: lingflowConfig):
         self.config = config
         self.routing_rules = self._load_static_routing_rules()
 
@@ -165,10 +165,10 @@ class AgentCoordinator:
 
 ```python
 # lingflow/workflow/orchestrator.py 集成点
-from lingflow.common.config import LingFlowConfig
+from lingflow.common.config import lingflowConfig
 
 class WorkflowOrchestrator:
-    def __init__(self, config: LingFlowConfig):
+    def __init__(self, config: lingflowConfig):
         self.config = config
 
         # 新增：加载 MKO 优化配置
@@ -250,7 +250,7 @@ class GlmRetryPolicy:
 
 ```bash
 # 灵通用户可以手动触发优化
-cd /home/ai/LingMinOpt
+cd /home/ai/lingminopt
 
 # 运行提示词优化
 python -m lingminopt.cli meta-optimize --target prompt --max-experiments 100
@@ -328,13 +328,13 @@ class MetaOptimizerDaemon:
 ```ini
 # /etc/systemd/system/lingclaude-meta-optimizer.service
 [Unit]
-Description=LingClaude Meta Optimizer Daemon
+Description=lingclaude Meta Optimizer Daemon
 After=network.target
 
 [Service]
 Type=simple
 User=ai
-WorkingDirectory=/home/ai/LingMinOpt
+WorkingDirectory=/home/ai/lingminopt
 ExecStart=/usr/bin/python3 -m lingflow.self_optimizer.meta_optimizer_daemon
 Restart=always
 RestartSec=10
@@ -466,7 +466,7 @@ class EvaluationMetrics:
 **任务**：
 1. 实现 MetaOptimizerDaemon
 2. 配置 systemd 服务（每周触发一次）
-3. 实现优化报告自动推送（邮件/LingMessage）
+3. 实现优化报告自动推送（邮件/lingmessage）
 
 **交付物**：
 - 每周自动运行优化

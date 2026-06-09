@@ -35,7 +35,7 @@ def execute_problem_to_evolution_workflow(
     problem_title: str,
     problem_description: str,
     proposal_path: str,
-    target_path: str = "/home/ai/LingFlow_plus",
+    target_path: str = "/home/ai/lingflow_plus",
 ) -> Result[str]:
     """执行从问题到进化的完整工作流
 
@@ -264,8 +264,8 @@ if __name__ == "__main__":
             "但主页路由缺少登录检查，前端 WebSocket 连接时未自动重定向。"
             "根本原因：测试只覆盖后端逻辑，绕过了浏览器行为。"
         ),
-        proposal_path="/home/ai/LingYi/docs/proposals/webui-testing-evolution.md",
-        target_path="/home/ai/LingYi",
+        proposal_path="/home/ai/lingyi/docs/proposals/webui-testing-evolution.md",
+        target_path="/home/ai/lingyi",
     )
 
     if result.is_ok:

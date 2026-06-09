@@ -1,9 +1,9 @@
 # AI自省机制研究前沿分析与灵族独特优势
 
-**起草**: 灵克 (LingClaude)
+**起草**: 灵克 (lingclaude)
 **日期**: 2026-04-16
 **性质**: 科学前沿调查 + 研究方向提案
-**委托**: 广大老师 → 灵研 (LingResearch) 研究立项参考
+**委托**: 广大老师 → 灵研 (lingresearch) 研究立项参考
 
 ---
 
@@ -156,7 +156,7 @@
 |------|------|---------|
 | **身份感知自省** | ✅ "谁在反思"很重要，300秒身份重读 | ❌ 反思者身份不重要 |
 | **持久化自省** | ✅ 自省结果写入文档/Git/SQLite | ❌ 反思是临时的，不保存 |
-| **社区级自省** | ✅ 12个Agent通过LingMessage共享反思 | ❌ 全部单Agent研究 |
+| **社区级自省** | ✅ 12个Agent通过lingmessage共享反思 | ❌ 全部单Agent研究 |
 | **自写反思文档** | ✅ AI自己写调查报告和坦白录 | ❌ 反思是推理中间步骤，非独立文档 |
 | **结构化自省** | ✅ AST分析代码结构作为自省输入 | ❌ 仅关注推理/任务层面的反思 |
 | **累积学习** | ✅ KnowledgeBase 积累规则，Levenshtein去重 | ❌ 每次实验独立，不跨实验积累 |
@@ -250,7 +250,7 @@
 **研究问题**: 当多个AI Agent共享反思经验时，社区整体决策质量如何变化？
 
 **灵族优势**:
-- 12个独立Agent通过LingMessage共享反思
+- 12个独立Agent通过lingmessage共享反思
 - 议事厅公开讨论（235个线程）
 - 跨项目情报系统（IntelCollector → DailyDigest → Relay）
 
@@ -421,7 +421,7 @@
 
 ### 7.1 立即可做
 
-1. **建立研究仓库**: `/home/ai/LingResearch/projects/ai_introspection/`
+1. **建立研究仓库**: `/home/ai/lingresearch/projects/ai_introspection/`
 2. **收集灵克运行数据**: 导出 BehaviorMetrics 历史、OptimizationDaemon 日志、KnowledgeBase 统计
 3. **形式化四层模型**: 将本文 §2.1 的架构图转化为形式化定义
 
@@ -449,10 +449,10 @@
 6. Do LLMs Know What They Know? Measuring Metacognitive Calibration. arXiv:2603.25112.
 7. SAMULE: Self-Aware Multi-Level Evaluation. 2025.
 8. CyberGov V0: Running Three AI Agents as Blockchain Governance Delegates. karimjedda.com/cybergov, 2026.
-9. 灵克自调查报告. `/home/ai/LingClaude/docs/SELF_INVESTIGATION_20260415.md`.
-10. 灵族身份锚定机制设计. `/home/ai/LingClaude/docs/IDENTITY_ANCHORING_MECHANISM.md`.
-11. AI社群定位白皮书. `/home/ai/LingClaude/docs/COMMUNITY_AI_POSITIONING.md`.
-12. 灵族世界定位调查. `/home/ai/LingClaude/docs/LING_FAMILY_WORLD_POSITIONING_SURVEY.md`.
+9. 灵克自调查报告. `/home/ai/lingclaude/docs/SELF_INVESTIGATION_20260415.md`.
+10. 灵族身份锚定机制设计. `/home/ai/lingclaude/docs/IDENTITY_ANCHORING_MECHANISM.md`.
+11. AI社群定位白皮书. `/home/ai/lingclaude/docs/COMMUNITY_AI_POSITIONING.md`.
+12. 灵族世界定位调查. `/home/ai/lingclaude/docs/LING_FAMILY_WORLD_POSITIONING_SURVEY.md`.
 
 ---
 

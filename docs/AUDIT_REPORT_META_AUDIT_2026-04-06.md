@@ -88,10 +88,10 @@
 **实际情况**:
 ```bash
 # 实际文件位置
-$ grep -n "class DaemonState" /home/ai/LingClaude/lingclaude/self_optimizer/learner/knowledge.py
+$ grep -n "class DaemonState" /home/ai/lingclaude/lingclaude/self_optimizer/learner/knowledge.py
 (无结果)
 
-$ grep -n "class DaemonState" /home/ai/LingClaude/lingclaude/self_optimizer/daemon.py
+$ grep -n "class DaemonState" /home/ai/lingclaude/lingclaude/self_optimizer/daemon.py
 52:class DaemonState(frozen=True):
 ```
 

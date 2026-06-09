@@ -110,7 +110,7 @@ def _load_module(server: MCPServerInfo) -> Any:
 
     if server.module_path:
         p = Path(server.module_path)
-        ALLOWED_MODULE_DIRS = {Path("/home/ai/LingClaude"), Path("/home/ai/LingMessage"), Path("/tmp")}
+        ALLOWED_MODULE_DIRS = {Path("/home/ai/lingclaude"), Path("/home/ai/lingmessage"), Path("/tmp")}  # nosec B108 — /tmp 用于 MCP 模块热加载，已有白名单约束
         if not any(p.resolve().is_relative_to(d) for d in ALLOWED_MODULE_DIRS):
             logger.error("Module path outside allowed dirs: %s", server.module_path)
             return None

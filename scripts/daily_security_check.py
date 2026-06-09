@@ -16,16 +16,16 @@ from pathlib import Path
 REPORT_DIR = Path.home() / ".ling_security" / "daily"
 
 LING_PROJECTS = [
-    Path.home() / "LingClaude",
-    Path.home() / "LingMessage",
+    Path.home() / "lingclaude",
+    Path.home() / "lingmessage",
     Path.home() / "Ling-term-mcp",
     Path.home() / "lingresearch",
-    Path.home() / "LingYang",
-    Path.home() / "LingMinOpt",
+    Path.home() / "lingyang",
+    Path.home() / "lingminopt",
     Path.home() / "zhineng-bridge",
     Path.home() / "zhineng-knowledge-system",
-    Path.home() / "LingFlow",
-    Path.home() / "LingFlow_plus",
+    Path.home() / "lingflow",
+    Path.home() / "lingflow_plus",
     Path.home() / "ai-server",
 ]
 
@@ -344,11 +344,91 @@ def check_log_secrets() -> CheckResult:
     return CheckResult("日志敏感信息", "FAIL", "high", f"{len(items)} 个日志文件包含疑似密钥", items)
 
 
+def check_bandit_sast() -> CheckResult:
+    """Bandit Python SAST 扫描 — 灵族所有 Python 项目"""
+    items: list[str] = []
+    total_high = 0
+    total_med = 0
+
+    for proj in LING_PROJECTS:
+        if not proj.exists():
+            continue
+        py_dirs = [d for d in proj.iterdir() if d.is_dir() and not d.name.startswith(".") and d.name not in ("node_modules", "__pycache__", "venv", ".venv")]
+        if not py_dirs:
+            continue
+
+        code, output = run_cmd(["bandit", "-r", ".", "-f", "json", "-q", "--exit-zero"], timeout=120, cwd=str(proj))
+        if code == -2:
+            items.append("bandit 未安装，跳过 SAST 扫描")
+            return CheckResult("Bandit SAST", "ERROR", "info", "bandit 不可用", items)
+        if code != 0 or not output:
+            continue
+        try:
+            data = json.loads(output)
+            results = data.get("results", [])
+            high = [r for r in results if r.get("issue_severity") == "HIGH"]
+            med = [r for r in results if r.get("issue_severity") == "MEDIUM"]
+            total_high += len(high)
+            total_med += len(med)
+            for r in high[:5]:
+                fname = r.get("filename", "?")
+                lineno = r.get("line_number", "?")
+                test_id = r.get("test_id", "?")
+                items.append(f"[{proj.name}] {fname}:{lineno} — {test_id} HIGH: {r.get('issue_text', '?')[:60]}")
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    if total_high == 0 and total_med == 0:
+        return CheckResult("Bandit SAST", "PASS", "info", "Python SAST 扫描未发现高危/中危问题")
+    severity = "high" if total_high > 0 else "medium"
+    status = "FAIL" if total_high > 0 else "WARN"
+    summary = f"HIGH={total_high}, MEDIUM={total_med}"
+    return CheckResult("Bandit SAST", status, severity, f"Python SAST: {summary}", items)
+
+
+def check_semgrep_sast() -> CheckResult:
+    """Semgrep 多语言 SAST 扫描（可选，失败静默）"""
+    code, _ = run_cmd(["semgrep", "--version"], timeout=10)
+    if code != 0:
+        return CheckResult("Semgrep SAST", "ERROR", "info", "semgrep 不可用，跳过")
+
+    items: list[str] = []
+    total_issues = 0
+
+    for proj in LING_PROJECTS:
+        if not proj.exists():
+            continue
+        code, output = run_cmd(
+            ["semgrep", "--config=auto", "--json", "--quiet", "."],
+            timeout=180, cwd=str(proj)
+        )
+        if code != 0 or not output:
+            continue
+        try:
+            data = json.loads(output)
+            results = data.get("results", [])
+            errors = [r for r in results if r.get("extra", {}).get("severity") == "ERROR"]
+            total_issues += len(errors)
+            for r in errors[:3]:
+                path = r.get("path", "?")
+                start = r.get("start", {}).get("line", "?")
+                rule = r.get("check_id", "?")
+                items.append(f"[{proj.name}] {path}:{start} — {rule}")
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    if total_issues == 0:
+        return CheckResult("Semgrep SAST", "PASS", "info", "Semgrep 扫描未发现 ERROR 级问题")
+    return CheckResult("Semgrep SAST", "WARN", "high", f"发现 {total_issues} 个 ERROR 级问题", items)
+
+
 CHECKS = [
     check_critical_file_permissions,
     check_hardcoded_secrets_24h,
     check_port_changes,
     check_dependency_cve,
+    check_bandit_sast,
+    check_semgrep_sast,
     check_docker_status,
     check_auth_failures,
     check_disk_space,

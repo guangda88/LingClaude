@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from lingclaude.core.intel import (
-    DailyDigest,
     DailyDigestGenerator,
     IntelCategory,
     IntelCollector,
@@ -16,7 +15,6 @@ from lingclaude.core.intel import (
     IntelRelay,
 )
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig
-from lingclaude.core.types import Result
 
 
 class TestIntelItem:

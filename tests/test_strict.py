@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import json
 import os
 import pathlib
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from lingclaude.core.types import Result
-from lingclaude.core.config import LingClaudeConfig, load_config
+from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, StopReason
 from lingclaude.model.types import (
     MessageRole,
@@ -56,7 +54,7 @@ class TestConfigEdgeCases:
         assert cfg.model.model == "claude-sonnet-4-20250514"
 
     def test_from_dict_with_empty_model(self) -> None:
-        cfg = LingClaudeConfig.from_dict({})
+        cfg = lingclaudeConfig.from_dict({})
         assert cfg.model.provider == "openai"
         assert cfg.model.api_key == ""
 

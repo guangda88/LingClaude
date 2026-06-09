@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from lingclaude.core.context_compression import (
     CompressionConfig,
     CompressionLevel,
@@ -8,7 +7,6 @@ from lingclaude.core.context_compression import (
     compress_messages,
     extract_facts_from_messages,
     generate_chinese_summary,
-    _estimate_tokens_saved,
 )
 
 

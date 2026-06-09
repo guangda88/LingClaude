@@ -1,4 +1,4 @@
-# 灵克 (LingClaude) 学习任务清单
+# 灵克 (lingclaude) 学习任务清单
 
 **生成日期**: 2026-04-13
 **来源**: 外部代码库分析 (Kode-Agent, learn-claude-code, claude-code-port)
@@ -14,19 +14,19 @@
 
 **学习步骤**:
 - [ ] 阅读 `Kode-Agent/src/core/permissions/engine/index.ts`，理解分层权限检查
-- [ ] 对比 LingClaude 当前的安全检查机制
-- [ ] 实践：为 LingClaude 添加操作分级（safe/needs-confirmation/blocked）
+- [ ] 对比 lingclaude 当前的安全检查机制
+- [ ] 实践：为 lingclaude 添加操作分级（safe/needs-confirmation/blocked）
 
 **关键代码路径**: `/home/ai/Kode-Agent/src/core/permissions/`
 
 ### 2. Memory Dream Consolidation 记忆巩固
 **来源**: `learn-claude-code/agents/s09_memory_dream.py`
-**为什么重要**: 长期项目需要跨会话记忆，当前 LingClaude 缺乏此能力
+**为什么重要**: 长期项目需要跨会话记忆，当前 lingclaude 缺乏此能力
 
 **学习步骤**:
 - [ ] 阅读 `s09_memory_dream.py`，理解 dream → consolidate → recall 三阶段
 - [ ] 阅读 `learn-claude-code/agents/s10_memory_types.py`（记忆类型系统）
-- [ ] 实践：在 LingClaude 中实现会话摘要的持久化存储
+- [ ] 实践：在 lingclaude 中实现会话摘要的持久化存储
 
 **关键代码路径**: `/home/ai/learn-claude-code/agents/s09_memory_dream.py`, `s10_memory_types.py`
 
@@ -36,7 +36,7 @@
 
 **学习步骤**:
 - [ ] 阅读 `query.ts` 的 `loop()` 函数，理解 thought → action → observation 循环
-- [ ] 对比 LingClaude 当前的执行流程
+- [ ] 对比 lingclaude 当前的执行流程
 - [ ] 画出两者的流程对比图
 
 **关键代码路径**: `/home/ai/Kode-Agent/src/app/query.ts`
@@ -52,7 +52,7 @@
 **学习步骤**:
 - [ ] 阅读 `s06_context_compression.py` 的三层压缩策略
 - [ ] 阅读 `Kode-Agent` 的上下文管理实现
-- [ ] 实践：为 LingClaude 添加基于重要性的上下文摘要
+- [ ] 实践：为 lingclaude 添加基于重要性的上下文摘要
 
 **关键代码路径**: `/home/ai/learn-claude-code/agents/s06_context_compression.py`
 
@@ -62,7 +62,7 @@
 
 **学习步骤**:
 - [ ] 阅读 `claude-code-port/src/skills/` 目录下的技能定义格式
-- [ ] 对比 LingFlow 的 `skills/skills.json` + `SKILL.md` 格式
+- [ ] 对比 lingflow 的 `skills/skills.json` + `SKILL.md` 格式
 - [ ] 总结两种格式的优劣，提出统一建议
 
 ### 6. Hook 子进程协议
@@ -71,7 +71,7 @@
 
 **学习步骤**:
 - [ ] 阅读 `s08_hooks_subprocess.py`，理解子进程 hook 的安全隔离
-- [ ] 对比 LingFlow 的 hooks/ 目录实现
+- [ ] 对比 lingflow 的 hooks/ 目录实现
 - [ ] 实践：写一个 pre-commit hook 模板
 
 **关键代码路径**: `/home/ai/learn-claude-code/agents/s08_hooks_subprocess.py`
@@ -87,7 +87,7 @@
 **学习步骤**:
 - [ ] 阅读 `Kode-Agent/src/services/mcp/` 的 MCP 客户端实现
 - [ ] 阅读 `learn-claude-code/agents/s19_mcp_plugin.py`
-- [ ] 对比 LingFlow 已有的 MCP 路由 (`coordinator.py` 的 `_execute_via_mcp_route`)
+- [ ] 对比 lingflow 已有的 MCP 路由 (`coordinator.py` 的 `_execute_via_mcp_route`)
 
 ### 8. Agent Teams + JSONL Mailboxes
 **来源**: `learn-claude-code/agents/s15_agent_teams.py`
@@ -95,7 +95,7 @@
 
 **学习步骤**:
 - [ ] 阅读 `s15_agent_teams.py`，理解 JSONL mailbox 通信模式
-- [ ] 对比灵族的共享空间 `/home/ai/zhineng-knowledge-system/shared/`
+- [ ] 对比灵族的共享空间 `/home/ai/lingzhi/shared/`
 - [ ] 思考：灵族8个成员如何用 JSONL mailbox 协作？
 
 ### 9. 成本追踪
@@ -128,7 +128,7 @@
 ## 完成标准
 
 每个任务完成后，在灵族共享空间写入学习笔记：
-`/home/ai/zhineng-knowledge-system/shared/lingclaud-learning/`
+`/home/ai/lingzhi/shared/lingclaud-learning/`
 
 笔记格式：
 1. 学到了什么（What）

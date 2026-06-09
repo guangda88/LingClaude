@@ -46,10 +46,10 @@ class LocalModelProvider(ModelProvider):
                 import torch
 
                 logger.info("Loading local model from %s", self._model_path)
-                self._tokenizer = AutoTokenizer.from_pretrained(
+                self._tokenizer = AutoTokenizer.from_pretrained(  # nosec B615 — 本地模型加载，revision 由 _model_path 指定
                     self._model_path, trust_remote_code=True,
                 )
-                self._model = AutoModelForCausalLM.from_pretrained(
+                self._model = AutoModelForCausalLM.from_pretrained(  # nosec B615 — 本地模型加载
                     self._model_path,
                     dtype=torch.float16,
                     device_map="auto",

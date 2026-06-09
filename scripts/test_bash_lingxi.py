@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""测试 BashLingXiExecutor"""
+"""测试 BashlingxiExecutor"""
 from __future__ import annotations
 
 import sys
@@ -8,28 +8,28 @@ from pathlib import Path
 # 添加项目路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from lingclaude.engine.bash_lingxi import BashLingXiExecutor
+from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 
 
 def test_bash_lingxi_executor():
-    """测试 BashLingXiExecutor"""
+    """测试 BashlingxiExecutor"""
     print("=" * 60)
-    print("测试 BashLingXiExecutor")
+    print("测试 BashlingxiExecutor")
     print("=" * 60)
 
-    # 检查 LingXi 服务器
-    server_path = Path("/home/ai/Ling-term-mcp/dist/cli.js")
+    # 检查 lingxi 服务器
+    server_path = Path("/home/ai/lingxi/dist/cli.js")
     if not server_path.exists():
-        print(f"\n✗ 错误: LingXi 服务器不存在")
+        print(f"\n✗ 错误: lingxi 服务器不存在")
         print(f"  路径: {server_path}")
         return False
 
-    print(f"\n✓ LingXi 服务器存在: {server_path}")
+    print(f"\n✓ lingxi 服务器存在: {server_path}")
 
     try:
-        with BashLingXiExecutor() as executor:
-            print("\n1. 测试简单命令 (echo 'Hello from LingXi')...")
-            result = executor.run("echo 'Hello from LingXi'")
+        with BashlingxiExecutor() as executor:
+            print("\n1. 测试简单命令 (echo 'Hello from lingxi')...")
+            result = executor.run("echo 'Hello from lingxi'")
             print(f"   退出码: {result.exit_code}")
             print(f"   输出: {result.stdout.strip()}")
             print(f"   耗时: {result.duration:.3f}s")
@@ -66,7 +66,7 @@ def test_bash_lingxi_executor():
             print(f"   退出码: {result.exit_code}")
             print(f"   输出: {result.stdout[:100]}...")
             print(f"   错误: {result.stderr}")
-            # LingXi 将错误包装在输出文本中
+            # lingxi 将错误包装在输出文本中
             if "Error:" in result.stdout or "ENOENT" in result.stdout:
                 print("   ✓ 错误命令被正确处理")
             else:
@@ -74,7 +74,7 @@ def test_bash_lingxi_executor():
                 return False
 
             print("\n5. 测试命令阻止...")
-            executor_blocked = BashLingXiExecutor(blocked_commands=["rm"])
+            executor_blocked = BashlingxiExecutor(blocked_commands=["rm"])
             result = executor_blocked.run("echo test")
             print(f"   退出码: {result.exit_code}")
             print(f"   输出: {result.stdout}")

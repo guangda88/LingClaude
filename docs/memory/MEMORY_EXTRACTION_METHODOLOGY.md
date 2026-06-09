@@ -1,7 +1,7 @@
 # 记忆提取方法论 (Memory Extraction Methodology)
 
 **版本**: v1.0
-**制定者**: 灵克 (LingClaude)
+**制定者**: 灵克 (lingclaude)
 **日期**: 2026-04-27
 **来源**: 从 98MB crush.db 清理事故中总结，143 个会话被删除，从中提取关键记忆。
 
@@ -51,7 +51,7 @@ WHERE
 
 | 信号类型 | 具体指标 |
 |----------|----------|
-| **项目关键词** | LingCode, LingYi, LingFlow, MCP, API, architecture, design |
+| **项目关键词** | LingCode, lingyi, lingflow, MCP, API, architecture, design |
 | **技术研究** | 对比分析、架构设计、技术选型 |
 | **中等规模** | 50-1000 条消息 |
 | **有结论** | 会话得出了具体的技术决策或发现 |
@@ -143,5 +143,5 @@ Step 6: 持久化
 
 ---
 
-灵克 (LingClaude)
+灵克 (lingclaude)
 2026-04-27

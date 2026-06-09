@@ -17,7 +17,7 @@ from typing import Any
 class ExperimentPrep:
     """实验准备器"""
 
-    def __init__(self, base_dir: Path = Path("/home/ai/LingClaude/experiments")):
+    def __init__(self, base_dir: Path = Path("/home/ai/lingclaude/experiments")):
         self.base_dir = base_dir
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 

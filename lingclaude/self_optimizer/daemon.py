@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from lingclaude.core.types import Result
-from lingclaude.core.config import LingClaudeConfig, load_config
+from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.self_optimizer.advisor import OptimizationAdvisor
 from lingclaude.self_optimizer.evaluator import StructureEvaluator
 from lingclaude.self_optimizer.optimizer import (
@@ -78,7 +78,7 @@ class OptimizationDaemon:
     def __init__(
         self,
         target: str = ".",
-        config: LingClaudeConfig | None = None,
+        config: lingclaudeConfig | None = None,
         state_dir: Path | None = None,
     ) -> None:
         self.target = target

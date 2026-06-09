@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import sqlite3
 import sys
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+from lingclaude.core.safe_db import safe_commit, safe_connect
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class ContextCache:
 
     def _init_db(self) -> None:
         """初始化数据库"""
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -108,7 +109,7 @@ class ContextCache:
             ON cache_entries(last_read_at)
         """)
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
     def _compute_hash(self, content: str) -> str:
@@ -120,7 +121,7 @@ class ContextCache:
         Returns:
             MD5 哈希值
         """
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
+        return hashlib.md5(content.encode("utf-8"), usedforsecurity=False).hexdigest()
 
     def _is_expired(self, entry: CacheEntry) -> bool:
         """检查缓存是否过期
@@ -162,7 +163,7 @@ class ContextCache:
                 return entry.content, True
 
         # 检查磁盘缓存
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         if not force_refresh:
@@ -210,7 +211,7 @@ class ContextCache:
                     COALESCE((SELECT first_read_at FROM cache_entries WHERE file_path = ?), ?), ?)
         """, (file_path, file_hash, content, file_path, file_path, now, now))
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
         # 更新内存缓存
@@ -238,7 +239,7 @@ class ContextCache:
         """
         now = datetime.now(timezone.utc).isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -247,7 +248,7 @@ class ContextCache:
             WHERE file_path = ?
         """, (now, file_path))
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
     def invalidate(self, file_path: str | None = None) -> None:
@@ -260,10 +261,10 @@ class ContextCache:
             # 清空所有缓存
             self._memory_cache.clear()
 
-            conn = sqlite3.connect(str(self.db_path))
+            conn = safe_connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute("DELETE FROM cache_entries")
-            conn.commit()
+            safe_commit(conn)
             conn.close()
         else:
             file_path = str(file_path)
@@ -272,10 +273,10 @@ class ContextCache:
             if file_path in self._memory_cache:
                 del self._memory_cache[file_path]
 
-            conn = sqlite3.connect(str(self.db_path))
+            conn = safe_connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute("DELETE FROM cache_entries WHERE file_path = ?", (file_path,))
-            conn.commit()
+            safe_commit(conn)
             conn.close()
 
     def cleanup_expired(self) -> int:
@@ -286,7 +287,7 @@ class ContextCache:
         """
         cutoff_time = (datetime.now(timezone.utc) - timedelta(hours=self.ttl_hours)).isoformat()
 
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -298,7 +299,7 @@ class ContextCache:
             DELETE FROM cache_entries WHERE last_read_at < ?
         """, (cutoff_time,))
 
-        conn.commit()
+        safe_commit(conn)
         conn.close()
 
         # 从内存缓存中移除
@@ -314,7 +315,7 @@ class ContextCache:
         Returns:
             缓存统计
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         # 读取计数
@@ -354,7 +355,7 @@ class ContextCache:
         Returns:
             [(文件路径, 读取次数), ...]
         """
-        conn = sqlite3.connect(str(self.db_path))
+        conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -380,7 +381,7 @@ def main():
     cache = ContextCache(cache_size=50, ttl_hours=24)
 
     # 测试文件
-    test_file = Path("/home/ai/LingClaude/README.md")
+    test_file = Path("/home/ai/lingclaude/README.md")
 
     print("\n📖 第一次读取（缓存未命中）...")
     content, hit = cache.read_file(str(test_file))

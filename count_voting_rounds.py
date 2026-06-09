@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Count voting rounds in LingMessage threads."""
+"""Count voting rounds in lingmessage threads."""
 
 import json
 from pathlib import Path

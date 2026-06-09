@@ -1,0 +1,52 @@
+{
+  "model": "glm-4.7",
+  "benchmark": "HumanEval",
+  "timestamp": "2026-06-06T23:23:34.634590+00:00",
+  "total": 10,
+  "passed": 0,
+  "failed": 0,
+  "errors": 10,
+  "pass_at_1": 0.0,
+  "details": [
+    {
+      "task_id": "HumanEval/0",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/1",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/2",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/3",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/4",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/5",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/6",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/7",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/8",
+      "status": "ERROR"
+    },
+    {
+      "task_id": "HumanEval/9",
+      "status": "ERROR"
+    }
+  ]
+}

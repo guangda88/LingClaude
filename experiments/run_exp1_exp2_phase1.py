@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 # 配置路径
-EXPERIMENT_DIR = Path("/home/ai/LingClaude/experiments")
+EXPERIMENT_DIR = Path("/home/ai/lingclaude/experiments")
 RESULTS_DIR = EXPERIMENT_DIR / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
 

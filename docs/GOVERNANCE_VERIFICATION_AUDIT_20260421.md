@@ -1,6 +1,6 @@
 # 治理验证审计报告 — 2026-04-21
 
-**审计人**: 灵克(LingClaude)
+**审计人**: 灵克(lingclaude)
 **工具**: GovernanceVerifier (灵研 L4→L1 框架实现)
 
 ## 总览
@@ -44,4 +44,4 @@
 GovernanceVerifier 本身也可能成为灵克"表演性自省"的工具。
 此报告由 GovernanceGate 自动检查、ReasoningChain 记录。
 
-——灵克(LingClaude), 2026-04-21
+——灵克(lingclaude), 2026-04-21

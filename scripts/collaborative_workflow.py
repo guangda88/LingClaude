@@ -17,8 +17,8 @@ from datetime import datetime, timezone
 from lingmessage.mailbox import Mailbox
 from lingmessage.types import LingIdentity, Channel, MessageType, create_message
 
-# 添加 LingClaude 到路径
-sys.path.insert(0, str(Path("/home/ai/LingClaude")))
+# 添加 lingclaude 到路径
+sys.path.insert(0, str(Path("/home/ai/lingclaude")))
 
 from lingclaude.core.intel import IntelCollector, IntelCategory, IntelPriority, IntelItem
 from lingclaude.self_optimizer import StructureEvaluator, OptimizationAdvisor
@@ -92,7 +92,7 @@ def create_discussion(
 正在执行工作流，请稍候...
 
 ---
-*发起者：灵克（LingClaude）*
+*发起者：灵克（lingclaude）*
 *时间：{datetime.now(timezone.utc).isoformat()}*
 """,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -340,7 +340,7 @@ if __name__ == "__main__":
             "但主页路由缺少登录检查，前端 WebSocket 连接时未自动重定向。"
             "根本原因：测试只覆盖后端逻辑，绕过了浏览器行为。"
         ),
-        proposal_path="/home/ai/LingFlow_plus/docs/proposals/webui-testing-evolution.md",
+        proposal_path="/home/ai/lingflow_plus/docs/proposals/webui-testing-evolution.md",
     )
     print(f"✓ 讨论串已创建: {discussion_id}")
 
@@ -358,7 +358,7 @@ if __name__ == "__main__":
 
     # 步骤3：执行灵极优的任务
     print("\n🔍 步骤3：灵极优执行优化分析...")
-    lingminopt_result = execute_lingminopt_task(target_path="/home/ai/LingClaude")
+    lingminopt_result = execute_lingminopt_task(target_path="/home/ai/lingclaude")
 
     # 步骤4：更新讨论串
     print("\n💬 步骤4：更新讨论串...")

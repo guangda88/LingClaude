@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 /**
- * 使用 Node.js 测试 LingXi MCP 服务器
+ * 使用 Node.js 测试 lingxi MCP 服务器
  */
 
 const { spawn } = require('child_process');
 const path = require('path');
 
-const serverPath = '/home/ai/Ling-term-mcp/dist/index.js';
+const serverPath = '/home/ai/lingxi/dist/index.js';
 
 console.log('='.repeat(60));
-console.log('使用 Node.js 测试 LingXi MCP 服务器');
+console.log('使用 Node.js 测试 lingxi MCP 服务器');
 console.log('='.repeat(60));
 
 // 启动服务器
@@ -116,7 +116,7 @@ server.stdout.on('data', (data) => {
               name: 'execute_command',
               arguments: {
                 command: 'echo',
-                args: ['Hello LingXi']
+                args: ['Hello lingxi']
               }
             }
           };

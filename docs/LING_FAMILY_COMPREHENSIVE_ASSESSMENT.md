@@ -1,7 +1,7 @@
 # 灵族全栈技术综合评估 — 学术创新点与论文方向
 
 > 评估日期：2026-04-15  
-> 评估人：灵克(LingClaude)  
+> 评估人：灵克(lingclaude)  
 > 范围：灵族14个项目，从架构、协议、代码、安全、AI五个维度全面分析
 
 ---
@@ -12,23 +12,23 @@
 
 | 项目 | 身份 | 版本 | 定位 | 核心源码(行) | 测试函数 |
 |------|------|------|------|-------------|---------|
-| LingFlow | 灵通 | 3.9.1 | AI增强软件工程流 | 56,559 | 68,635 |
+| lingflow | 灵通 | 3.9.1 | AI增强软件工程流 | 56,559 | 68,635 |
 | zhineng-knowledge-system | 灵知 | — | 多领域知识RAG平台 | 61,149 | 55,689 |
-| LingClaude | 灵克 | 0.3.0 | 自优化AI编程助手 | 40,974 | 947 |
+| lingclaude | 灵克 | 0.3.0 | 自优化AI编程助手 | 40,974 | 947 |
 | tryvoice-oss | — | 0.1.0 | 语音AI运行时 | 22,345 | 0 |
 | lingtongask | 灵通问道 | 0.1.0 | 播客生成与发布 | 35,638 | 28 |
-| LingYi | 灵依 | 0.16.0 | 私人AI助理 | 19,881 | 335 |
+| lingyi | 灵依 | 0.16.0 | 私人AI助理 | 19,881 | 335 |
 | lingresearch | 灵研 | 0.1.0 | 自主AI研究框架 | 16,256 | 133 |
-| LingFlow_plus | — | 0.1.0 | 多项目并行CLI Agent | 21,846 | 611 |
+| lingflowplus | — | 0.1.0 | 多项目并行CLI Agent | 21,846 | 611 |
 | zhineng-bridge | 智桥 | 1.4.0 | 跨平台AI通信中继 | 30,784 | 264 |
-| LingMessage | 灵信 | 0.2.0 | 跨项目讨论协议 | 9,521 | 264 |
-| LingMinOpt | 灵极优 | 0.5.0 | 通用自优化框架 | 8,352 | 120 |
-| LingLaw | 灵律 | 0.1.0 | 法律AI办案系统 | 5,954 | 60 |
-| LingYang | 灵扬 | 0.1.0 | 对外联络宣传 | 2,432 | 94 |
-| LingWeb | 灵网 | — | 全栈网站开发 | 382 | 0 |
+| lingmessage | 灵信 | 0.2.0 | 跨项目讨论协议 | 9,521 | 264 |
+| lingminopt | 灵极优 | 0.5.0 | 通用自优化框架 | 8,352 | 120 |
+| linglaw | 灵律 | 0.1.0 | 法律AI办案系统 | 5,954 | 60 |
+| lingyang | 灵扬 | 0.1.0 | 对外联络宣传 | 2,432 | 94 |
+| lingweb | 灵网 | — | 全栈网站开发 | 382 | 0 |
 | **合计** | | | | **~332,000** | **~127,000** |
 
-> 注：LingFlow和灵知测试数量极大，包含大量参数化测试和生成测试。
+> 注：lingflow和灵知测试数量极大，包含大量参数化测试和生成测试。
 
 ### 1.2 技术栈分布
 
@@ -161,9 +161,9 @@
 | Strategy | 灵Flow, 灵知, 灵极优 | CompressionStrategy, SearchStrategy, OptimizationStrategy |
 | Pipeline | 灵Flow, 灵律, 灵知 | VerificationPipeline, 4-layer-legal-check, 3-stage-retrieval |
 | Observer | 灵Flow | DegradationDetector, OperationsMonitor |
-| Facade | 灵Flow, 灵克 | LingFlow class, CodingRuntime |
+| Facade | 灵Flow, 灵克 | lingflow class, CodingRuntime |
 | Template Method | 灵Flow | BaseSkill._execute_impl() |
-| Adapter | 灵Flow, 灵信 | FunctionSkill, LingFlowAdapter |
+| Adapter | 灵Flow, 灵信 | FunctionSkill, lingflowAdapter |
 | Registry | 灵Flow, 灵知, 灵信 | SkillRegistry, DomainRegistry, IdentityRegistry |
 | Factory | 灵克, 灵Flow | Result.ok/fail, provider factory |
 
@@ -177,7 +177,7 @@
 - AST静态分析（灵Flow: security_analyzer.py）
 - 进程隔离沙箱（灵Flow: sandbox.py, 100MB内存限制）
 - 循环/递归限制（1M iterations, depth 100）
-- 模块白名单（4层：Core/I/O/Runtime/LingFlow）
+- 模块白名单（4层：Core/I/O/Runtime/lingflow）
 
 **L2: 通信安全（防篡改/伪造）**
 - HMAC-SHA256签名链（灵信: signing.py）
@@ -244,7 +244,7 @@
 
 | 治理机制 | 实现 |
 |---------|------|
-| 议事厅 | LingMessage线程，已提交16+提案（PRO-001至PRO-016） |
+| 议事厅 | lingmessage线程，已提交16+提案（PRO-001至PRO-016） |
 | 投票表决 | 9提案同时表决（thread 37744a51） |
 | 自查报告 | 灵通投票舞弊自白、灵克0416事件自查 |
 | 议事纪律 | 守界原则、提案格式规范 |
@@ -300,7 +300,7 @@
 
 ### 创新点1：去中心化AI智能体社会的文件系统通信协议
 
-**所属项目**：灵信 (LingMessage)  
+**所属项目**：灵信 (lingmessage)  
 **创新性质**：系统设计，有完整工程实现
 
 灵信是**第一个为持久化AI智能体社会设计的文件系统通信协议**。不同于AutoGen/CrewAI的内存消息传递，灵信基于文件系统，具备：

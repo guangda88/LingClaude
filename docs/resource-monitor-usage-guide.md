@@ -41,7 +41,7 @@
 
 ```bash
 # 自动安装所有依赖
-cd /home/ai/LingClaude/scripts
+cd /home/ai/lingclaude/scripts
 chmod +x start_resource_dashboard.sh
 ./start_resource_dashboard.sh
 ```
@@ -56,11 +56,11 @@ pip3 install fastapi uvicorn psutil jinja2
 
 ```bash
 # 方法 1：使用启动脚本（推荐）
-cd /home/ai/LingClaude/scripts
+cd /home/ai/lingclaude/scripts
 ./start_resource_dashboard.sh
 
 # 方法 2：直接运行 Python 脚本
-cd /home/ai/LingClaude/scripts
+cd /home/ai/lingclaude/scripts
 python3 resource_monitor_dashboard.py
 ```
 
@@ -366,7 +366,7 @@ nano ~/.lingclaude/resource_monitor_config.json
 ps aux | grep resource_monitor_dashboard
 
 # 如果没有运行，重新启动
-cd /home/ai/LingClaude/scripts
+cd /home/ai/lingclaude/scripts
 ./start_resource_dashboard.sh
 ```
 
@@ -436,7 +436,7 @@ lsof -i :8090
 
 ```bash
 # 1. 进入脚本目录
-cd /home/ai/LingClaude/scripts
+cd /home/ai/lingclaude/scripts
 
 # 2. 启动仪表板
 ./start_resource_dashboard.sh

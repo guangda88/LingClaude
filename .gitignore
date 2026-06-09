@@ -20,6 +20,13 @@ archive/
 # 运行时数据
 .lingclaude/behavior_history.json
 .lingclaude/daemon_state.json
+.lingclaude/meta_cognition.json
+.lingclaude/meta_facts.json
+.lingclaude/shared_facts.json
+.lingclaude/handoff.md
+.lingclaude/knowledge.db
+.lingclaude/data_flywheel.db
+.lingclaude/metrics.db
 data/
 
 # Backup and temp files
@@ -30,3 +37,6 @@ data/
 *.orig
 *.rej
 .DS_Store
+CRUSH.md.backup_*
+logs/
+*.lingclaude/backups/

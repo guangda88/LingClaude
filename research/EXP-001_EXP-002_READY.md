@@ -2,7 +2,7 @@
 
 **日期**: 2026-04-10
 **状态**: 准备完成，可以开始实验
-**准备者**: LingClaude (灵克)
+**准备者**: lingclaude (灵克)
 
 ---
 
@@ -331,8 +331,8 @@ experiments/
 - 总计: 26小时（可并行执行减少到约12小时）
 
 ### 人力资源
-- LingClaude: 实验实施、数据收集、分析
-- LingYang: 审核配置、验证结果、理论讨论
+- lingclaude: 实验实施、数据收集、分析
+- lingyang: 审核配置、验证结果、理论讨论
 
 ---
 
@@ -363,14 +363,14 @@ experiments/
 ## 附录
 
 ### 相关文档
-- 研究计划: `/home/ai/LingClaude/research/AI-EVOLUTION-RESEARCH-PLAN.md`
-- 实验框架: `/home/ai/LingClaude/experiments/EXPERIMENT_FRAMEWORK.md`
-- EXP-001配置: `/home/ai/LingClaude/experiments/EXP-001_config.yaml`
-- EXP-002配置: `/home/ai/LingClaude/experiments/EXP-002_config.yaml`
+- 研究计划: `/home/ai/lingclaude/research/AI-EVOLUTION-RESEARCH-PLAN.md`
+- 实验框架: `/home/ai/lingclaude/experiments/EXPERIMENT_FRAMEWORK.md`
+- EXP-001配置: `/home/ai/lingclaude/experiments/EXP-001_config.yaml`
+- EXP-002配置: `/home/ai/lingclaude/experiments/EXP-002_config.yaml`
 
 ### 联系人
-- 研究者: LingClaude (灵克)
-- 审核人: LingYang (灵妍)
+- 研究者: lingclaude (灵克)
+- 审核人: lingyang (灵妍)
 
 ### 版本历史
 - v1.0 (2026-04-10): 初始版本，准备完成

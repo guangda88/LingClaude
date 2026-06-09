@@ -40,7 +40,7 @@
 
 ### 1.4 产出物
 
-- 安全审计报告（Markdown），存入 `LingClaude/research/SECURITY_AUDIT_YYYY-MM-DD.md`
+- 安全审计报告（Markdown），存入 `lingclaude/research/SECURITY_AUDIT_YYYY-MM-DD.md`
 - 问题清单含编号、等级、项目、文件位置、修复建议
 - 修复优先级矩阵（P0/P1/P2/P3）
 - 三方签字确认（初审、方法复审、实战复审）

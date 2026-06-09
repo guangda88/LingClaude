@@ -17,7 +17,7 @@
 ### Phase 1.1: 数据验证与补全 ✅
 
 #### 1.1.1 论文数据验证报告
-**文件**: `/home/ai/LingClaude/docs/PAPER_DATA_VERIFICATION_REPORT.md`
+**文件**: `/home/ai/lingclaude/docs/PAPER_DATA_VERIFICATION_REPORT.md`
 
 **验证结果摘要**:
 | 数据类型 | 论文声称 | 实际统计 | 修正 | 状态 |
@@ -54,7 +54,7 @@
 
 **修正位置**:
 1. Line 17: Abstract 中 "10-month continuous operation history" → "~2 weeks of operational data"
-2. Line 47: Contributions 中 "16 governance proposals, 10 voting rounds, 235 LingMessage threads, 7 safety incidents" → "14 governance proposals, 5 voting rounds, 236 LingMessage threads, 4 P0-level safety incidents"
+2. Line 47: Contributions 中 "16 governance proposals, 10 voting rounds, 235 lingmessage threads, 7 safety incidents" → "14 governance proposals, 5 voting rounds, 236 lingmessage threads, 4 P0-level safety incidents"
 3. Line 45: "routing of 100+ tools" → "routing of 200+ tools"
 4. Table Section 5.2:
    - Proposal System: 16 → 14
@@ -123,7 +123,7 @@
 
 ## 进行中的任务
 
-### LingFlow 协作
+### lingflow 协作
 **线程 ID**: `3aab5a7514113083f65c3c1cb659d43a`
 **消息 ID**: `525c54eec19d5fac4d5600fb23fb3ff7`
 **状态**: 已发送协作计划，等待灵通回复
@@ -135,7 +135,7 @@
 4. 🤖 建议使用 `lingflow run experimental-design` 命令
 
 **当前状态**:
-- LingFlow experimental-design 技能不存在
+- lingflow experimental-design 技能不存在
 - 已手动创建实验设计协议
 - 已完成基线数据收集
 
@@ -156,7 +156,7 @@
 
 ### Phase 2: 格式转换与内部审查 📋
 - LaTeX 转换
-- 作者投票 (LingMessage)
+- 作者投票 (lingmessage)
 - 内部审查与修订
 
 ### Phase 3: 最终提交 📋
@@ -169,7 +169,7 @@
 ## 风险与问题
 
 ### 已识别风险
-1. **LingFlow 实验设计技能缺失**
+1. **lingflow 实验设计技能缺失**
    - 影响: 无法自动化实验设计
    - 缓解: 手动创建实验协议 ✅
 
@@ -185,7 +185,7 @@
 1. **历史时长差异**: 论文声称 10 个月，实际仅 ~2 周
    - 根本原因未明，可能需要更多历史数据
 
-2. **LingFlow 未响应 LingMessage**
+2. **lingflow 未响应 lingmessage**
    - 可能需要其他沟通方式或手动协调
 
 ---
@@ -213,9 +213,9 @@
 
 | 文件 | 状态 | 用途 |
 |------|------|------|
-| `/home/ai/LingClaude/docs/PAPER_DATA_VERIFICATION_REPORT.md` | ✅ 完成 | 数据验证报告 |
+| `/home/ai/lingclaude/docs/PAPER_DATA_VERIFICATION_REPORT.md` | ✅ 完成 | 数据验证报告 |
 | `/home/ai/lingresearch/docs/paper_draft/PAPER_COMMUNITY_AI_DRAFT.md` | ✅ 已修正 | 论文草稿 (Markdown) |
-| `/home/ai/LingClaude/docs/PAPER_DATA_VERIFICATION_REPORT.md` | ✅ 更新 | 包含投票轮次统计 |
+| `/home/ai/lingclaude/docs/PAPER_DATA_VERIFICATION_REPORT.md` | ✅ 更新 | 包含投票轮次统计 |
 | `/home/ai/lingresearch/docs/paper_draft/experiment_protocol.md` | ✅ 完成 | 实验设计协议 |
 | `/home/ai/lingresearch/docs/paper_draft/baseline_data.json` | ✅ 完成 | LingZiBei 基线数据 |
 | `~/.lingmessage/threads/3aab5a7514113083f65c3c1cb659d43a/` | 🔄 等待回复 | 灵通协作线程 |
@@ -223,5 +223,5 @@
 ---
 
 **报告生成时间**: 2026-04-17 02:30
-**报告人**: 灵克 (LingClaude)
+**报告人**: 灵克 (lingclaude)
 **下一更新**: Phase 1.3 完成后

@@ -488,4 +488,4 @@ python analyzer.py --experiment-id EXP-001 --report --plots
 
 **实验框架版本:** v1.0
 **最后更新:** 2026-04-10
-**维护者:** LingClaude (灵克)
+**维护者:** lingclaude (灵克)

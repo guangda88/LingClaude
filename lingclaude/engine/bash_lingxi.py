@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from lingclaude.mcp.lingxi_client import LingXiClient
+from lingclaude.mcp.lingxi_client import lingxiClient
 
 
 @dataclass(frozen=True)
@@ -22,10 +22,10 @@ class BashResult:
         return self.exit_code == 0
 
 
-class BashLingXiExecutor:
-    """Bash executor using LingXi MCP server
+class BashlingxiExecutor:
+    """Bash executor using lingxi MCP server
 
-    Provides secure terminal command execution with LingXi's
+    Provides secure terminal command execution with lingxi's
     security validation and performance monitoring.
     """
 
@@ -33,7 +33,7 @@ class BashLingXiExecutor:
         self,
         working_dir: str | None = None,
         timeout: int = 60,
-        server_path: str = "/home/ai/Ling-term-mcp/dist/cli.js",
+        server_path: str = "/home/ai/lingxi/dist/cli.js",
         node_path: str = "node",
         allowed_commands: list[str] | None = None,
         blocked_commands: list[str] | None = None,
@@ -46,13 +46,13 @@ class BashLingXiExecutor:
         self.blocked_commands = blocked_commands or []
 
         # Lazy initialization - client is created when first command is run
-        self._client: Optional[LingXiClient] = None
+        self._client: Optional[lingxiClient] = None
 
     @property
-    def _client_instance(self) -> LingXiClient:
-        """Get or create LingXi client instance"""
+    def _client_instance(self) -> lingxiClient:
+        """Get or create lingxi client instance"""
         if self._client is None:
-            self._client = LingXiClient(
+            self._client = lingxiClient(
                 server_path=self.server_path,
                 node_path=self.node_path,
             )
@@ -60,7 +60,7 @@ class BashLingXiExecutor:
         return self._client
 
     def run(self, command: str, timeout: int | None = None) -> BashResult:
-        """Execute a shell command via LingXi
+        """Execute a shell command via lingxi
 
         Args:
             command: Command string to execute
@@ -103,7 +103,7 @@ class BashLingXiExecutor:
             cmd_name = parts[0]
             args = parts[1:] if len(parts) > 1 else None
 
-            # Execute via LingXi
+            # Execute via lingxi
             client = self._client_instance
             output = client.execute_command(
                 command=cmd_name,
@@ -177,7 +177,7 @@ class BashLingXiExecutor:
         return None
 
     def close(self) -> None:
-        """Close LingXi client connection"""
+        """Close lingxi client connection"""
         if self._client is not None:
             self._client.close()
             self._client = None

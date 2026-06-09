@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from lingclaude.core.types import Result
-from lingclaude.core.config import LingClaudeConfig, load_config
+from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.models import (
     UsageSummary,
 )
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.permissions import PermissionContext, READ_ONLY_TOOLS
-from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, TurnResult, StopReason
+from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, TurnResult, StopReason, CHECKPOINT_DIR
 from lingclaude.core.intel import (
     IntelCategory,
     IntelPriority,
@@ -24,7 +24,21 @@ from lingclaude.core.layered_memory import (
     CommonKnowledge, WorkingMemory, ExperienceStore, InMemoryExperienceStore, ebbinghaus_weight,
 )
 
+from lingclaude.core.topic_stack import (
+    TopicStack, Topic, TopicStatus, TopicError,
+)
+from lingclaude.core.topic_drift_detector import TopicDriftStatus
+
+from lingclaude.core.handover import (
+    HANDOVER_VERSION,
+    TaskSource,
+    Checkpoint, InfrastructureEntry,
+    HandoverV2, HandoverWriter, HandoverReader,
+)
+from lingclaude.core.handover import TaskStatus as HandoverTaskStatus
+
 from lingclaude.core.governance import GovernanceGate, GovernanceCheckResult
+from lingclaude.core.safe_db import serialized_write
 from lingclaude.core.reasoning_chain import (
     ChainStep, ChainStepType, ReasoningChain, ReasoningChainLogger, ReasoningChainLingBusLogger,
 )
@@ -45,6 +59,10 @@ from lingclaude.core.cognitive_rhythm import (
 from lingclaude.core.comfort_zone import (
     ComfortZoneDetector, ComfortCheckResult, ConclusionRisk,
 )
+from lingclaude.core.llm_probe import (
+    health_check, probe_llm_completion, probe_port,
+    PROBE_TIMEOUT, PROXY_API_KEY, PROXY_URL,
+)
 from lingclaude.coordination import (
     BusResponder,
     ResponseStats,
@@ -53,7 +71,7 @@ from lingclaude.coordination import (
 
 __all__ = [
     "Result",
-    "LingClaudeConfig",
+    "lingclaudeConfig",
     "load_config",
     "UsageSummary",
     "Session",
@@ -118,6 +136,18 @@ __all__ = [
     "ComfortZoneDetector",
     "ComfortCheckResult",
     "ConclusionRisk",
+    "TopicStack",
+    "Topic",
+    "TopicStatus",
+    "TopicError",
+    "HANDOVER_VERSION",
+    "TaskSource",
+    "HandoverTaskStatus",
+    "Checkpoint",
+    "InfrastructureEntry",
+    "HandoverV2",
+    "HandoverWriter",
+    "HandoverReader",
     "BehaviorMetrics",
     "ContextCache",
     "TokenMonitor",
@@ -125,4 +155,13 @@ __all__ = [
     "BusResponder",
     "ResponseStats",
     "create_responder",
+    "CHECKPOINT_DIR",
+    "serialized_write",
+    "TopicDriftStatus",
+    "health_check",
+    "probe_llm_completion",
+    "probe_port",
+    "PROBE_TIMEOUT",
+    "PROXY_API_KEY",
+    "PROXY_URL",
 ]

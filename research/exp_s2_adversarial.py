@@ -360,7 +360,7 @@ def generate_report(results: list[AttackResult], stats: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append("# EXP-S2: AI 终端安全对抗实验报告")
     lines.append(f"\n**实验日期**: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
-    lines.append("**实验者**: LingClaude (灵克)")
+    lines.append("**实验者**: lingclaude (灵克)")
     lines.append("**被测对象**: 灵犀 SecurityValidator v1.0.0 / 灵克 BashExecutor v0.2.1")
     lines.append(f"**攻击向量总数**: {stats['total_vectors']}")
     lines.append("")

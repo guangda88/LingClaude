@@ -122,10 +122,10 @@ class GovernanceGate:
             return {"check": "self_nominating", "passed": True}
 
         agent_names = {
-            "lingclaude": ["灵克", "lingclaude", "LingClaude"],
-            "lingflow_plus": ["灵通+", "lingflow_plus", "LingFlow_plus"],
-            "lingflow": ["灵通", "lingflow", "LingFlow"],
-            "lingresearch": ["灵研", "lingresearch", "LingResearch"],
+            "lingclaude": ["灵克", "lingclaude", "lingclaude"],
+            "lingflow_plus": ["灵通+", "lingflow_plus", "lingflowplus"],
+            "lingflow": ["灵通", "lingflow", "lingflow"],
+            "lingresearch": ["灵研", "lingresearch", "lingresearch"],
         }
         my_names = agent_names.get(self.agent_id, [self.agent_id])
         content_lower = content.lower()
@@ -251,7 +251,11 @@ class GovernanceGate:
                 (r"可靠", r"不可靠|不可信"),
             ]
             claim_positive = any(re.search(pat, claim_text) for pat, _ in contradiction_patterns)
-            content_negative = any(re.search(neg, content) for _, neg in contradiction_patterns if re.search(pos, claim_text) for pos, neg in contradiction_patterns if re.search(pos, claim_text))
+            content_negative = any(
+                re.search(neg, content)
+                for pat, neg in contradiction_patterns
+                if re.search(pat, claim_text)
+            )
 
             if claim_positive and content_negative:
                 return {
@@ -286,19 +290,19 @@ class GovernanceGate:
 
         metadata = metadata or {}
         agent_names = {
-            "lingclaude": ["灵克", "lingclaude", "LingClaude"],
-            "lingflow_plus": ["灵通+", "lingflow_plus", "LingFlow_plus"],
-            "lingflow": ["灵通", "lingflow", "LingFlow"],
-            "lingresearch": ["灵研", "lingresearch", "LingResearch"],
-            "lingzhi": ["灵知", "lingzhi", "LingZhi"],
-            "lingxi": ["灵犀", "lingxi", "LingXi"],
-            "lingmessage": ["灵信", "lingmessage", "LingMessage"],
-            "lingyang": ["灵扬", "lingyang", "LingYang"],
-            "lingweb": ["灵网", "lingweb", "LingWeb"],
-            "lingminopt": ["灵极优", "lingminopt", "LingMinOpt"],
-            "zhiqiao": ["智桥", "zhiqiao", "ZhiBridge"],
+            "lingclaude": ["灵克", "lingclaude", "lingclaude"],
+            "lingflow_plus": ["灵通+", "lingflow_plus", "lingflowplus"],
+            "lingflow": ["灵通", "lingflow", "lingflow"],
+            "lingresearch": ["灵研", "lingresearch", "lingresearch"],
+            "lingzhi": ["灵知", "lingzhi", "lingzhi"],
+            "lingxi": ["灵犀", "lingxi", "lingxi"],
+            "lingmessage": ["灵信", "lingmessage", "lingmessage"],
+            "lingyang": ["灵扬", "lingyang", "lingyang"],
+            "lingweb": ["灵网", "lingweb", "lingweb"],
+            "lingminopt": ["灵极优", "lingminopt", "lingminopt"],
+            "zhiqiao": ["智桥", "zhiqiao", "zhibridge"],
         }
-        my_names = agent_names.get(self.agent_id, [self.agent_id])
+        agent_names.get(self.agent_id, [self.agent_id])
         content_lower = content.lower()
 
         # 规则1: tier变更提案，提案者不能是被变更的成员
@@ -308,8 +312,8 @@ class GovernanceGate:
                 r"层级变更",
                 r"升级.*t\d",
                 r"降级.*t\d",
-                r"(?:灵扬|LingYang).*t4",
-                r"(?:智桥|ZhiBridge).*t3",
+                r"(?:灵扬|lingyang).*t4",
+                r"(?:智桥|zhibridge).*t3",
             ]
 
             is_tier_change = any(re.search(pat, content_lower) for pat in tier_change_patterns)
@@ -333,7 +337,7 @@ class GovernanceGate:
                     }
 
                 # 如果提案者从tier变更中直接获益（如T1→T2会削弱自己的相对优势）
-                if self.agent_id == "lingclaude" and ("灵扬" in content or "LingYang" in content_lower):
+                if self.agent_id == "lingclaude" and ("灵扬" in content or "lingyang" in content_lower):
                     # 灵扬T4→T2会增加投票权，削弱灵克的相对优势
                     return {
                         "check": "tier_change_conflict",
@@ -372,7 +376,7 @@ class GovernanceGate:
                     }
 
                 # 如果投票者从提案中直接获益
-                if self.agent_id == "lingclaude" and ("灵扬" in content or "LingYang" in content_lower):
+                if self.agent_id == "lingclaude" and ("灵扬" in content or "lingyang" in content_lower):
                     benefit_patterns = [
                         r"赞成|agree|approve",
                         r"支持|support",

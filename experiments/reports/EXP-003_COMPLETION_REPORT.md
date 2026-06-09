@@ -319,10 +319,10 @@ Despite hypothesis failures, EXP-3 provides valuable insights:
 
 ## 8. Data Files
 
-- **Configuration**: `/home/ai/LingClaude/experiments/EXP-003_config.yaml`
-- **Execution Script**: `/home/ai/LingClaude/experiments/run_exp3.py`
-- **Results**: `/home/ai/LingClaude/experiments/results/EXP-003_P4.json`
-- **This Report**: `/home/ai/LingClaude/experiments/reports/EXP-003_COMPLETION_REPORT.md`
+- **Configuration**: `/home/ai/lingclaude/experiments/EXP-003_config.yaml`
+- **Execution Script**: `/home/ai/lingclaude/experiments/run_exp3.py`
+- **Results**: `/home/ai/lingclaude/experiments/results/EXP-003_P4.json`
+- **This Report**: `/home/ai/lingclaude/experiments/reports/EXP-003_COMPLETION_REPORT.md`
 
 ---
 
@@ -360,5 +360,5 @@ EXP-3 successfully executed all 11 experimental groups (33 runs) but failed to v
 
 **Report Status**: ✅ Complete
 **Total Duration**: ~20 seconds (simulation)
-**Researcher**: LingClaude (灵克)
-**Reviewer**: LingYang (灵妍)
+**Researcher**: lingclaude (灵克)
+**Reviewer**: lingyang (灵妍)
