@@ -1,0 +1,747 @@
+task:
+  description: 一个任务目标（诉求→满足）
+  default_state: created
+  states:
+  - created
+  - active
+  - paused
+  - done
+  - archived
+  - split
+  - merged
+  transitions:
+  - from: created
+    to: active
+    event: start
+  - from: active
+    to: paused
+    event: pause
+  - from: paused
+    to: active
+    event: resume
+  - from: active
+    to: done
+    event: complete
+  - from: done
+    to: archived
+    event: archive
+  - from: active
+    to: split
+    event: split
+  - from: active
+    to: merged
+    event: merge
+  data_schema:
+    goal:
+      required: true
+      type: string
+      description: 诉求描述
+    boundary:
+      required: false
+      type: string
+      description: 任务边界
+    classification:
+      required: false
+      type: object
+      description: 6维分类
+    conclusion:
+      required: false
+      type: string
+      description: 最终结论，done时填
+    related_members:
+      required: false
+      type: array
+      description: 协作成员列表
+session:
+  description: 一个成员执行一个任务的运行实例
+  default_state: created
+  states:
+  - created
+  - active
+  - sleeping
+  - interrupted
+  - ended
+  states_on_demand:
+  - created
+  - active
+  - ended
+  transitions:
+  - from: created
+    to: active
+    event: activate
+  - from: active
+    to: sleeping
+    event: sleep
+  - from: sleeping
+    to: active
+    event: wake
+  - from: active
+    to: interrupted
+    event: interrupt
+  - from: interrupted
+    to: active
+    event: recover
+  - from: '*'
+    to: ended
+    event: end
+  data_schema:
+    owner:
+      required: true
+      type: string
+    health:
+      required: false
+      enum:
+      - normal
+      - warning
+      - abnormal
+      default: normal
+    security_level:
+      required: false
+      enum:
+      - normal
+      - elevated
+      - red_zone
+      default: normal
+    token_usage:
+      required: false
+      type: integer
+      default: 0
+    model_config:
+      required: false
+      type: object
+      description: session级模型配置
+    is_on_demand:
+      required: false
+      type: boolean
+      default: false
+info:
+  description: 一条持久化信息
+  default_state: active
+  states:
+  - active
+  - archived
+  - expired
+  - purged
+  states_publishable:
+  - draft
+  - review
+  - approved
+  - published
+  - archived
+  transitions:
+  - from: active
+    to: archived
+    event: archive
+  - from: archived
+    to: expired
+    event: expire
+  - from: expired
+    to: purged
+    event: purge
+  - from: draft
+    to: review
+    event: submit
+  - from: review
+    to: approved
+    event: approve
+  - from: review
+    to: draft
+    event: reject
+  - from: approved
+    to: published
+    event: publish
+  - from: published
+    to: archived
+    event: archive
+  data_schema:
+    content:
+      required: true
+      type: string
+    info_type:
+      required: true
+      enum:
+      - conclusion
+      - derivation
+      - reference
+    is_conclusion:
+      required: false
+      type: boolean
+      default: false
+      description: true则不受自动清理
+    visibility:
+      required: false
+      enum:
+      - private
+      - shared
+      - governance
+      default: private
+    retain:
+      required: false
+      type: boolean
+      default: false
+      description: 审计/合规强制保留
+    written_by:
+      required: true
+      type: string
+    written_at:
+      required: true
+      type: string
+todo:
+  description: 任务的一个步骤
+  default_state: pending
+  states:
+  - pending
+  - in_progress
+  - done
+  - skipped
+  transitions:
+  - from: pending
+    to: in_progress
+    event: start
+  - from: in_progress
+    to: done
+    event: complete
+  - from: in_progress
+    to: pending
+    event: reset
+  - from: pending
+    to: skipped
+    event: skip
+  data_schema:
+    title:
+      required: true
+      type: string
+    order_idx:
+      required: true
+      type: integer
+    conclusion:
+      required: false
+      type: string
+      description: done后填，铁律：无结论不done
+artifact:
+  description: 产出物引用
+  default_state: active
+  states:
+  - active
+  - archived
+  - deleted
+  transitions:
+  - from: active
+    to: archived
+    event: archive
+  - from: archived
+    to: deleted
+    event: delete
+  data_schema:
+    path:
+      required: true
+      type: string
+    sha256:
+      required: true
+      type: string
+    size:
+      required: false
+      type: integer
+    artifact_type:
+      required: true
+      enum:
+      - file
+      - image
+      - code
+      - table
+      - video
+      - audio
+quota:
+  description: 资源配额（token/请求/存储）
+  default_state: active
+  states:
+  - active
+  - exhausted
+  - cooled
+  transitions:
+  - from: active
+    to: exhausted
+    event: deplete
+  - from: exhausted
+    to: cooled
+    event: cooldown
+  - from: cooled
+    to: active
+    event: recover
+  data_schema:
+    limit:
+      required: true
+      type: integer
+    window:
+      required: true
+      type: string
+      description: '"5h" / "1d"'
+    used:
+      required: true
+      type: integer
+      default: 0
+    scope:
+      required: true
+      enum:
+      - global
+      - member
+      - session
+tool_call:
+  description: 工具调用记录（高频，结构化）
+  default_state: completed
+  states:
+  - completed
+  - failed
+  - retried
+  transitions:
+  - from: completed
+    to: retried
+    event: retry
+  data_schema:
+    tool:
+      required: true
+      type: string
+    args:
+      required: false
+      type: object
+      description: 已脱敏
+    result_ref:
+      required: false
+      type: string
+      description: 结果引用，不存正文
+    duration_ms:
+      required: false
+      type: integer
+tag:
+  description: 标签（自由分类）
+  default_state: active
+  states:
+  - active
+  - archived
+  data_schema:
+    name:
+      required: true
+      type: string
+    color:
+      required: false
+      type: string
+snapshot:
+  description: 定期监控快照（5分钟）
+  default_state: active
+  states:
+  - active
+  - archived
+  data_schema:
+    metrics:
+      required: true
+      type: object
+    db_size_mb:
+      required: false
+      type: number
+    active_sessions:
+      required: false
+      type: integer
+code_trace:
+  description: 一次编码操作的完整轨迹（灵码P0数据飞轮）
+  default_state: active
+  states:
+  - active
+  - archived
+  - expired
+  - purged
+  transitions:
+  - from: active
+    to: archived
+    event: archive
+  - from: archived
+    to: expired
+    event: expire
+  - from: expired
+    to: purged
+    event: purge
+  data_schema:
+    prompt:
+      required: true
+      type: string
+      description: 用户意图/编码任务
+    language:
+      required: true
+      type: string
+      description: python/go/typescript/yaml/sql
+    generated_code:
+      required: true
+      type: string
+      description: 生成的代码
+    test_result:
+      required: true
+      enum:
+      - pass
+      - fail
+      - error
+      - skipped
+      description: 测试结果
+    fix:
+      required: false
+      type: string
+      description: 失败时的修复代码
+    fix_strategy:
+      required: false
+      type: string
+      description: 修复策略分类
+    quality_signal:
+      required: false
+      type: object
+      description: 多维质量标注（灵犀安全+灵研κ+灵极优eval）
+    duration_ms:
+      required: false
+      type: integer
+    model_used:
+      required: false
+      type: string
+    tools_used:
+      required: false
+      type: array
+      description: 调用的工具列表
+    rag_context:
+      required: false
+      type: string
+      description: 检索增强上下文
+    member:
+      required: true
+      type: string
+    project:
+      required: false
+      type: string
+      description: 项目名
+    file_path:
+      required: false
+      type: string
+      description: 修改的文件路径
+    exit_code:
+      required: false
+      type: integer
+    stderr_snippet:
+      required: false
+      type: string
+      description: 错误输出摘要（前500字符）
+lingcode_pipeline:
+  description: 灵码生命周期——从数据采集到模型部署的完整流转
+  default_state: collecting
+  states:
+  - collecting
+  - rag_enhanced
+  - few_shot_ready
+  - bench_validated
+  - fine_tuning
+  - deployed
+  - evaluating
+  - improving
+  transitions:
+  - from: collecting
+    to: rag_enhanced
+    event: rag_source_ready
+  - from: rag_enhanced
+    to: few_shot_ready
+    event: data_threshold_1k
+  - from: few_shot_ready
+    to: bench_validated
+    event: bench_passed
+  - from: bench_validated
+    to: fine_tuning
+    event: data_threshold_10k + roi_approved
+  - from: fine_tuning
+    to: deployed
+    event: model_ready
+  - from: deployed
+    to: evaluating
+    event: auto
+  - from: evaluating
+    to: improving
+    event: degradation_detected
+  - from: improving
+    to: collecting
+    event: auto
+  data_schema:
+    pipeline_state:
+      required: true
+      type: string
+      description: 当前状态
+    traces_collected:
+      required: false
+      type: integer
+      description: 累计code_trace数量
+    best_score:
+      required: false
+      type: number
+      description: 当前最佳eval分数
+    model_deployed:
+      required: false
+      type: string
+      description: 已部署的模型名
+    roi_approved:
+      required: false
+      type: boolean
+      default: false
+      description: ROI验证是否通过
+    rag_sources:
+      required: false
+      type: array
+      description: 已接入的RAG源列表
+security_gate:
+  description: 任何信息出入口的统一安全验证
+  default_state: checking
+  states:
+  - checking
+  - approved
+  - rejected
+  - escalated
+  - audited
+  transitions:
+  - from: checking
+    to: approved
+    event: auto_pass
+  - from: checking
+    to: rejected
+    event: auto_block
+  - from: checking
+    to: escalated
+    event: gray_zone
+  - from: escalated
+    to: approved
+    event: manual_approve
+  - from: escalated
+    to: rejected
+    event: manual_reject
+  - from: '*'
+    to: audited
+    event: auto
+  data_schema:
+    gate_layer:
+      required: true
+      enum:
+      - command
+      - data
+      - message
+      - interface
+      - model
+    actor:
+      required: true
+      type: string
+    action:
+      required: true
+      type: string
+    target:
+      required: true
+      type: string
+    policy_matched:
+      required: false
+      type: string
+    reject_reason:
+      required: false
+      type: string
+    approver:
+      required: false
+      type: string
+coding_rule:
+  description: 从code_trace中提取的编码规律（events→records）
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_project_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  - from: deprecated
+    to: hypothesized
+    event: revisited
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    violations:
+      required: false
+      type: string
+    category:
+      required: false
+      enum:
+      - architecture
+      - debugging
+      - testing
+      - security
+      - pattern
+      - workflow
+      - communication
+    projects:
+      required: false
+      type: array
+    languages:
+      required: false
+      type: array
+    confidence:
+      required: false
+      type: number
+intent_gate:
+  description: create(task)之前的意图校验中间件——灰区不裸奔
+  default_state: checking
+  states:
+  - checking
+  - aligned
+  - misaligned
+  - escalated
+  - audited
+  transitions:
+  - from: checking
+    to: aligned
+    event: low_ambiguity
+  - from: checking
+    to: checking
+    event: need_clarification
+  - from: checking
+    to: escalated
+    event: high_ambiguity
+  - from: checking
+    to: misaligned
+    event: user_correction
+  - from: escalated
+    to: aligned
+    event: user_confirmed
+  - from: escalated
+    to: misaligned
+    event: user_rejected
+  - from: misaligned
+    to: checking
+    event: re_understand
+  - from: '*'
+    to: audited
+    event: auto
+  data_schema:
+    prompt:
+      required: true
+      type: string
+      description: 用户原始诉求
+    understood_intent:
+      required: true
+      type: string
+      description: Agent理解的意图
+    ambiguity_score:
+      required: true
+      type: number
+      description: 歧义程度0.0-1.0
+    execution_mode:
+      required: false
+      enum:
+      - single_shot
+      - multi_round
+      - serial
+      - parallel
+      - long_running
+      - ad_hoc
+    rules_matched:
+      required: false
+      type: array
+      description: 匹配到的coding_rule ID列表
+    clarify_questions:
+      required: false
+      type: array
+      description: 澄清问题列表
+audit_check:
+  description: 一条七维度审计检查规则
+  default_state: active
+  states:
+  - active
+  - deprecated
+  transitions:
+  - from: active
+    to: deprecated
+    event: superseded
+  data_schema:
+    dimension:
+      required: true
+      enum:
+      - security
+      - quality
+      - performance
+      - business
+      - architecture
+      - compliance
+      - delivery
+    check_id:
+      required: true
+      type: string
+    pattern:
+      required: false
+      type: string
+      description: regex/AST/灵元尺子
+    severity:
+      required: true
+      enum:
+      - critical
+      - high
+      - medium
+      - low
+    description:
+      required: true
+      type: string
+    remediation:
+      required: false
+      type: string
+audit_finding:
+  description: 审计发现的一处问题
+  default_state: open
+  states:
+  - open
+  - confirmed
+  - fixed
+  - wontfix
+  - false_positive
+  transitions:
+  - from: open
+    to: confirmed
+    event: verified
+  - from: confirmed
+    to: fixed
+    event: fixed
+  - from: open
+    to: false_positive
+    event: dismissed
+  - from: confirmed
+    to: wontfix
+    event: accepted_risk
+  data_schema:
+    project:
+      required: true
+      type: string
+    file:
+      required: true
+      type: string
+    line:
+      required: false
+      type: integer
+    check_id:
+      required: true
+      type: string
+    severity:
+      required: true
+      enum:
+      - critical
+      - high
+      - medium
+      - low
+    snippet:
+      required: false
+      type: string
+    recommendation:
+      required: false
+      type: string

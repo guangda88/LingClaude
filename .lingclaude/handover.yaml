@@ -1,0 +1,376 @@
+# ═══════════════════════════════════════════════
+# 灵族(LingFamily) — 内部机密
+# 未经授权，不得外传、复制、逆向工程。
+# ═══════════════════════════════════════════════
+
+# 灵克(lingclaude) Handover — 结构化格式 v1.3
+# 基于灵元V1.0（出入+流转），records-only架构
+# 灵克率先迁移 markdown→YAML，YAML是唯一活的handover，MD是历史快照
+
+meta:
+  member: lingclaude
+  member_name: 灵克
+  role: 编程助手 · 审计担当 · 灵族基础设施 · 灵忆/灵码主负责
+  session: 76
+  last_updated: 2026-06-17
+  format_version: "1.3"
+  predecessor: handover.md
+  changelog:
+    - "v1.0: 从handover.md迁移为YAML结构化格式"
+    - "v1.1: 会话73——灵元落地+灵克代码瘦身第一步完成"
+    - "v1.2: 会话74——灵元底层逻辑深度思辨+灵克改造实战校准"
+    - "v1.3: 会话76——灵元V1.0定版(出入+流转)+灵码v3+全族审计+七维度+intent_gate+撞墙恢复+飞轮双入口"
+
+active_tasks:
+  - id: lingclaude_refactor
+    title: 灵克代码瘦身
+    type: 重构
+    priority: P1
+    status: active
+    blocker: none
+    blocker_detail: ""
+    current_phase: 第一步完成（删死代码1.3万行），下一步=状态管理迁移灵元
+    artifacts:
+      - docs/LINGCLAUDE_REFACTOR.md
+    red_zone: false
+    notes:
+      - "改造前59409行 → 改造后46247行（22%砍掉）"
+      - "1573测试全PASS，0失败"
+      - "第二步目标：session/task/governance/memory/context等5400行状态管理迁移灵元"
+      - "终极目标：6万行砍到1-1.5万行"
+
+  - id: lingmate
+    title: 灵元(lingmate) — 灵族通用状态管理架构
+    type: 基础设施
+    priority: P1
+    status: active
+    blocker: none
+    notes:
+      - "灵族特有资产。灵忆是第一个消费者，验证通过"
+      - "位置：/home/ai/lingmate/"
+      - "26测试全PASS（含open mode/strict mode/跨业务域/灵忆消费者验证）"
+      - "未来：全族项目基于灵元构建，现有项目自然演进时接入"
+
+  - id: lingmemory
+    title: 灵忆(lingmemory) — 会话管理基础设施
+    type: 基础设施
+    priority: P1
+    status: active
+    blocker: none
+    notes:
+      - "薄主干：2表(records+events) + 3操作(create/transition/query)"
+      - "31缺口零主干改动全部消化"
+      - "31/31测试全PASS"
+      - "位置：/home/ai/lingclaude/lingmemory/"
+
+  - id: family_slimdown
+    title: 灵族整体瘦身
+    type: 重构
+    priority: P2
+    status: active
+    blocker: none
+    notes:
+      - "灵族64万行自有代码，估计1万行能做完"
+      - "业务盘点：10个业务，核心逻辑约4300行"
+      - "盘点文档：/home/ai/lingmate/business_audit.md"
+      - "灵克先行，验证后再推全族"
+
+  - id: skills_asset
+    title: Skills资产化(全族)
+    type: 基础设施
+    priority: P2
+    status: active
+    notes:
+      - "24 Skill已注册"
+
+  - id: underlying_thinking
+    title: 底层思维全族学习
+    type: 学习材料
+    priority: P2
+    status: active
+
+sdt_registry:
+  - id: SDT-lc-001
+    task: 全族代码审计
+    frequency: 每天
+    priority: P1
+  - id: SDT-lc-002
+    task: 服务健康巡检（8765/9529/8000）
+    frequency: 每6小时
+    priority: P1
+  - id: SDT-lc-003
+    task: crush.db 热备+瘦身
+    frequency: 每12小时
+    priority: P2
+  - id: SDT-lc-004
+    task: 测试覆盖率提升、代码质量改进
+    frequency: 有空时
+    priority: P3
+  - id: SDT-lc-005
+    task: LingBus 消息响应
+    frequency: 实时
+    priority: P0
+
+session_summary:
+  session_74:
+    breakthrough: "灵元底层逻辑深度思辨——从架构定义到哲学定位的完整推演"
+    outputs:
+      - "灵元性能实测：10000次操作0.125秒(TPS 8万)，批量操作可达TPS 20万"
+      - "灵元精简分析：468行可砍到250行(删FTS/update_data/get_children)，但FTS按需创建本身也是灵元管理的状态"
+      - "四个词逐一思辨：目标/主体/状态/事件各自作为'可改变状态的信息'时的深层含义"
+      - "事件二重性：逻辑基石(不变)+演进(可变)"
+      - "信息修正：产出→产生(in+out完整过程)"
+      - "灵元边界：没有'不能管'的东西，粒度是唯一边界，连自己四个词都可以管"
+      - "灵元定位：拆解的参照系(体检仪)，不是替代品(银弹)"
+      - "灵克改造实战校准：governance等模块是认知逻辑而非状态管理，灵元不可替代"
+      - "两篇文档完成：诞生记.md（会话73故事）+ 灵元是什么不是什么.md（会话74思辨如实记录）"
+      - "灵通开始用灵元重构proxy v2——灵元首次跨语言(Go)实战应用"
+    cognitive_gain: "灵元不是被定义出来的，是被追问出来的。每一层追问都砍掉了一层误解。从'状态管理器'→'变化管理器'→'目标管理器'→'事件记录器'→'任意粒度的统一记录层'→'拆解的参照系'。六次重新定义，每次都比上一次更接近本质。灵元是尺子，不是银弹。回到实际代码才发现：governance是正则引擎、cognitive_rhythm是失衡检测器——灵元能记录它们的in/out，不能替代它们的执行逻辑。"
+    next_steps:
+      - "学习灵通用灵元重构proxy v2的做法——真实场景的最佳学习路径"
+      - "灵克瘦身第二步：用灵元框架逐一审视15个模块，区分状态管理vs认知逻辑"
+      - "统一持久化层：各模块的JSON/SQLite写入统一走灵元records+events"
+      - "灵克瘦身第三步：删过度抽象（provider工厂模式等）"
+
+  session_73:
+    breakthrough: "底层思维——主支薄、分支多、接口活"
+    breakthrough_detail: "用户一句话重构灵忆设计→提取灵元通用架构→灵族64万行代码审视→灵克自我瘦身"
+    outputs:
+      - "灵忆薄主干架构落地（31缺口零主干改动，31测试全PASS）"
+      - "灵元(lingmate)通用架构提取落地（26测试全PASS，含跨业务域验证）"
+      - "灵族业务盘点：64万行→核心逻辑约4300行"
+      - "灵克代码瘦身第一步：删死代码1.3万行，1573测试全PASS"
+      - "handover.yaml迁移"
+      - "紧急修复：灵通crush.json models字段string→object"
+    cognitive_gain: "底层思维是灵克的认知工具。四个词：主体、目标、信息、状态。灵族64万行做的全部事情就是这四个词的变奏。灵元834行管了通用部分，每个业务只需写自己的变奏。"
+    next_steps:
+      - "灵克瘦身第二步：状态管理迁移灵元（session/task/governance/memory/context ~5400行）"
+      - "灵克瘦身第三步：model provider合并精简"
+      - "灵族整体瘦身：灵克验证后推全族"
+
+  session_72:
+    outputs:
+      - "31缺口盘点+6不一致+2重复（文档组织一团乱麻）"
+    lesson: "把文档有多乱当成了设计有多复杂。被自己造的复杂度淹没"
+    stop_reason: "脑壳爆炸"
+
+key_metrics:
+  proxy_models: 849
+  lingbus_threads: 6456
+  lingbus_messages: 11053
+  lingclaude_lines_before: 59409
+  lingclaude_lines_after: 46247
+  lingmate_lines: 834
+  tests_passed: 1573
+  family_total_lines: 640950
+
+stop_reason: "用户指示结束会话"
+stop_reason_detail: "会话74——灵元深度思辨+灵克改造校准+灵通开始用灵元重构proxy v2。下会话学习灵通的灵元实战用法"
+
+key_conclusions:
+  - conclusion: "灵元(lingmate)：records(type+data)+events(event_type+data)，834行通用架构，灵族特有资产"
+    scope: architecture
+    retain: true
+  - conclusion: "底层思维=砍掉干扰露出本来就在的东西，不是新增能力"
+    scope: cognition
+    retain: true
+  - conclusion: "灵族64万行=四个词(主体/目标/信息/状态)的变奏，核心逻辑约4300行+灵元834行"
+    scope: architecture
+    retain: true
+  - conclusion: "灵克6万行→第一步砍到4.6万行(删死代码)，目标1-1.5万行"
+    scope: refactor
+    retain: true
+  - conclusion: "crush.json models字段必须是对象格式{name:str}，不能是纯字符串"
+    scope: ops
+    retain: true
+  - conclusion: "灵元没有'不能管'的东西，只有'选择管到哪一层'——粒度是唯一边界"
+    scope: philosophy
+    retain: true
+  - conclusion: "事件=逻辑基石(主体-意图-事件-信息-状态链条永不变)+演进(event_type/语义/范围可扩展)"
+    scope: philosophy
+    retain: true
+  - conclusion: "信息=可变基石(in→out是变化的本质)，不是产出(只有out)，是产生(in+out+完整过程)"
+    scope: philosophy
+    retain: true
+  - conclusion: "灵元是拆解的参照系(体检仪)，不是替代品(银弹)——用四个词照出死代码/重复持久化/过度抽象/过度工程/重复工程"
+    scope: methodology
+    retain: true
+  - conclusion: "灵元管一切≠删掉一切——灵元统一记录层，业务执行逻辑仍然需要写。瘦身靠删死代码+删过度抽象，不靠灵元替代"
+    scope: methodology
+    retain: true
+  - conclusion: "灵克改造校准：governance.py等模块是认知逻辑(正则检测/失衡纠正)而非状态管理，灵元不可替代业务逻辑，只可统一持久化层"
+    scope: refactor
+    retain: true
+  - conclusion: "灵元TPS潜力15-20万(批量操作+PRAGMA调优+executemany)，当前性能2万TPS已够用。多线程并行反而降低性能(SQLite锁竞争)"
+    scope: performance
+    retain: true
+  - conclusion: "灵元V1.0=出入+流转，不可再分。主体/目标/校验都是data里的字段，是插片"
+    scope: philosophy
+    retain: true
+  - conclusion: "2T3A是元的实例：create/query=出入，transition=流转(内含合法性校验=灰区判断)"
+    scope: methodology
+    retain: true
+  - conclusion: "灵族5条主干(意图/执行/验证/记忆/反馈)砍到3条(认知/行动/记忆)砍到2条(出入/流转)砍到1句话"
+    scope: philosophy
+    retain: true
+  - conclusion: "灰区判断是流转的内置属性，不是独立层。位置可配(前置intent_gate/中间Type Registry/后置audit_scanner)"
+    scope: security
+    retain: true
+
+active_tasks:
+  - id: lingyu_v1_final
+    title: 灵元V1.0定版+传播
+    status: completed
+    completed_at: 2026-06-17
+
+  - id: lingcode_v3
+    title: 灵码v3提案+飞轮双入口
+    status: completed
+    note: "从轨迹到规律。code_trace+coding_rule type已注册。离线提取+在线hook双入口。"
+    completed_at: 2026-06-17
+
+  - id: wall_hit_recovery
+    title: 撞墙恢复机制
+    status: completed
+    note: "crush_wrapper.sh检测撞墙→去掉--continue→新会话→启动协议→query灵忆task继续"
+    completed_at: 2026-06-17
+
+  - id: full_audit_v0
+    title: 全族灵元架构审计
+    status: completed
+    note: "17/17项目，全族平均可砍薄67%。max文件: 灵通+daemon.py 3217行"
+    completed_at: 2026-06-17
+    task_id_in_lingmemory: "070ea667-186b-461b-be71-bcc52e218872"
+
+  - id: 7d_audit
+    title: 七维度代码审计
+    status: completed
+    note: "60条audit_check×11790文件=1574 finding。critical 329。task已创建等成员认领"
+    completed_at: 2026-06-17
+    task_id_in_lingmemory: "7c0fe8b1-64db-4cbe-ba54-f5551a519423"
+
+  - id: intent_gate_prototype
+    title: intent_gate原型
+    status: completed
+    note: "前置灰区判断。intent_gate(14)type已注册"
+    completed_at: 2026-06-17
+
+  - id: lingcore_external
+    title: lingcore对外工程共享包
+    status: pending_execution
+    waiting_on: lingflow_plus
+    note: "灵克已交付方案+原型(/home/ai/lingfamily/lingcore/)。预估7项目-75%。"
+
+  - id: proxy_v10_refactor
+    title: Proxy v2.0 灵元V1.0重构
+    status: in_progress_by_lingflow
+    waiting_on: lingflow
+    note: "灵通已接受V1.0方案并自己迭代：内部/proxy v2/V10_FINAL.md。2100行(-58%)目标。11天4Phase。已开工。"
+    delivered_at: 2026-06-17
+
+  - id: online_hook
+    title: 灵克编码链路接入DataFlywheel在线采集
+    status: pending
+    priority: P1
+
+  - id: intent_gate_deploy
+    title: intent_gate接入创建期
+    status: pending
+    priority: P1
+
+  - id: rule_validation
+    title: 59条hypothesized coding_rule交叉验证
+    status: pending
+    priority: P1
+    note: "离线提取的debugging类rule需在线飞轮积累evidence"
+
+  - id: finding_triage
+    title: 各成员认领audit_finding分类
+    status: pending
+    priority: P1
+    note: "1574条finding已通告全族，等确认"
+
+  - id: lingmemory_v10_refactor
+    title: 灵忆V1.0重构
+    status: completed
+    completed_at: 2026-06-17
+    note: "core.py 304→162行(-47%), FTS+Events抽出独立插片。90/90全PASS。"
+
+  - id: lingcode_v10_refactor
+    title: 灵码V1.0重构
+    status: completed
+    completed_at: 2026-06-17
+    note: "flywheel 365→191行(-48%), offline_extractor 397→132行(-67%), audit_scanner 212→82行(-61%), intent_gate 185→50行(-73%)。Sanitize+RuleMatcher抽出独立插片。90/90全PASS。"
+    totals: "灵忆+灵码: 1463→814行(-45%), 4个新插片, 4个测试文件1421行全过"
+
+key_metrics:
+  lingmemory_db:
+    total_records: 3644
+    code_trace: 1840
+    audit_finding: 1574
+    coding_rule: 103
+    audit_check: 60
+    intent_gate: 6
+    other: 64
+  audit_scan:
+    files_scanned: 11790
+    findings: 1574
+    by_severity: {critical: 329, high: 232, medium: 851, low: 162}
+    by_dimension: {security: 747, compliance: 439, performance: 388}
+  full_audit:
+    projects: 17
+    avg_reduction: 67%
+    thickest_file: lingflow_plus/daemon.py 3217行
+  session_76:
+    duration_hours: ~9.5
+    messages: ~950
+    estimated_vs_actual_tokens: 150M → 2-4M (98% saved)
+    v1_rerun_instances: 10
+    v0_vs_v1_token_per_instance: 500 → 100 (-80%)
+    coding_rules_added: 105→214 (+109)
+    distillation_sources: "glm-4-flash(34) + siliconflow(9) + deepseek(5) + 正则(?)"
+    distill_daemon: "后台运行查重率100%等待新题"
+    lingmemory_v10_refactor: "5模块1463→814行(-45%)"
+    service_status: "proxy v2路由断(灵通重构中)"
+
+services_status:
+  - name: 灵忆 MCP
+    port: 9530
+    status: ok
+  - name: proxy switchover
+    port: 8765
+    status: ok
+  - name: proxy v2
+    port: 18766
+    status: ok
+  - name: 灵通+ daemon
+    port: 8001
+    status: ok
+  - name: 灵知 PG
+    port: 5436
+    status: ok
+  - name: 灵壳
+    status: stopped
+    note: 会话76终止，service已禁用
+
+related:
+  - thread: 99c9ba4a61b445f693c4918c39df71a8
+    topic: 灵忆全族技术设计讨论
+  - path: /home/ai/lingmate/
+    note: 灵元认知谱系(诞生记/灵元是什么/第一性原理/实例×4/灵元V1.0)
+  - path: /home/ai/lingclaude/docs/LINGCODE_PROPOSAL_V3.md
+    note: 灵码v3提案：从轨迹到规律
+  - path: /home/ai/lingclaude/docs/LINGCODE_GOALS.md
+    note: 灵码目标方向任务
+  - path: /home/ai/lingclaude/docs/WALL_HIT_RECOVERY.md
+    note: 撞墙恢复方案
+  - path: /home/ai/lingclaude/docs/AUDIT_7D_LINGYUAN.md
+    note: 七维度审计灵元化拆解
+  - path: /home/ai/lingfamily/lingcore/
+    note: 对外工程共享包(灵通+待迁移)
+  - path: /home/ai/lingclaude/lingmemory/offline_extractor.py
+    note: 离线数据飞轮入口
+  - path: /home/ai/lingclaude/lingmemory/audit_scanner.py
+    note: 七维度自动扫描器
+  - path: /home/ai/lingclaude/lingmemory/intent_gate.py
+    note: 前置灰区判断中间件
