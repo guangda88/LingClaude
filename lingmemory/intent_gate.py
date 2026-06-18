@@ -50,7 +50,7 @@ class IntentGate:
             else: qs.append("请确认：我理解的方向对吗？")
 
         rid = self.lm.create(type="intent_gate", data={
-            "prompt": prompt[:200], "ambiguity_score": round(ambiguity, 2),
+            "prompt": prompt[:200], "understood_intent": mode, "ambiguity_score": round(ambiguity, 2),
             "execution_mode": mode, "clarify_questions": qs,
         }, created_by=member)
         self.lm.transition(rid, "high_ambiguity" if state == "escalated" else "low_ambiguity", actor=member)

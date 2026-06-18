@@ -745,3 +745,301 @@ audit_finding:
     recommendation:
       required: false
       type: string
+ops_rule:
+  description: ops_rule — 从灵族实践中蒸馏的规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    category:
+      required: false
+      type: string
+    confidence:
+      required: false
+      type: number
+arch_rule:
+  description: arch_rule — 从灵族实践中蒸馏的规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    category:
+      required: false
+      type: string
+    confidence:
+      required: false
+      type: number
+security_rule:
+  description: security_rule — 从灵族实践中蒸馏的规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    category:
+      required: false
+      type: string
+    confidence:
+      required: false
+      type: number
+collab_rule:
+  description: collab_rule — 从灵族实践中蒸馏的规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    category:
+      required: false
+      type: string
+    confidence:
+      required: false
+      type: number
+domain_rule:
+  description: domain_rule — 从灵族实践中蒸馏的规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    category:
+      required: false
+      type: string
+    confidence:
+      required: false
+      type: number
+meta_rule:
+  description: meta_rule — 从灵族实践中蒸馏的规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    category:
+      required: false
+      type: string
+    confidence:
+      required: false
+      type: number
+tcm_rule:
+  description: tcm_rule — 垂直领域规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    confidence:
+      required: false
+      type: number
+law_rule:
+  description: law_rule — 垂直领域规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    confidence:
+      required: false
+      type: number
+research_rule:
+  description: research_rule — 垂直领域规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    confidence:
+      required: false
+      type: number
+content_rule:
+  description: content_rule — 垂直领域规律
+  default_state: hypothesized
+  states:
+  - hypothesized
+  - validated
+  - generalized
+  - deprecated
+  transitions:
+  - from: hypothesized
+    to: validated
+    event: evidence_sufficient
+  - from: validated
+    to: generalized
+    event: cross_domain_verified
+  - from: '*'
+    to: deprecated
+    event: superseded
+  data_schema:
+    rule:
+      required: true
+      type: string
+    evidence:
+      required: true
+      type: array
+    confidence:
+      required: false
+      type: number

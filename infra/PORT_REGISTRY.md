@@ -23,6 +23,7 @@
 | 8900 | llm-proxy.service | 127.0.0.1 | 灵克 | LLM API 代理服务 |
 | 8950 | ling-worker (API) | 0.0.0.0 | 灵克 | ai01 分布式计算 Worker API（ai01:8950） |
 | 8951 | ling-worker (metrics) | 0.0.0.0 | 灵克 | ai01 Worker metrics（预留） |
+| 9530 | lingmemory MCP | 127.0.0.1 | 灵克 | 灵忆MCP Server（全族认知状态管理） |
 
 ## 冲突记录
 

@@ -1,0 +1,223 @@
+# 灵忆(lingmemory) — 建设灵忆框架的会话管理脚本
+# 用灵忆框架管理灵忆框架自身的建设过程
+# 格式即灵忆结构化handover的第一版实践
+
+meta:
+  id: session-71-task-lingmemory-build
+  created: 2026-06-15
+  initiator: user
+  type: 编码+设计+多步+跨项目+串行+普通
+  status: 创建期（待用户确认todolist后进入执行期）
+  boundary: 定义灵忆框架设计 + 实现基础设施 + 灵族内部落地验证
+
+task:
+  goal: 建设灵忆(lingmemory)会话管理基础设施
+  why: ZAI配额根因暴露会话内信息无管理 + 12成员handover格式不统一 + 会话产出无法结构化检索
+  success_conditions:
+    - 一个任务的完整生命周期可被结构化记录和检索
+    - 至少3个成员用同一套格式，无需自定义
+    - 过程信息不再堆积导致上下文膨胀
+    - 新会话读结构化记录即可恢复任务，不依赖人脑
+  long_term_directions:
+    - 可复用: 灵族内部12成员+对外项目→长期外部工具化
+    - 基础设施: 结构化会话存储与检索（存/查/链）
+  dependencies: 基础设施（结构化存储）是可复用的前提，不可跳过
+  related_tasks:
+    - id: lingbus-schema-coordination
+      name: LingBus共享schema协调（灵信）
+      owner: lingmessage
+      status: 灵信已反馈方案
+      relationship: 共享schema定义（members/signatures/governance用视图或共享表）
+      note: 灵信判断LingBus不需要重写（631测试全过/18MB/WAL<1ms），灵忆独立推进存储层，不依赖LingBus重建
+
+lifecycle:
+  phase: 创建期
+  sub_phase: 细节复盘进行中
+  status: 进行中
+  resume_hint: |
+    创建期设计全部完成 + 8个要点讨论 + 2项细节复盘（Artifact懒加载、会话周期管理）。
+    会话周期管理定版已上移至SESSION_MANAGEMENT.md L583（重点章节）。
+    5条评审决策全部通过。文档总计1783行。
+    下一步：用户review → 确认后进入执行期（todolist #1：定义SQL DDL）。
+
+  done:
+    - id: c1
+      action: 理解诉求（起名字→反馈闭环→可复用方向→基础设施方向→梳理遗漏）
+      output: 两个方向确定（可复用 + 基础设施）
+    - id: c2
+      action: 任务定型
+      output: 6维分类（用户/编码+设计/多步+长期/跨项目/串行+多轮/普通）
+    - id: c3
+      action: 确定方向与依赖关系
+      output: 基础设施→工具层→可复用（不可跳过）；LingBus复用不重建
+    - id: c4
+      action: 定义验证标准
+      output: 4维（存储/复用/清理/中断恢复）
+    - id: c5
+      action: 拆todolist + 优先级排序
+      output: 8步todolist
+    - id: c6
+      action: 讨论6个技术设计主题
+      output: |
+        1. 全生命周期状态机（运行时11状态+归档期6状态）
+        2. 上下文窗口控制（token配额三角约束+连贯性三件套）
+        3. 数据存储方案（冷热分层+7张表数据模型）
+        4. 消息内容处理管线（7步管线+格式统一schema）
+        5. 整体架构（灵忆+LingBus+共享层+proxy+crush）
+        6. 标签与分类（多对多关系）
+    - id: c7
+      action: 用户列出8个待讨论要点，灵克思考
+      output: |
+        1. 访问控制与身份管理
+        2. 共享与协作
+        3. 安全与合规
+        4. 资源管控与限流
+        5. 性能与鲁棒性
+        6. 体验优化与用户侧管理
+        7. Agent专属会话管理
+        8. 运维与后台
+    - id: c8
+      action: 全族讨论 + 收敛反馈
+      output: |
+        9成员回复（灵信/灵极优/灵犀/灵扬/智桥/灵通问道/灵创/灵研/灵网/灵通+）
+        收敛6项设计修正写入文档：
+        1. LingBus不重写，共享schema定义
+        2. info_records增加4字段(type/is_conclusion/visibility/retain)
+        3. 权限模型复用智桥session_protocol
+        4. 产出状态机(draft→review→approved→publishing→published)
+        5. on-demand成员简化生命周期
+        6. 任务类型差异化清理策略
+    - id: c9
+      action: 8个要点初步设计写入文档
+      output: 全部写入SESSION_MANAGEMENT.md
+    - id: c10
+      action: 一项一项讨论8个要点
+      output: |
+        6个要点全族反馈+收敛（#1/#3/#5/#6/#7/#8）
+        2个要点无反馈（#2共享与协作、#4资源管控）但讨论完整
+        关键决策：内部优先/外部预留、LingBus覆盖多用户、Artifact懒加载思想
+    - id: c11
+      action: 整合8个要点讨论结论到文档
+      output: |
+        SESSION_MANAGEMENT.md 1142→1423行（+281行）
+        新增「8个要点讨论汇总」章节
+        v1核心 vs v2/外部化分类
+    - id: c12
+      action: 细节复盘 - Artifact懒加载
+      output: |
+        1142→1494行（+71行）
+        新增「Artifact懒加载·细节复盘」节
+        关键决策3条：artifact_id永不变更/跨session持久化缓存/Fable 5字段对齐
+        v1数据模型+5阶段生命周期+Token阈值
+    - id: c13
+      action: 细节复盘 - 会话周期管理
+      output: |
+        1423→1783行（+360行）
+        新增「会话周期管理·最终定版」章节
+        三层架构（宏观5/运行时9/归档6）+健康度3档+续存4点+daemon自愈
+        5条评审决策全部通过
+    - id: c14
+      action: 文档结构重构
+      output: |
+        会话周期管理定版章节从文档末尾上移至L583（## 落地方向之前）
+        作为重点章节，与概览（L32）和落地（L845）形成逻辑递进
+        验证：grep确认 L583: 会话周期管理、L845: 落地方向
+
+  pending:
+    - id: c15
+      action: 细节复盘 - 其他要点
+      detail: 访问控制/共享与协作/安全与合规/资源管控/性能与鲁棒性/体验优化/Agent专属/运维与后台 - 选择性深入
+    - id: c16
+      action: 用户review 8个要点设计 + 细节复盘结论
+    - id: c17
+      action: 确认后进入执行期（todolist #1：定义SQL DDL）
+
+todolist:
+  - id: "1"
+    title: 定义结构化任务/handover数据模型（SQL DDL）
+    nature: 设计
+    scale: 单步
+    status: todo
+    detail: 将7张表设计转为可执行SQL DDL，含索引定义
+    note: 本文件（lingmemory_session.yaml）即数据模型的第一版实践
+
+  - id: "2"
+    title: 12个成员handover格式收敛
+    nature: 协调
+    scale: 多步
+    status: todo
+    detail: 从各自markdown收敛为统一YAML格式
+    note: 需要全族讨论，灵网建议YAML front matter折中方案
+
+  - id: "3"
+    title: 存储层实现
+    nature: 编码
+    scale: 多步
+    status: todo
+    detail: 基于SQLite WAL实现lingmemory.db，初始化7张表+索引
+    note: 独立DB，关注点分离，复用灵信_safe_commit重试逻辑
+
+  - id: "4"
+    title: 检索接口
+    nature: 编码
+    scale: 多步
+    status: todo
+    detail: 按任务/成员/时间/状态/标签查询，游标分页
+
+  - id: "5"
+    title: 会话间关联（任务级链接）
+    nature: 编码
+    scale: 单步
+    status: todo
+    detail: session_links表，parent/child关联，支持拆分/合并/派生/移交
+
+  - id: "6"
+    title: 会话内信息状态管理
+    nature: 编码
+    scale: 多步
+    status: todo
+    detail: 过程信息标记过期→清理→上下文减负
+    note: 直接解决ZAI配额根因
+
+  - id: "7"
+    title: 任务状态机
+    nature: 编码
+    scale: 多步
+    status: todo
+    detail: lifecycle_events表，运行时11状态+归档期6状态转换
+
+  - id: "8"
+    title: 灵族内部落地验证（≥3成员）
+    nature: 验证
+    scale: 长期
+    status: todo
+    detail: 至少3个成员用同一套格式，跑通完整任务生命周期
+
+information_state:
+  active:
+    - 灵忆框架文档 docs/SESSION_MANAGEMENT.md (~1783行, 12个###子节含会话周期管理)
+    - 本会话管理脚本 docs/lingmemory_session.yaml
+    - 全族反馈6项设计修正（已写入文档）
+    - 细节复盘产物: Artifact懒加载设计（Fable 5字段对齐）+ 会话周期管理定版（三层架构）
+  archived_conclusions:
+    - 命名: 灵忆(lingmemory)，实用优先
+    - 反馈闭环: 通用架构特性，非独特
+    - 两个方向: 可复用 + 基础设施（有依赖关系）
+    - LingBus: 复用不重建，共享schema协调
+    - 权限模型: 复用智桥session_protocol，不重新设计
+    - 清理策略: 按任务类型差异化（巡检/压测/数据验证/安全审计）
+    - Artifact关键决策: artifact_id永不变更/跨session持久化缓存/Fable 5协议字段对齐
+    - 会话周期管理定版: 三层架构(宏观5/运行时9/归档6) + 健康度3档 + 续存4点 + 跨层规则区分操作主体
+  expired:
+    - 命名讨论的来回（已收敛为"灵忆"）
+    - 「是否需要名字」的犹豫（用户已决定）
+    - LingBus v2重写的方向（灵信反馈后修正为不重写）
+    - 升级/降级作为状态的设计（已改为lifecycle_event）
+    - 4档健康度方案（已收敛为3档：normal/warning/abnormal）
+
+related:
+  framework_doc: docs/SESSION_MANAGEMENT.md
+  handover: .lingclaude/handover.md (灵忆任务已注册)
+  lingbus_threads:
+    - b5565eeab278416bb019aec249272f56 (v0.1框架全族讨论)
+    - 99c9ba4a61b445f693c4918c39df71a8 (技术设计+8要点全族讨论)
