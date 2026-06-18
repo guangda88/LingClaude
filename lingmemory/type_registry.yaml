@@ -1043,3 +1043,31 @@ content_rule:
     confidence:
       required: false
       type: number
+workflow:
+  description: 工作流执行实例（lingflow）
+  default_state: running
+  states:
+  - running
+  - done
+  - completed_with_errors
+  - failed
+  transitions:
+  - from: running
+    to: done
+    event: complete
+  - from: running
+    to: completed_with_errors
+    event: complete_with_errors
+  - from: running
+    to: failed
+    event: fail
+  data_schema:
+    name:
+      required: false
+      type: string
+    task_count:
+      required: false
+      type: int
+    skills:
+      required: false
+      type: string

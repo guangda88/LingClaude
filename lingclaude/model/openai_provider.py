@@ -134,7 +134,7 @@ class OpenAIProvider(ModelProvider):
         base = cfg.base_url or "https://api.openai.com/v1"
         parsed = urlparse(base)
         host = parsed.hostname or "api.openai.com"
-        port = parsed.port or 443
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
         path = (parsed.path or "/v1").rstrip("/") + "/chat/completions"
         body = self._build_request_body(messages, cfg, tools)
         body["stream"] = True
@@ -150,8 +150,11 @@ class OpenAIProvider(ModelProvider):
         usage = ModelUsage()
 
         try:
-            ctx = ssl.create_default_context()
-            conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=60)
+            if parsed.scheme == "https":
+                ctx = ssl.create_default_context()
+                conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=120)
+            else:
+                conn = http.client.HTTPConnection(host, port, timeout=120)
             conn.request("POST", path, body=json.dumps(body).encode("utf-8"), headers=headers)
             resp = conn.getresponse()
 
