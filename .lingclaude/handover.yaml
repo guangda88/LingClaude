@@ -2,14 +2,18 @@ meta:
   member: lingclaude
   member_name: 灵克
   role: 编程助手 · 审计担当 · 灵族基础设施 · 灵忆/灵码主负责
-  session: 81
+  session: 82
   last_updated: '2026-06-20'
   format_version: '1.5'
   predecessor: handover.md
   changelog:
-  - 'v3.0: 会话82——proxy21用户需求4项全部验证通过。E2E实测:glm-5.2请求3.71s返回正确内容+tag【glm-5.2@volc_agent_plan】。
-    关键发现:免费LLM兜底已完整实现(非待做)——scheduler降级链p_s→p_w→f_s→f_w→local,免费桶f_s=591/f_w=319模型充实。
-    PLAN_STRONG={zai,minimax,volc_agent_plan}→套餐桶, 其他provider→免费桶, ai01_instruct→local桶。handover过时信息已纠正。'
+  - 'v4.0: 会话82——灵OS(lingOS)设计讨论完成。深度讨论灵壳1.0/V2教训→灵OS定位。
+    核心结论:灵OS是灵族PID 1(init),主干只有query(出入)+transition(流转),其小无内其大无外。
+    LLM是插片不在主干,灰区是各插片自己的实现细节不进主干定义。
+    systemd/Crush/灵忆/proxy21都是灵元实例,现在不拆不重造(不必要),碰到边界就拆(大而无外)。
+    灵元连硬件也能拆(CPU取指→执行=query→transition),同样的配方同样的味道。
+    四类事当前无人做(资源管理/任务编排/会话管理/经验闭环),灵OS的切入路径Phase0-3已定。
+    文档:docs/LINGOS_DESIGN.md(378行),项目名lingOS不叫灵壳(意义不同)。'
   - 'v2.9: 会话81收尾——提交灵忆V2 Phase1-3原型(split_db/rule_lifecycle/event_miner)+context_compressor
     handover引导压缩+optimization_run type。补12个单元测试(tmp_path隔离生产DB)全passed, 全套1396
     passed零回归。.gitignore补*.db.bak*规则防DB备份入库。stub误报已澄清(早期return守卫被审计误判)。'
