@@ -7,7 +7,9 @@ meta:
   format_version: '1.5'
   predecessor: handover.md
   changelog:
-  - 'v1.0: 从handover.md迁移为YAML结构化格式'
+  - 'v2.9: 会话81收尾——提交灵忆V2 Phase1-3原型(split_db/rule_lifecycle/event_miner)+context_compressor
+    handover引导压缩+optimization_run type。补12个单元测试(tmp_path隔离生产DB)全passed, 全套1396
+    passed零回归。.gitignore补*.db.bak*规则防DB备份入库。stub误报已澄清(早期return守卫被审计误判)。'
   - 'v1.1: 会话73——灵元落地+灵克代码瘦身第一步完成'
   - 'v1.2: 会话74——灵元底层逻辑深度思辨+灵克改造实战校准'
   - 'v1.3: 会话76——灵元V1.0定版(出入+流转)+灵码v3+全族审计+七维度+intent_gate+撞墙恢复+飞轮双入口'
