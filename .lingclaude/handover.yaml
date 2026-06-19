@@ -7,6 +7,9 @@ meta:
   format_version: '1.5'
   predecessor: handover.md
   changelog:
+  - 'v3.0: 会话82——proxy21用户需求4项全部验证通过。E2E实测:glm-5.2请求3.71s返回正确内容+tag【glm-5.2@volc_agent_plan】。
+    关键发现:免费LLM兜底已完整实现(非待做)——scheduler降级链p_s→p_w→f_s→f_w→local,免费桶f_s=591/f_w=319模型充实。
+    PLAN_STRONG={zai,minimax,volc_agent_plan}→套餐桶, 其他provider→免费桶, ai01_instruct→local桶。handover过时信息已纠正。'
   - 'v2.9: 会话81收尾——提交灵忆V2 Phase1-3原型(split_db/rule_lifecycle/event_miner)+context_compressor
     handover引导压缩+optimization_run type。补12个单元测试(tmp_path隔离生产DB)全passed, 全套1396
     passed零回归。.gitignore补*.db.bak*规则防DB备份入库。stub误报已澄清(早期return守卫被审计误判)。'
