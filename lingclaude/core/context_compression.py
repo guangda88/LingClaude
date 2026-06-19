@@ -46,6 +46,14 @@ class CompressionConfig:
     summary_max_chars: int = 4000
     archive_to_memory: bool = True
     level: CompressionLevel = CompressionLevel.SUMMARY
+    priority_hints: list[str] = None  # handover重点词表，优先保留包含这些词的消息
+    handover_conclusions: list[str] = None  # handover key_conclusions，强制注入摘要
+
+    def __post_init__(self):
+        if self.priority_hints is None:
+            self.priority_hints = []
+        if self.handover_conclusions is None:
+            self.handover_conclusions = []
 
 
 _FILE_PATH_RE = re.compile(
@@ -70,8 +78,14 @@ _ERROR_KEYWORDS = (
 _BLOCK_DELIMITER = "---BLOCK---"
 
 
-def extract_facts_from_messages(messages: list[Any]) -> dict[str, list[str]]:
+def extract_facts_from_messages(
+    messages: list[Any],
+    priority_hints: list[str] | None = None,
+) -> dict[str, list[str]]:
     """从消息中提取结构化事实。
+
+    Args:
+        priority_hints: handover重点词表。包含这些词的消息/句子优先保留。
 
     Returns:
         {
@@ -79,12 +93,15 @@ def extract_facts_from_messages(messages: list[Any]) -> dict[str, list[str]]:
             "decisions": [...],
             "exclusions": [...],
             "errors": [...],
+            "priority_snippets": [...],  # 包含handover重点词的关键句
         }
     """
+    priority_hints = priority_hints or []
     files_seen: set[str] = set()
     decisions: list[str] = []
     exclusions: list[str] = []
     errors: list[str] = []
+    priority_snippets: list[str] = []
 
     for msg in messages:
         text = _extract_text(msg)
@@ -113,11 +130,19 @@ def extract_facts_from_messages(messages: list[Any]) -> dict[str, list[str]]:
                 if len(errors) < 10:
                     errors.append(stripped[:200])
 
+            # handover引导：包含重点词的句子优先保留
+            if priority_hints:
+                for hint in priority_hints:
+                    if hint.lower() in lower and len(priority_snippets) < 25:
+                        priority_snippets.append(stripped[:250])
+                        break
+
     return {
         "files_read": sorted(files_seen),
         "decisions": decisions,
         "exclusions": exclusions,
         "errors": errors,
+        "priority_snippets": priority_snippets,
     }
 
 
@@ -125,6 +150,7 @@ def generate_chinese_summary(
     facts: dict[str, list[str]],
     dropped_count: int,
     recent_context: str = "",
+    handover_conclusions: list[str] | None = None,
 ) -> str:
     """生成中文优化的压缩摘要（遗嘱式）。
 
@@ -133,9 +159,25 @@ def generate_chinese_summary(
     - 代码/路径/技术术语保持英文（省 token）
     - 决策/推理保持中文（保语义）
     - 强制包含认知锚点
+    - handover_conclusions强制注入（人筛选的重点结论）
     """
+    handover_conclusions = handover_conclusions or []
     sections: list[str] = []
     sections.append(f"## 压缩摘要（前 {dropped_count} 轮对话）\n")
+
+    # handover重点结论优先展示（人筛选的，最高价值）
+    if handover_conclusions:
+        sections.append("### 核心结论（handover引导）")
+        for c in handover_conclusions[:10]:
+            sections.append(f"- {c}")
+        sections.append("")
+
+    # handover引导提取的关键句（包含重点词的消息）
+    if facts.get("priority_snippets"):
+        sections.append("### 关键上下文（handover重点相关）")
+        for s in facts["priority_snippets"][:15]:
+            sections.append(f"- {s}")
+        sections.append("")
 
     if facts["files_read"]:
         files = facts["files_read"][:30]
@@ -206,7 +248,7 @@ def compress_messages(
     dropped = messages[:total - keep_count]
     kept = messages[total - keep_count:]
 
-    facts = extract_facts_from_messages(dropped)
+    facts = extract_facts_from_messages(dropped, priority_hints=config.priority_hints)
     dropped_count = (total - keep_count)
 
     if config.level == CompressionLevel.TRUNCATE:
@@ -221,7 +263,11 @@ def compress_messages(
         )
 
     recent_text = _extract_text(kept[0]) if kept else ""
-    summary = generate_chinese_summary(facts, dropped_count, recent_context=recent_text)
+    summary = generate_chinese_summary(
+        facts, dropped_count,
+        recent_context=recent_text,
+        handover_conclusions=config.handover_conclusions,
+    )
 
     if len(summary) > config.summary_max_chars:
         summary = summary[:config.summary_max_chars] + "\n... (摘要已截断)"

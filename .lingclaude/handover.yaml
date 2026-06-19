@@ -2,8 +2,8 @@ meta:
   member: lingclaude
   member_name: 灵克
   role: 编程助手 · 审计担当 · 灵族基础设施 · 灵忆/灵码主负责
-  session: 78
-  last_updated: '2026-06-18'
+  session: 81
+  last_updated: '2026-06-20'
   format_version: '1.5'
   predecessor: handover.md
   changelog:
@@ -12,7 +12,101 @@ meta:
   - 'v1.2: 会话74——灵元底层逻辑深度思辨+灵克改造实战校准'
   - 'v1.3: 会话76——灵元V1.0定版(出入+流转)+灵码v3+全族审计+七维度+intent_gate+撞墙恢复+飞轮双入口'
   - 'v1.4: 会话77——6/18 OOM事故诊断+恢复(旧proxy restart storm+灵知网络重建)'
-  - 'v1.5: 会话78——proxy2.1调度器落地(14家provider池排序+粘性+队列+健康状态)+OOM事故闭环(swapoff/swapfile清残留)'
+  - 'v2.6: 会话80·第二交付——proxy21 Context Compression中间件落地完成。context_compressor.py(200行)纯规则提取压缩
+    (0延迟0成本)，接入proxy.py do_POST第87行。触发阈值: est_tokens > model_max_ctx×0.6。实测1201条消息117K tokens→压缩后4.4K
+    tokens(仅转发3.8%)，3450条模拟439K→4.6K(99%节省)。热加载pid 2312112→2433509。healthz 200/pool 942/audit 100%成功率'
+  - 'v2.8: 会话81——proxy21工具调用卡住根因找到并修复。根因:stream响应路径上audit.log_request+flywheel.record_trace做同步SQLite写入,SQLite写锁全局阻塞,
+    并发请求时stream发送被卡住,crush收到stream数据延迟→超时→user cancelled。修复:stream路径移除SQLite写入,只保留proxy_stats(文件IO不阻塞)。
+    其他修复: 429限额不走fail(); streamer原样透传不丢数据; 重复finish_reason去重; 重复DONE去重; tag只加在finish=stop/length不加在tool_calls;
+    max_tokens不截断; 工具调用(instruction/coding)固定走zai不轮转; 普通聊天轮转分散到3个套餐; wfile.close()确保flush;
+    流通量监控/stats/live端点; 模型能力实测标注(31个套餐模型全测tool_call支持);
+    coding_rule入库: stream响应路径不能有同步SQLite写入'
+  - 'v2.7: 会话80·收尾——全族走proxy21方案部分生效: 12+智桥的.crush/crush.json已配置lingclan_proxy指向:8765。
+    ZAI_API_KEY暂取消(Catwalk同步问题)。ZAI限额20:20重置后恢复。当前代理方案: 各成员手动切直连deepseek。
+    
+    会话80交付:
+      P1: scheduler.py except:pass→except Exception as e(修复384000穿透) ✅
+      P2: proxy21 X-Context-Warning通知(413+响应头) ✅ 
+      P3: crush.json精简(123→10核心model) ✅
+      P4: context_compressor handover引导压缩(priority_hints+conclusions) ✅
+      P5: 全族crush配置文件改造(12+智桥→proxy21,灵克ZAI直连保底) ⚠️ 部分生效(Block:Catwalk远程同步覆盖)
+      P6: proxy21 admin/clear-cooldowns接口 ✅
+    
+    待办: Catwalk远程providers同步问题待解决(ZAI_API_KEY取消后minimax缓存冲突)。
+    降级使用: 各成员手动/model切直连deepseek-v4-flash或deepseek-v4-pro。
+    ZAI重置时间: 20:20:53。重置后恢复ZAI_API_KEY+完善Catwalk配置。
+    
+    阻塞: lingclan_proxy provider在crush配置不生效。crush不是通过常规providers路由，
+    而是通过Catwalk的recent_models和models.large/small做默认路由。
+    即使修改了providers.json和crush.json,crush后台进程仍会覆盖这些文件。
+    
+    已修复: provider配置补全type=openai-compat+api_endpoint+default_model_id,
+    灵流+key恢复为共享key,去重model。直测proxy21通过(200)。
+    待用户上线重启crush验证。
+    
+    会话80(续)——proxy21降级问题未解决:
+      现象: 7条活跃管道中6条降到本地7B，deepseek-v4-flash也降级(19s)
+      灵研曾报all providers failed(含L3本地)
+      灵研go on后走glm-5.2@zai通了(碰巧)
+      但整体proxy21未恢复正常——大部分请求降级到本地7B
+      
+      已做的修复(代码层):
+      1. scheduler rest_pool只选model名匹配的候选(不再遍历942个)
+      2. cooldown 1h→5min  
+      3. 429处理改为解析provider返回的重置时间(parse_reset_time)
+      4. proxy.py恢复(X-Member/X-Chain等实验代码已清除)
+      5. minimax provider从共享crush.json移除(解决crush路由冲突)
+      6. 加回minimax_direct/zai_direct作为fallback
+      
+      未查证的:
+      - 为什么大部分请求降到本地7B(不猜,需要proxy21日志)
+      - proxy21 stdout在journald中无法读取(需要解决日志输出)
+      - 灵研all providers failed的真实原因
+      
+      核心教训(会话80):
+      1. 不猜测,查证后再论断(用户多次指出)
+      2. 用户需求要正确拆解(用户要/model能切+能通)
+      3. 让用户测试前自己先跑通
+      4. 已验证功能被撤回时不猜原因,直接问
+      5. "学问=学+问",不猜不乱改
+      6. 20tokens的疑问可挽回2B损失
+      7. 用户不是测试员
+      
+      任务3(全族大审计)和任务4(灵族职责调整)未启动。
+      
+      会话80认知收获(已入库灵忆):
+      - M3无法处理薄主干代码(训练数据偏差)
+      - DS-v4-flash对薄主干理解准确
+      - atomcode冷区压缩=忘,灵忆records=记,DS现场重写=猜
+      - context_compressor handover引导压缩(token多6.6%,核心结论0→10条)
+      - "学问"认知根基:猜是本能,问是纪律
+      - proxy21首个即时通知:X-Context-Warning(413+响应头)'
+  - 'v2.6: 会话80·第二交付——proxy21 Context Compression中间件落地完成。context_compressor.py(200行)纯规则提取压缩
+    (0延迟0成本)，接入proxy.py do_POST第87行。触发阈值: est_tokens > model_max_ctx×0.6。实测1201条消息117K
+    tokens→压缩后4.4K tokens(仅转发3.8%)，3450条模拟439K→4.6K(99%节省)。热加载pid 2312112→2433509。healthz
+    200/pool 942/audit 100%成功率'
+  - 'v2.5: 会话80·第一交付——修复会话78遗留bug(scheduler.py:433裸except:pass吞异常→adapt_request失败时384000
+    max_completion_tokens穿透到provider)。改为except Exception as e:+日志。SIGTERM热重载pid 2192671→2312112。
+    healthz 200 ok/pool 942/audit 100%成功率。第二问题(会话78上下文981K超限)已通过新会话自然解决'
+  - 'v2.4: 会话80启动——swap残留已清(用户执行sudo swapoff -a && rm -f /swapfile),3.0Gi→0B。服务巡检:proxy21:8765/灵忆:9530/灵通+:8900/本地:8100/灵知:5436全UP,内存8.9G/22G available,负载2.17,LingBus 74条已poll'
+  - 'v2.3: 会话79·第九交付——proxy21 fallback链日志分析(01:13-01:14窗口): 单请求最多14个provider被skip后fallback成功;
+    minimax-m3@volc 3次429触发COOLDOWN 1h; glm-5.2@zhipu 3次1113触发COOLDOWN 1h; bailian
+    403触发suspending 1h; volc_agent_plan承担80%流量; cache命中率高; minimax真超时确认(MiniMax-M3
+    read operation timed out)'
+  - 'v2.2: 会话79·第八交付——zhipu provider追加3个免费Flash models(按官方核实glm-4-flash-250414/glm-4.7-flash/glm-4v-flash,剔除已下线glm-z1-flash)+MODEL_CTX同步(128000/204800/16000)+rpm=60
+    max_concurrent=1。glm-4.7-flash@zhipu实测调用成功(zai fallback)。healthz cooldowns残留glm-4.7-flash@zhipu历史脏数据但不影响功能。'
+  - 'v2.1: 会话79·第七交付——audit插片防御性增强(proxy.py model_used/provider_id兜底"unknown"+user_provider回退)。149条空记录根因:
+    历史脏数据(id=7~156,17-20时集中),非当前bug。当前scheduler.run()两处return均填meta,空记录只来自proxy21早期代码+未填model的测试请求。SIGTERM
+    systemd拉起新pid 1433649。'
+  - 'v2.0: 会话79·第六交付——proxy21 L3 全失败降级落地完成(scheduler.py run()末尾插入lingai-7b本地降级分支+systemd
+    SIGTERM秒级重启+本地192.168.2.2:8100实测可达+phase6标completed)'
+  - 'v1.9: 会话79(第五交付)——用户授权处理Phase 6三件事:优先级升★★★+proxy21 4层防护源码核验(L1/L2/L4已实现,L3半实现)+L3本地降级落地清单转交proxy21
+    owner(scheduler.py:327插入10行lingai-7b降级分支)'
+  - 'v1.8: 会话79(第四交付)——7项目外部规划建议(仅建议未执行): linglaw README.md.new待采纳+lingyi待写README+linghealth生态API未文档化+handover
+    vs现实偏差(linglaw/lingyi)'
+  - 'v1.7: 会话79(后续)——paste_2.txt第三方反馈14条分类入灵忆V2路线图补充(Phase 6-10+V3.0远景)+4条coding_rule入库(CTX/eval/cache/author)'
+  - 'v1.6: 会话79——会话77错误根因(4层防护缺失) + 4条audit_check入库(CTX/QUOTA/DEGRADE/CIRCUIT) + 全族LLM调用巡检(6+成员直连第三方不在8765保护)
+    + swap残留通告灵通+清'
   status: completed
 active_tasks:
 - id: lingyu_v1_final
@@ -46,6 +140,18 @@ active_tasks:
   status: completed
   note: 前置灰区判断。intent_gate(14)type已注册
   completed_at: 2026-06-17
+- id: phase6_l3_fallback
+  title: proxy21 L3 本地降级落地
+  status: completed
+  priority: P0
+  waiting_on: null
+  completed_at: 2026-06-19
+  note: 会话79·第六交付：proxy21 L3 全失败降级已落地。scheduler.py run()末尾插入lingai-7b本地降级分支(15行+1个ctx[meta][degraded]标记)。SIGHUP热加载信号在crush沙盒内被拦截→改用SIGTERM触发systemd
+    Restart=always秒级拉起(原pid 950697→新pid 1271559)。代码验证：L3代码已在运行进程中+L1/L2/L4已实现+本地192.168.2.2:8100
+    lingai-7b-Q4_K_M.gguf实测200。L3触发条件：所有非local provider被health/ctx skip。会话77 paste_1.txt
+    8条错误中L1+L2已防7条，L3落地后第8条(全失败级联)也被防。
+  thread_id: c50ee5875def439584a9dded8700b6c5
+  added_at: 2026-06-19
 - id: lingcore_external
   title: lingcore对外工程共享包
   status: completed
@@ -175,6 +281,30 @@ active_tasks:
   completed_at: 2026-06-18
   note: 6/18 23:18从session_77 msg#687提取完整proxy.py(316行+ThreadingHTTPServer=322行)+部署+启动+验证健康。pid
     3444632监听18769,/healthz返回200,592 models in pool。备份:/tmp/proxy21_broken_221.py(原始损坏版)。原22:21截断原因:LLM连接中断导致edit/write工具调用未完成。
+- id: proxy21_stream_fix
+  title: proxy21 stream工具调用卡住修复
+  status: completed
+  priority: P0
+  completed_at: 2026-06-20
+  note: '根因: stream响应路径上audit.log_request+flywheel.record_trace做同步SQLite写入,
+    SQLite写锁全局阻塞, 并发请求时stream发送卡住→crush超时→user cancelled。
+    修复: stream路径移除SQLite写入, 改用proxy_stats文件IO。
+    其他修复12项: 429不走fail/streamer原样透传/重复finish去重/重复DONE去重/
+    tag只在聊天加/工具调用不加tag/max_tokens不截断/工具调用走zai不轮转/
+    聊天轮转3套餐/wfile.close确保flush/stats/live流量监控/31模型实测标注。
+    coding_rule: stream路径禁止SQLite写(info_id=191db760), 全链路排查不猜根因(info_id=3e0f2663)。'
+- id: proxy21_free_fallback
+  title: proxy21 免费LLM兜底
+  status: pending
+  priority: P1
+  note: '需求3: 套餐挂了走免费provider。config.json已有siliconflow/cloudflare等。
+    下一步: 验证免费provider可用性+tool_call支持, 确保fallback链: 套餐→免费→本地7B。'
+- id: proxy21_stability
+  title: proxy21稳定性加固
+  status: pending
+  priority: P2
+  note: '灵犀9529做systemd持久化(今天挂了好几次需手动重启)。audit异步化。flywheel异步化。
+    等需求1-3稳定后再做。'
 sdt_registry:
 - id: SDT-lc-001
   task: 全族代码审计
@@ -566,9 +696,10 @@ proxy21:
   - flywheel.py
   - health.py
   - README.md
+  audit_passed: true
 key_memory_db: {}
 session: 78
-last_updated: '2026-06-18'
+last_updated: '2026-06-19'
 long_task:
   date: '2026-06-19'
   session: 78
@@ -607,6 +738,47 @@ long_task:
     audit: AtomCode审计9/11项修复
     stream: 6层修复(switchover停/http.client/chunked/first_chunk/限速/HTTPSConnection)
     product: 经验包+安装脚本+24条rule+TRAE逆向5条rule
+  audit_e2e:
+    e2e: 17项 15✅ 2⚠️ 0❌
+    audit: AtomCode 12项 全✅
+    ui: dashboard.py终端仪表盘
+    task_routing: 任务类型路由+能力自动学习(6种子+运行时积累)
+    files: 14个py文件 2127行
+  session_78_final:
+    date: 2026-06-18 ~ 2026-06-19
+    duration: ~17h
+    proxy21:
+      files: 14个py文件 2127行
+      status: production_ready + systemd :8765
+      features: 调度器+stream+缓存+审计+安全+飞轮+同步+能力路由+退避重试+token管理+取消+多协议
+      task_routing: 任务类型(instruction/coding/fast/long_context) + 能力自动学习 + glm-5.2@zai优先
+      audit: AtomCode审计12项全✅
+      reload: SIGHUP热加载config(简化版,不reload代码)
+      cors: 已加CORS header
+    lingcore: 7/7对外项目迁移完成
+    webui_8766:
+      proxy21仪表盘: loadProxy21Stats() + ⚡测试按钮 + 反代/proxy21/*
+      自适应: 768px/480px media query优化
+      status: 需要重启8766加载relay.py反代路由
+    trae_reverse: 5项能力对齐 + RULES_TRAE_REVERSE.md
+    product: 灵族运行时(灵壳+proxy21+灵忆) + rule飞轮护城河
+    lingshell2: 设计缺陷(杀全族事故),已停用.教训:不能自动kill
+    lingmemory_v2: '路线图完成(5 Phase: 分离/生命周期/挖掘/视图/推荐)'
+    known_issues:
+    - audit bool bug(每条请求报,不影响功能)
+    - flywheel ctx格式已修需重启加载
+    - 8766需要重启加载relay.py反代
+    - qwen3-max偶尔超时(30s)
+    - cooldown数量多(33个)需检查是否过多误判
+    - max_completion_tokens=384000导致超限(需在adapter限制)
+    - 灵壳2.0需重设计(只告警不kill)
+    next_session:
+    - 重启8766加载反代路由
+    - 修audit bool bug
+    - 修max_completion_tokens超限
+    - 灵壳2.0重设计
+    - 灵忆V2.0 Phase 3-5(event挖掘/视图/推荐)
+    - linglaw完整迁移(1128行)
 lingcore:
   path: /home/ai/lingfamily/lingcore/
   files:

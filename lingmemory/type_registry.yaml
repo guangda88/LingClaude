@@ -1071,3 +1071,65 @@ workflow:
     skills:
       required: false
       type: string
+
+
+optimization_run:
+  description: 灵极优优化运行的生命周期
+  default_state: created
+  states:
+  - created
+  - running
+  - converged
+  - stopped
+  - failed
+  - completed
+  transitions:
+  - from: created
+    to: running
+    event: start
+  - from: running
+    to: converged
+    event: threshold_met
+  - from: running
+    to: stopped
+    event: early_stop
+  - from: running
+    to: stopped
+    event: budget_exceeded
+  - from: running
+    to: failed
+    event: max_failures
+  - from: converged
+    to: completed
+    event: finalize
+  - from: stopped
+    to: completed
+    event: finalize
+  - from: failed
+    to: completed
+    event: finalize
+  data_schema:
+    search_space:
+      required: true
+      type: string
+    strategy:
+      required: true
+      type: string
+    direction:
+      required: true
+      type: string
+    best_score:
+      required: false
+      type: number
+    best_params:
+      required: false
+      type: string
+    total_experiments:
+      required: false
+      type: int
+    improvement:
+      required: false
+      type: number
+    stop_reason:
+      required: false
+      type: string

@@ -31,6 +31,8 @@ data/
 
 # Backup and temp files
 *.bak
+*.bak_*
+*.db.bak*
 *.tmp
 *.swp
 *.swo
