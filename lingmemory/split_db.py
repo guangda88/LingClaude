@@ -83,10 +83,11 @@ def split_db():
             );
         """)
 
-    # 分发records
+    # 分发records — 流式游标，不全表加载到内存
     rule_count = 0
     event_count = 0
-    for row in main.execute("SELECT * FROM records"):
+    main_row_factory = main.row_factory
+    for row in main.execute("SELECT id,type,state,data,parent_id,created_by,created_at,updated_at FROM records"):
         rtype = row["type"]
         if rtype in RULE_TYPES:
             rules.execute(
@@ -101,12 +102,14 @@ def split_db():
                  row["parent_id"], row["created_by"], row["created_at"], row["updated_at"]))
             event_count += 1
 
-    # 分发events
+    # 预加载rule库的record_id集合，避免N+1查询
+    rule_ids = {r[0] for r in rules.execute("SELECT id FROM records")}
+
+    # 分发events — 流式游标
     ev_count = 0
-    for row in main.execute("SELECT * FROM events"):
-        # 查record在哪个库
+    for row in main.execute("SELECT id,record_id,event_type,from_state,to_state,actor,timestamp,data FROM events"):
         rid = row["record_id"]
-        target = rules if rules.execute("SELECT 1 FROM records WHERE id=?", (rid,)).fetchone() else events
+        target = rules if rid in rule_ids else events
         target.execute(
             "INSERT OR REPLACE INTO events (id,record_id,event_type,from_state,to_state,actor,ts,data) VALUES (?,?,?,?,?,?,?,?)",
             (str(row["id"]), row["record_id"], row["event_type"], row["from_state"],

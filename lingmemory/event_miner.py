@@ -10,6 +10,7 @@
 
 import sqlite3
 import json
+import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from collections import Counter, defaultdict
@@ -162,9 +163,9 @@ def save_mined_rules(rules):
     conn = sqlite3.connect(str(RULES_DB))
     now = datetime.now(timezone.utc).isoformat()
     saved = 0
+    failed = 0
 
     for r in rules:
-        import uuid
         rid = str(uuid.uuid4())
         data = {
             "rule": r["rule"],
@@ -180,11 +181,14 @@ def save_mined_rules(rules):
                  "lingclaude_miner", now, now))
             saved += 1
         except Exception as e:
-            print(f"保存失败: {e}")
+            print(f"保存失败: {e} (rule: {r['rule'][:50]})")
+            failed += 1
 
     conn.commit()
     conn.close()
     print(f"保存 {saved}/{len(rules)} 条mined rule")
+    if failed:
+        print(f"警告: {failed} 条保存失败")
     return saved
 
 
