@@ -300,11 +300,15 @@ create → task: 灵族代码瘦身, state: created
 整个过程没有一个while loop是程序式的。全是：
 
 ```
-query（出入:感知状态）→ 灰区判断 → transition（流转:改变状态）
+query（出入:感知状态）→ transition（流转:改变状态）
 ```
 
+主干只有两个：query和transition。
+
+灰区是transition的内置属性（没有灰区校验的transition=没有刹车的车），但灰区怎么判断是插片——不同场景替换不同校验逻辑（规则/LLM/人工）。
+
 create展开空间，query感知空间，transition流转状态。
-LLM只在灰区escalate时作为插片介入。
+LLM是插片，只在灰区escalate时介入。
 Crush的执行循环也在里面，但操作的是单次tool_call，灵OS操作的是全族。
 
 **同一个框架（出入+流转），不同粒度的实例。**
