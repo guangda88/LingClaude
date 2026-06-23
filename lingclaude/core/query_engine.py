@@ -29,6 +29,8 @@ from lingclaude.core.dementia_detector import DementiaDetector
 from lingclaude.core.context_compression import compress_messages, CompressionConfig, CompressionLevel
 from lingclaude.core.hooks import HookManager, HookType, HookContext
 from lingclaude.core.cognitive_rhythm import CognitiveRhythm, ImbalanceType
+from lingclaude.core.task_manager import TaskManager, TaskSnapshot
+from lingclaude.core.skill_index import SkillIndex
 from lingclaude.model.types import ModelConfig
 
 from lingclaude.core.types import Result, StopReason
@@ -123,6 +125,8 @@ class QueryEngine:
         self._l1_handover_checksum: str = ""
         self._degradation_detector = DegradationDetector()
         self._degradation_alerts: list[DegradationAlert] = []
+        self._task_manager = TaskManager()
+        self._skill_index = SkillIndex()
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
@@ -284,6 +288,9 @@ class QueryEngine:
                 stop_reason=StopReason.MAX_TURNS_REACHED,
             )
 
+        # TaskManager: 新需求进来 → 挂起当前任务上下文
+        self._task_manager.on_new_request(prompt, self)
+
         pre_ctx = HookContext(
             hook_type=HookType.PRE_TASK,
             session_id=self.session_id,
@@ -352,6 +359,15 @@ class QueryEngine:
                 prompt=prompt,
                 output=output,
             ))
+
+        # TaskManager: 任务完成 → 恢复上一个任务上下文
+        restored = self._task_manager.on_task_complete(self)
+        if restored:
+            pending = self._task_manager.pending_summary()
+            suffix = f"\n\n---\n⏳ 已恢复挂起任务: {restored.user_prompt[:60]}"
+            if pending:
+                suffix += f"\n📋 还有 {len(self._task_manager.pending)} 个待处理:\n{pending}"
+            output = output + suffix
 
         return TurnResult(
             prompt=prompt,

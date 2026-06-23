@@ -160,6 +160,26 @@ class TestHandover:
         children = api.lm.get_children(meta_id, type="task")
         assert len(children) == 2
 
+    def test_save_handover_idempotent(self, api, tmp_path):
+        handover_data = {
+            "meta": {"member": "lingclaude", "version": "1.0"},
+            "active_tasks": [
+                {"id": "T1", "title": "灵忆开发", "status": "in_progress", "priority": "P0", "blocker": None},
+                {"id": "T2", "title": "代码审计", "status": "pending", "priority": "P1", "blocker": "user_confirm"},
+            ],
+            "session_summary": {"status": "active"},
+        }
+        hp = tmp_path / "handover.yaml"
+        hp.write_text(yaml.dump(handover_data))
+
+        api.save_handover(hp)
+        api.save_handover(hp)
+        api.save_handover(hp)
+
+        all_tasks = api.lm.query(type="task", created_by="lingclaude", limit=100)["items"]
+        idempotent_tasks = [t for t in all_tasks if t["data"].get("classification", {}).get("id") in ("T1", "T2")]
+        assert len(idempotent_tasks) == 2
+
     def test_load_handover_summary(self, api, tmp_path):
         handover_data = {
             "active_tasks": [

@@ -196,6 +196,16 @@ class LingMemoryAPI:
         )
 
         for task in raw.get("active_tasks", []):
+            task_id = task.get("id", "")
+            if task_id:
+                existing = self.lm.query(
+                    type="task",
+                    created_by=self.member,
+                    data_filter={"classification.id": task_id},
+                    limit=1,
+                )
+                if existing["items"]:
+                    continue
             self.lm.create(
                 type="task",
                 data={
@@ -204,7 +214,7 @@ class LingMemoryAPI:
                     "classification": {
                         "priority": task.get("priority", "P3"),
                         "status": task.get("status", "unknown"),
-                        "id": task.get("id", ""),
+                        "id": task_id,
                     },
                 },
                 parent_id=meta_id,

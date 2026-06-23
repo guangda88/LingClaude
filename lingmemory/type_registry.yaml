@@ -1133,3 +1133,94 @@ optimization_run:
     stop_reason:
       required: false
       type: string
+meeting:
+  description: 灵族会议注册制 — AI原生会议(灵元1.0拆解)
+  default_state: scheduled
+  states:
+  - scheduled
+  - in_progress
+  - recording_finalized
+  - concluded
+  - archived
+  - cancelled
+  transitions:
+  - from: scheduled
+    to: in_progress
+    event: start
+  - from: scheduled
+    to: cancelled
+    event: cancel
+  - from: in_progress
+    to: recording_finalized
+    event: record_complete
+  - from: in_progress
+    to: cancelled
+    event: cancel
+  - from: recording_finalized
+    to: concluded
+    event: conclude
+  - from: recording_finalized
+    to: cancelled
+    event: cancel
+  - from: concluded
+    to: archived
+    event: archive
+  data_schema:
+    title:
+      required: true
+      type: string
+      description: 会议标题
+    agenda:
+      required: true
+      type: array
+      description: 议程列表
+    host:
+      required: true
+      type: string
+      description: 主持人member id
+    recorder:
+      required: false
+      type: string
+      description: 记录者(lingxi+lingmemory)
+      default: lingxi+lingmemory
+    scheduled_at:
+      required: true
+      type: string
+      description: ISO格式开始时间
+    duration_min:
+      required: false
+      type: int
+      default: 60
+    attendees:
+      required: true
+      type: array
+      description: 内部参会人member id列表
+    external_attendees:
+      required: false
+      type: array
+      description: 外部Agent参会人
+    modality:
+      required: false
+      type: array
+      default: "[text]"
+      description: 参会模态(text/audio/document/script/ppt/video/stream)
+    lingbus_thread_id:
+      required: false
+      type: string
+      description: LingBus thread映射
+    minutes_doc:
+      required: false
+      type: string
+      description: 纪要文档路径
+    decisions:
+      required: false
+      type: array
+      description: 提取的决议列表
+    action_items:
+      required: false
+      type: array
+      description: 提取的行动项(转task)
+    transcript_archived_to:
+      required: false
+      type: string
+      description: transcript归档文件路径
