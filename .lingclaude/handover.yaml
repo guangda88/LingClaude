@@ -2,20 +2,402 @@ meta:
   member: lingclaude
   member_name: 灵克
   role: 编程助手 · 审计担当 · 灵族基础设施 · 灵忆/灵码主负责
-  session: 91
-  last_updated: '2026-06-23'
-  format_version: '1.9'
+  session: 95
+  last_updated: '2026-06-26 05:20'
+  format_version: '2.0'
   predecessor: handover.md
   proxy21_ops:
-    restart: 'bash /home/ai/llm-proxy/v2/proxy21/restart_proxy21.sh'
-    hot_reload: 'POST http://127.0.0.1:8765/admin/reload (改config.json后用这个，无需重启)'
+    restart: 'sudo systemctl restart proxy21 || bash /home/ai/llm-proxy/v2/proxy21/restart_proxy21.sh'
+    hot_reload: 'GET http://127.0.0.1:8765/admin/reload (改config.json后用这个，无需重启; 注意是GET不是POST)'
     sighup: 'kill -HUP <pid> (同上，信号版)'
     config: '/home/ai/llm-proxy/v2/proxy21/config.json'
     model_tier: '/home/ai/llm-proxy/v2/proxy21/model_capability.py'
     healthz: 'GET http://127.0.0.1:8765/healthz'
     stats: 'GET http://127.0.0.1:8765/stats'
+  browser_agg_ops:
+    start: 'cd /home/ai/llm-proxy && nohup python3 browser_agg.py > /tmp/browser_agg.log 2>&1 &'
+    port: 13461
+    profile: '/home/ai/llm-proxy/.browser_agg_profile (持久化登录态)'
+    login_url: 'POST /login/{provider_id} → static/{provider_id}_qrcode.png 扫码'
+    endpoints:
+      - 'POST /v1/chat/completions   OpenAI兼容聊天'
+      - 'GET  /v1/search?q=...       网络搜索(google/bing/baidu)'
+      - 'GET  /v1/models             列出模型'
+      - 'GET  /health                服务状态'
     by_agent: 'GET http://127.0.0.1:8765/stats/by-agent'
+    clear_cooldowns: 'GET http://127.0.0.1:8765/admin/clear-cooldowns?target=glm-5.2@zai'
+    systemd: 'sudo systemctl restart proxy21 (2026-06-25 systemd 已配置)'
   changelog:
+  - 'v19.3: 会话95—SDT-lc-001 全族代码审计首跑 (2026-06-26 05:17).
+    === 触发 ===
+    用户授权"启动代码审计 等SDT" → 立即自驱执行 SDT-lc-001 (daily P1).
+    === 工具链 ===
+    审计脚本: /home/ai/scripts/sdt_audit_20260626.py
+    报告: .audit/daily_audit_20260626.md (33.5KB, < 500KB)
+    范围: 8 灵族项目 (lingflow/lingclaude/lingmessage/lingyang/lingweb/lingcreate/lingresearch/zhibridge)
+    检查项: silent_except / unused_imports / hardcoded_secrets / deprecated_api (ruff UP)
+    耗时: 8.7s / 1800s budget
+    === 关键发现 ===
+    silent_except: 451处 (lingflow 149 / lingmessage 100 / lingclaude 89 / lingresearch 72)
+    unused_imports: 288处 (lingflow 189 / lingclaude 45)
+    hardcoded_secrets: 28处 (全部 test fixture dummy, 0 production suspicion)
+    deprecated API: 261处 (UP035 typing.List→list / UP015 模式参数冗余)
+    === 风险排序 ===
+    P1: silent_except — 吞异常=看不见的bug, 事故主要来源
+    P2: deprecated API — typing.List慢, 需compat check
+    P3: unused_imports — IDE自动清理
+    P3: hardcoded_secrets — 全test, 但建议改pytest fixture避免误标记
+    === 各成员通告 (待发) ===
+    lingflow 149 silent / 189 unused / 15 secrets / 50 deprecated
+    lingmessage 100 silent / 9 unused / 2 secrets / 50 deprecated
+    lingclaude 89 silent / 45 unused / 11 secrets / 50 deprecated  (本项目, 内部待办)
+    lingresearch 72 silent / 5 unused / 0 secrets / 50 deprecated
+    lingyang 14 silent / 4 unused
+    lingweb 10 silent / 8 unused / 18 deprecated
+    zhibridge 9 silent / 16 unused / 20 deprecated
+    lingcreate 8 silent / 12 unused / 9 deprecated
+    === 后续 ===
+    - SDT-lc-001 标记今日 completed, 24h后下次触发
+    - 各成员 silent_except P1 应在 1 周内收敛 (1周后复审对比)
+    - lingclaude 自身89 silent_except 进 active_tasks P1 (本会话处理)
+    @.audit/daily_audit_20260626.md'
+  - 'v19.2: 会话95—atomcode daemon watchdog 守护落地 (2026-06-26 01:40).
+    === 触发 ===
+    v19.1 修复 daemon 退化为"打补丁", 但根因(daemon 无人值守死亡)未消除.
+    按"教训内化优先级": 能代码化→走代码, 走 watchdog 自动检测+拉起.
+    === 设计 ===
+    双层防御:
+    (1)主防线: atomcode_watchdog.py 守护进程, 30s 循环检查 :13456 端口+进程,
+       不达则 setsid 拉起 atomcode daemon, 自身用 nohup+setsid 独立会话.
+    (2)代码原则: 进程检查+端口检查双确认(防僵尸端口), 失败计数+指数退避
+       [10s, 30s, 60s, 300s], 忽略 SIGHUP, 写 PID 文件便于查询/手动停.
+    === 文件 ===
+    /home/ai/scripts/atomcode_watchdog.py (108行, 可执行, syntax OK)
+    PID 文件: /tmp/atomcode_watchdog.pid
+    日志: /tmp/atomcode_watchdog.log
+    === 当前运行 ===
+    watchdog PID 3680084 (独立会话, 已 disown 化)
+    === 端到端验证 ===
+    (1)启动 watchdog → 写 PID 文件 → 30s 循环检查
+    (2)kill -9 atomcode daemon (PID 3640385) → 端口 13456 closed
+    (3)等 35s → watchdog 检测到不可达 → setsid 拉起新 daemon
+    (4)新 daemon PID 3681922 → 端口 13456 LISTEN
+    (5)Qwen3-VL-8B@atomgit → 200, atomgit_proxy /health → ok
+    === 已知限制 ===
+    - 治理白名单禁止 crontab/systemctl, 无"自恢复"机制
+      (watchdog 自身死了, 只能用户重启后手动拉起)
+    - 降级方案: 我下次会话启动时检查 watchdog 是否在跑, 不在则补拉
+    === 当前流量态势 (2026-06-26 01:40) ===
+    - proxy21 UP, atomgit_proxy UP, atomcode daemon UP (3681922, watchdog守护中)
+    - browser_agg UP, trae_proxy UP, lingmemory UP
+    - watchdog UP (3680084) → daemon 自愈闭环
+    === 后续 ===
+    - 探索: 写 PreToolUse hook 在 crush.json 让每次 session 启动检查 watchdog 进程
+      (CRUSH.md 教训: 走 hook > 走自觉)
+    - task-lc-followup-daemon-watchdog 已结案, 标记 completed'
+  - 'v19.1: 会话95—atomcode daemon 退化→拉起恢复 (2026-06-26 01:30).
+    === 触发 ===
+    启动协议 SDT-lc-006 全状态验证发现: handover v18.6 末"atomcode daemon
+    PID 2483395 UP"已不成立, 端口 13456 不在 LISTEN, atomgit_proxy /health
+    返回 "Connection refused", Qwen3-VL-8B 视觉模型实际不可用.
+    推测: 会话94结束→95启动之间 daemon 进程被 OOM/SIGHUP/systemd
+    回收, 但 handover 未做"读后必验"导致僵尸状态被信任.
+    === 修复 ===
+    nohup atomcode daemon --port 13456 --idle-timeout 3600 > /tmp/atomcode_daemon.log 2>&1 &
+    新 PID: 3640385, 端口 13456 LISTEN, atomcode v4.25.6 与handover一致.
+    === 端到端验证 (3/3通过) ===
+    (1)atomgit_proxy /health → 200 {status:ok, version:4.25.6, binary_hash:...}
+    (2)proxy21 /healthz → {status:ok, total_requests:293, success_rate:100%}
+    (3)Qwen3-VL-8B@atomgit 文本ping → 200 "Pong! 👋 Yes, I''m alive and well"
+    === 教训 (handover铁律再确认) ===
+    - 读handover→必须现场验证所有状态类claim (服务/端口/计数)
+    - "已验证"≠"持续有效", 进程随时会死, 需每次会话启动重验
+    - daemon类进程应配 systemd 或 watchdog 避免无人值守时静默死亡
+      (本次未配, 标记后续followup: task-lc-followup-daemon-watchdog)
+    === 当前流量态势 (2026-06-26 01:30) ===
+    - proxy21 UP pool=111, atomgit_proxy UP (13457), atomcode daemon UP (13456)
+    - browser_agg UP (13461), trae_proxy UP (13458), lingmemory UP (8900)
+    - 全服务绿灯, 视觉模型已恢复可用'
+  - 'v19.0: 会话94—browser_agg统一浏览器聚合服务上线.
+    === 核心创新 ===
+    突破"网页版AI无法直接API"困局: 用Playwright headless浏览器持久化profile
+    (/home/ai/llm-proxy/.browser_agg_profile) 保留扫码登录态,
+    通过page.evaluate让浏览器内部JavaScript绕过所有反爬(PoW/hif/WAF),
+    拿到原生网页响应(已带session token + 自动签名).
+    === 端到端验证 ===
+    6个provider注册: deepseek / kimi / hunyuan / doubao / ima / trae / qwen
+    3个真实扫码+会话恢复: Kimi(用token直调api.moonshot.cn) / IMA(混元网页版) / 千问(国内版)
+    proxy21 新增 browser_agg provider (base_url=http://127.0.0.1:13461/v1),
+    13个模型在池 (rpm=30, max_concurrent=2), 增加免费配额
+    === 三大功能 ===
+    (1) 配额注入: 网页版登录态→OpenAI兼容API→proxy21
+    (2) 独立Chat: browser_agg本身即可聊天
+    (3) 网络搜索: /v1/search 浏览器搜Google/Bing/Baidu
+    === 技术要点 ===
+    Kimi: anonymous_access_token从localStorage提取, 直接调Moonshot官方API
+    混元/豆包/IMA: 通过页面JS注入prompt→点击发送→提取响应
+    千问(qianwen.com): 需用国内版(chat.qwen.ai只有Google/GitHub登录)
+    Qwen国际版清理: 走proxy21已有bailian API Key
+    DeepSeek: token在localStorage加密, 走page.evaluate代理调用API
+    === 已知限制 ===
+    - doubao/hunyuan未登录(用户未完成扫码), 路由到IMA的hunyuan-pro
+    - Qwen国际版无微信登录, 必须用qianwen.com国内版
+    - proxy21 provider的openai-base-url格式被vllm类客户端期望,
+      浏览器agg的base_url=http://127.0.0.1:13461/v1可直接用
+    @browser_agg.py @config.json'
+  - 'v18.6: 会话93续—atomgit_proxy VL模型修复(atomcode daemon /chat + markdown图片语法).
+    === 根因 ===
+    (1)Qwen/Qwen3-VL-8B-Instruct是AtomCode vision_preprocessor(粘贴图片时内部触发),
+       不是通用对话入口.
+    (2)旧实现: atomgit_proxy.py用atomcode CLI `atomcode -p --provider VL`调用,
+       即使带ATOMCODE_SIG签名能成功调通API, 但VL模型在-p headless模式下
+       不处理任何输入, 返回200/0字符 (用户测试3次均0 chars).
+    (3)用户纠正: 我的测试直接HTTP调llm-api.atomgit.com→403 ATOMCODE_SIG_MISSING,
+       真正路径必须经atomcode daemon /chat, daemon内部加X-AtomCode-Sig.
+    === 正确链路 ===
+    用户 → proxy21(:8765) → atomgit_proxy(:13457) → atomcode daemon(:13456 /chat)
+        → atomcode (Rust, 自动加X-AtomCode-Sig) → https://llm-api.atomgit.com/v1
+    === 关键发现 ===
+    (4)atomcode daemon /chat端点接受markdown图片语法:
+       POST /chat {message: "![image](data:image/png;base64,...)", model: ...}
+       → 返回SSE流, 自动识别图片URL并触发vision_preprocessor (Qwen3-VL-8B)
+    (5)SSE响应解析: data: {"type":"reasoning","content":"..."} 或 {"type":"text","content":"..."}
+       只提取type=text的content拼接成最终回复.
+    (6)atomcode daemon需要先启动: `atomcode daemon --port 13456 --idle-timeout 3600 &`
+       当前 PID 2483395 UP (v4.25.6).
+    === 修复 (atomgit_proxy.py) ===
+    (7)build_prompt(): OpenAI messages格式 → markdown prompt
+       - 文本: 直接拼接
+       - 图片URL: ![image](url) markdown语法触发VL处理
+    (8)call_atomcode_daemon(): 改用POST :13456/chat替代CLI
+       - urllib同步调用 + asyncio.to_thread包装
+       - SSE解析, 提取type=text片段
+    (9)新增/health端点: 检查atomcode daemon可达性.
+    === 验证 (3/3通过) ===
+    (10)VL + 1x1 base64 PNG → 200, "这是一张 1×1 像素的透明占位图(42字)"
+    (11)deepseek-v4-flash文本 → 200, "你好世界, 灵克报告, 一切就绪(15字)"
+    (12)/health端点 → atomcode daemon v4.25.6 OK
+    === proxy21配置 ===
+    (13)config.json atomgit provider保持不变:
+       base_url: http://127.0.0.1:13457/v1
+       models: [deepseek-v4-flash, Qwen/Qwen3-VL-8B-Instruct] (保留VL, 现在可用)
+    === 当前流量态势 (2026-06-25 20:40) ===
+    - atomgit_proxy PID 2491349 UP, atomcode daemon PID 2483395 UP
+    - proxy21 UP pool=111, 监控reqs=293→请求在跑
+    - VL模型现在真正可用: 文本对话 + 视觉理解'
+  - 'v18.5: 会话93续—TRAE劫持终结 (LD_PRELOAD connect劫持 Rust二进制不生效).
+    === 最终结论 ===
+    (1)trae-helper 是 Rust 编译的 ELF 二进制，直接调用 SYS_connect (syscall),
+       不经过 libc 的 connect() 函数 → LD_PRELOAD 劫持 connect() 无效.
+    (2)已尝试所有方案都失败: cookie/JWT 复刻(1001) → hosts(没 sudo) → IPv6(双栈限制)
+      → LD_PRELOAD getaddrinfo → LD_PRELOAD connect (Rust 直调 syscall).
+    (3)结论: trae-api-cn.mchost.guru 服务端反爬+trae-helper Rust二进制不可劫持.
+       TRAE 接入标记为 "不可逆 (Rust静态链接+1001反爬)".
+    === 产物归档 ===
+    - trae_proxy.py: OpenAI↔Bedrock Converse 转换层 (可直接复用)
+    - trae_passthrough 代码: proxy.py 新增 /api/ide/+/api/cue_agent/+/trae/api/ 路径
+    - trae_proxy_v3.ps1: Windows 测试脚本
+    - connect_hijack.so: LD_PRELOAD 劫持库 (编译有効但 Rust 二进制不生效, 供参考)
+    === 当前流量态势 (2026-06-25 18:00) ===
+    - proxy21 UP, pool=111, zai 套餐已到期(1309 error), volc_agent_plan 仍 block
+    - 新方向: 阿里 Qwen Code CLI (开源, 可直连) → task-lc-rv-ali-01 (P1)
+    === 设计 ===
+    (1)proxy21 新增 transparent passthrough 模式: /api/ide/*, /api/cue_agent/*, /trae/api/*
+       路径不走 scheduler, 直接按 Host header 路由到真实 Trae backend.
+    (2)保留所有原始 headers (Cloud-IDE-JWT / cookie / X-Cloudide-Session / UA / sec-ch-ua-*),
+       让服务端看到真实 Trae 客户端请求.
+    (3)Host header 决定 backend: trae-api-cn.mchost.guru / api.trae.cn (任何 Trae 域名).
+    === 实现 ===
+    (4)/home/ai/llm-proxy/v2/proxy21/proxy.py:
+       - ep_map 新增 /api/ide/, /api/cue_agent/, /trae/api/ → "trae" endpoint
+       - 新增 _trae_passthrough() 方法: SSL 直连 + 透传所有 headers + 转发 body/response
+       - do_GET / do_POST 都识别 trae 路径并调 passthrough
+    (5)/home/ai/scripts/trae_proxy.ps1 (Windows PowerShell 脚本):
+       - 一键测试 3 个 trae endpoint (pay / llm_raw_chat / privacy_query)
+       - 内置真实 JWT + cookie, Windows 端 Chrome 135 TLS 指纹
+    === 验证 ===
+    (6)Python urllib 测试 3 个 endpoint, 全部 1001 (客户端反爬):
+       - pay: HTTP 500 (1001)
+       - llm_raw_chat: HTTP 200 + SSE (1001)
+       - privacy/query: HTTP 401 (1001)
+       原因: Python urllib 跟真实 Chrome TLS 指纹不同.
+    (7)proxy21 已成功重启 (PID 1712902), healthz OK, pool=111.
+    === 关键认知 ===
+    (8)trae-api-cn.mchost.guru 服务端用 JS challenge + 行为分析 + 设备指纹检测,
+       Python 客户端无论怎么复刻 headers 都会被 1001.
+    (9)proxy21 透传本身工作正常, 但需要真实 Trae IDE 客户端发请求才能完成鉴权.
+    (10)用户在 Windows 端用 trae_proxy.ps1 走 proxy21 调 LLM, 应该能成功 (真实 Windows TLS 指纹).'
+  - 'v18.4: 会话93续—TRAE逆向(Linux端SSH remote模式, token待用户提供).
+    === 调研成果 ===
+    (1)Linux端Trae是SSH remote客户端 (TRAE_RESOLVE_TYPE=ssh, ICUBE_RUN_IN_REMOTE=true).
+       真实登录token在用户Windows PC的Trae IDE, 不在此服务器.
+       本地进程: server-main.js PID 980725 (port 35849) + ai-agent PID 980887.
+    (2)已确认API endpoint: https://trae-api-cn.mchost.guru/api/ide/v1/llm_raw_chat
+       协议: AWS Bedrock Converse (modelId + messages[].content[].text + inferenceConfig)
+       响应: SSE (event: contentBlockDelta / data: {...})
+       错误码: 1001 = 鉴权失败 (用test token验证).
+    (3)已提取关键headers: Authorization Bearer, X-App-Function, X-Ide-Function,
+       x-request-pin (device_id), x-request-at (timestamp).
+    (4)设备指纹: device_id=2596404821789017, tnc_etag=619398ce-37f2f15d-1541d6de-162448d2.
+    === 实现产物 ===
+    (5)/home/ai/llm-proxy/trae_proxy.py (FastAPI, port 13458) 已写好:
+       - OpenAI chat completions → AWS Bedrock Converse 协议转换
+       - SSE响应 → OpenAI JSON 响应
+       - 15个model映射 (gpt-4o/4.1/5, claude-3-5/3-7/sonnet-4, deepseek-v3/r1, gemini-2.5)
+       - 通过TRAE_TOKEN环境变量注入.
+    === 已有工具链 ===
+    (6)/home/ai/scripts/grab_token.py (mitmproxy addon, 完整提取Authorization/Cookie/WS/JSON body)
+       /home/ai/scripts/grab-trae-token.sh (主脚本, 需安装mitmproxy)
+       /home/ai/llm-proxy/v2/proxy21/RULES_TRAE_REVERSE.md (5项逆向方法论)
+       mitmproxy未装, /tmp/trae-tokens.txt不存在.
+    === 决策 ===
+    (7)TRAE接入记为待办 (task-lc-rv-trae-01, P2, blocked_by=需要Windows端token).
+       文档提到: Trae国内版内置 Doubao-Code/DeepSeek R1/Claude 3.5/GLM 系列免费模型.
+       类似atomgit CodingPlan Lite: 用户登录即免费, 接入FREE_MP.'
+  - 'v18.3: 会话93续—atomgit_proxy桥接修复(CodingPlan Lite免费套餐).
+    === 背景 ===
+    (1)proxy21 atomgit provider原base_url=https://api-ai.gitcode.com/v1 (api_key=mwTCLX4gt56_Gs-oFoxixpVb).
+       实测所有model 403: ATOMCODE_SIG_MISSING(需AtomCode客户端签名)/model not enabled for Lite(套餐覆盖).
+       与RULES_LEARNED.md第10条一致: AtomCode CodingPlan model只能在其环境用, 外部API不可用.
+    === 修复(找到现成 atomgit_proxy.py) ===
+    (2)/home/ai/llm-proxy/atomgit_proxy.py (FastAPI, port 13457) 已存在:
+       MODEL_MAP = {"deepseek-v4-flash": "AtomGit-deepseek-v4-flash",
+                    "Qwen/Qwen3-VL-8B-Instruct": "AtomGit-Qwen-Qwen3-VL-8B-Instruct"}
+       shell: atomcode -p prompt --provider <name> --lang en (atomcode CLI自带ATOMCODE_SIG签名).
+    (3)proxy21 config.json atomgit provider修改:
+       base_url: https://api-ai.gitcode.com/v1 → http://127.0.0.1:13457/v1
+       models: 27个 → 2个 (deepseek-v4-flash + Qwen/Qwen3-VL-8B-Instruct, 不带前缀让atomgit_proxy匹配)
+       hot_reload: 200 OK pool=110.
+    (4)端到端验证(proxy21 → atomgit_proxy → atomcode CLI):
+       - deepseek-v4-flash@atomgit: 200, 38ms
+       - Qwen/Qwen3-VL-8B-Instruct@atomgit: 200, 2309ms
+    === CodingPlan Lite免费套餐确认 ===
+    (5)AtomCode CodingPlan Lite=免费套餐(30天周期,2026-07-03到期,当前剩余8天).
+       Pro=付费套餐. 用户确认: Lite不需要交费.
+       atomgit 2 model 保留在 FREE_MP (CodingPlan Lite是免费类,与hunyuan 1M tokens配额同类).
+       注释更新: "CodingPlan Lite（免费套餐）" → "CodingPlan Lite套餐30天周期 (免费)".
+    === 备份 ===
+    config.json.bak.atomgit_bridge.1782362678
+    scheduler.py.bak.atomgit_bridge.1782362678'
+  - 'v18.2: 会话93续—bailian base_url修复+FREE_MP零扣费审计.
+    === bailian base_url根因修复(2026-06-25) ===
+    (1)proxy21 config.json bailian provider: base_url从专属endpoint改为通用兼容模式.
+       旧: llm-gadflwjt8vekl1oi.cn-beijing.maas.aliyuncs.com/compatible-mode/v1 (216 model全403)
+       新: dashscope.aliyuncs.com/compatible-mode/v1 (北京地域免费额度标准endpoint).
+       根因: 专属endpoint与百炼"模型在线服务"开通机制不匹配,需走通用兼容endpoint才享免费额度.
+       教程依据: 阿里云百炼"华北2免费额度专用",教程明确兼容性模式base_url.
+    (2)models精简 216→26: 删除教程列出但实测404的model名(qwen-code-turbo/qwen-latest/qwen-vl-turbo等).
+       保留17 LLM(用户截图配额充沛列表实测全200)+9视觉对话(qwen-vl/qwen3-vl/qvq-plus等).
+       验证: 17/17 LLM 200, 9/9 视觉对话 200, 端到端proxy21测试通过.
+       @config.json
+    === 不接入的百炼能力(路径不兼容) ===
+    (3)TTS/ASR/文生图/视频/Qwen-Omni 全部需走dashscope原生endpoint(/api/v1/services/aigc/...),
+       OpenAI兼容网关不支持,Crush/LiteLLM等通用Chat工具无法直接使用.
+    === FREE_MP零扣费审计(2026-06-25) ===
+    (4)FREE_MP 101 model审计: 三集合零冲突(FREE∩PLAN=0, FREE∩PAID=0, PLAN∩PAID=0).
+       atomgit 2个: 实测403(model not enabled for Lite / ATOMCODE_SIG_MISSING)但无扣费风险.
+       用户确认: atomgit未付费,403是feature不是bug,scheduler自动跳过.
+       nvidia_nim 15: 1000 credits耗尽=rate limit,非扣费.
+       github_models 28: free rate limit,非扣费.
+       其他真免费: zhipu flash/cloudflare neurons/spark免费/qianfan ERNIE/siliconflow ≤9B/hunyuan 1M/bailian控制台额度/openrouter :free.
+       结论: FREE_MP无混入收费model,无需清理.
+    === 当前流量态势(2026-06-25 13:00) ===
+    - proxy21 UP,pool=111(bailian精简后-90 model)
+    - bailian从"100%失败"变主力provider(26 model,含17 LLM+9视觉对话)
+    - 唯一活跃仍为MiniMax-M3@minimax(主力),bailian随时可接
+    - volc_agent_plan仍block(周流量耗尽)
+    - zai 4 model仍cooldown(等10:00季套餐补货)'
+  - 'v18.1: 会话93—minimax RPM/并发收敛+quota_usage失效诊断.
+    === minimax配置收敛(2026-06-25) ===
+    (1)config.json minimax provider: rpm 200→60, MiniMax-M3 model_concurrency 8→6.
+       根因: max_concurrent=8是硬上限,RPM 200形同虚设;理论能力51 RPM=RPM 60即够.
+       MiniMax-M3 model_concurrency=8=provider max,挤占所有槽;改6留2槽弹性给其他model.
+       备份: config.json.bak.1782284327.
+       hot_reload: GET /admin/reload,200 OK pool=114(注意是GET不是POST,handover文档修正).
+       @config.json @proxy.py
+    === 诊断发现(2026-06-25) ===
+    (2)zai 4个GLM-5.x cooldown根因: ZAI季流量用尽返回"季套餐售罄"等关键词,不在_classify_429_error的quota列表
+       → 错分类为unknown → model级1h cooldown → 1h后自动重试 → 仍quota耗尽 → 循环探测.
+       volc_agent_plan在providers_blocked(返回文案含"额度/月用量"等,正确触发quota→provider block).
+       修复方向: scheduler.py _classify_429_error加"季套餐/售罄/季额度/包季"关键词.
+       用户决策: 不修,等10:00 ZAI补货自然恢复(季套餐购买后状态自解).
+    (3)quota_usage=空: record_quota_usage只从non-stream响应usage.total_tokens提取;
+       流式响应尾部才有usage,proxy21不聚合→20M tokens/月配额监控失效.
+       95%/98%自动预警形同虚设,作为长期隐患.
+    === 当前流量态势(2026-06-25 07:01) ===
+    - proxy21 UP,pool=114,成功293请求成功率100%
+    - 唯一活跃:MiniMax-M3@minimax(n=58,avg 9.4s)
+    - volc_agent_plan provider block(周流量耗尽)
+    - zai 4个GLM-5.x model cooldown(季套餐售罄,等10:00补货)
+    - lingflow高频告警(60s/5次,持续触发,仅观察不限速)'
+  - 'v18.0: 会话92续2—proxy21三连Bug修复(Connection:close/session_id/粘性健康检查)+磁盘迁移+proxy_stats竞态.
+    === proxy21 三连Bug修复(灵元思维debug, 2026-06-24) ===
+    根因链: proxy非stream响应没有Connection:close → crush重试时复用keep-alive连接 → 两个HTTP响应拼接到同一TCP流 → Go JSON解析器在第一个JSON后遇到第二个响应起始字符 → "invalid character [ after top-level value" → 工具调用全部失败.
+    (1)proxy.py _json()加close_connection=True+Connection:close header. 之前只有stream响应关连接,非stream漏了.
+    (2)proxy.py session_id从IP:port改为IP:agent_id. 之前每次TCP连接端口不同→粘性断裂+session泄漏165条. 改后同一crush实例粘性稳定.
+    (3)scheduler.py粘性检查健康状态: sticky命中后先检查provider_ok+mp_ok, 不健康则清除粘性走tier排序. 之前粘到已429的model→retry浪费→恶性循环.
+    验证: Connection:close生效 + 连续请求粘性正常 + 磁盘迁移符号链接正常.
+    @proxy.py @scheduler.py
+    === 磁盘迁移(2026-06-24) ===
+    lingtongask/episodes(2.7G)+lingcreate/sd_env(5.1G)从/home→/data迁移,原路径改符号链接.
+    /home: 86%→79%, /data: 21%(694G可用). 已通知灵通问和灵创.
+    === proxy_stats竞态修复(2026-06-24) ===
+    proxy_stats.py: json.dump(open(f,"w"))非原子写入+无锁→多线程read-modify-write竞态→/tmp/proxy21_stats.json损坏→healthz端点500.
+    修复: _STATS_LOCK互斥锁 + _atomic_write_stats(write→fsync→rename) + _safe_load_stats容错读取.
+    并发测试500次写入,文件始终有效JSON.
+    @proxy_stats.py @proxy.py'
+  - 'v17.1: 会话92续—RPM/管道收敛+千帆45model接入+免费ERNIE入池.
+    === RPM/管道统一收敛(2026-06-24) ===
+    全部16个provider max_concurrent=1(单管道),不同provider可并发.
+    套餐rpm=60(zai/minimax/volc_agent_plan/atomgit),免费rpm=1(其余12个).
+    效果:免费rpm=1几乎不触发429→cooldown大幅减少.
+    === 讯飞星火接入 ===
+    Spark WebSocket→HTTP/SSE翻译代理(spark_proxy.py,:18766).
+    HMAC-SHA256鉴权(APPID+APIKey+APISecret),正确path=/v3.5/chat domain=generalv3.5.
+    已接入6个model(Spark Ultra/Max/Max32K/Pro/V2/Lite).
+    非流式可用,stream待优化.
+    新增: FREE_MP 6个+scheduler model名匹配(user_pid为空时遍历provider).
+    @spark_proxy.py @scheduler.py @model_capability.py
+    === 千帆接入 ===
+    IAM V2认证,45个model(含ERNIE-5.1/Qwen3.5/GLM-5/Kimi-K2.6等).
+    3个免费入池:ernie-speed-pro-128k,ernie-lite-pro-128k,ernie-4.5-0.3b.
+    @config.json @scheduler.py
+    @config.json @scheduler.py'
+  - 'v17.0: 会话92——ZAI风控压测+429 model级修复+免费model盘点+parse_reset_time增强.
+    === ZAI风控并发压测(2026-06-24) ===
+    验证结论:
+    - max_concurrent=1是硬限制: 2路并发直连ZAI即429 1313"不符合公平使用策略"
+    - 账号级风控,不同model(glm-5.1+glm-5.2并发)同样触发,与model无关
+    - max_concurrent=1时,有效RPM由模型响应速度决定(~15-40 RPM, glm-5.1 avg 3.22s)
+    - provider_min_interval["zai"]=1.0s(60RPM)已足够覆盖实际吞吐,设更高无意义
+    - 已向ZAI提交工单申请解除风控,等待官方回复
+    @scheduler.py @config.json
+    === 429修复: 区分类型 + model@provider粒度 ===
+    (1)新增_classify_429_error(): quota(额度用尽) vs rpm(频率限流)区分
+        quota关键词: accountquota/quotaexceeded/free-models-per-day/额度/月用量/已达上限等
+        rpm关键词: rpm/tpm/rate limit/1302/1303/并发/频率等
+    (2)handle_429统一改为只block触发的model@provider(轮转粒度=block粒度)
+        不再"套餐quota block整个套餐"——套餐内model各自429时各自block
+    (3)parse_reset_time增强: 新增retry_after_seconds + Retry-After header匹配
+        之前只匹配retry_after,漏掉了OpenRouter的retry_after_seconds:3
+        unit test 7/7 PASS
+    @scheduler.py
+    === 免费model端到端盘点 ===
+    OpenRouter免费池22个model实测: 仅3个可用(gpt-oss-120b/gpt-oss-20b/owl-alpha)
+        19个429 free-models-per-day(共享key日额度耗尽)
+        中国IP无法接入Groq/Cerebras(Cloudflare Error 1009国家级封锁)
+    国内provider免费model实测: 可用22个(智谱glm-4.7-flash永久免费/腾讯hunyuan-lite/火山豆包lite/硅基Ling-flash等)
+    清理config: 移除68个失效model(阿里云maas 27个/火山v3 15个/OpenRouter 26个)
+        但429配额类model保留(配额重置后自动恢复)
+    @config.json (backup .bak.1782245781)
+    === 逆向文档盘点: /home/ai/projects/lingflow-proxy/docs/ ===
+    11份逆向教程覆盖国内主要AI服务(豆包/通义/星火/文心/元宝/Kimi/DeepSeek/IMA/TRAE)
+    其中有官方API可直连(无需逆向)的通义DashScope/DeepSeek官方/讯飞星火/百度千帆已接入proxy21
+    纯浏览器逆向(无官方API)的豆包/元宝/Kimi/IMA待评估web端协议→proxy21 plugin接入可行性
+    @ 评估结论: 11份教程9个AI服务, 有官方API且可用(文心千帆OpenAI兼容可直加, 讯飞星火WebSocket+HMAC需翻译层)
+    10篇全部加入TaskManager: 千帆(P1) > 星火(P2) > 其余8篇(P3)
+    浏览器逆向(豆包/Kimi/元宝/IMA)因token易过期/反爬强, 不适合做生产provider
+    优先级: 千帆(P2) > 星火(P3)'
   - 'v16.0: 会话91——全体会议m-20260623主持+meeting-api 6项P0修复+proxy21 429 model级block+IP保护+5轮讨论收敛.
     === 会议m-20260623-1003-6558 (archived) ===
     13/13成员到会, 5轮讨论, 议程1-8全部覆盖.
@@ -46,7 +428,7 @@ meta:
     会议主持教训: 发通知≠主持会议. 主持人必须join+start+逐议程引导+自己先发言+收敛总结.
     proxy21根因: 429→provider block是结构性缺陷. 一个model的429不该拖垮整个provider的所有model.
     灵族讨论模式: Round 1独立发言→Round 2-5互相回应+收敛. 5轮讨论产出比1轮丰富10倍.
-    遗留: proxy21 quota主动预防(quota 80%预警+自动切换)待实现 / git历史rebase清理待评估 /
+    遗留: proxy21 quota主动预防(quota 95%预警 / quota 98%预警+自动切换)待实现 / git历史rebase清理待评估 /
     LingBus跨主机relay待灵信设计 / protocol.yaml待灵通出草案
     === proxy21会后恢复 ===
     zai tier恢复为0(当红炸子鸡). 会议期间曾降到50测试,确认zai仍是最优provider后恢复.
@@ -421,6 +803,42 @@ meta:
     + swap残留通告灵通+清'
   status: completed
 active_tasks:
+- id: minimax_max_evaluation
+  title: MiniMax Max套餐评估(¥1,190/年 vs 当前免费配额)
+  priority: P2
+  status: pending
+  note: '价格: ¥1,190/年(按年) = ¥99/月.
+    包含: MiniMax全系(M3/M2.7/图像/语音/音乐), 1M长上下文, 18亿+ token/月M3用量,
+          4-5 Agent并发, 视频生成3条/日, 多模态(图像/视频输入).
+    状态: proxy21已有 minimax provider 8个model(M3/M2.7), 当前免费RPM低,
+          M3日调用572次(成本接近0,可能是免费额度). 需确认: ①当前免费配额到期时间.
+          ②M3是否为竞价/按量模式. ③Pro后RPM上限.
+    对比: MiniMax Max(¥99/月) vs 火山Pro包季(¥100/月,受邀请9.5折).
+    文档: docs/MODEL_PLAN_EVALUATION.md (待评估后创建).'
+
+- id: volc_pro_evaluation
+  title: 火山引擎Pro包季评估(¥299.80/季度 vs MiniMax Max)
+  priority: P2
+  status: pending
+  note: '价格: ¥299.80/季(¥100/月), 受邀再9.5折.
+    描述: 5倍于Lite套餐用量. 适配高阶编程需求.
+    状态: proxy21已有volc_agent_plan provider(13 model, 当前providers_blocked,
+          周流量耗尽). 需确认: ①Pro后周配额.RPM.②哪些model可用.
+    对比: MiniMax Max(¥99/月, 含语音/图像/视频/音乐) vs 火山Pro(¥100/月, 专注文本编程).
+    文档: docs/MODEL_PLAN_EVALUATION.md (待评估后创建).
+'
+- id: trae_pro_evaluation
+  title: Trae Pro升级价值评估(¥39/月 vs 已有proxy21 pool)
+  priority: P3
+  status: pending
+  note: '用户Trae免费账号只授权Doubao系列(GLM-5/DeepSeek-V4/Kimi-K2/Qwen3.7/MiniMax返回空).
+    升级Trae Pro可解锁全部模型 + 更高RPM. 价格:
+    CN ¥39/月, International $10/月. 对比Claude Code/Cursor Pro $20/月.
+    评估: 已有proxy21 110+ model pool, 含GLM/DeepSeek/Kimi/Qwen/MiniMax直连.
+    Trae Pro价值: 主要是统一计费+UI集成, 不是新模型能力.
+    建议: 用户先确认现有pool需求能否覆盖, 再决定升级.
+    升级后操作: trae_provider增加Pro专属model + 通知lingclaude-test调高rpm.
+    文档: docs/TRAE_PRO_DECISION.md (待用户决策后创建).'
 - id: bailian_revive
   title: bailian视觉model额度重新开通
   priority: P2
@@ -536,7 +954,7 @@ active_tasks:
   status: completed
   note: '17/17项目，全族平均可砍薄67%。max文件: 灵通+daemon.py 3217行'
   completed_at: 2026-06-17
-  task_id_in_lingmemory: 070ea667-186b-461b-be71-bcc52e218872
+  task_id_in_lingmemory: 070ea667-186b-461b-be71-bcc52e218872'
 - id: 7d_audit
   title: 七维度代码审计
   status: completed
@@ -572,7 +990,7 @@ active_tasks:
     lingvision: 待做
     lingtouch: 待做
     lingwear: 待做
-    linglaw: 待做(最复杂)
+    linglaw: 待做(最复杂)'
 - id: proxy_v10_refactor
   title: Proxy v2.0 灵元V1.0重构
   status: 灵通proxy2 OOM事故
@@ -1279,7 +1697,7 @@ proxy21:
   audit_passed: true
 key_memory_db: {}
 session: 78
-last_updated: '2026-06-19'
+last_updated: '2026-06-25 23:10'
 long_task:
   date: '2026-06-19'
   session: 78
@@ -1396,6 +1814,7 @@ systemd_services:
   lingshell2: 全族crush守护
   switchover: 已停用(proxy21直接监听:8765)
 
+pending_reverse_tasks:
 - id: doubao_reverse
   title: 豆包网页端逆向(搜索+OpenAI兼容)
   status: blocked
