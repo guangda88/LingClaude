@@ -1,0 +1,48 @@
+schema_version: "0.5.0"
+name: audit-scanner
+version: "1.0.0"
+owner: lingclaude
+description: "Audit scanner — detect SEC-INJ/SEC-CRYPTO/SEC-MISC/PERF/COMPL patterns in Python/TS/Go/JS/Sh source files. Emits LACP v0.4.0 trace per finding."
+interface:
+  input_schema:
+    type: object
+    required: [path]
+    properties:
+      path:
+        type: string
+        description: Project root directory to scan
+      patterns:
+        type: object
+        description: Override default PATTERNS dict (optional)
+      min_severity:
+        type: string
+        enum: [low, medium, high, critical]
+  output_schema:
+    type: object
+    properties:
+      files:
+        type: integer
+      findings:
+        type: integer
+      findings_detail:
+        type: array
+        items:
+          type: object
+  error_format:
+    type: string
+    severity: retryable
+    recovery: [retry_with_smaller_scope, skip_file_on_parse_error]
+    retry_strategy: exponential_backoff
+transports:
+  - agent
+  - mcp
+  - cli
+output_recipient: LingBus
+dependencies:
+  - kind: plugin
+    target: lingbus@>=1.0.0
+  - kind: config
+    target: audit_scanner.exclude_dirs
+replaceable: cold
+replaced_by: null
+signature: null

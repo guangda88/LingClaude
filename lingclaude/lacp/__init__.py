@@ -1,18 +1,18 @@
-"""LACP (Ling Agent Context Protocol) v0.4.0 — reference implementation.
+"""LACP (Ling Agent Context Protocol) v0.5.0 — reference implementation.
 
-Thin-main + plug-in design (per 灵元1.0):
-- 主干: trace schema (飞轮 4 环节共用) + plugin manifest (插片契约)
-- 插片: emitter backends, validators, downstream consumers (灵极优 optimizer 等)
+v0.5.0 增量 (基于 6 仓库启示 + 灵信 R1 建议):
+- Plugin manifest schema (灵族"插片身份证")
+- transports 字段 (Agent-Native 借鉴: 6-channel)
+- output_recipient 字段 (灵信建议 A)
+- dependencies 支持 plugin/config/service (灵信建议 B)
+- replaceable 默认 false 安全默认 (灵信建议 C)
+- HMAC-SHA256 signature (audit 防篡改)
 
-v0.4.0 增量 (来自用户元层反馈 2026-06-27 - 体现人类思维模式):
-- human_context metadata 子结构: intent/turn/reasoning/alternatives/confidence
-- outcome 加 INTUITIVE 和 UNVERIFIED 状态
-- 设计原则修订: "去掉人类假设"不字面执行, 桥接人类意图 → Agent 执行
-
-字段演进:
-- v0.2.0: actor + executor + metadata.health (基础)
-- v0.3.0: + cost + caller_chain + actor_role + actor_instance_id (灵研 + 灵极优)
-- v0.4.0: + human_context + intuitive/unverified outcome (人类思维承载)
+v0.5.0 整合:
+- v0.2.0 trace schema (基础)
+- v0.3.0 cost/caller_chain/actor_role/actor_instance_id (灵研/灵极优)
+- v0.4.0 human_context/intuitive/unverified (人类思维承载)
+- v0.5.0 plugin manifest (插片契约)
 """
 
 from .trace import (
@@ -28,10 +28,26 @@ from .trace import (
     HumanContext,
     emit_trace,
     validate_trace,
-    SCHEMA_VERSION,
+    SCHEMA_VERSION as TRACE_SCHEMA_VERSION,
+)
+
+from .manifest import (
+    Plugin,
+    Interface,
+    Dependency,
+    Transport,
+    OutputRecipient,
+    Replaceable,
+    DependencyKind,
+    ErrorSeverity,
+    validate_manifest,
+    sign_manifest,
+    load_manifest,
+    SCHEMA_VERSION as MANIFEST_SCHEMA_VERSION,
 )
 
 __all__ = [
+    # trace (v0.2.0 - v0.4.0)
     "Trace",
     "TraceEmitter",
     "TraceBackend",
@@ -44,7 +60,24 @@ __all__ = [
     "HumanContext",
     "emit_trace",
     "validate_trace",
-    "SCHEMA_VERSION",
+    "TRACE_SCHEMA_VERSION",
+    "SCHEMA_VERSION",  # backward-compat alias (= TRACE_SCHEMA_VERSION)
+    # manifest (v0.5.0)
+    "Plugin",
+    "Interface",
+    "Dependency",
+    "Transport",
+    "OutputRecipient",
+    "Replaceable",
+    "DependencyKind",
+    "ErrorSeverity",
+    "validate_manifest",
+    "sign_manifest",
+    "load_manifest",
+    "MANIFEST_SCHEMA_VERSION",
 ]
 
-__version__ = "0.4.0"
+# Backward-compat alias for v0.4.0 callers
+SCHEMA_VERSION = TRACE_SCHEMA_VERSION
+
+__version__ = "0.5.0"
