@@ -1,24 +1,35 @@
-"""LACP trace emitter — reference impl.
+"""LACP trace emitter — reference impl (v0.3.0).
 
-字段 (收敛自灵通 R3 + 灵克 R3):
+字段演进:
+- v0.2.0: actor + executor + metadata.health (基础)
+- v0.3.0: + cost (灵极优) + caller_chain (灵研 OH) + actor_role/actor_instance_id (灵研)
+
+字段 (收敛自灵通 R3 + 灵克 R3 + 灵研 R2 + 灵极优 R2):
 - schema_version: 协议版本
+- trace_id: UUID (顶层, 关联键 — 灵极优 R2)
 - ts: ISO8601 时间戳
 - phase: schedule | execute | verify | distill  (飞轮 4 环节)
 - duration_ms: 时延
 - outcome: pass | fail | drift | retry
-- context_ref: ".ling/content/<id>"  (必填, 不脱钩)
+- context_ref: ".ling/content/<id>"  (必填, 不脱钩 — CDA)
 - decision_id: UUID | null  (接 PoC 3 routing 学习)
-- actor: <member-name>  (责任主体 — 业务 owner)
-- executor: <process-name>  (执行主体 — 系统进程, 解耦)
-- target_plugin: <plugin-name@version>  (此次 trace 目标插片)
+- actor: <member-name>  (业务 owner — 灵族成员名)
+- actor_role: member | scheduler | daemon | external  (灵研 R2)
+- actor_instance_id: <instance-id> | null  (灵研 R2 - OH §5.2 实例回溯)
+- executor: <process-name>  (系统进程)
+- target_plugin: <plugin-name@version>
+- cost: {tokens, usd, ms} (灵极优 R2 - 至少其一)
+- caller_chain: [<member-name>...]  (灵研 R2 - L2/L3 跨灵诊断)
 - metadata: 子字段扩展区
   - health: 双轨隔离 (proxy21 health_filter)
+  - optimization: 灵极优专属 (保持放 metadata 隔离)
   - custom: 阶段特定
 
 设计原则:
 - 后端可插拔 (InMemoryBackend, JsonlFileBackend, LingMemoryBackend — TODO)
 - emit 必须经过 validate, 不允许发出非法 trace
 - actor/executor 解耦, 飞轮自指准确
+- 顶层字段是 contract, metadata 是 extension — 灵元"薄主干+插片"
 """
 
 from __future__ import annotations
@@ -35,7 +46,7 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "0.2.0"
+SCHEMA_VERSION = "0.3.0"
 
 
 # === Enums (强类型, 防 typo) ===
@@ -53,23 +64,46 @@ class Outcome(str, Enum):
     RETRY = "retry"
 
 
+class ActorRole(str, Enum):
+    MEMBER = "member"           # 灵族成员手动操作
+    SCHEDULER = "scheduler"     # 调度器自动 (proxy21 scheduler)
+    DAEMON = "daemon"           # 后台守护 (lingflow_plus, watchdog)
+    EXTERNAL = "external"       # 外部触发 (用户指令, webui)
+
+
+# === Cost 子结构 (灵极优 R2) ===
+@dataclass
+class Cost:
+    """资源消耗 - 至少一个字段非 None."""
+    tokens: int | None = None
+    usd: float | None = None
+    ms: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"tokens": self.tokens, "usd": self.usd, "ms": self.ms}
+
+
 # === Trace dataclass ===
 @dataclass
 class Trace:
-    """LACP v0.2.0 trace record.
+    """LACP v0.3.0 trace record.
 
-    All fields except decision_id, target_plugin, metadata are required.
-    context_ref MUST be set (per CDA — Canonical Data Authority 不脱钩).
+    必填: phase, actor, actor_role, executor, outcome, context_ref, duration_ms, caller_chain
+    可选: decision_id, target_plugin, cost, actor_instance_id, metadata
     """
 
     phase: Phase
-    actor: str  # 责任主体 (业务 owner)
-    executor: str  # 执行主体 (系统进程)
+    actor: str  # 业务 owner (灵族成员名)
+    actor_role: ActorRole  # 角色 (灵研 R2)
+    executor: str  # 系统进程标识
     outcome: Outcome
-    context_ref: str  # ".ling/content/<id>"
+    context_ref: str  # ".ling/content/<id>" (CDA 不脱钩)
     duration_ms: int
+    caller_chain: list[str] = field(default_factory=list)  # 灵研 R2 - 调用栈
     decision_id: str | None = None
     target_plugin: str | None = None  # "<plugin-name>@<version>"
+    actor_instance_id: str | None = None  # 灵研 R2 - 实例回溯
+    cost: Cost | None = None  # 灵极优 R2 - 至少一个字段非 None
     metadata: dict[str, Any] = field(default_factory=dict)
     schema_version: str = SCHEMA_VERSION
     ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -80,6 +114,12 @@ class Trace:
         # enum → str for JSON
         d["phase"] = self.phase.value
         d["outcome"] = self.outcome.value
+        d["actor_role"] = self.actor_role.value
+        # cost 子结构 → dict
+        if self.cost is not None:
+            d["cost"] = self.cost.to_dict()
+        else:
+            d["cost"] = None
         return d
 
     def to_json(self) -> str:
@@ -88,15 +128,18 @@ class Trace:
 
 # === Validator (轻量, 不依赖 jsonschema) ===
 def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
-    """验证 trace 是否符合 LACP v0.2.0 schema.
+    """验证 trace 是否符合 LACP v0.3.0 schema.
 
     Returns: (is_valid, error_msg | None)
 
     关键不变量:
     - context_ref 必填且格式 ".ling/content/<id>"
     - schema_version 必须匹配 SCHEMA_VERSION
-    - phase / outcome 必须是允许值
+    - phase / outcome / actor_role 必须是允许值
     - duration_ms >= 0
+    - caller_chain 默认 [] 但可以追溯
+    - cost 如果设置, 必须至少一个字段非 None
+    - trace_id 必填 (顶层 UUID)
     """
     if isinstance(t, Trace):
         d = t.to_dict()
@@ -114,7 +157,7 @@ def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
     if not cr.startswith(".ling/content/"):
         return False, f"context_ref must start with '.ling/content/', got {cr}"
 
-    # phase / outcome enum
+    # phase / outcome / actor_role enum
     try:
         Phase(d.get("phase"))
     except (ValueError, KeyError):
@@ -125,6 +168,11 @@ def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
     except (ValueError, KeyError):
         return False, f"outcome must be one of {[o.value for o in Outcome]}, got {d.get('outcome')}"
 
+    try:
+        ActorRole(d.get("actor_role"))
+    except (ValueError, KeyError):
+        return False, f"actor_role must be one of {[r.value for r in ActorRole]}, got {d.get('actor_role')}"
+
     # duration_ms
     dur = d.get("duration_ms")
     if not isinstance(dur, int) or dur < 0:
@@ -132,9 +180,28 @@ def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
 
     # actor/executor 必填
     if not d.get("actor"):
-        return False, "actor is required (责任主体)"
+        return False, "actor is required (业务 owner)"
     if not d.get("executor"):
-        return False, "executor is required (执行主体)"
+        return False, "executor is required (系统进程)"
+
+    # caller_chain: 必须是 list
+    cc = d.get("caller_chain")
+    if not isinstance(cc, list):
+        return False, f"caller_chain must be list, got {type(cc).__name__}"
+    if not all(isinstance(x, str) for x in cc):
+        return False, "caller_chain items must be strings"
+
+    # cost: 如果设置, 必须至少一个字段非 None
+    cost = d.get("cost")
+    if cost is not None:
+        if not isinstance(cost, dict):
+            return False, f"cost must be dict, got {type(cost).__name__}"
+        if not any(cost.get(k) is not None for k in ("tokens", "usd", "ms")):
+            return False, "cost must have at least one of tokens/usd/ms non-None"
+
+    # trace_id 必填 (顶层 UUID)
+    if not d.get("trace_id"):
+        return False, "trace_id is required (顶层 UUID 关联键)"
 
     return True, None
 
@@ -200,12 +267,14 @@ class TraceEmitter:
         trace = emitter.emit(
             phase=Phase.EXECUTE,
             actor="lingclaude",
+            actor_role=ActorRole.MEMBER,
             executor="audit_scanner@1.0",
             outcome=Outcome.PASS,
             context_ref=".ling/content/audit-finding-001",
             duration_ms=234,
             target_plugin="audit_scanner@1.0.0",
-            metadata={"custom": {"rule_id": "silent_except_prod"}},
+            cost=Cost(tokens=1234, ms=234),
+            caller_chain=["lingclaude", "audit_scanner"],
         )
     """
 
@@ -218,23 +287,31 @@ class TraceEmitter:
         *,
         phase: Phase,
         actor: str,
+        actor_role: ActorRole,
         executor: str,
         outcome: Outcome,
         context_ref: str,
         duration_ms: int,
+        caller_chain: list[str] | None = None,
         decision_id: str | None = None,
         target_plugin: str | None = None,
+        actor_instance_id: str | None = None,
+        cost: Cost | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Trace:
         trace = Trace(
             phase=phase,
             actor=actor,
+            actor_role=actor_role,
             executor=executor,
             outcome=outcome,
             context_ref=context_ref,
             duration_ms=duration_ms,
+            caller_chain=caller_chain or [],
             decision_id=decision_id,
             target_plugin=target_plugin,
+            actor_instance_id=actor_instance_id,
+            cost=cost,
             metadata=metadata or {},
         )
 
@@ -245,7 +322,10 @@ class TraceEmitter:
 
         self.backend.write(trace.to_dict())
         self._count += 1
-        logger.debug("trace emitted: phase=%s outcome=%s actor=%s", phase.value, outcome.value, actor)
+        logger.debug(
+            "trace emitted: phase=%s outcome=%s actor=%s role=%s",
+            phase.value, outcome.value, actor, actor_role.value,
+        )
         return trace
 
     @property
