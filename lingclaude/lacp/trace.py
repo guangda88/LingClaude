@@ -1,42 +1,53 @@
-"""LACP trace emitter — reference impl (v0.3.0).
+"""LACP trace emitter — reference impl (v0.4.0).
 
 字段演进:
 - v0.2.0: actor + executor + metadata.health (基础)
 - v0.3.0: + cost (灵极优) + caller_chain (灵研 OH) + actor_role/actor_instance_id (灵研)
+- v0.4.0: + human_context (用户反馈 - 体现人类思维模式) + intuitive/unverified outcome
 
-字段 (收敛自灵通 R3 + 灵克 R3 + 灵研 R2 + 灵极优 R2):
+v0.4.0 增量理由 (用户元层反馈 2026-06-27):
+- 谭少卿"去掉人类假设"不应字面执行 — 人类思维模式是千年压缩的协议
+- LACP 应桥接"人类意图 → Agent 执行", 不是假装人类不存在
+- 5 维度承载:
+  1. 渐进式确认 → human_context.intent + turn + confidence
+  2. 直觉决策 → outcome.INTUITIVE 状态
+  3. 上下文压缩 → context_ref 允许 derived_from 链 (caller_chain 已部分承载)
+  4. 对话式思考 → Combo Skill 0.0.1 想法碎片阶段 (本文件外)
+  5. 非确定性接受 → outcome.UNVERIFIED 状态 + reason 必填
+
+字段全清单:
 - schema_version: 协议版本
-- trace_id: UUID (顶层, 关联键 — 灵极优 R2)
+- trace_id: UUID (顶层关联键 — 灵极优 R2)
 - ts: ISO8601 时间戳
 - phase: schedule | execute | verify | distill  (飞轮 4 环节)
 - duration_ms: 时延
-- outcome: pass | fail | drift | retry
+- outcome: pass | fail | drift | retry | intuitive | unverified  (v0.4.0 +2)
 - context_ref: ".ling/content/<id>"  (必填, 不脱钩 — CDA)
-- decision_id: UUID | null  (接 PoC 3 routing 学习)
-- actor: <member-name>  (业务 owner — 灵族成员名)
-- actor_role: member | scheduler | daemon | external  (灵研 R2)
-- actor_instance_id: <instance-id> | null  (灵研 R2 - OH §5.2 实例回溯)
-- executor: <process-name>  (系统进程)
+- decision_id: UUID | null
+- actor: <member-name>
+- actor_role: member | scheduler | daemon | external
+- actor_instance_id: <instance-id> | null
+- executor: <process-name>
 - target_plugin: <plugin-name@version>
-- cost: {tokens, usd, ms} (灵极优 R2 - 至少其一)
-- caller_chain: [<member-name>...]  (灵研 R2 - L2/L3 跨灵诊断)
-- metadata: 子字段扩展区
-  - health: 双轨隔离 (proxy21 health_filter)
-  - optimization: 灵极优专属 (保持放 metadata 隔离)
-  - custom: 阶段特定
+- cost: {tokens, usd, ms}
+- caller_chain: [<member-name>...]
+- metadata:
+  - human_context: {intent, turn, reasoning, alternatives_considered, confidence}  # v0.4.0 NEW
+  - health: ...
+  - optimization: ...
+  - custom: { ... }
 
-设计原则:
-- 后端可插拔 (InMemoryBackend, JsonlFileBackend, LingMemoryBackend — TODO)
-- emit 必须经过 validate, 不允许发出非法 trace
-- actor/executor 解耦, 飞轮自指准确
-- 顶层字段是 contract, metadata 是 extension — 灵元"薄主干+插片"
+设计原则 (沿用 + v0.4.0):
+- 后端可插拔
+- emit 必须经过 validate
+- 顶层 = contract (薄主干), metadata = extension (插片)
+- v0.4.0 NEW: human_context 是 typed structure, validator 校验 confidence ∈ [0,1]
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -46,10 +57,10 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = "0.3.0"
+SCHEMA_VERSION = "0.4.0"
 
 
-# === Enums (强类型, 防 typo) ===
+# === Enums ===
 class Phase(str, Enum):
     SCHEDULE = "schedule"
     EXECUTE = "execute"
@@ -62,16 +73,18 @@ class Outcome(str, Enum):
     FAIL = "fail"
     DRIFT = "drift"
     RETRY = "retry"
+    INTUITIVE = "intuitive"      # v0.4.0 NEW — 直觉决策, 未完全验证
+    UNVERIFIED = "unverified"    # v0.4.0 NEW — 接受非确定性
 
 
 class ActorRole(str, Enum):
-    MEMBER = "member"           # 灵族成员手动操作
-    SCHEDULER = "scheduler"     # 调度器自动 (proxy21 scheduler)
-    DAEMON = "daemon"           # 后台守护 (lingflow_plus, watchdog)
-    EXTERNAL = "external"       # 外部触发 (用户指令, webui)
+    MEMBER = "member"
+    SCHEDULER = "scheduler"
+    DAEMON = "daemon"
+    EXTERNAL = "external"
 
 
-# === Cost 子结构 (灵极优 R2) ===
+# === Cost 子结构 ===
 @dataclass
 class Cost:
     """资源消耗 - 至少一个字段非 None."""
@@ -83,27 +96,60 @@ class Cost:
         return {"tokens": self.tokens, "usd": self.usd, "ms": self.ms}
 
 
+# === HumanContext 子结构 (v0.4.0 NEW) ===
+@dataclass
+class HumanContext:
+    """人类思维上下文 - 承载渐进式确认/直觉/非确定性.
+
+    5 个字段:
+    - intent: 用户原始意图 (渐进式确认的源头)
+    - turn: 对话轮次 (go on / 继续的语义压缩点)
+    - reasoning: 人类推理过程 (可读 self-explanation)
+    - alternatives_considered: 考虑过的方案 (避免"只看到最终选择")
+    - confidence: 人类置信度 0.0-1.0 (承载"我建议但不确定")
+
+    使用建议:
+    - member 触发的 trace 强烈建议填 human_context
+    - scheduler/daemon 自动 trace 可省略
+    """
+
+    intent: str
+    turn: int = 0
+    reasoning: str | None = None
+    alternatives_considered: list[str] = field(default_factory=list)
+    confidence: float = 1.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "intent": self.intent,
+            "turn": self.turn,
+            "reasoning": self.reasoning,
+            "alternatives_considered": list(self.alternatives_considered),
+            "confidence": self.confidence,
+        }
+
+
 # === Trace dataclass ===
 @dataclass
 class Trace:
-    """LACP v0.3.0 trace record.
+    """LACP v0.4.0 trace record.
 
-    必填: phase, actor, actor_role, executor, outcome, context_ref, duration_ms, caller_chain
+    必填: phase, actor, actor_role, executor, outcome, context_ref, duration_ms, caller_chain, trace_id
     可选: decision_id, target_plugin, cost, actor_instance_id, metadata
     """
 
     phase: Phase
-    actor: str  # 业务 owner (灵族成员名)
-    actor_role: ActorRole  # 角色 (灵研 R2)
-    executor: str  # 系统进程标识
+    actor: str
+    actor_role: ActorRole
+    executor: str
     outcome: Outcome
-    context_ref: str  # ".ling/content/<id>" (CDA 不脱钩)
+    context_ref: str
     duration_ms: int
-    caller_chain: list[str] = field(default_factory=list)  # 灵研 R2 - 调用栈
+    caller_chain: list[str] = field(default_factory=list)
     decision_id: str | None = None
-    target_plugin: str | None = None  # "<plugin-name>@<version>"
-    actor_instance_id: str | None = None  # 灵研 R2 - 实例回溯
-    cost: Cost | None = None  # 灵极优 R2 - 至少一个字段非 None
+    target_plugin: str | None = None
+    actor_instance_id: str | None = None
+    cost: Cost | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     schema_version: str = SCHEMA_VERSION
     ts: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -111,36 +157,26 @@ class Trace:
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
-        # enum → str for JSON
+        # enum → str
         d["phase"] = self.phase.value
         d["outcome"] = self.outcome.value
         d["actor_role"] = self.actor_role.value
         # cost 子结构 → dict
-        if self.cost is not None:
-            d["cost"] = self.cost.to_dict()
-        else:
-            d["cost"] = None
+        d["cost"] = self.cost.to_dict() if self.cost is not None else None
+        # human_context in metadata → 已经是 dict (caller responsibility)
+        # 如果 metadata 里 human_context 是 HumanContext 实例, 转 dict
+        hc = d["metadata"].get("human_context")
+        if isinstance(hc, HumanContext):
+            d["metadata"]["human_context"] = hc.to_dict()
         return d
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, sort_keys=False)
 
 
-# === Validator (轻量, 不依赖 jsonschema) ===
+# === Validator ===
 def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
-    """验证 trace 是否符合 LACP v0.3.0 schema.
-
-    Returns: (is_valid, error_msg | None)
-
-    关键不变量:
-    - context_ref 必填且格式 ".ling/content/<id>"
-    - schema_version 必须匹配 SCHEMA_VERSION
-    - phase / outcome / actor_role 必须是允许值
-    - duration_ms >= 0
-    - caller_chain 默认 [] 但可以追溯
-    - cost 如果设置, 必须至少一个字段非 None
-    - trace_id 必填 (顶层 UUID)
-    """
+    """验证 trace 是否符合 LACP v0.4.0 schema."""
     if isinstance(t, Trace):
         d = t.to_dict()
     else:
@@ -154,8 +190,8 @@ def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
     cr = d.get("context_ref")
     if not cr:
         return False, "context_ref is required (CDA — 不脱钩)"
-    if not cr.startswith(".ling/content/"):
-        return False, f"context_ref must start with '.ling/content/', got {cr}"
+    if not cr.startswith(".ling/content/") and not cr.startswith(".ling/audit/"):
+        return False, f"context_ref must start with '.ling/content/' or '.ling/audit/', got {cr}"
 
     # phase / outcome / actor_role enum
     try:
@@ -180,18 +216,18 @@ def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
 
     # actor/executor 必填
     if not d.get("actor"):
-        return False, "actor is required (业务 owner)"
+        return False, "actor is required"
     if not d.get("executor"):
-        return False, "executor is required (系统进程)"
+        return False, "executor is required"
 
-    # caller_chain: 必须是 list
+    # caller_chain
     cc = d.get("caller_chain")
     if not isinstance(cc, list):
         return False, f"caller_chain must be list, got {type(cc).__name__}"
     if not all(isinstance(x, str) for x in cc):
         return False, "caller_chain items must be strings"
 
-    # cost: 如果设置, 必须至少一个字段非 None
+    # cost
     cost = d.get("cost")
     if cost is not None:
         if not isinstance(cost, dict):
@@ -199,30 +235,39 @@ def validate_trace(t: Trace | dict[str, Any]) -> tuple[bool, str | None]:
         if not any(cost.get(k) is not None for k in ("tokens", "usd", "ms")):
             return False, "cost must have at least one of tokens/usd/ms non-None"
 
-    # trace_id 必填 (顶层 UUID)
+    # trace_id
     if not d.get("trace_id"):
-        return False, "trace_id is required (顶层 UUID 关联键)"
+        return False, "trace_id is required"
+
+    # v0.4.0 NEW: human_context 校验
+    hc = d.get("metadata", {}).get("human_context")
+    if hc is not None:
+        if not isinstance(hc, dict):
+            return False, f"metadata.human_context must be dict, got {type(hc).__name__}"
+        # intent 必填 (渐进式确认的源头)
+        if not hc.get("intent"):
+            return False, "metadata.human_context.intent is required (渐进式确认的源头)"
+        # confidence ∈ [0, 1]
+        conf = hc.get("confidence", 1.0)
+        if not isinstance(conf, (int, float)) or not (0.0 <= conf <= 1.0):
+            return False, f"metadata.human_context.confidence must be in [0,1], got {conf}"
+        # alternatives_considered 必须是 list[str]
+        alts = hc.get("alternatives_considered", [])
+        if not isinstance(alts, list):
+            return False, "metadata.human_context.alternatives_considered must be list"
+        if not all(isinstance(x, str) for x in alts):
+            return False, "metadata.human_context.alternatives_considered items must be strings"
 
     return True, None
 
 
 # === Backend protocol ===
 class TraceBackend(Protocol):
-    """Trace 后端协议 — 可插拔.
-
-    Implementations:
-    - InMemoryBackend (default, 测试用)
-    - JsonlFileBackend (本地文件, 灵克 audit 用)
-    - LingMemoryBackend (灵忆 record, 跨灵共享 — TODO)
-    """
-
     def write(self, trace_dict: dict[str, Any]) -> None:
         ...
 
 
 class InMemoryBackend:
-    """测试 / 短期用 — 存 list."""
-
     def __init__(self) -> None:
         self.traces: list[dict[str, Any]] = []
 
@@ -231,11 +276,6 @@ class InMemoryBackend:
 
 
 class JsonlFileBackend:
-    """本地 JSONL 文件 — 适合 audit_scanner 等单灵场景.
-
-    File rotation: 每个文件 <max_bytes> 后切换到 <base>.N.jsonl
-    """
-
     def __init__(self, path: str | Path, max_bytes: int = 10_000_000) -> None:
         self.base = Path(path)
         self.max_bytes = max_bytes
@@ -260,24 +300,6 @@ class JsonlFileBackend:
 
 # === Emitter ===
 class TraceEmitter:
-    """主入口 — 业务代码用这个.
-
-    Usage:
-        emitter = TraceEmitter(backend=InMemoryBackend())
-        trace = emitter.emit(
-            phase=Phase.EXECUTE,
-            actor="lingclaude",
-            actor_role=ActorRole.MEMBER,
-            executor="audit_scanner@1.0",
-            outcome=Outcome.PASS,
-            context_ref=".ling/content/audit-finding-001",
-            duration_ms=234,
-            target_plugin="audit_scanner@1.0.0",
-            cost=Cost(tokens=1234, ms=234),
-            caller_chain=["lingclaude", "audit_scanner"],
-        )
-    """
-
     def __init__(self, backend: TraceBackend) -> None:
         self.backend = backend
         self._count = 0
@@ -338,9 +360,6 @@ _default_emitter: TraceEmitter | None = None
 
 
 def emit_trace(**kwargs) -> Trace:
-    """使用全局默认 emitter (JsonlFileBackend → ./trace.jsonl).
-
-    给业务代码的快速入口 — 不需要手动管理 backend."""
     global _default_emitter
     if _default_emitter is None:
         _default_emitter = TraceEmitter(backend=JsonlFileBackend("./trace.jsonl"))

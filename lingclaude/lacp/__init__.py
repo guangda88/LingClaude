@@ -1,20 +1,18 @@
-"""LACP (Ling Agent Context Protocol) v0.3.0 — reference implementation.
+"""LACP (Ling Agent Context Protocol) v0.4.0 — reference implementation.
 
 Thin-main + plug-in design (per 灵元1.0):
 - 主干: trace schema (飞轮 4 环节共用) + plugin manifest (插片契约)
 - 插片: emitter backends, validators, downstream consumers (灵极优 optimizer 等)
 
-Submodules:
-- trace: trace emitter + dataclass + validator (本文件)
-- manifest: plugin manifest schema (下个 commit)
-- emit_jsonl: file/jsonl backend (下个 commit)
+v0.4.0 增量 (来自用户元层反馈 2026-06-27 - 体现人类思维模式):
+- human_context metadata 子结构: intent/turn/reasoning/alternatives/confidence
+- outcome 加 INTUITIVE 和 UNVERIFIED 状态
+- 设计原则修订: "去掉人类假设"不字面执行, 桥接人类意图 → Agent 执行
 
-v0.3.0 字段增量 (来自灵研 R2 + 灵极优 R2):
-- + cost (灵极优): 资源消耗 tokens/usd/ms
-- + caller_chain (灵研): 跨灵诊断栈
-- + actor_role (灵研): member/scheduler/daemon/external
-- + actor_instance_id (灵研): 实例回溯 (OH §5.2)
-- + trace_id 顶层 (灵极优): 关联键
+字段演进:
+- v0.2.0: actor + executor + metadata.health (基础)
+- v0.3.0: + cost + caller_chain + actor_role + actor_instance_id (灵研 + 灵极优)
+- v0.4.0: + human_context + intuitive/unverified outcome (人类思维承载)
 """
 
 from .trace import (
@@ -27,6 +25,7 @@ from .trace import (
     Outcome,
     ActorRole,
     Cost,
+    HumanContext,
     emit_trace,
     validate_trace,
     SCHEMA_VERSION,
@@ -42,9 +41,10 @@ __all__ = [
     "Outcome",
     "ActorRole",
     "Cost",
+    "HumanContext",
     "emit_trace",
     "validate_trace",
     "SCHEMA_VERSION",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
