@@ -145,8 +145,8 @@ class STTEngine:
         finally:
             try:
                 Path(audio_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("temp audio cleanup failed: %s", e)
 
     def _transcribe_whisper(self, audio_path: str, language: str) -> STTResult:
         try:

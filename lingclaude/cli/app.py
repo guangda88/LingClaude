@@ -59,8 +59,8 @@ def _get_version() -> str:
         version_file = Path(__file__).resolve().parent.parent / "VERSION"
         if version_file.exists():
             return version_file.read_text().strip()
-    except Exception:
-        pass
+    except Exception as e:
+        _logger.debug("version file read failed: %s", e)
     return "0.2.1"
 
 

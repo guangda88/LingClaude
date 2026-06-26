@@ -1462,8 +1462,8 @@ class QueryEngine:
                         "请避免重复已犯过的错误。"
                     )
                 fw.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("feedback writer close failed: %s", e)
 
         if self._session_cache_hits > 2:
             extras.append(
@@ -1501,8 +1501,8 @@ class QueryEngine:
                         "\n📚 通用经验:\n" + "\n".join(general_lines)
                     )
             kb.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("knowledge base close failed: %s", e)
 
         # Loop 2: Experience injection — recall relevant past experiences
         try:
@@ -1512,8 +1512,8 @@ class QueryEngine:
             )
             if experience_text and len(experience_text) > 50:
                 extras.append("\n\n" + experience_text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("layered memory build_context_injection failed: %s", e)
 
         diagnosis = self._dementia_detector.diagnose()
         if diagnosis.intervention_prompt:

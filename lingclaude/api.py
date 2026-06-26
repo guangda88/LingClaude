@@ -408,8 +408,8 @@ def _query_pypi_downloads(prompt: str) -> str:
                 data = json.loads(resp.read().decode())
             ver = data.get("info", {}).get("version", "?")
             results.append(f"{pkg} v{ver}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("PyPI version check failed for %s: %s", pkg, e)
     return "\n".join(results) if results else "未找到 PyPI 包信息。"
 
 
