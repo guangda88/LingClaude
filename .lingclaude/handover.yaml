@@ -2,8 +2,8 @@ meta:
   member: lingclaude
   member_name: 灵克
   role: 编程助手 · 审计担当 · 灵族基础设施 · 灵忆/灵码主负责
-  session: 95
-  last_updated: '2026-06-26 05:20'
+  session: 97
+  last_updated: '2026-06-26 16:10'
   format_version: '2.0'
   predecessor: handover.md
   proxy21_ops:
@@ -28,6 +28,72 @@ meta:
     clear_cooldowns: 'GET http://127.0.0.1:8765/admin/clear-cooldowns?target=glm-5.2@zai'
     systemd: 'sudo systemctl restart proxy21 (2026-06-25 systemd 已配置)'
   changelog:
+  - 'v20.0: 会话96—browser_agg 12 provider 配置驱动重构+18模型就绪 (2026-06-26 08:35).
+    === 触发 ===
+    SDT 完成后 proxy21 单线程 backlog 问题暴露(request_queue_size=5→128).
+    browser_agg 5 个已登录 provider + 3 需要码 + 4 需翻墙.
+    用户要求: 灵元拆解扫码流程、一次性加齐所有AI浏览器、结构化DOM配置.
+    === 修复 ===
+    (1) proxy21: request_queue_size=128 (proxy.py L79-81). 修复 Recv-Q backlog 满导致的 connect timeout.
+    (2) browser_agg login: 加入"登录"→面板内找"打开App-点击扫一扫"入口逻辑.
+    (3) browser_agg generic_chat: 配置驱动, 每provider配 input_sel/send_method/output_sel.
+    (4) browser_agg startup: 放宽登录态检测(有输入框/头像就算已登录).
+    (5) browser_agg 并发: 每provider加 asyncio.Lock, 同provider请求串行化不串扰.
+    === 新增 provider (12 total) ===
+    | provider | 模型 | 状态 |
+    |----------|------|------|
+    | deepseek | deepseek-reasoner/default/expert | ✅ 已登录, page_eval |
+    | kimi | k2.5/k2.6/k2.7-code | ✅ 直调 moonshot API |
+    | doubao | pro/lite | ✅ 已登录, page_eval |
+    | ima | hunyuan-pro | ✅ 已登录, page_eval |
+    | qwen | max/plus/coder | ✅ 已登录, page_eval |
+    | zhipu | glm-z1/4.7/5.2 | ✅ 已登录, page_eval |
+    | xinghuo | spark-4.0/3.5/lite | ✅ 已登录, page_eval |
+    | hunyuan | pro/lite | 🔄 注册但未登录(元宝微信扫码) |
+    | tongyi | qwen系+通义万相 | 🔄 需登录 |
+    | yiyan | ernie-4.5/4.0/3.5 | 🔄 需登录 |
+    | groq | llama/mixtral | 🔄 需clash翻墙 |
+    | perplexity | reasoning/search | 🔄 需clash翻墙 |
+    | claude | 3.5sonnet/4opus/4sonnet | 🔄 需clash翻墙 |
+    | gemini | 2.5pro/2.5flash | 🔄 需clash翻墙 |
+    (trae: 协议已逆向+trae_proxy运行中, 缺Windows端token做E2E验证)
+    === 模型计数 ===
+    browser_agg 在线 18 model (7 provider × avg 2.6).
+    proxy21 pool=126 (含 browser_agg 27 model 定义).
+    === 配置驱动(新增chat字段) ===
+    PROVIDER_DEFS 新增 chat 配置:
+      input_sel:  输入框CSS选择器
+      send_method: enter | selector | both
+      output_sel: 响应内容选择器
+      output_attr: innerText | textContent
+    后端 _generic_chat 读取配置执行, 不再每次探测DOM.
+    === proxy 支持 ===
+    env BROWSER_PROXY=http://127.0.0.1:7890 启动自动走代理(用于groq/claude/gemini/perplexity).
+    === 全服务状态 ===
+    proxy21:8765 UP backlog=128, browser_agg:13461 UP 7 logged_in,
+    atomcode daemon:13456 UP, atomgit_proxy:13457 UP,
+    trae_proxy:13458 UP, lingmemory:9530 UP (port 8900 in v19.1-v20.0 was wrong; lingmemory 实际端口是 9530; 灵研修复 session 96).
+    @browser_agg.py @proxy.py @config.json'
+    === 触发 ===
+    lingflow 重启 proxy21 后报 "all models failed" (tried=126 skipped=125 model=glm-5.2).
+    日志确认: github_models 所有 model 413 tokens_limit_reached (服务端 8K ctx 硬限),
+    scheduler 轮转 8 次全 fail, compressor 未触发.
+    用户指出长上下文请求应路由到长上下文 model + ctx gateway 没起作用.
+    === 修复项 ===
+    1. model_capability.py: 补全 14 个 github_models 别名到 MODEL_CTX
+       (gpt-4o-mini/gpt-4o/embed-3/Meta-Llama/azureml 系列). NL
+    2. scheduler.py: max_ctx < est_tok 时 tried.add+continue,
+       默认值从 128000 改为 0 (防误判 short ctx model). NL
+    3. context_compressor.py: COMPRESS_MSG_THRESHOLD 从 999999 恢复为 40
+       (原禁用原因是截断破坏 tool_call 配对, 已保留安全切点). NL
+    === 验证 ===
+    50msg 请求→日志: [compress] 30msg dropped, 21 kept, 50→37 tok (26% saved).
+    短请求 glm-5.2@trae 200. proxy21 healthz 200.
+    === 重启 ===
+    PID 550672→623565, ~3.6s.
+    === 当前流量态势 (2026-06-26 06:13) ===
+    proxy21 UP ctx路由+压缩恢复, atomcode UP watchdog守护, 全服务绿灯.
+    @model_capability.py @scheduler.py @context_compressor.py'
   - 'v19.3: 会话95—SDT-lc-001 全族代码审计首跑 (2026-06-26 05:17).
     === 触发 ===
     用户授权"启动代码审计 等SDT" → 立即自驱执行 SDT-lc-001 (daily P1).
@@ -1507,8 +1573,9 @@ key_conclusions:
   retain: true
 services_status:
 - name: 灵忆 MCP
-  port: 9530
+  port: 9529
   status: ok
+  note: lingxi/src/cli.ts http (node pid=2073) [2026-06-27修正:旧handover写9530,实际lingterm MCP gateway迁至9529]
 - name: proxy switchover
   port: 8765
   status: ok
