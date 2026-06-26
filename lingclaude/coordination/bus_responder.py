@@ -272,8 +272,8 @@ class BusResponder:
         if self._bus:
             try:
                 self._bus.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("bus close failed (non-critical): %s", e)
 
 
 def create_responder() -> BusResponder:

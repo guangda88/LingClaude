@@ -13,6 +13,9 @@
 后置灰区：代码已经写完，扫描发现问题
 """
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 import re
 from pathlib import Path, sys
 
@@ -72,8 +75,11 @@ def scan_project(path: str, name: str, api: LingMemoryAPI) -> dict:
                 try:
                     api.lm.create(type="audit_finding", data=finding, created_by="lingclaude")
                     stats["findings"] += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(
+                        "audit_finding persist failed (file=%s): %s",
+                        finding.get("file"), e,
+                    )
     return stats
 
 

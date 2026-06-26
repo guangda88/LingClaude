@@ -5,7 +5,7 @@ Design principles (from .audit/handoff_sdth_调研报告_20260517.md):
 2. Source tagging: user_directed / self_generated / lingbus_originated
 3. Instant write: each step updates immediately, kill-safe
 4. Incomplete discussions tracked as 'pending', never silently dropped
-5. Dual output: JSON (for code) + Markdown (for AI)
+5. Triple output: YAML (primary, for AI) + JSON (backward compat) + Markdown (for AI)
 """
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+import yaml
 from enum import Enum
 from pathlib import Path
 
@@ -123,6 +125,9 @@ class HandoverV2:
 
     def to_json(self) -> str:
         return json.dumps(self._to_dict(), indent=2, ensure_ascii=False)
+
+    def to_yaml(self) -> str:
+        return yaml.dump(self._to_dict(), allow_unicode=True, default_flow_style=False, sort_keys=False)
 
     def to_markdown(self) -> str:
         lines: list[str] = []
@@ -259,19 +264,30 @@ class HandoverWriter:
         self.handover_dir = handover_dir
         self.member_id = member_id
         self.json_path = handover_dir / "handover.json"
+        self.yaml_path = handover_dir / "handover.yaml"
         self.md_path = handover_dir / "handover.md"
         self._handover: HandoverV2 | None = None
 
     def load_or_create(self) -> HandoverV2:
-        if self.json_path.exists():
-            try:
-                data = json.loads(self.json_path.read_text(encoding="utf-8"))
-                self._handover = HandoverV2.from_dict(data)
-                return self._handover
-            except (json.JSONDecodeError, KeyError):
-                logger.warning("Failed to parse existing handover.json, creating fresh")
+        # Prefer yaml over json (全族标准迁移)
+        for path, loader in [(self.yaml_path, self._load_yaml), (self.json_path, self._load_json)]:
+            if path.exists():
+                try:
+                    data = loader(path)
+                    self._handover = HandoverV2.from_dict(data)
+                    return self._handover
+                except (ValueError, KeyError, yaml.YAMLError) as e:
+                    logger.warning(f"Failed to parse {path}: {e}")
         self._handover = HandoverV2(member_id=self.member_id)
         return self._handover
+
+    @staticmethod
+    def _load_json(path: Path) -> dict:
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _load_yaml(path: Path) -> dict:
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
 
     @property
     def handover(self) -> HandoverV2:
@@ -284,9 +300,11 @@ class HandoverWriter:
             return Result.fail("No handover data to write", code="NO_DATA")
         try:
             self.handover_dir.mkdir(parents=True, exist_ok=True)
+            # Write yaml (primary) and json (backward compat)
+            self.yaml_path.write_text(self._handover.to_yaml(), encoding="utf-8")
             self.json_path.write_text(self._handover.to_json(), encoding="utf-8")
             self.md_path.write_text(self._handover.to_markdown(), encoding="utf-8")
-            return Result.ok(self.json_path)
+            return Result.ok(self.yaml_path)
         except OSError as e:
             return Result.fail(f"Failed to write handover: {e}", code="WRITE_ERROR")
 

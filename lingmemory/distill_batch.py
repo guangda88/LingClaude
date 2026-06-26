@@ -18,6 +18,7 @@
 后台运行，不阻塞。
 """
 import json
+import logging
 import sys
 import time
 import urllib.request
@@ -150,8 +151,11 @@ def run_batch(count: int = 10):
                     try:
                         api.lm.transition(existing_id, "evidence_sufficient", actor="lingclaude")
                         stats["rules_validated"] += 1
-                    except:
-                        pass
+                    except Exception as e:
+                        logging.getLogger(__name__).warning(
+                            "transition evidence_sufficient failed for rule %s: %s",
+                            existing_id, e,
+                        )
                 stats["rules_extracted"] += 1
 
     # 最终统计

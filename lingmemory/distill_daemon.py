@@ -13,6 +13,9 @@
 每次启动一批11条，全部蒸馏后再跑下一轮。
 """
 import json, urllib.request, os, time, sys
+import logging
+
+logger = logging.getLogger(__name__)
 sys.path.insert(0, "/home/ai/lingclaude")
 from lingmemory.api import LingMemoryAPI
 
@@ -68,7 +71,8 @@ def distill(task):
         r = json.loads(resp.read())
         rule = r["choices"][0]["message"]["content"].strip().split('\n')[0][:50].strip('"\'。，')
         return rule if len(rule) > 3 else None
-    except:
+    except (OSError, TimeoutError, json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.warning("rule 提取失败 (task=%s): %s", task[:30], e)
         return None
 
 def run_forever():

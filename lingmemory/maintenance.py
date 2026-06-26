@@ -16,9 +16,13 @@ is_conclusion=true 的信息跳过自动清理。
 不改主干，只调用 transition。
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 
 from lingmemory.core import LingMemory
+
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -81,8 +85,8 @@ class Maintenance:
             try:
                 self.lm.transition(row["id"], "expire", actor="maintenance")
                 expired += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("expire transition failed for record %s: %s", row["id"], e)
 
         return {"expired": expired}
 

@@ -491,8 +491,8 @@ def main():
     try:
         from lingmessage.registry import register_fastmcp_server
         register_fastmcp_server("lingclaude", "灵克", mcp, "编程助手")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("lingmessage registry unavailable, MCP runs without it: %s", e)
     mcp.run()
 
 

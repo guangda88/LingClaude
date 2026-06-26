@@ -12,6 +12,9 @@
 """
 
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -225,8 +228,8 @@ class TaskManager:
                 json.dumps(data, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
-        except Exception:
-            pass
+        except (OSError, TypeError, ValueError) as e:
+            logger.error("task 持久化失败 (path=%s): %s", self.PERSIST_PATH, e)
 
     def load(self) -> None:
         """从磁盘加载（会话启动时调用）。"""
@@ -260,5 +263,5 @@ class TaskManager:
                     completed_at=td.get("completed_at", 0),
                 )
                 self.completed.append(t)
-        except Exception:
-            pass
+        except (OSError, KeyError, TypeError, ValueError, AttributeError) as e:
+            logger.warning("task 恢复失败 (path=%s): %s", self.PERSIST_PATH, e)

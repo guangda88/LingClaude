@@ -13,8 +13,11 @@
 流转：从events中提取coding_rule的pattern
 """
 import json
+import logging
 import os
 import sqlite3
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from typing import Optional
 
@@ -116,8 +119,8 @@ class OfflineExtractor:
                 "stderr_snippet": err_content[:500],
             }, created_by=self.member)
             self.stats["traces"] += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("提取会话失败 (session_id=%s): %s", session_id, e)
 
 
 def run_extraction():
