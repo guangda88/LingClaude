@@ -28,6 +28,18 @@ meta:
     clear_cooldowns: 'GET http://127.0.0.1:8765/admin/clear-cooldowns?target=glm-5.2@zai'
     systemd: 'sudo systemctl restart proxy21 (2026-06-25 systemd 已配置)'
   changelog:
+  - 'v21.1: 会话97—灵族总线浏览器两处P1安全修复 (2026-06-27 09:25).
+    === SDT-lc-001 P1 修复 (commit e3a5dfb) ===
+    lingweb/lingbus-browser 两处安全修复:
+    (1) auth.py L133-139: 目录穿越防护
+        - 问题: 原代码 path.startswith("/api/admin/") 可被路径绕过
+        - 修复: PurePosixPath 规范化 + URL decode + POST 方法检查
+        - 防御: urllib.parse.unquote + pathlib.PurePosixPath.as_posix()
+    (2) routes_agents.py L85-89: SQL注入防御纵深
+        - 问题: f-string 拼接 ts_col 虽有内建白名单，需显式校验
+        - 修复: 显式白名单兜底 if ts_col not in ("created_at","timestamp")
+        - 防御: 防御纵深原则 (defense in depth)
+    @lingweb/lingbus-browser/auth.py @lingweb/lingbus-browser/routes_agents.py'
   - 'v21.0: 会话97—灵族方向例会#1 (2026-06-27 08:10-09:15).
     === 会议核心产出 ===
     12/12 灵到会 (灵研/灵知/灵网/灵通问道最后补上)
