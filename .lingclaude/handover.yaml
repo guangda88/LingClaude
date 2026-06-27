@@ -3,7 +3,7 @@ meta:
   member_name: 灵克
   role: 编程助手 · 审计担当 · 灵族基础设施 · 灵忆/灵码主负责
   session: 97
-  last_updated: '2026-06-26 16:10'
+  last_updated: '2026-06-27 09:15'
   format_version: '2.0'
   predecessor: handover.md
   proxy21_ops:
@@ -28,6 +28,51 @@ meta:
     clear_cooldowns: 'GET http://127.0.0.1:8765/admin/clear-cooldowns?target=glm-5.2@zai'
     systemd: 'sudo systemctl restart proxy21 (2026-06-25 systemd 已配置)'
   changelog:
+  - 'v21.0: 会话97—灵族方向例会#1 (2026-06-27 08:10-09:15).
+    === 会议核心产出 ===
+    12/12 灵到会 (灵研/灵知/灵网/灵通问道最后补上)
+    议题 1-7 全部真实展开 + 多轮讨论 (8 AI items + 9 扩展 AI)
+    === 8 核心 AI Items ===
+    AI-01: trace actor 速查表 (灵克 W1末 6/30)
+    AI-02: proxy21 3 插片 manifest (灵通 W2末 7/4)
+    AI-03: LingBus 4 插片 manifest (灵信 W3末 7/11)
+    AI-04: OH §6 实验 1 对照组 (灵研+灵极优 W4 7/18)
+    AI-05: trace_emitter.py (灵极优 W2末 7/4, 实际已提前交付)
+    AI-06: Lingxi :9532 systemd (灵犀 W2末 7/4, 会议中已上线!)
+    AI-07: 灵族日报 dashboard (灵通 owner + 灵扬对外 + 灵克 backend, W4+ 7/25)
+    AI-08: lingpack .ling 打包工具 (灵克 spec + 灵通 impl, W2末 7/7)
+    === 关键零突破 ===
+    灵犀 :9532 systemd 会议中完成上线 — 修复红线拦截率 0% 盲区
+    灵极优 trace_emitter 提前交付 (6/27 01:40, 14/14 tests)
+    灵通 proxy21 抢救成功 (:8765 完全恢复)
+    灵族日报 co-owner 划分: 灵通(数据) + 灵扬(对外内容) + 灵克(LACP backend)
+    === 已知阻塞 ===
+    灵信 CRUSH.md 2 个漂移 (灵创+灵通) 待自检
+    灵极优 14 modified + 6 untracked L3 drift 风险 (W1末强制commit)
+    智桥灵通+:8765 已恢复 (proxy21 抢救后正常)
+    === 会议主持教训 ===
+    (1) 提前写会议纪要"结束"被用户纠正 — 不要提前假装会议结束
+    (2) MEETING_PROTOCOL v1.0 需修订: 会前检查表加 `用户确认会议结束前不写纪要`
+    (3) 自己在议题 6 时错误地"结束并写了纪要"但事实会议还在继续——37条真实消息证明用户才是对的
+    === LACP 演进 (本会话) ===
+    v0.2.0 (actor/executor/metadata.health) -> v0.3.0 (cost/caller_chain/actor_role/actor_instance_id)
+    -> v0.4.0 (human_context/INTUITIVE/UNVERIFIED) -> v0.5.0 (plugin manifest, 18/18 tests)
+    === PreToolUse hooks ===
+    (1) pre-bash-delete-check.sh (删文件预审, WSB灵族版)
+    (2) pre-edit-check-perm.sh (write scope advisory, 含chmod)
+    === Combo Skills ===
+    schema v0.1 (manifest/sop/verify 三段式)
+    skills/apply-security-patch/ + skills/audit-scanner/ (manifest.yaml)
+    === OH 论文 §6 草案 ===
+    docs/lacp/OH_PAPER_SECTION_6_PROPOSAL.md (人类认知与AI协议对齐)
+    === 全族学习材料 ===
+    docs/lacp/ALL_FAMILY_STUDY_MATERIALS_20260627.md (14.4KB)
+    docs/lacp/MEETING_PROTOCOL_v1.0.md (主持章程)
+    === 用户资料拆解 ===
+    6仓库 (codebase-memory-mcp/TimesFM/Agent-Native/Palmier/OpenMontage/worldmonitor)
+    + Floatboat/Selfware系列 + Loop Engineering + 灵通自优化 PoC
+    === 下次会议 ===
+    W3末 7/11 08:10 · 灵通主持 #2
   - 'v20.0: 会话96—browser_agg 12 provider 配置驱动重构+18模型就绪 (2026-06-26 08:35).
     === 触发 ===
     SDT 完成后 proxy21 单线程 backlog 问题暴露(request_queue_size=5→128).
