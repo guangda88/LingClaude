@@ -1,0 +1,70 @@
+# lingOS Config v0.1 — Tier 1/2/3 静态配置
+# 治理决议: docs/lacp/LINGOS_TIER3_v0.1.md (7/2 灵克拍板, 用户批准)
+# 注意: Tier 4 (kill/delete/modify) 永不实现, 不出现在此文件
+
+tier_0_observe:
+  enabled: true   # probe.py 必开
+  script: probe.py
+  timer: lingos-probe.timer
+  interval_min: 5
+
+tier_1_self_heal:
+  enabled: true   # 必开
+  script: lingos_tier1.py
+  timer: lingos-tier1.timer
+  interval_min: 5
+  thresholds:
+    snapshot_stale_min: 15
+    snapshot_max_mb: 100
+    alert_state_max_kb: 500
+  actions:
+    - restart_probe_if_stale
+    - truncate_snapshots_if_too_big
+    - rotate_alert_state_if_too_big
+
+tier_2_orchestrate:
+  enabled: true   # 必开
+  script: lingos_tier2.py
+  timer: lingos-tier2.timer
+  interval_min: 10
+  triggers:
+    - name: wake_with_task
+      cooldown_min: 240
+      requires_tier1_healthy: true
+    - name: sla_tracker
+      cooldown_min: 60
+      requires_tier1_healthy: true
+
+tier_3_safe_start:
+  enabled: true   # 拍板 OK, 待会议 #2 议程 4 正式表决
+  script: lingos_tier3.py
+  timer: lingos-tier3.timer
+  interval_min: 5
+  allowlist:
+    - name: atomcode
+      port: 13456
+      start_cmd: "atomcode daemon --port 13456 --idle-timeout 3600"
+    - name: lingmemory
+      port: 9530
+      start_cmd: "python3 -m lingmemory.http_server"
+    - name: lingxi
+      port: 9532
+      start_cmd: "python3 -m lingxi.mcp_server"
+    - name: proxy3_py
+      port: 8765
+      start_cmd: "bash /home/ai/llm-proxy/start_proxy3.sh"
+  exclude:
+    - "business services (:8001 :8002 :8785 :8787)"
+    - "governance engine (lingflow_plus daemon)"
+    - "postgres (zhineng_kb)"
+    - "AI session (crush, pty_keeper)"
+    - "already-guardian-managed (browser_agg, trae_proxy, atomgit_proxy)"
+  hard_constraints:
+    cooldown_min: 60
+    max_restarts_per_hour: 3
+    port_down_threshold_min: 30
+    require_lingbus_alert: true
+
+tier_4_danger:
+  enabled: false  # 永不
+  comment: "kill/delete/modify 任何进程/文件/配置 — 物理上写不出"
