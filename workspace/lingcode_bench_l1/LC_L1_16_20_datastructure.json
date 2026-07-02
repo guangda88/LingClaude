@@ -1,0 +1,112 @@
+{
+  "id": "LC_L1_16",
+  "category": "数据结构",
+  "name": "二叉树遍历",
+  "prompt": "写一个函数 `binary_tree_traverse(root: TreeNode, order: str) -> list`，实现二叉树遍历。\n\n要求：\n1. TreeNode 有属性：val, left, right\n2. order 支持：'pre'(前序), 'in'(中序), 'post'(后序), 'level'(层序)\n3. 返回遍历结果列表\n4. 层序遍历需要使用队列\n\n示例：\n```python\n#     1\n#    / \\\n#   2   3\n#  /   / \\\n# 4   5   6\ntree = TreeNode(1, TreeNode(2, TreeNode(4)), TreeNode(3, TreeNode(5), TreeNode(6)))\nbinary_tree_traverse(tree, 'inorder')  # [4, 2, 1, 5, 3, 6]\n```",
+  "tests": [
+    {
+      "input": {"tree": {"val": 1, "left": {"val": 2}, "right": {"val": 3}}, "order": "pre"},
+      "output": [1, 2, 3]
+    },
+    {
+      "input": {"tree": {"val": 1, "left": {"val": 2}, "right": {"val": 3}}, "order": "in"},
+      "output": [2, 1, 3]
+    },
+    {
+      "input": {"tree": {"val": 1, "left": {"val": 2}, "right": {"val": 3}}, "order": "post"},
+      "output": [2, 3, 1]
+    },
+    {
+      "input": {"tree": {"val": 1, "left": {"val": 2, "left": {"val": 4}}, "right": {"val": 3}}, "order": "level"},
+      "output": [1, 2, 3, 4]
+    }
+  ],
+  "edge_cases": ["空树", "单节点", "完全二叉树"]
+}
+---
+{
+  "id": "LC_L1_17",
+  "category": "数据结构",
+  "name": "图的BFS/DFS",
+  "prompt": "写一个函数 `graph_traverse(graph: dict, start: str, method: str) -> list`，实现图遍历。\n\n要求：\n1. graph 格式：{节点: [邻居列表]}\n2. method 支持：'bfs'(广度优先), 'dfs'(深度优先)\n3. 返回遍历结果列表\n4. DFS使用递归实现\n5. 注意避免重复访问\n\n示例：\n```python\ngraph = {'A': ['B', 'C'], 'B': ['D'], 'C': ['D'], 'D': []}\ngraph_traverse(graph, 'A', 'bfs')  # ['A', 'B', 'C', 'D']\ngraph_traverse(graph, 'A', 'dfs')  # ['A', 'B', 'D', 'C']\n```",
+  "tests": [
+    {
+      "input": {"graph": {"A": ["B", "C"], "B": ["D"], "C": ["D"], "D": []}, "start": "A", "method": "bfs"},
+      "output": ["A", "B", "C", "D"]
+    },
+    {
+      "input": {"graph": {"A": ["B", "C"], "B": ["D"], "C": ["D"], "D": []}, "start": "A", "method": "dfs"},
+      "output": ["A", "B", "D", "C"]
+    },
+    {
+      "input": {"graph": {"A": []}, "start": "A", "method": "bfs"},
+      "output": ["A"]
+    }
+  ],
+  "edge_cases": ["孤立节点", "环图", "连通图"]
+}
+---
+{
+  "id": "LC_L1_18",
+  "category": "数据结构",
+  "name": "最小堆",
+  "prompt": "写一个类 `MinHeap`，实现最小堆。\n\n要求：\n1. 支持 push(val: any) 插入元素\n2. 支持 pop() -> any 弹出最小元素\n3. 支持 peek() -> any 查看最小元素\n4. 支持 heapify(list: list) 从列表构建堆\n5. 元素可比较\n\n示例：\n```python\nheap = MinHeap()\nheap.push(5)\nheap.push(3)\nheap.push(7)\nheap.pop()  # 3\nheap.peek() # 5\n```",
+  "tests": [
+    {
+      "input": {"operations": [[5], [3], [7], ["pop"], ["peek"]]},
+      "output": [3, 5]
+    },
+    {
+      "input": {"operations": [[10, 2, 8], ["pop"], ["pop"]]},
+      "output": [2, 8]
+    },
+    {
+      "input": {"operations": [[3, 1, 4, 1, 5, 9], ["peek"]]},
+      "output": [1]
+    }
+  ],
+  "edge_cases": ["空堆", "重复元素", "单元素"]
+}
+---
+{
+  "id": "LC_L1_19",
+  "category": "数据结构",
+  "name": "LRU缓存",
+  "prompt": "写一个类 `LRUCache`，实现最近最少使用缓存。\n\n要求：\n1. 初始化参数：capacity（容量）\n2. 支持 get(key: str) -> any 获取值，不存在返回None\n3. 支持 set(key: str, value: any) 设置值\n4. 如果容量满，删除最久未使用的项\n5. 访问或设置某项后，该项变为最近使用\n\n示例：\n```python\ncache = LRUCache(2)\ncache.set('a', 1)\ncache.set('b', 2)\ncache.get('a')  # 1\ncache.set('c', 3)  # 容量满，删除 'b'\ncache.get('b')  # None\n```",
+  "tests": [
+    {
+      "input": {"capacity": 2, "operations": [["set", "a", 1], ["set", "b", 2], ["get", "a"], ["set", "c", 3], ["get", "b"]]},
+      "output": [1, null]
+    },
+    {
+      "input": {"capacity": 1, "operations": [["set", "a", 1], ["set", "b", 2], ["get", "a"]]},
+      "output": [null]
+    },
+    {
+      "input": {"capacity": 3, "operations": [["set", "a", 1], ["set", "b", 2], ["set", "c", 3], ["get", "a"], ["set", "d", 4], ["get", "a"]]},
+      "output": [1, 1]
+    }
+  ],
+  "edge_cases": ["容量1", "重复key", "全访问"]
+}
+---
+{
+  "id": "LC_L1_20",
+  "category": "数据结构",
+  "name": "并查集",
+  "prompt": "写一个类 `UnionFind`，实现并查集。\n\n要求：\n1. 支持 add(item: any) 添加元素\n2. 支持 find(item: any) -> any 查找根节点\n3. 支持 union(item1: any, item2: any) 合并集合\n4. 支持 connected(item1: any, item2: any) -> bool 判断是否连通\n5. 使用路径压缩和按秩合并优化\n\n示例：\n```python\nuf = UnionFind()\nuf.add(1)\nuf.add(2)\nuf.add(3)\nuf.union(1, 2)\nuf.connected(1, 2)  # True\nuf.connected(1, 3)  # False\n```",
+  "tests": [
+    {
+      "input": {"elements": [1, 2, 3], "unions": [[1, 2]], "queries": [[1, 2], [1, 3]]},
+      "output": [true, false]
+    },
+    {
+      "input": {"elements": [1, 2, 3, 4], "unions": [[1, 2], [3, 4], [2, 3]], "queries": [[1, 4]]},
+      "output": [true]
+    },
+    {
+      "input": {"elements": ["a", "b"], "unions": [["a", "b"]], "queries": [["a", "b"]]},
+      "output": [true]
+    }
+  ],
+  "edge_cases": ["单元素", "多次union", "字符串元素"]

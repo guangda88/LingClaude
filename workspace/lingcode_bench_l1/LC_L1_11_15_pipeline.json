@@ -1,0 +1,108 @@
+{
+  "id": "LC_L1_11",
+  "category": "工具编排",
+  "name": "Pipeline构建器",
+  "prompt": "写一个类 `Pipeline`，实现函数管道执行。\n\n要求：\n1. 支持 add_stage(name: str, func: callable) 添加阶段\n2. 支持 execute(input: any) 顺序执行所有阶段\n3. 每个阶段接收上一阶段的输出，输出作为下一阶段的输入\n4. 支持 insert_stage(index: int, name: str, func: callable) 在指定位置插入\n5. 支持 remove_stage(name: str) 删除阶段\n\n示例：\n```python\npipe = Pipeline()\npipe.add_stage('double', lambda x: x * 2)\npipe.add_stage('add_one', lambda x: x + 1)\npipe.execute(5)  # (5 * 2) + 1 = 11\n```",
+  "tests": [
+    {
+      "input": {"stages": [("double", lambda x: x * 2), ("add_one", lambda x: x + 1)], "input": 5},
+      "output": 11
+    },
+    {
+      "input": {"stages": [("str", str), ("upper", str.upper)], "input": "hello"},
+      "output": "HELLO"
+    },
+    {
+      "input": {"stages": [("a", lambda x: x + 1), ("b", lambda x: x * 2)], "input": 3, "insert": [1, "c", lambda x: x - 1]},
+      "output": 7  # ((3+1)-1)*2 = 6... wait: a(3)=4, c(4)=3, b(3)=6
+    }
+  ],
+  "edge_cases": ["空管道", "单阶段", "插入位置"]
+}
+---
+{
+  "id": "LC_L1_12",
+  "category": "工具编排",
+  "name": "Middleware管理器",
+  "prompt": "写一个类 `MiddlewareManager`，实现中间件模式。\n\n要求：\n1. 支持 use(middleware: callable) 添加中间件（按添加顺序执行）\n2. 支持 execute(request: dict, handler: callable) 执行：先执行所有中间件，最后执行handler\n3. 中间件签名：middleware(request: dict, next: callable) -> response\n4. 中间件可以修改request，或直接返回response短路\n5. 支持 remove(name: str) 按名称移除中间件\n\n示例：\n```python\ndef log_mw(req, next): print(req); return next(req)\ndef auth_mw(req, next): return {'error': 'unauthorized'} if not req.get('token') else next(req)\nmanager = MiddlewareManager()\nmanager.use('log', log_mw)\nmanager.use('auth', auth_mw)\nmanager.execute({'token': 'abc'}, handler)\n```",
+  "tests": [
+    {
+      "input": {"middlewares": [("log", lambda r, n: print(r) or n(r))], "request": {"a": 1}, "handler": lambda r: r},
+      "output": {"a": 1}
+    },
+    {
+      "input": {"middlewares": [("auth", lambda r, n: {'error': 'unauthorized'} if not r.get('token') else n(r))], "request": {}, "handler": lambda r: r},
+      "output": {"error": "unauthorized"}
+    },
+    {
+      "input": {"middlewares": [("a", lambda r, n: n({**r, 'a': 1})), ("b", lambda r, n: n({**r, 'b': 2}))], "request": {}, "handler": lambda r: r},
+      "output": {"a": 1, "b": 2}
+    }
+  ],
+  "edge_cases": ["短路返回", "多层中间件", "无中间件"]
+}
+---
+{
+  "id": "LC_L1_13",
+  "category": "工具编排",
+  "name": "EventBus事件总线",
+  "prompt": "写一个类 `EventBus`，实现事件驱动发布订阅。\n\n要求：\n1. 支持 on(event: str, handler: callable) 订阅事件\n2. 支持 emit(event: str, data: any) 发布事件\n3. 支持 once(event: str, handler: callable) 单次订阅\n4. 支持 off(event: str, handler: callable) 取消订阅\n5. 支持 clear(event: str) 清除某事件的所有订阅\n6. 事件可以携���任意数据\n\n示例：\n```python\nevents = EventBus()\nevents.on('click', lambda d: print(f'clicked: {d}'))\nevents.emit('click', {'x': 10, 'y': 20})\n```",
+  "tests": [
+    {
+      "input": {"events": [("click", lambda d: d)], "emit": ["click", {"x": 1}]},
+      "output": [{"x": 1}]
+    },
+    {
+      "input": {"events": [("a", lambda d: d + 1), ("a", lambda d: d + 2)], "emit": ["a", 0]},
+      "output": [1, 2]
+    },
+    {
+      "input": {"events": [("once", lambda d: d)], "emit_once": ["once", 1]},
+      "output": [1]
+    }
+  ],
+  "edge_cases": ["once单次", "多次emit", "无订阅者"]
+}
+---
+{
+  "id": "LC_L1_14",
+  "category": "工具编排",
+  "name": "Retry重试机制",
+  "prompt": "写一个函数 `retry(func: callable, max_attempts: int = 3, delay: float = 1.0, backoff: float = 2.0) -> callable`，实现指数退避重试。\n\n要求：\n1. 返回一个包装后的函数\n2. 如果调用失败，等待 delay * (backoff ** (attempt - 1)) 秒后重试\n3. 最多重试 max_attempts - 1 次（首次 + 重试）\n4. 如果所有尝试都失败，抛出最后一次异常\n5. 支持 retry_on 参数指定需要重试的异常类型\n\n示例：\n```python\ncount = 0\n@retry(lambda: count, max_attempts=3)\ndef fetch():\n    global count; count += 1\n    if count < 2: raise Exception('fail')\n    return 'success'\n```",
+  "tests": [
+    {
+      "input": {"max_attempts": 3, "fail_times": 1},
+      "output": "success"
+    },
+    {
+      "input": {"max_attempts": 2, "fail_times": 1},
+      "output": "error"
+    },
+    {
+      "input": {"max_attempts": 4, "fail_times": 2, "backoff": 2.0},
+      "output": "success"
+    }
+  ],
+  "edge_cases": ["立即成功", "始终失败", "指数退避"]
+}
+---
+{
+  "id": "LC_L1_15",
+  "category": "工具编排",
+  "name": "RateLimiter限流器",
+  "prompt": "写一个类 `RateLimiter`，实现令牌桶限流。\n\n要求：\n1. 初始化参数：rate（每秒令牌数），capacity（桶容量）\n2. 支持 acquire(tokens: int = 1) -> bool 尝试获取令牌\n3. 如果令牌足够，返回True并扣除令牌；否则返回False\n4. 支持 reset() 重置令牌桶\n5. 支持 try_wait(tokens: int = 1) 阻塞直到获取成功\n\n示例：\n```python\nlimiter = RateLimiter(rate=10, capacity=20)\nlimiter.acquire(5)  # True\nlimiter.acquire(15) # True (剩余15)\nlimiter.acquire(16) # False (不足)\n```",
+  "tests": [
+    {
+      "input": {"rate": 10, "capacity": 20, "acquires": [[5], [15], [16]]},
+      "output": [true, true, false]
+    },
+    {
+      "input": {"rate": 1, "capacity": 1, "acquires": [[1], [1]]},
+      "output": [true, false]
+    },
+    {
+      "input": {"rate": 5, "capacity": 10, "acquires": [[10]]},
+      "output": [true]
+    }
+  ],
+  "edge_cases": ["空桶", "超额", "reset"]

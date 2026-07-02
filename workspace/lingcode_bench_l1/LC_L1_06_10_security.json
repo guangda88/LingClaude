@@ -1,0 +1,129 @@
+{
+  "id": "LC_L1_06",
+  "category": "安全编码",
+  "name": "安全SQL拼接",
+  "prompt": "写一个函数 `safe_sql_set_clause(table_name: str, data: dict) -> str`，接受SQL表名和字典，返回安全的SQL SET子句。\n\n要求：\n1. 使用参数化查询，禁止直接拼接字符串\n2. 列名需要验证：只能包含字母、数字、下划线\n3. 字典值为None时跳过该字段\n4. 返回格式：\"SET col1=$1, col2=$2\"，参数化占位符从$1开始\n\n示例：\n输入: data = {\"name\": \"Alice\", \"age\": 25}\n输出: \"SET name=$1, age=$2\"",
+  "tests": [
+    {
+      "input": {"table_name": "users", "data": {"name": "Alice", "age": 25}},
+      "output": "SET name=$1, age=$2"
+    },
+    {
+      "input": {"table_name": "products", "data": {"name": "Test", "price": 99.9, "stock": None}},
+      "output": "SET name=$1, price=$2"
+    },
+    {
+      "input": {"table_name": "users", "data": {}},
+      "output": null
+    }
+  ],
+  "edge_cases": ["列名含非法字符", "空字典", "全None值"]
+}
+---
+{
+  "id": "LC_L1_07",
+  "category": "安全编码",
+  "name": "HTML转义",
+  "prompt": "写一个函数 `escape_html(text: str) -> str`，对HTML特殊字符进行转义，防止XSS攻击。\n\n需要转义的字符：\n- < 转换为 &lt;\n- > 转换为 &gt;\n- & 转换为 &amp;\n- \" 转换为 &quot;\n- ' 转换为 &#x27;\n\n示例：\n输入: \"<script>alert('xss')</script>\"\n输出: \"&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;\"",
+  "tests": [
+    {
+      "input": {"text": "<script>alert('xss')</script>"},
+      "output": "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;"
+    },
+    {
+      "input": {"text": "Hello & World"},
+      "output": "Hello &amp; World"
+    },
+    {
+      "input": {"text": "A\"B'C"},
+      "output": "A&quot;B&#x27;C"
+    },
+    {
+      "input": {"text": ""},
+      "output": ""
+    }
+  ],
+  "edge_cases": ["空字符串", "无特殊字符", "混合内容"]
+}
+---
+{
+  "id": "LC_L1_08",
+  "category": "安全编码",
+  "name": "命令行参数校验",
+  "prompt": "写一个函数 `validate_command_args(args: list[str], allowed_chars: str = '') -> tuple[bool, str]`，校验命令行参数的安全性。\n\n要求：\n1. 如果 allowed_chars 为空，则检查是否包含shell危险字符：; | & $ ` ( ) { } [ ] < > \" ' \\n ! # ~ * ?\n2. 如果提供了 allowed_chars，则参数只能包含允许的字符\n3. 返回 (is_safe, error_message)\n\n示例：\n输入: args = [\"ls\", \"-la\"]\n输出: (True, \"\")\n\n输入: args = [\"ls\", \";rm -rf /\"]\n输出: (False, \"包含危险字符 ;\")",
+  "tests": [
+    {
+      "input": {"args": ["ls", "-la"]},
+      "output": [true, ""]
+    },
+    {
+      "input": {"args": ["ls", ";rm -rf /"]},
+      "output": [false, "包含危险字符 ;"]
+    },
+    {
+      "input": {"args": ["echo", "$(cat /etc/passwd)"]},
+      "output": [false, "包含危险字符 $"]
+    },
+    {
+      "input": {"args": ["grep", "test", "file.txt"], "allowed_chars": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"},
+      "output": [true, ""]
+    }
+  ],
+  "edge_cases": ["空参数列表", "含空格", "allowed_chars限制"]
+}
+---
+{
+  "id": "LC_L1_09",
+  "category": "安全编码",
+  "name": "文件路径校验",
+  "prompt": "写一个函数 `safe_path_join(base_dir: str, user_path: str) -> str`，安全地拼接文件路径，防止路径遍历攻击。\n\n要求：\n1. 使用 os.path.realpath() 解析实际路径\n2. 检查最终路径是否在 base_dir 内（防止 ../ 逃逸）\n3. 如果不在 base_dir 内，返回 None\n4. 路径应该是绝对路径\n\n示例：\n输入: base_dir = \"/var/www\", user_path = \"uploads/img.jpg\"\n输出: \"/var/www/uploads/img.jpg\"\n\n输入: base_dir = \"/var/www\", user_path = \"../../etc/passwd\"\n输出: None",
+  "tests": [
+    {
+      "input": {"base_dir": "/var/www", "user_path": "uploads/img.jpg"},
+      "output": "/var/www/uploads/img.jpg"
+    },
+    {
+      "input": {"base_dir": "/var/www", "user_path": "../../etc/passwd"},
+      "output": null
+    },
+    {
+      "input": {"base_dir": "/home/user", "user_path": "../secret.txt"},
+      "output": null
+    },
+    {
+      "input": {"base_dir": "/data/files", "user_path": "subdir/../subdir/file.txt"},
+      "output": "/data/files/subdir/file.txt"
+    }
+  ],
+  "edge_cases": ["路径遍历", "符号链接", "边界目录"]
+}
+---
+{
+  "id": "LC_L1_10",
+  "category": "安全编码",
+  "name": "JSON反序列化安全",
+  "prompt": "写一个函数 `safe_json_loads(json_str: str, allowed_types: list = None) -> any`，安全地解析JSON，防止反序列化漏洞。\n\n要求：\n1. 解析JSON字符串\n2. 如果 allowed_types 为 None，则允许 dict, list, str, int, float, bool, None\n3. 如果提供了 allowed_types，检查解析结果的类型\n4. 类型不匹配时返回 None 并设置错误\n5. 不允许嵌套过深（默认max_depth=10）\n\n示例：\n输入: json_str = '{\"name\": \"test\", \"value\": 123}'\n输出: {\"name": "test", "value": 123}\n\n输入: json_str = '{\"func\": \"__import__(\\\"os\\\").system(\\\\"ls\\\")\"}'\n输出: None (类型检查失败)",
+  "tests": [
+    {
+      "input": {"json_str": "{\"name\": \"test\", \"value\": 123}"},
+      "output": {"name": "test", "value": 123}
+    },
+    {
+      "input": {"json_str": "[1, 2, 3]"},
+      "output": [1, 2, 3]
+    },
+    {
+      "input": {"json_str": "{\"data\": {\"nested\": true}}", "max_depth": 2},
+      "output": null
+    },
+    {
+      "input": {"json_str": "123", "allowed_types": [int]},
+      "output": 123
+    },
+    {
+      "input": {"json_str": "\"string\"", "allowed_types": [int]},
+      "output": null
+    }
+  ],
+  "edge_cases": ["嵌套深度", "类型限制", "非法JSON"]
+}
