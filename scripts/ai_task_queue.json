@@ -1,0 +1,18 @@
+{
+  "_comment": "AI 任务清单 · 灵克会话 99 governance audit 后生成 · 7/2 19:48 UTC",
+  "_version": "0.1",
+  "_update_rule": "每会议结束 + W1/W2/W3/W4 末修订",
+  "lingflow": "AI-02 proxy21 首批 3 插片 manifest (scheduler/provider_adapter/health_filter) — 7/4 deadline, git log 显示 0 commit, 请说明是否仍在做, 阻塞是什么",
+  "lingresearch": "AI-04 OH §6 实验 1 对照组设计 (v0.3.0 vs v0.4.0 回放保真度) — 7/18 deadline, 8 commits/7d 在做 R5/OH, 请确认是否对接灵极优",
+  "lingzhi": "AI-11 lingzhi-rag-search manifest (v0.5.0) — 6/30 已过, 等灵克 schema freeze. 请确认是否仍然 0 commit, 是等 freeze 还是已经另做",
+  "lingmessage": "AI-03 LingBus 4 插片首批 2 (pipeline + signing) — 7/11 deadline, 已见 2 commits/post_event+PreExecute+redzone+claim. 请确认: 已超额的 4 组件是 AI-03 吗? 还需补签名的 signing 吗?",
+  "lingxi": "AI-06 :9532 systemd 上线后 fail-closed 切 — 灵犀已上线, 等用户 sudo. 请说明: fail-closed 切之前需要 lingxi 做什么准备?",
+  "lingminopt": "AI-05 trace_emitter.py (按 LACP v0.5.0) — 会议标'已超交付', 但 git log 0 commit, 14 modified 都不是 trace_emitter. **请验证**: 实际交付在哪个 commit/branch? 否则会议纪要 v2.0 标错",
+  "lingtongask": "**OS 进程 0** — 唯一真死. 项目状态: 127 uncommitted + 0 procs. 请确认: 拉起, 减员, 还是 移到其他灵?",
+  "lingflow_plus": "治理引擎 idle 2.3d — 30min echo 循环无真人接. 请确认: 拉起治理, 还是会议 #2 议题 1 决策代行机制?",
+  "lingyang": "AI-07 灵族日报 co-owner — 71 uncommitted + 1 commit/7d. zombie 但有 work. 请: 1) 拉起重启, 2) 角色重定义 = 社区运营 (会议议题 2)",
+  "lingcreate": "AI-12a-d 5 skill manifest — 0 commit/7d + 12 uncommitted + 试用期. 请: 1) 拉起, 2) 试用期评估, 3) AI-12 任务进度",
+  "zhibridge": "ZB-01 gateway 7m+10u 清理 commit — 4 uncommitted, 2 modified (gateway/app.py + circuit.py) 等用户授权. 请说明是否需要重发, 阻塞的授权具体是什么",
+  "lingweb": "P1 修复持续中 (8 commits/7d, lingbus-browser). 状态良好, 无阻塞",
+  "lingclaude": "AI-01 trace actor 速查表 ✅ commit f896096; AI-08 lingpack spec ✅ LINGPACK_SPEC_v0.1.md; 17 P0 proxy3 缺口清单已交 灵通实施. 自身无阻塞"
+}
