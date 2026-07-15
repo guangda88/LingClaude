@@ -211,10 +211,8 @@ class LingMemory:
               cursor: int | None = None, limit: int = 20) -> dict:
         sql = "SELECT *, rowid as _rowid FROM records WHERE 1=1"
         params: list = []
-        for key, val in [("type", type), ("state", state), ("parent_id", parent_id), ("created_by", created_by)]:
-            if val is not None:
-                sql += f" AND {key} = ?"
-                params.append(val)
+        self._apply_field_filters(sql, params, type=type, state=state,
+                                  parent_id=parent_id, created_by=created_by)
         if cursor:
             sql += " AND _rowid < ?"
             params.append(cursor)
@@ -231,6 +229,14 @@ class LingMemory:
             "items": [self._decode(r) for r in rows[:limit]],
             "next_cursor": rows[limit - 1]["_rowid"] if has_next and rows else None,
         }
+
+    @staticmethod
+    def _apply_field_filters(sql: list, params: list, **fields):
+        """应用等值字段过滤到 SQL 查询"""
+        for key, val in fields.items():
+            if val is not None:
+                sql += f" AND {key} = ?"
+                params.append(val)
 
     def get(self, record_id: str) -> dict | None:
         row = self.conn.execute("SELECT * FROM records WHERE id=?", (record_id,)).fetchone()

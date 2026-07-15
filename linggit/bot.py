@@ -88,33 +88,7 @@ class LingGitBot:
         )
 
         # 4. 状态流转 (复用灵安主干)
-        if risk == "critical":
-            self.lm.transition(
-                gate_id,
-                "auto_block",
-                actor="linggit-bot",
-                data={
-                    "issues": issues,
-                    "risk_level": risk,
-                    "policy_matched": "blacklist",
-                },
-            )
-        elif risk == "low" and not issues:
-            self.lm.transition(
-                gate_id,
-                "auto_pass",
-                actor="linggit-bot",
-                data={"risk_level": risk, "policy_matched": "whitelist"},
-            )
-        else:
-            self.lm.transition(
-                gate_id,
-                "gray_zone",
-                actor="linggit-bot",
-                data={"policy_matched": "grayzone"},
-            )
-            # gray_zone 不立即 audit，等 resolve() 后才 audit
-            raise GrayZonePending(gate_id, issues)
+        self._transition_gate(gate_id, risk, issues)
 
         # 5. 审计归档 (仅 auto_pass/auto_block 后)
         self.lm.transition(gate_id, "auto", actor="linggit-bot")
@@ -122,21 +96,44 @@ class LingGitBot:
         # 6. 生成报告
         return self.report(gate_id)
 
+    def _transition_gate(self, gate_id: str, risk: str, issues: list[dict]):
+        """根据风险等级执行状态流转"""
+        if risk == "critical":
+            self.lm.transition(
+                gate_id, "auto_block", actor="linggit-bot",
+                data={"issues": issues, "risk_level": risk, "policy_matched": "blacklist"},
+            )
+        elif risk == "low" and not issues:
+            self.lm.transition(
+                gate_id, "auto_pass", actor="linggit-bot",
+                data={"risk_level": risk, "policy_matched": "whitelist"},
+            )
+        else:
+            self.lm.transition(
+                gate_id, "gray_zone", actor="linggit-bot",
+                data={"policy_matched": "grayzone"},
+            )
+            raise GrayZonePending(gate_id, issues)
+
+    @staticmethod
+    def _decode_json(value, default):
+        """安全解析 JSON 字段，失败返回 default"""
+        if isinstance(value, str):
+            import json
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        return default
+
     def report(self, gate_id: str) -> dict:
         """生成审查报告: 摘要 + 风险等级 + 修复建议"""
         record = self.lm.get(gate_id)
         if not record:
             return {"error": "gate not found"}
 
-        d = record.get("data", {})
-        if isinstance(d, str):
-            import json
-            d = json.loads(d)
-
-        issues = d.get("issues", [])
-        if isinstance(issues, str):
-            import json
-            issues = json.loads(issues)
+        d = self._decode_json(record.get("data", {}), {})
+        issues = self._decode_json(d.get("issues", []), [])
 
         files = d.get("target", "").split(",") if d.get("target") else []
         risk = d.get("risk_level", "unknown")

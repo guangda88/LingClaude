@@ -22,8 +22,19 @@ from datetime import datetime, timezone
 
 HANDOVER_PATH = os.path.join(os.path.dirname(__file__), "..", ".lingclaude", "handover.yaml")
 
+
+def _validate_path(path: str) -> str:
+    """校验路径在项目目录内，防止路径遍历"""
+    base = os.path.realpath(os.path.join(os.path.dirname(__file__), ".."))
+    real = os.path.realpath(path)
+    if not real.startswith(base):
+        raise ValueError(f"path outside project dir: {path}")
+    return real
+
+
 def parse_handover(path: str) -> dict:
-    with open(path) as f:
+    safe_path = _validate_path(path)
+    with open(safe_path) as f:
         return yaml.safe_load(f)
 
 def to_session(handover: dict, member: str) -> dict:

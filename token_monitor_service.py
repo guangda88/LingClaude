@@ -137,8 +137,9 @@ if __name__ == "__main__":
         if "--port" in sys.argv:
             idx = sys.argv.index("--port")
             port = int(sys.argv[idx + 1]) if idx + 1 < len(sys.argv) else port
-        print(f"token_monitor 本地灵元: http://127.0.0.1:{port}")
-        uvicorn.run(app, host="127.0.0.1", port=port)
+        host = os.environ.get("TOKEN_MONITOR_HOST", "127.0.0.1")
+        print(f"token_monitor 本地灵元: http://{host}:{port}")
+        uvicorn.run(app, host=host, port=port)
     else:
         print("需 fastapi+uvicorn: pip install fastapi uvicorn")
         print("或使用: python3 token_monitor_service.py --cli report")

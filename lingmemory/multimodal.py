@@ -35,9 +35,10 @@ class MultimodalGateway:
     流转：query rule → 调模型 → 验证 → 返回
     """
 
-    def __init__(self, proxy_url="http://127.0.0.1:8765/v1",
+    def __init__(self, proxy_url=None,
                  caller="lingclaude", db_path=None):
-        self.proxy_url = proxy_url
+        self.proxy_url = proxy_url or os.environ.get(
+            "LINGCLAUDE_PROXY_URL", "http://127.0.0.1:8765/v1")
         self.caller = caller
         headers = {"X-Caller": caller, "X-Agent-Id": caller}
         self.api = LingMemoryAPI(db_path, member=caller) if db_path else None
@@ -153,8 +154,10 @@ class MultimodalGateway:
         ], max_tokens=200)
         
         # 调灵声TTS
+        tts_url = os.environ.get(
+            "LINGVOICE_TTS_URL", "http://127.0.0.1:8100/synthesize")
         req = urllib.request.Request(
-            "http://127.0.0.1:8100/synthesize",
+            tts_url,
             data=json.dumps({"text": explanation, "voice": "zh-CN-XiaoxiaoNeural"}).encode(),
             headers={"Content-Type": "application/json",
                      "X-API-Key": os.environ.get("LINGVOICE_API_KEY", "")},
