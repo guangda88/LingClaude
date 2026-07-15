@@ -1,6 +1,7 @@
 """灵克 MCP Server 集成测试 — 验证26个工具的注册和基本功能。"""
 
 import os
+import subprocess
 
 import pytest
 
@@ -22,7 +23,18 @@ def sample_project(tmp_path):
         "class Helper:\n    def run(self):\n        pass\n",
         encoding="utf-8",
     )
-    os.system(f"cd {tmp_path} && git init && git add -A && git commit -m 'init'")
+    subprocess.run(
+        ["git", "init"], cwd=tmp_path,
+        capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "add", "-A"], cwd=tmp_path,
+        capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "init"], cwd=tmp_path,
+        capture_output=True, check=True,
+    )
     return tmp_path
 
 

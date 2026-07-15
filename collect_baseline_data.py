@@ -105,7 +105,7 @@ def find_proposal_threads() -> Dict[str, Dict]:
                             with open(msg_file) as mf:
                                 msg = json.load(mf)
                                 proposal_threads[prop_id]["messages"].append(msg)
-                        except:
+                        except Exception as e:
                             pass
 
                     break

@@ -1,0 +1,96 @@
+# linggit-bot 审查规则 — 灵克代码审计用
+# 规则类型: pattern (正则匹配diff内容) / filename (文件名匹配) / command (外部命令)
+
+checks:
+  # === 安全规则 (critical/high) ===
+  - type: pattern
+    pattern: 'eval\('
+    severity: critical
+    description: "eval() 使用 — 代码注入风险"
+    fix: "替换为 ast.literal_eval() 或 json.loads()"
+
+  - type: pattern
+    pattern: 'shell\s*=\s*True'
+    severity: high
+    description: "subprocess shell=True — 命令注入风险"
+    fix: "使用 shell=False + 参数列表"
+
+  - type: pattern
+    pattern: 'os\.system\('
+    severity: high
+    description: "os.system() — 命令注入风险"
+    fix: "使用 subprocess.run() + shell=False"
+
+  - type: pattern
+    pattern: 'except\s*:'
+    severity: high
+    description: "裸 except — 吞异常"
+    fix: "使用 except Exception as e: 并记录"
+
+  - type: pattern
+    pattern: 'except.*:\s*pass'
+    severity: high
+    description: "silent except — 异常被静默吞掉"
+    fix: "至少 log.warning(str(e))"
+
+  - type: pattern
+    pattern: '(password|secret|token|api_key)\s*=\s*[''"][^''"]+[''"]'
+    severity: critical
+    description: "硬编码密钥"
+    fix: "使用环境变量或配置文件"
+
+  - type: pattern
+    pattern: 'pickle\.loads?\('
+    severity: critical
+    description: "pickle 反序列化 — 远程代码执行风险"
+    fix: "使用 json.loads() 或限制 unpickler"
+
+  - type: pattern
+    pattern: 'subprocess\.call\([^)]*shell\s*=\s*True'
+    severity: high
+    description: "subprocess.call + shell=True"
+    fix: "使用 subprocess.run() + shell=False"
+
+  # === 灵族特有规则 (medium) ===
+  - type: filename
+    pattern: 'CRUSH\.md'
+    severity: medium
+    description: "修改身份锚定文件 — 需审查是否为身份漂移"
+    fix: "确认修改经过授权"
+
+  - type: filename
+    pattern: 'handover\.ya?ml'
+    severity: medium
+    description: "修改交接文件 — 需确认状态变更"
+    fix: "确认 handover 铁律: 读后必验 读完必写"
+
+  - type: filename
+    pattern: '\.env'
+    severity: high
+    description: "触及 .env 文件 — 密钥泄露风险"
+    fix: "确认 .env 在 .gitignore 中"
+
+  - type: filename
+    pattern: 'config\.json'
+    severity: medium
+    description: "修改配置文件 — 可能含 API keys"
+    fix: "确认不含硬编码密钥"
+
+  - type: filename
+    pattern: 'members\.ya?ml'
+    severity: high
+    description: "修改成员表 — 身份注入风险"
+    fix: "确认经过治理流程"
+
+  # === 代码质量规则 (low) ===
+  - type: pattern
+    pattern: 'import.*#\s*unused'
+    severity: low
+    description: "可能的 unused import"
+    fix: "移除未使用的导入"
+
+  - type: pattern
+    pattern: 'TODO|FIXME|HACK'
+    severity: low
+    description: "未完成标记"
+    fix: "跟踪为 issue"

@@ -79,7 +79,7 @@ def distill_security_rule(check_id: str, desc: str, examples: list[str]) -> str 
         rule = json.loads(resp.read())["choices"][0]["message"]["content"]
         rule = rule.strip().split('\n')[0][:50].strip('"\'。，')
         return rule if len(rule) > 5 else None
-    except:
+    except Exception as e:
         return None
 
 

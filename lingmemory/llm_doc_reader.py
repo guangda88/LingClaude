@@ -164,7 +164,7 @@ def fetch(url: str) -> str:
         req = urllib.request.Request(url, headers={"User-Agent": "lingshell-proxy/1.0"})
         resp = urllib.request.urlopen(req, timeout=20)
         return resp.read().decode("utf-8", errors="replace")
-    except:
+    except Exception as e:
         return ""
 
 

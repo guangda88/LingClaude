@@ -52,6 +52,34 @@ def init_db(db_path: Path | str = DB_PATH):
     conn.close()
 
 
+def _maybe_migrate_v0_3(conn: sqlite3.Connection):
+    """v0.3 迁移: 添加灰区字段 confidence/bound/escalate_level
+
+    灵元存储落地第一梯度 (2026-07-06):
+    - records 表: 加 confidence REAL + bound TEXT 字段
+    - events 表: 加 escalate_level INTEGER 字段
+    零数据丢失, 现有记录 confidence=1.0, bound=NULL, escalate_level=0
+    """
+    try:
+        conn.execute("SELECT confidence FROM records LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE records ADD COLUMN confidence REAL DEFAULT 1.0")
+        conn.execute("ALTER TABLE records ADD COLUMN bound TEXT")
+    try:
+        conn.execute("SELECT escalate_level FROM events LIMIT 0")
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE events ADD COLUMN escalate_level INTEGER DEFAULT 0")
+
+    # 索引 (IF NOT EXISTS 风格)
+    for idx_sql in [
+        "CREATE INDEX IF NOT EXISTS idx_records_confidence ON records(confidence)",
+        "CREATE INDEX IF NOT EXISTS idx_records_bound      ON records(bound)",
+        "CREATE INDEX IF NOT EXISTS idx_events_escalate    ON events(escalate_level)",
+    ]:
+        conn.execute(idx_sql)
+    conn.commit()
+
+
 class TypeRegistry:
     """流转规则 — 插片
     
@@ -106,6 +134,7 @@ class LingMemory:
 
     def __init__(self, db_path: Path | str = DB_PATH):
         self.conn = _connect(db_path)
+        _maybe_migrate_v0_3(self.conn)
         self.registry = TypeRegistry()
         self._fts = None   # 插片：全文搜索
         self._events = None  # 插片：审计日志
@@ -209,6 +238,81 @@ class LingMemory:
 
     def get_children(self, parent_id: str, type: str | None = None) -> list[dict]:
         return self.query(parent_id=parent_id, type=type, limit=1000)["items"]
+
+    # ============================================================
+    # 灵元灰区 API (v0.3) — confidence / bound / query_bound
+    # ============================================================
+    def set_confidence(self, record_id: str, confidence: float,
+                       actor: str = "system") -> None:
+        """灵元灰区: 设置置信度 0-1
+
+        Args:
+            record_id: 记录 ID
+            confidence: 置信度 0-1
+            actor: 操作者
+        """
+        if not (0 <= confidence <= 1):
+            raise ValueError("confidence must be between 0 and 1")
+        now = _now()
+        self.conn.execute(
+            "UPDATE records SET confidence=?, updated_at=? WHERE id=?",
+            (confidence, now, record_id))
+        self.conn.execute(
+            """INSERT INTO events
+               (record_id, event_type, from_state, to_state, actor, data, timestamp)
+               VALUES (?, 'confidence_change', NULL, 'no_state_change', ?, ?, ?)""",
+            (record_id, actor, json.dumps({"confidence": confidence}), now))
+        self.conn.commit()
+
+    def set_bound(self, record_id: str, bound_event: dict,
+                  actor: str = "system") -> None:
+        """灵元灰区: 记录 bound 事件 (寿命/坏块/临界/温度)
+
+        Args:
+            record_id: 记录 ID
+            bound_event: bound 事件 dict, 结构如 {"type":"temperature","value":75,"escalate":2}
+            actor: 操作者
+        """
+        now = _now()
+        bound_str = json.dumps(bound_event, ensure_ascii=False)
+        escalate = bound_event.get("escalate", 0)
+        self.conn.execute(
+            "UPDATE records SET bound=?, updated_at=? WHERE id=?",
+            (bound_str, now, record_id))
+        self.conn.execute(
+            """INSERT INTO events
+               (record_id, event_type, from_state, to_state, actor, escalate_level, data, timestamp)
+               VALUES (?, 'bound', NULL, 'no_state_change', ?, ?, ?, ?)""",
+            (record_id, actor, escalate, bound_str, now))
+        self.conn.commit()
+
+    def query_bound(self, escalate_min: int = 1) -> list[dict]:
+        """灵元灰区: 查询所有 escalate >= 阈值的 bound (上行信号)
+
+        Args:
+            escalate_min: 最低 escalate 级别 (默认 1)
+
+        Returns:
+            list[dict]: 符合条件的 bound 事件记录
+        """
+        rows = self.conn.execute(
+            """SELECT r.id, r.type, r.state, r.bound, r.confidence,
+                      e.escalate_level, e.timestamp, e.data
+               FROM records r
+               JOIN events e ON r.id = e.record_id
+               WHERE e.escalate_level >= ? AND e.event_type = 'bound'
+               ORDER BY e.escalate_level DESC, e.timestamp DESC""",
+            (escalate_min,)).fetchall()
+        result = []
+        for r in rows:
+            item = dict(r)
+            if isinstance(item.get("data"), str):
+                try:
+                    item["data"] = json.loads(item["data"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            result.append(item)
+        return result
 
     # ============================================================
     # 内部工具

@@ -3,34 +3,36 @@ task:
   default_state: created
   states:
   - created
-  - active
-  - paused
+  - assigned
+  - in_progress
+  - review
   - done
   - archived
-  - split
-  - merged
   transitions:
   - from: created
-    to: active
+    to: assigned
+    event: assign
+  - from: assigned
+    to: in_progress
     event: start
-  - from: active
-    to: paused
-    event: pause
-  - from: paused
-    to: active
-    event: resume
-  - from: active
+  - from: in_progress
+    to: review
+    event: submit
+  - from: review
     to: done
-    event: complete
+    event: approve
+    note: P0需双签，普通单签
+  - from: review
+    to: in_progress
+    event: revise
+    note: 评审不通过退回
   - from: done
     to: archived
     event: archive
-  - from: active
-    to: split
-    event: split
-  - from: active
-    to: merged
-    event: merge
+  - from: '*'
+    to: archived
+    event: cancel
+    note: 任务取消
   data_schema:
     goal:
       required: true
@@ -57,33 +59,41 @@ session:
   default_state: created
   states:
   - created
-  - active
-  - sleeping
+  - in_progress
   - interrupted
-  - ended
+  - resumed
+  - completed
   states_on_demand:
   - created
-  - active
-  - ended
+  - in_progress
+  - completed
   transitions:
   - from: created
-    to: active
+    to: in_progress
     event: activate
-  - from: active
-    to: sleeping
-    event: sleep
-  - from: sleeping
-    to: active
-    event: wake
-  - from: active
+  - from: in_progress
     to: interrupted
     event: interrupt
   - from: interrupted
-    to: active
+    to: resumed
     event: recover
-  - from: '*'
-    to: ended
+  - from: resumed
+    to: in_progress
+    event: continue
+  - from: in_progress
+    to: completed
     event: end
+    note: 正常结束
+  - from: interrupted
+    to: completed
+    event: abandon
+    note: 中断后放弃
+  - from: resumed
+    to: completed
+    event: end
+  - from: '*'
+    to: completed
+    event: cancel
   data_schema:
     owner:
       required: true
@@ -524,6 +534,7 @@ security_gate:
       - message
       - interface
       - model
+      - changeset
     actor:
       required: true
       type: string

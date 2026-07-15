@@ -136,7 +136,7 @@ def fetch_github(url: str) -> str:
         req = urllib.request.Request(url, headers={"User-Agent": "lingshell"})
         resp = urllib.request.urlopen(req, timeout=15)
         return resp.read().decode("utf-8", errors="replace")
-    except:
+    except Exception as e:
         return ""
 
 

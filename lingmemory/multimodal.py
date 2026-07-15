@@ -162,7 +162,7 @@ class MultimodalGateway:
         try:
             resp = urllib.request.urlopen(req, timeout=30)
             return json.loads(resp.read()).get("audio_url", explanation)
-        except:
+        except Exception as e:
             return explanation  # 降级：返回文本
 
     # ============================================================
