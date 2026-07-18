@@ -1,0 +1,96 @@
+# ═══════════════════════════════════════════════
+# 灵族(LingFamily) — 内部机密
+# ═══════════════════════════════════════════════
+# 本文件包含灵族核心技术资产。
+# 未经授权，不得外传、复制、逆向工程。
+# 仅限灵族成员（12子+智桥+授权对外项目）访问。
+# ═══════════════════════════════════════════════
+
+# 灵元测试插片声明 — LACP v0.6 兼容
+# 主干 = test_engine.py (TestCase + run/check/report)
+# 一切非本质功能都是插片，通过本清单声明接口
+
+plugins:
+
+  # ─── 环境管理 ──────────────────────────────────────
+  fixtures:
+    description: 测试环境准备/清理
+    interface:
+      setup: "fn(scope: str) -> dict"    # scope: module|function|session
+      teardown: "fn(scope: str, ctx: dict)"
+    replaceable: true
+    default_impl: "pytest.fixture"
+
+  parameterized:
+    description: 多参数自动展开
+    interface:
+      expand: "fn(params: list[dict]) -> list[TestCase]"
+    replaceable: true
+    default_impl: "pytest.mark.parametrize"
+
+  # ─── 隔离与模拟 ────────────────────────────────────
+  mock:
+    description: 依赖注入/替换
+    interface:
+      patch: "fn(target: str, replacement: Any) -> ctx"
+      restore: "fn(ctx)"
+    replaceable: true
+    default_impl: "unittest.mock"
+
+  sandbox:
+    description: 隔离沙箱执行（编译/解释器校验）
+    interface:
+      compile: "fn(code: str, lang: str) -> bool"
+      run: "fn(code: str, input: Any) -> (output, error)"
+    replaceable: true
+    required_for: ["AI代码测试"]
+
+  # ─── 质量度量 ──────────────────────────────────────
+  coverage:
+    description: 代码覆盖率追踪
+    interface:
+      before: "fn() -> ctx"
+      after: "fn(ctx) -> report"
+      report: "fn() -> dict"
+    replaceable: true
+    default_impl: "pytest-cov"
+
+  flaky_detector:
+    description: 重复运行检测不稳定测试
+    interface:
+      rerun: "fn(tc: TestCase, times: int) -> stability: float"
+    replaceable: true
+
+  # ─── 输出与集成 ─────────────────────────────────────
+  golden_file:
+    description: 预期输出存为文件
+    interface:
+      load: "fn(path: str) -> expected"
+      save: "fn(path: str, actual: Any)"
+
+  ci_reporter:
+    description: 输出格式适配 CI 系统
+    interface:
+      format: "fn(summary: dict) -> str"
+    replaceable: true
+    formats:
+      - junit_xml
+      - json
+      - human_readable
+
+  # ─── 契约测试（灵族特有） ──────────────────────────
+  contract_generator:
+    description: 从 Type Registry 自动生成契约测试
+    interface:
+      generate: "fn(registry: TypeRegistry) -> list[TestCase]"
+    replaceable: false
+    note: "灵元测试哲学核心插片 — 自动验证 states/transitions/schema"
+
+  # ─── 飞轮闭环 ──────────────────────────────────────
+  regression_flywheel:
+    description: 生产事故 → 测试用例 → 回归防护
+    interface:
+      ingest: "fn(incident: dict) -> TestCase"
+      run_all: "fn() -> report"
+      gap_analysis: "fn() -> list[str]"
+    replaceable: false
