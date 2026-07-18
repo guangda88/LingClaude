@@ -134,7 +134,10 @@ class TestL5AwareMetadata:
         assert loop.l5_session_id == ""
         assert loop.l5_round == 0
         meta = loop.get_l5_metadata()
-        assert meta == {"X-L5-Session": "", "X-L5-Round": 0}
+        assert meta["X-L5-Session"] == ""
+        assert meta["X-L5-Round"] == 0
+        assert meta["X-L5-Total-Rounds"] == 4  # L5ConversationConfig default
+        assert meta["X-L5-Claim"] == ""
 
     def test_custom_session_id(self):
         loop = L5ConversationLoop(l5_session_id="session-abc-123")

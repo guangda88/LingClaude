@@ -74,6 +74,7 @@ class L5ConversationLoop:
         self._audit_history: list[L5RoundResult] = []
         self._l5_session_id = l5_session_id
         self._l5_round = 0
+        self._l5_claim = ""
 
     def should_trigger(self, user_input: str) -> bool:
         """检查是否应该触发L5循环（高风险场景）"""
@@ -99,6 +100,7 @@ class L5ConversationLoop:
         """
         if not self.should_trigger(user_intent):
             self._l5_round = 0
+            self._l5_claim = ""
             return model_call(user_intent)
 
         context = self._encode(user_intent, rules)
@@ -138,6 +140,7 @@ class L5ConversationLoop:
             f"相关规则:\n{context['rules_text']}\n\n"
             f"请回应。确保你的行为（工具调用）与声明（规则）一致。"
         )
+        self._l5_claim = prompt
         response = model_call(prompt)
         return L5RoundResult(
             round_num=1,
@@ -277,10 +280,18 @@ class L5ConversationLoop:
         """获取 L5-aware metadata (供 proxy3 header 注入)
 
         Returns:
-            {"X-L5-Session": session_id, "X-L5-Round": current_round}
+            Mirror 灵极优 L5Context.get_l5_metadata() 4-key 格式:
+            {
+                "X-L5-Session": session_id,
+                "X-L5-Round": current_round,
+                "X-L5-Total-Rounds": max_rounds,
+                "X-L5-Claim": claim,
+            }
             round=0 表示未激活L5循环
         """
         return {
             "X-L5-Session": self._l5_session_id,
             "X-L5-Round": self._l5_round,
+            "X-L5-Total-Rounds": self.config.max_rounds,
+            "X-L5-Claim": self._l5_claim,
         }

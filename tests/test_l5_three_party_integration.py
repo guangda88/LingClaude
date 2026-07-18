@@ -83,7 +83,9 @@ class TestL5ContextAlignment:
     def test_metadata_keys_match(self, lingyuan_avail):
         ctx = lingyuan_avail["L5Context"](session_id="test-sess", round=2)
         meta = ctx.get_l5_metadata()
-        assert set(meta.keys()) == {"X-L5-Session", "X-L5-Round"}
+        assert set(meta.keys()) == {
+            "X-L5-Session", "X-L5-Round", "X-L5-Total-Rounds", "X-L5-Claim",
+        }
 
     def test_metadata_values_format(self, lingyuan_avail):
         ctx = lingyuan_avail["L5Context"](session_id="l5-abc123", round=3)
