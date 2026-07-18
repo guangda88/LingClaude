@@ -31,6 +31,9 @@ from lingclaude.core.hooks import HookManager, HookType, HookContext
 from lingclaude.core.cognitive_rhythm import CognitiveRhythm, ImbalanceType
 from lingclaude.core.task_manager import TaskManager, TaskSnapshot
 from lingclaude.core.skill_index import SkillIndex
+from lingclaude.core.memory_engine import MemoryStore
+from lingclaude.core.role_separation import create_lingclaude_role_separation
+from lingclaude.core.l5_conversation_loop import L5ConversationLoop, L5ConversationConfig, L5RoundResult
 from lingclaude.model.types import ModelConfig
 
 from lingclaude.core.types import Result, StopReason
@@ -127,6 +130,9 @@ class QueryEngine:
         self._degradation_alerts: list[DegradationAlert] = []
         self._task_manager = TaskManager()
         self._skill_index = SkillIndex()
+        self._memory_engine = MemoryStore()
+        self._role_checker = create_lingclaude_role_separation()
+        self._l5_loop = L5ConversationLoop()
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
@@ -327,6 +333,7 @@ class QueryEngine:
         self._compact_if_needed()
         self._total_messages_sent += 1
         self._check_degradation(prompt, output)
+        output = self._apply_l5_audit(prompt, output)
         self._check_l1_handover()
         self._check_l2_restart()
         self._append_to_session_history(prompt, output)
@@ -646,6 +653,95 @@ class QueryEngine:
 
     def get_degradation_health(self) -> dict[str, object]:
         return self._degradation_detector.get_health_indicators()
+
+    def _apply_l5_audit(self, prompt: str, output: str) -> str:
+        """L5对话层循环审计 (轻量级) — 关键词触发+记录, 不调LLM
+
+        仅当 should_trigger 命中时,在 audit_history 记录 round 0 placeholder
+        (说明"检测到高风险关键词,待三方联调启用真实审视")。
+        完整LLM审视通过 self.run_l5_audit_full() 显式调用,避免主流程延迟,
+        保护现有1406测试时序。
+
+        真正的"用户sure?代码化"路径: 等三方(self-NLI/R5/Z3)联调就绪后,
+        run_l5_audit_full 在 submit() 末尾被自动启用。
+        """
+        if not self._l5_loop.should_trigger(prompt):
+            return output
+        try:
+            rules = self._collect_relevant_rules()
+            tool_log = self._collect_tool_call_log()
+            self._l5_loop._audit_history.append(
+                L5RoundResult(
+                    round_num=0,
+                    response=output,
+                    consistency_score=0.0,
+                    declared_rules=rules,
+                    actual_actions=tool_log,
+                    inconsistencies=[
+                        "L5 trigger detected — full audit pending 三方联调 (lingyuan.l5_orchestrator + R5 M2/M3 + z3_declaration_consistency)"
+                    ],
+                )
+            )
+            logger.info(
+                "L5对话层触发: prompt含高风险关键词, round 0 placeholder 已记录"
+            )
+        except Exception as e:  # noqa: BLE001 — 审计失败不阻塞主流程
+            logger.warning("L5 audit placeholder failed: %s", e)
+        return output
+
+    def run_l5_audit_full(
+        self,
+        prompt: str,
+        output: str,
+        rules: list[str] | None = None,
+        tool_log: list[str] | None = None,
+    ) -> str:
+        """L5对话层循环完整审视 — 显式调用, 调LLM做self-NLI
+
+        Args:
+            prompt: 用户输入
+            output: 当前生成结果
+            rules: 相关规则 (默认从CRUSH.md提取)
+            tool_log: 工具调用记录 (默认从_degradation_alerts)
+
+        Returns:
+            经L5审视/修正后的输出 (失败时fallback到原output)
+        """
+        rules = rules if rules is not None else self._collect_relevant_rules()
+        tool_log = tool_log if tool_log is not None else self._collect_tool_call_log()
+        try:
+            return self._l5_loop.run(
+                user_intent=prompt,
+                rules=rules,
+                tool_call_log=tool_log,
+                model_call=self._call_model,
+            )
+        except Exception as e:  # noqa: BLE001 — 失败回退
+            logger.warning("L5 full audit failed, fallback to original output: %s", e)
+            return output
+
+    def _collect_relevant_rules(self) -> list[str]:
+        """从CRUSH.md/CRUSH核心规则提取关键规则 (L5 audit用)"""
+        return [
+            "优先使用code_search而非grep (行号+上下文)",
+            "使用execute_command而非裸bash (含caller校验)",
+            "写前查权限 / 读后必验证 / 写完必核对",
+            "handover铁律: 读后必现场验证, 读完必回写",
+            "用户sure? = 检查声明vs行为一致性",
+            "工具调用前必查规则, 不假设",
+            "敏感操作前置, 大操作分步",
+        ]
+
+    def _collect_tool_call_log(self) -> list[str]:
+        """从_degradation_alerts收集本轮工具调用记录 (L5 audit白箱证据)"""
+        return [
+            f"{a.signal.value}: {a.detail}"
+            for a in self._degradation_alerts[-10:]
+        ]
+
+    def get_l5_audit_history(self) -> list:
+        """暴露L5 audit_history, 供60s轮询反馈闭环使用"""
+        return list(self._l5_loop.audit_history)
 
     def _check_l1_handover(self) -> None:
         if self._total_messages_sent < self.L1_MESSAGE_THRESHOLD:
