@@ -124,3 +124,54 @@ class TestConfig:
         loop = L5ConversationLoop(config)
         assert loop.config.max_rounds == 2
         assert loop.config.early_exit_threshold == 0.9
+
+
+class TestL5AwareMetadata:
+    """响应灵通 rowid 174137 工程视角: L5-aware metadata 用于避免 proxy3 fallback 误判"""
+
+    def test_default_session_id_empty(self):
+        loop = L5ConversationLoop()
+        assert loop.l5_session_id == ""
+        assert loop.l5_round == 0
+        meta = loop.get_l5_metadata()
+        assert meta == {"X-L5-Session": "", "X-L5-Round": 0}
+
+    def test_custom_session_id(self):
+        loop = L5ConversationLoop(l5_session_id="session-abc-123")
+        assert loop.l5_session_id == "session-abc-123"
+
+    def test_round_advances_during_run(self, mock_model_inconsistent):
+        loop = L5ConversationLoop(l5_session_id="sess-1")
+        assert loop.l5_round == 0
+        loop.run("必须执行", ["rule"], ["grep"], mock_model_inconsistent)
+        # 3 轮后, _l5_round 停在最后一轮
+        assert loop.l5_round == 3
+
+    def test_no_trigger_resets_round(self, mock_model_consistent):
+        loop = L5ConversationLoop()
+        loop._l5_round = 5  # 污染值
+        loop.run("plain text", [], [], mock_model_consistent)
+        assert loop.l5_round == 0
+
+    def test_history_records_session_and_round(self, mock_model_inconsistent):
+        loop = L5ConversationLoop(l5_session_id="sess-xyz")
+        loop.run("必须执行规则", ["rule"], ["grep"], mock_model_inconsistent)
+        assert len(loop.audit_history) == 3
+        for h in loop.audit_history:
+            assert h.l5_session_id == "sess-xyz"
+        assert [h.l5_round for h in loop.audit_history] == [1, 2, 3]
+
+    def test_early_exit_records_correct_rounds(self, mock_model_consistent):
+        loop = L5ConversationLoop(l5_session_id="sess-fast")
+        loop.run("必须执行规则", ["rule"], ["code_search"], mock_model_consistent)
+        # 一致, 2 轮早停 (round 1 + round 2)
+        assert [h.l5_round for h in loop.audit_history] == [1, 2]
+
+    def test_metadata_reflects_current_state(self, mock_model_inconsistent):
+        loop = L5ConversationLoop(l5_session_id="meta-test")
+        meta_before = loop.get_l5_metadata()
+        assert meta_before["X-L5-Round"] == 0
+        loop.run("必须执行", [], ["x"], mock_model_inconsistent)
+        meta_after = loop.get_l5_metadata()
+        assert meta_after["X-L5-Session"] == "meta-test"
+        assert meta_after["X-L5-Round"] == 3

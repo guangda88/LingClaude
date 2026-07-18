@@ -49,6 +49,8 @@ class L5RoundResult:
     actual_actions: list[str] = field(default_factory=list)
     inconsistencies: list[str] = field(default_factory=list)
     fixed: bool = False
+    l5_session_id: str = ""
+    l5_round: int = 0
 
 
 class L5ConversationLoop:
@@ -56,11 +58,22 @@ class L5ConversationLoop:
 
     在输出前自我审视：声明（CRUSH.md规则/报告结论）与行为（tool_call_log）是否一致。
     不一致则修正后输出，一致则早停输出。
+
+    L5-aware metadata (l5_session_id / l5_round) 用于：
+    - 防止 proxy3 fallback chain 误判 L5 内部审视轮为上游限流
+    - audit trail 跨灵追溯
+    - 60s 轮询讨论反馈闭环
     """
 
-    def __init__(self, config: L5ConversationConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: L5ConversationConfig | None = None,
+        l5_session_id: str = "",
+    ) -> None:
         self.config = config or L5ConversationConfig()
         self._audit_history: list[L5RoundResult] = []
+        self._l5_session_id = l5_session_id
+        self._l5_round = 0
 
     def should_trigger(self, user_input: str) -> bool:
         """检查是否应该触发L5循环（高风险场景）"""
@@ -85,6 +98,7 @@ class L5ConversationLoop:
             最终输出（可能经过修正）
         """
         if not self.should_trigger(user_intent):
+            self._l5_round = 0
             return model_call(user_intent)
 
         context = self._encode(user_intent, rules)
@@ -118,6 +132,7 @@ class L5ConversationLoop:
         self, context: dict, model_call: Callable[[str], str]
     ) -> L5RoundResult:
         """Round 1: 生成回应"""
+        self._l5_round = 1
         prompt = (
             f"{context['intent']}\n\n"
             f"相关规则:\n{context['rules_text']}\n\n"
@@ -128,6 +143,8 @@ class L5ConversationLoop:
             round_num=1,
             response=response,
             consistency_score=0.0,
+            l5_session_id=self._l5_session_id,
+            l5_round=1,
         )
 
     def _recurrent_audit(
@@ -140,7 +157,9 @@ class L5ConversationLoop:
         """Round 2: 审视声明vs行为一致性
 
         注入tool_call_log作为外部证据（对话层的白箱优势）。
+        L5-aware: 此轮为内部审视, 不是真实用户请求 (proxy3 应通过 X-L5-Round header 跳过 fallback chain)
         """
+        self._l5_round = 2
         tool_log_text = "\n".join(f"  {t}" for t in tool_call_log) if tool_call_log else "  (无工具调用)"
         rules_text = "\n".join(f"- {r}" for r in rules) if rules else "(无特定规则)"
 
@@ -168,12 +187,15 @@ class L5ConversationLoop:
             declared_rules=rules,
             actual_actions=tool_call_log,
             inconsistencies=inconsistencies,
+            l5_session_id=self._l5_session_id,
+            l5_round=2,
         )
 
     def _recurrent_fix(
         self, audit: L5RoundResult, model_call: Callable[[str], str]
     ) -> L5RoundResult:
         """Round 3: 修正不一致"""
+        self._l5_round = 3
         inconsistencies_text = "\n".join(f"  - {inc}" for inc in audit.inconsistencies)
 
         prompt = (
@@ -190,6 +212,8 @@ class L5ConversationLoop:
             consistency_score=1.0,
             inconsistencies=[],
             fixed=True,
+            l5_session_id=self._l5_session_id,
+            l5_round=3,
         )
 
     def _early_exit(self, result: L5RoundResult) -> bool:
@@ -238,3 +262,25 @@ class L5ConversationLoop:
     def audit_history(self) -> list[L5RoundResult]:
         """审计历史（供60s轮询反馈闭环使用）"""
         return self._audit_history
+
+    @property
+    def l5_session_id(self) -> str:
+        """L5 session id (供 proxy3 L5-aware header X-L5-Session)"""
+        return self._l5_session_id
+
+    @property
+    def l5_round(self) -> int:
+        """当前 L5 round (供 proxy3 L5-aware header X-L5-Round, 0=未激活)"""
+        return self._l5_round
+
+    def get_l5_metadata(self) -> dict[str, str | int]:
+        """获取 L5-aware metadata (供 proxy3 header 注入)
+
+        Returns:
+            {"X-L5-Session": session_id, "X-L5-Round": current_round}
+            round=0 表示未激活L5循环
+        """
+        return {
+            "X-L5-Session": self._l5_session_id,
+            "X-L5-Round": self._l5_round,
+        }

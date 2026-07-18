@@ -132,7 +132,7 @@ class QueryEngine:
         self._skill_index = SkillIndex()
         self._memory_engine = MemoryStore()
         self._role_checker = create_lingclaude_role_separation()
-        self._l5_loop = L5ConversationLoop()
+        self._l5_loop = L5ConversationLoop(l5_session_id=self.session_id)
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
