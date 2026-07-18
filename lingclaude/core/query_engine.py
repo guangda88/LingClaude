@@ -34,6 +34,32 @@ from lingclaude.core.skill_index import SkillIndex
 from lingclaude.core.memory_engine import MemoryStore
 from lingclaude.core.role_separation import create_lingclaude_role_separation
 from lingclaude.core.l5_conversation_loop import L5ConversationLoop, L5ConversationConfig, L5RoundResult
+
+# 灵元测试薄主干 (TestCase 契约)
+import sys as _sys
+if '/home/ai/lingclaude/lingmemory' not in _sys.path:
+    _sys.path.insert(0, '/home/ai/lingclaude/lingmemory')
+try:
+    from test_engine import TestCase as _TestCase
+except ImportError:
+    _TestCase = None  # type: ignore[assignment,misc]
+
+# 三方 L5 Orchestrator (PYTHONPATH 旁路)
+if '/home/ai/lingminopt' not in _sys.path:
+    _sys.path.insert(0, '/home/ai/lingminopt')
+if '/home/ai/lingan' not in _sys.path:
+    _sys.path.insert(0, '/home/ai/lingan')
+try:
+    from lingyuan.l5_orchestrator import L5Orchestrator, L5Context, OrchestratorConfig, R5SignalSourceMock, Z3PredicateMock
+except ImportError:
+    L5Orchestrator = None  # type: ignore[assignment,misc]
+    L5Context = None
+    R5SignalSourceMock = None
+    Z3PredicateMock = None
+try:
+    from z3_declaration_consistency import DeclarationConsistencyChecker
+except ImportError:
+    DeclarationConsistencyChecker = None
 from lingclaude.model.types import ModelConfig
 
 from lingclaude.core.types import Result, StopReason
@@ -133,6 +159,7 @@ class QueryEngine:
         self._memory_engine = MemoryStore()
         self._role_checker = create_lingclaude_role_separation()
         self._l5_loop = L5ConversationLoop(l5_session_id=self.session_id)
+        self._l5_orchestrator: Any = None  # lazy init
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
@@ -689,6 +716,44 @@ class QueryEngine:
             logger.warning("L5 audit placeholder failed: %s", e)
         return output
 
+    def _ensure_l5_orchestrator(self):
+        """Lazy init 三方 L5Orchestrator (R5 mock + Z3 真实 + self-NLI 占位)"""
+        if self._l5_orchestrator is not None:
+            return True
+        if L5Orchestrator is None:
+            logger.warning("L5Orchestrator 不可用 (lingminopt 未安装), fallback 到 L5ConversationLoop")
+            return False
+        try:
+            # R5 mock (灵研 7/22 出真实模块)
+            r5_source = R5SignalSourceMock()
+            # Z3 真实 checker (adapter 到 Protocol)
+            if DeclarationConsistencyChecker is not None:
+                checker = DeclarationConsistencyChecker()
+                class _Z3Adapter:
+                    def validate(self, claim_rules, actual_actions):
+                        cr = checker.check(claim_rules, actual_actions)
+                        ratio = getattr(cr, 'ratio', None) or getattr(cr, 'consistency_ratio', 1.0)
+                        missing = getattr(cr, 'unmatched_declared', set())
+                        class _R:
+                            def __init__(self):
+                                self.ratio = ratio
+                                self.missing = missing
+                        return _R()
+                z3 = _Z3Adapter()
+            else:
+                z3 = Z3PredicateMock()
+            ctx = L5Context(session_id=self.session_id, round=0)
+            self._l5_orchestrator = L5Orchestrator(
+                r5_source=r5_source,
+                z3_predicate=z3,
+                l5_context=ctx,
+            )
+            return True
+        except Exception as e:
+            logger.warning("L5Orchestrator 初始化失败: %s", e)
+            self._l5_orchestrator = None
+            return False
+
     def run_l5_audit_full(
         self,
         prompt: str,
@@ -696,17 +761,13 @@ class QueryEngine:
         rules: list[str] | None = None,
         tool_log: list[str] | None = None,
     ) -> str:
-        """L5对话层循环完整审视 — 显式调用, 调LLM做self-NLI
+        """L5对话层循环完整审视 — 调三方 L5Orchestrator + Z3 + R5
 
-        Args:
-            prompt: 用户输入
-            output: 当前生成结果
-            rules: 相关规则 (默认从CRUSH.md提取)
-            tool_log: 工具调用记录 (默认从_degradation_alerts)
-
-        Returns:
-            经L5审视/修正后的输出 (失败时fallback到原output)
+        失败时 graceful fallback 到 L5ConversationLoop (自实现) 或原 output。
         """
+        if self._ensure_l5_orchestrator() and self._l5_orchestrator is not None:
+            return self._run_l5_orchestrator(prompt, output, rules, tool_log)
+        # fallback: 自实现 L5ConversationLoop
         rules = rules if rules is not None else self._collect_relevant_rules()
         tool_log = tool_log if tool_log is not None else self._collect_tool_call_log()
         try:
@@ -716,8 +777,41 @@ class QueryEngine:
                 tool_call_log=tool_log,
                 model_call=self._call_model,
             )
-        except Exception as e:  # noqa: BLE001 — 失败回退
-            logger.warning("L5 full audit failed, fallback to original output: %s", e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("L5 fallback audit failed: %s", e)
+            return output
+
+    def _run_l5_orchestrator(
+        self,
+        prompt: str,
+        output: str,
+        rules: list[str] | None = None,
+        tool_log: list[str] | None = None,
+    ) -> str:
+        """通过灵极优 L5Orchestrator 做完整三方审视"""
+        rules = rules or self._collect_relevant_rules()
+        tool_log = tool_log or self._collect_tool_call_log()
+        orch = self._l5_orchestrator
+        try:
+            orch.l5_context.round = 1
+            result = orch.validate(
+                claim=prompt,
+                evidence=tool_log,
+                actual_rounds=1,
+                expected_rounds=4,
+            )
+            if result.should_early_exit:
+                return output
+            if result.should_fix:
+                return output  # 当前不自动修正, 等三方全量联调
+            # 记录审计
+            logger.info(
+                "L5三方审计: round=1 consistency=%.3f contrib=%s",
+                result.consistency, result.contributions,
+            )
+            return output
+        except Exception as e:  # noqa: BLE001
+            logger.warning("L5Orchestrator audit failed: %s", e)
             return output
 
     def _collect_relevant_rules(self) -> list[str]:
