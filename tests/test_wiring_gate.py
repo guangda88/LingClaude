@@ -78,6 +78,7 @@ class TestExportCompleteness:
         "data_flywheel": {"DataFlywheel"},
         "context_compression": {"compress_messages", "CompressionConfig", "CompressionLevel"},
         "dementia_detector": {"DementiaDetector", "CognitiveState", "DementiaDiagnosis"},
+        "fact_checker": {"ClaimExtractor", "KGFactChecker", "FactCheckResult", "audit_response"},
         "hooks": {"HookManager", "HookType", "HookContext"},
         "query_engine": {"QueryEngine"},
     }

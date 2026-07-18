@@ -18,6 +18,7 @@ from lingclaude.core.intel import (
     IntelRelay,
 )
 from lingclaude.core.prior_verifier import PriorVerifier, AssertionLevel, Assertion, VerificationResult
+from lingclaude.core.fact_checker import ClaimExtractor, KGFactChecker, FactCheckResult, audit_response, Claim
 from lingclaude.core.meta_cognition import MetaCognition, Domain, ConfidenceLevel, CognitiveBoundary, MetaCognitiveSnapshot
 from lingclaude.core.layered_memory import (
     LayeredMemory, Experience, EmotionIntensity, MemoryLayer,
@@ -93,6 +94,11 @@ __all__ = [
     "AssertionLevel",
     "Assertion",
     "VerificationResult",
+    "ClaimExtractor",
+    "KGFactChecker",
+    "FactCheckResult",
+    "audit_response",
+    "Claim",
     "MetaCognition",
     "Domain",
     "ConfidenceLevel",
