@@ -1235,3 +1235,82 @@ meeting:
       required: false
       type: string
       description: transcript归档文件路径
+
+workflow_execution:
+  description: LACP WorkflowTemplate DAG 执行实例
+  default_state: running
+  states:
+  - running
+  - done
+  - completed_with_errors
+  - failed
+  - cancelled
+  transitions:
+  - from: running
+    to: done
+    event: complete
+  - from: running
+    to: completed_with_errors
+    event: complete_with_errors
+  - from: running
+    to: failed
+    event: fail
+  - from: running
+    to: cancelled
+    event: cancel
+  - from: '*'
+    to: cancelled
+    event: cancel
+  data_schema:
+    template_name:
+      required: true
+      type: string
+      description: 模板名称，如 literature-review-v1
+    template_version:
+      required: true
+      type: string
+      description: 模板版本号
+    executor:
+      required: true
+      type: string
+      description: 执行者，如 lingclaude
+    started_at:
+      required: true
+      type: string
+      description: 执行开始时间 ISO 8601
+    completed_at:
+      required: false
+      type: string
+      description: 执行结束时间 ISO 8601
+    duration_s:
+      required: false
+      type: number
+      description: 执行总耗时(秒)
+    steps_total:
+      required: true
+      type: int
+      description: DAG 总步骤数
+    steps_succeeded:
+      required: false
+      type: int
+      description: 成功步骤数
+    steps_failed:
+      required: false
+      type: int
+      description: 失败步骤数
+    tokens_used:
+      required: false
+      type: int
+      description: 总 token 消耗
+    agents_invoked:
+      required: false
+      type: array
+      description: 调用过的 Agent 列表
+    steps_executed:
+      required: false
+      type: array
+      description: 各步骤执行详情
+    outputs:
+      required: false
+      type: object
+      description: 模板执行输出
