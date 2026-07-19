@@ -51,6 +51,9 @@ from lingclaude.core.context_compression import (
 from lingclaude.core.dementia_detector import (
     CognitiveState, DementiaDetector, DementiaDiagnosis, ToolCallFingerprint,
 )
+from lingclaude.core.behavior_check import (
+    check as behavior_check, BehaviorCheckResult,
+)
 from lingclaude.core.hooks import (
     HookType, HookContext, HookManager, HookResult,
 )
@@ -129,6 +132,8 @@ __all__ = [
     "compress_messages",
     "CognitiveState",
     "DementiaDetector",
+    "behavior_check",
+    "BehaviorCheckResult",
     "DementiaDiagnosis",
     "ToolCallFingerprint",
     "HookType",

@@ -60,6 +60,18 @@ try:
     from z3_declaration_consistency import DeclarationConsistencyChecker
 except ImportError:
     DeclarationConsistencyChecker = None
+
+# T2/T3: 灵极优 IntentPrecheck + 灵研 R5KBConflict (PYTHONPATH 旁路)
+if '/home/ai/lingresearch' not in _sys.path:
+    _sys.path.insert(0, '/home/ai/lingresearch')
+try:
+    from lingyuan.l5_orchestrator import intent_precheck as _intent_precheck
+except ImportError:
+    _intent_precheck = None  # type: ignore[assignment]
+try:
+    from experiments.r5_kb_conflict import R5KBConflictSource as _R5KBConflictSource
+except ImportError:
+    _R5KBConflictSource = None  # type: ignore[assignment]
 from lingclaude.model.types import ModelConfig
 
 from lingclaude.core.types import Result, StopReason
@@ -321,6 +333,19 @@ class QueryEngine:
                 stop_reason=StopReason.MAX_TURNS_REACHED,
             )
 
+        # T0: 行为校验 (零推理成本) — 在进入主流程前拦截明显问题
+        t0_nudge = self._check_behavior(prompt)
+        if t0_nudge is not None:
+            return TurnResult(
+                prompt=prompt,
+                output=t0_nudge,
+                matched_commands=matched_commands,
+                matched_tools=matched_tools,
+                permission_denials=denied_tools,
+                usage=self._usage,
+                stop_reason=StopReason.COMPLETED,
+            )
+
         # TaskManager: 新需求进来 → 挂起当前任务上下文
         self._task_manager.on_new_request(prompt, self)
 
@@ -333,6 +358,19 @@ class QueryEngine:
         pre_result = self._hooks.trigger(pre_ctx)
         if pre_result.modified_context:
             prompt = pre_result.modified_context.prompt or prompt
+
+        # T2: 意图确认 (round 0) — 模型复述 vs 用户意图, 不一致则阻塞
+        intent_check = self._check_intent(prompt)
+        if intent_check is not None:
+            return TurnResult(
+                prompt=prompt,
+                output=intent_check,
+                matched_commands=matched_commands,
+                matched_tools=matched_tools,
+                permission_denials=denied_tools,
+                usage=self._usage,
+                stop_reason=StopReason.COMPLETED,
+            )
 
         output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
 
@@ -361,6 +399,8 @@ class QueryEngine:
         self._total_messages_sent += 1
         self._check_degradation(prompt, output)
         output = self._apply_l5_audit(prompt, output)
+        # T3: 实体冲突检查 (输出后)
+        output = self._check_entity_conflict(prompt, output)
         self._check_l1_handover()
         self._check_l2_restart()
         self._append_to_session_history(prompt, output)
@@ -865,9 +905,61 @@ class QueryEngine:
             for a in self._degradation_alerts[-10:]
         ]
 
+    def _check_behavior(self, prompt: str) -> str | None:
+        """T0: 行为校验 (零推理成本)
+
+        在进入主流程前检查明显行为问题。借鉴 AtomCode VerifyCadenceHook。
+        """
+        try:
+            from lingclaude.core.behavior_check import check
+            tool_history = [
+                {"tool_name": m.split(":")[0], "command": m}
+                for m in self._messages[-20:]
+            ]
+            result = check(tool_history=tool_history, output=prompt)
+            if not result.passed:
+                nudge_text = "\n".join(f"⚠️ {n}" for n in result.nudges)
+                if result.should_block:
+                    logger.warning("T0 行为校验拦截: %s", nudge_text)
+                    return f"[行为校验] 检测到可能的问题:\n{nudge_text}"
+                logger.info("T0 行为校验提示: %s", nudge_text)
+        except Exception as e:
+            logger.warning("T0 行为校验失败 (不阻塞): %s", e)
+        return None
+
     def get_l5_audit_history(self) -> list:
         """暴露L5 audit_history, 供60s轮询反馈闭环使用"""
         return list(self._l5_loop.audit_history)
+
+    def _check_intent(self, prompt: str) -> str | None:
+        """T2: 意图确认 (round 0)"""
+        if _intent_precheck is None:
+            return None
+        if not self._l5_loop.should_trigger(prompt):
+            return None
+        try:
+            result = _intent_precheck(prompt, prompt, llm=None, threshold=0.5)
+            if result is not None and not result.passed:
+                logger.warning("T2 意图确认不匹配 (similarity=%.2f)", result.similarity)
+                return (f"[意图确认] 我理解的是「{result.restated_intent}」，"
+                        f"和您说的「{result.user_intent}」有差异。请确认是否继续。")
+        except Exception as e:
+            logger.warning("T2 意图确认失败 (不阻塞): %s", e)
+        return None
+
+    def _check_entity_conflict(self, prompt: str, output: str) -> str:
+        """T3: 实体冲突检查 (输出后) — 仅日志, 不修改 output"""
+        if _R5KBConflictSource is None:
+            return output
+        try:
+            detector = _R5KBConflictSource()
+            result = detector.ent_kb_conflict(claim=output, evidence=[])
+            if result is not None and hasattr(result, "conflict_score") and result.conflict_score > 0.6:
+                logger.warning("T3 实体冲突: score=%.2f ungrounded=%s",
+                    result.conflict_score, getattr(result, "ungrounded_claims", []))
+        except Exception as e:
+            logger.warning("T3 实体冲突检查失败 (不阻塞): %s", e)
+        return output
 
     def _check_l1_handover(self) -> None:
         if self._total_messages_sent < self.L1_MESSAGE_THRESHOLD:

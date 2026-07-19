@@ -184,6 +184,11 @@ class TestNoDeadModules:
         "ModelProviderConfig", "SessionConfig", "EngineConfig",
         "FLYWHEEL_DB_NAME", "HookCallback", "HookEntry",
         "AggregationStats", "TaskGroup", "comfort_check_hook",
+        # T0 行为校验内部常量
+        "READONLY_COMMANDS", "EDIT_TOOLS", "TOOL_REPEAT_LIMIT",
+        "INCOMPLETE_SIGNALS", "CONSECUTIVE_FAIL_LIMIT",
+        # Datalog 内部函数/常量
+        "_ensure_datalog_dir", "_write_event", "DATALOG_DIR",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:
