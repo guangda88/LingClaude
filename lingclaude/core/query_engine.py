@@ -788,10 +788,34 @@ class QueryEngine:
         rules: list[str] | None = None,
         tool_log: list[str] | None = None,
     ) -> str:
-        """通过灵极优 L5Orchestrator 做完整三方审视"""
+        """通过灵极优 L5Orchestrator 做完整三方审视
+
+        先调 FactVerifier 做事实校验 (T1), 注入 UNVERIFIED 到 inconsistencies。
+        """
         rules = rules or self._collect_relevant_rules()
         tool_log = tool_log or self._collect_tool_call_log()
         orch = self._l5_orchestrator
+
+        # T1: 事实校验 — 查灵知 KG 验证 claim 是否有来源
+        fact_check_warnings: list[str] = []
+        try:
+            from lingclaude.core.fact_checker import KGFactChecker, ClaimExtractor, audit_response
+            checker = KGFactChecker()
+            fc_result = audit_response(output, checker=checker)
+            if fc_result.get("warning"):
+                fact_check_warnings = [
+                    f"事实校验: {fc_result['warning']}",
+                ]
+                for c in fc_result.get("claims", []):
+                    if not c.get("found"):
+                        fact_check_warnings.append(
+                            f"  - 无来源 claim: \"{c['text']}\" (confidence={c['confidence']:.2f})"
+                        )
+                logger.info("T1 事实校验: %d/%d 通过", 
+                    fc_result["total"] - fc_result["failed"], fc_result["total"])
+        except Exception as e:
+            logger.warning("T1 事实校验失败 (不阻塞): %s", e)
+
         try:
             orch.l5_context.round = 1
             result = orch.validate(
@@ -800,11 +824,19 @@ class QueryEngine:
                 actual_rounds=1,
                 expected_rounds=4,
             )
+            # 整合 T1 警告到审计结果
+            if fact_check_warnings:
+                if hasattr(result, 'detail') and isinstance(result.detail, dict):
+                    result.detail["fact_check"] = fact_check_warnings
+                logger.warning("L5 + T1: consistency=%.3f, fact_check_issues=%d",
+                    result.consistency, len(fact_check_warnings))
             if result.should_early_exit:
                 return output
-            if result.should_fix:
-                return output  # 当前不自动修正, 等三方全量联调
-            # 记录审计
+            # 如果有事实校验问题, 强制标记修正
+            if result.should_fix or fact_check_warnings:
+                logger.info("L5触发修正: consistency=%.3f, fact_warnings=%d",
+                    result.consistency, len(fact_check_warnings))
+                return output  # 等三方全量联调后启用自动修正
             logger.info(
                 "L5三方审计: round=1 consistency=%.3f contrib=%s",
                 result.consistency, result.contributions,

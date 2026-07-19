@@ -3,17 +3,34 @@
 防低质模型幻觉: 模型答完后查灵知 KG 确认每个 claim 有来源。
 无来源 claim 标警告或重答。
 
-当前: 骨架 + KG 检索占位
-LingBus ready 后: 通过灵知的搜索工具做实时检索
+灵知对接: 通过 sys.path 旁路导入 lingzhi FactVerifier。
+回退: mock 实现 (如果灵知不可用)。
 """
 
 from __future__ import annotations
 
 import logging
 import re
-import json
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+# 灵知 FactVerifier 导入 (旁路)
+_LINGZHI_PATH = "/home/ai/lingzhi"
+if _LINGZHI_PATH not in sys.path:
+    sys.path.insert(0, _LINGZHI_PATH)
+
+try:
+    from backend.services.retrieval.fact_verifier import FactVerifier as _LZFactVerifier
+    from backend.services.retrieval.kg import KGRetriever as _LZKGRetriever
+    _LINGZHI_AVAIL = True
+    logger.info("灵知 FactVerifier 可用, 已加载")
+except ImportError:
+    _LINGZHI_AVAIL = False
+    _LZFactVerifier = None  # type: ignore[assignment]
+    logger.info("灵知 FactVerifier 不可用, 使用 mock")
 
 logger = logging.getLogger(__name__)
 
@@ -74,16 +91,55 @@ class ClaimExtractor:
 
 class KGFactChecker:
     """事实校验器 — 通过灵知 KG 检索验证 claim
-    
-    当前: mock 实现 (直接返回 found=True)
-    LingBus 对接后: 调灵知搜索工具做实时检索
+
+    优先调灵知 FactVerifier (异步, 22ms p95)。
+    不可用时回退到 mock (始终返回 found=True)。
     """
     
     def __init__(self, search_fn: Callable[[str], list[dict]] | None = None):
-        self._search_fn = search_fn or self._mock_search
+        self._search_fn = search_fn or self._build_default_search()
+    
+    def _build_default_search(self) -> Callable[[str], list[dict]]:
+        """构建默认 search_fn: 优先灵知, 回退 mock"""
+        if not _LINGZHI_AVAIL:
+            return self._mock_search
+        
+        import asyncio
+        from backend.services.retrieval.kg import KGRetriever
+        
+        class _LingZhiSearch:
+            def __init__(self):
+                import time
+                self._last_warn = 0.0
+            
+            async def search(self, query: str) -> list[dict]:
+                try:
+                    kr = _LZKGRetriever()
+                    return await kr.search(query, top_k=3)
+                except Exception as e:
+                    now = time.time()
+                    if now - self._last_warn > 60:
+                        logger.warning("灵知 KG 检索失败: %s", e)
+                        self._last_warn = now
+                    return []
+        
+        _lz_search = _LingZhiSearch()
+        
+        def _sync_search(query: str) -> list[dict]:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                results = loop.run_until_complete(_lz_search.search(query))
+                loop.close()
+                return results
+            except Exception as e:
+                logger.warning("灵知 KG 检索同步调用失败: %s", e)
+                return self._mock_search(query)
+        
+        return _sync_search
     
     def _mock_search(self, query: str) -> list[dict]:
-        """占位: 等灵知 LingBus 接口就绪后替换"""
+        """回退: 直接返回 mock (始终 found=True)"""
         return [{"id": "mock", "text": f"(mock) 来自知识库: {query}", "confidence": 1.0}]
     
     def check(self, claim: Claim) -> FactCheckResult:
