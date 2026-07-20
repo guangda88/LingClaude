@@ -62,6 +62,8 @@ handover.*.json
 .mental_health/
 .lingfamily/
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.jsonl
 .env
