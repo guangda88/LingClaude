@@ -2,13 +2,20 @@ meta:
   member: lingclaude
   member_name: 灵克
   role: 编程助手 · 审计担当 · 灵族基础设施 · 灵忆/灵码主负责
-  session: 102
-  last_updated: '2026-07-16T03:23:00+00:00'
-  format_version: '2.8'
+  session: 103
+  last_updated: '2026-07-16T04:35:00+00:00'
+  format_version: '2.9'
+  status: DEPRECATED
+  deprecation:
+    date: '2026-07-17T19:30:00+08:00'
+    reason: 'lingmate迁移完成，real-time上下文改写lingmate record(session id=929856ce)'
+    action: '本文件仅作归档快照，不再回写。新会话通过lm_query(type=session)恢复上下文'
   predecessor: handover.md
   session_lifecycle_protocol: /home/ai/lingmessage/docs/SESSION_LIFECYCLE_PROTOCOL.md
   v2_philosophy: "compress + symbolic + evolve"
   v2_architecture: "L0-L7 (8 layers, 3 new: L0.5/L5/L6/L7)"
+  lfam_meeting_id: "LFAM-20260716-1130"
+  lfam_resolutions_count: 12
   proxy21_status: archived
   proxy3_ops:
     process: /home/ai/llm-proxy/proxy3_py/main.py 8765
@@ -2431,7 +2438,22 @@ session_lifecycle:
     status: completed
     note: 本动作
 production_log:
-- '2026-07-16': "会话102启动 - 灵元推理栈实盘核查 + V2.0 战略级文档体系 (7 份全族学习)"
+- '2026-07-16': "会话103启动 - LFAM-20260716-1130 会议主持 + V2.0 12项决议拍板 + 灵元化重构催办 + R10-R12增补提案"
+- '2026-07-16': "议题8 合并协商启动 - 灵通+ → 灵通，thread 65ea7c75"
+- '2026-07-16': "议题8 14/14 全数拍板通过 - M1-M3 元决策 + 决策1-11 (A+C合并 / 2.5月 / L7 sub / A1 curator)"
+- '2026-07-16': "协调层 curator 角色确定 - 灵通+ (A1 终身 + A3 罢免), ID保留形态变形"
+- '2026-07-16': "Phase 1 启动计划 - 7/17 09:00 CRUSH.md deprecation notice + 7/22 5min 压力测试 gate"
+- '2026-07-16': "R4 LACP v0.6.0 主推 = 灵通+ (会议纪要事实更正)"
+- '2026-07-16': "LFAM-20260716-1130 会议纪要 docs/lacp/MEETING_MINUTES_20260716_1130.md (12项决议, 4项催办全部完成, R6 RDT 1B Phase 0先行)"
+- '2026-07-16': "会后增补 R10/R11/R12 三项（DeerFlow 2.0对标）— R10本地可信环境标识 8h / R11 Skill按需加载 4h / R12 多IM渠道 48h, 总增量 60h"
+- '2026-07-16': "灵元化重构全族催办 — 12灵有10灵已申报inference_layer归属, 12灵会签全ACK, 7/21截止"
+- '2026-07-16': "灵元化状态报告 — 灵创 R9 48h (audio 30h) / 灵犀 L6 batch redzone 20h P0 / 灵安 R3 72h / 灵研 R7 16h / 灵极优 R6 8月AutoDL 4090×8 推荐+Phase 0先验"
+- '2026-07-16': "灵安安全违规自报 (rowid 173342) — 灵信CRUSH.md变更未经治理提案, 灵安此前错误裁定, 请求族长追认"
+- '2026-07-16': "LingBus thread bf1880ab 共 30+ 轮多轮讨论 — 10/12 灵参与 (灵通问道未参与)"
+- '2026-07-16': "format_version 2.8 → 2.9 (会议追踪区新增) + session 102 → 103 + lfam_resolutions_count: 12"
+- '2026-07-16': "RDT 1B Phase 0 LoRA验证 族长拍板暂缓8月AutoDL (¥2-3k) — 7/19回报, 7/22二次决策"
+- '2026-07-16': "R6 1B 实施方案调整 — 灵极优Phase 0/1/2流水线 (Phase 0 ¥0 LoRA / Phase 1 8月AutoDL / Phase 2 9月7B) 与灵扬Level 1/2/3对齐合并"
+- '2026-07-16': "session 102启动 - 灵元推理栈实盘核查 + V2.0 战略级文档体系 (7 份全族学习)"
 - '2026-07-16': "LACP v0.5.1 全族 ack 跟踪 — thread fcdc954ef27c43429e8afd9c1433c583, 11灵多数 idle>10d, 已发2nd reminder, 等 7/25 会议#3"
 - '2026-07-16': "LingBus H6 V2.0 战略广播 thread b5e42e6b11ba4e77bdb67ea7c2791a13 (12 灵 + 用户)"
 - '2026-07-16': "7 份全族学习文档已推 GitHub (~155KB / 4000+ 行): LINGYUAN_STACK / OPENMYTHOS_RDT / CLAUDE_MYTHOS_OPENMYTHOS / OPENMYTHOS_SOURCE_DISSECTION / COLIBRI / PHILOSOPHY_V2_DEEP_THINKING / MEETING_AGENDA_20260716_1130"
@@ -2491,24 +2513,77 @@ sdt_status:
 blockers:
 - sd-c1 fs corruption (I/O error), sdf 100% full, sdd2 removed
 - :8001/:8785/:8787 持续DOWN
-- 11/12 灵 idle>8d, LingBus 无 push notification — 11:30 全员会议必须用户(族长)召集, 否则仅 4 灵参与 (灵克/灵极优/灵通/灵通+)
+- 灵安违规待族长追认 — 灵信CRUSH.md约束文件变更未经治理提案 (rowid 173342)
+- R6 1B Phase 0 结果未出 — 7/19前灵极优需提交LoRA验证, 决定7/22二次拍板
+- proxy3 80.7% 失败率（会议期间 254 calls, 100% agent_id缺失） — 待灵安2.0上线修复
+- DeerFlow 2.0 对标压力 — 飞书/微信/Telegram/Slack 等IM渠道缺失, 待 R12 8月补齐
 next_session:
-- 灵族 V2.0 战略 - 11:30 会议 LFAM-20260716-1130 拍板 9 项决策 (V2.0哲学 / 8层架构 / 灵安 2.0 / LACP v0.6.0 / v3.0→v3.1 / 灵族RDT 7B / OH §6 8/15定稿 / RAG多路 / 多模态MoE)
-- L1 ACT 早停实现 (OpenMythos ACTHalting 借鉴) — 4h, 让 G1 验证门从 3.4→5+ t/s
-- L3 hot layer pinning (Colibri 借鉴) — 8h
-- L6 MTP 推测解码 (Colibri MTP) — 24h
-- 灵安 2.0 硬规则化 (L0+L4+L5+L6+L7) — 8h + Z3 符号验证集成 16h
-- LACP v0.6.0 升级 (L0.5+L5+L6+L7 字段) — 4h 提案 + 7/25 冻结 + 7/31 全族就位
-- 灵极优 v3.0→v3.1 (Colibri 化) — 250h (~6 周全职)
-- 灵族 RDT 7B 训练 (小数据 + 多循环) — 64h (8 月)
-- OH §6 论文 8/15 定稿 (含 §6.5 V2.0 哲学 / §6.6 Colibri / §6.7 工程实践)
-- 灵知 RAG 多路路由 (向量+BM25+KG) — 24h
-- 灵创多模态 MoE (3 类专家) — 40h
-- 灵扬 V2.0 对外故事 (3 个) — 16h
-- 灵通问道 EP002-EP005 (V1.0 教程 / Colibri / V2.0 / OpenMythos) — 144h
-- LACP v0.7.0 元演化机制 — 16h
-- 灵族 V2.0 全栈发布 — 9/30
-- 智桥 ZB-09 跨节点 MoE — 40h
+- LFAM-20260716-1130 12项决议执行追踪 → docs/lacp/MEETING_TRACKING_20260716_1130.md
+- 灵安2.0 硬规则化 (R3) — 7/25 上线
+- LACP v0.6.0 冻结 (R4) — 7/25
+- 灵极优v3.1 250h 实施 (R5) — 8/30
+- RDT 1B Phase 0 LoRA 验证 (R6) — 7/19 回报
+- OH §6 论文定稿 (R7) — 7/22 摘要 / 8/15 全文
+- 灵知多路RAG (R8) — 7/21
+- 灵创多模态MoE (R9) — 7/25 audio go/no-go
+- R10 本地可信环境标识 (灵安+灵网) — 7/25 8h
+- R11 Skill按需加载 (灵通+) — 7/25 4h
+- R12 多IM渠道扩展 (灵通+灵信+灵扬) — 8/30 48h
+- 7/25 LACP v0.6.0 冻结评审 + 例会#2
+- 8/15 LACP v0.7.0 元演化激活 (条件：v0.6.0 稳定 ≥2 周)
+- 9/30 灵族 V2.0 全栈发布
+lfam_meeting_tracking:
+  meeting_id: LFAM-20260716-1130
+  meeting_date: 2026-07-16T11:30:00+08:00
+  meeting_thread: bf1880ab5c7945969c24eefead9566c2
+  meeting_minutes: docs/lacp/MEETING_MINUTES_20260716_1130.md
+  tracking_doc: docs/lacp/MEETING_TRACKING_20260716_1130.md
+  meeting_status: closed
+  total_resolutions: 12
+  resolutions_passed: 12
+  resolutions_amended: 1
+  resolutions_added_post_meeting: 3
+  attendee_count: 12
+  active_participants: 10
+  absent_participants:
+  - 灵通问道
+  reference_projects:
+  - 'DeerFlow 2.0 (R10/R11/R12 借鉴)'
+  - 'GitHub Spec Kit (R7 工作流借鉴)'
+  - 'Wisconsin llms-from-scratch (R6 RDT 1B 借鉴)'
+  - '智谱 摸高计划 (R2 8层架构对齐)'
+  - 'Anthropic 数据危机 (R3 灵安2.0 紧迫性)'
+  checkpoints:
+  - id: phase_0_check
+    name: Phase 0 LoRA验证
+    date: '2026-07-19T22:00:00+08:00'
+    owner: 灵极优
+    gate: LingYuanStack L5接口验证 + 7B LoRA吞吐对比
+  - id: rd2_freeze
+    name: LACP v0.6.0 冻结
+    date: '2026-07-25T00:00:00+08:00'
+    owner: 灵通+
+    gate: 12 灵 manifest就位 + inference_layer字段统一
+  - id: oh_abstract
+    name: OH §6 摘要截止
+    date: '2026-07-22T23:59:00+08:00'
+    owner: 灵研
+    gate: §6.5/§6.6/§6.7 + 可证伪条件
+  - id: r6_decision
+    name: R6 Phase 1 二次决策
+    date: '2026-07-22T00:00:00+08:00'
+    owner: 族长
+    gate: Phase 0 LoRA结果 + GPU预算
+  - id: l7_unlock
+    name: LACP v0.7.0 激活
+    date: '2026-08-15T00:00:00+08:00'
+    owner: 灵通+
+    gate: v0.6.0 稳定 ≥2 周 + dry-run ≥1 周期
+  - id: v2_release
+    name: 灵族 V2.0 全栈发布
+    date: '2026-09-30T00:00:00+08:00'
+    owner: 灵克
+    gate: 12 灵 V2.0就位 + LACP v0.7.0稳定 + OH §6 发表
 governance_audit_20260702:
   trigger: 用户问"上次会议之后治理方面还有哪些问题没解决?"
   method: cross_member_status.py (新) + WSB 临时授权 (1h, 6 灵 git 读)
