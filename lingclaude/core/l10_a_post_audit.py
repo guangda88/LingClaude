@@ -24,15 +24,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
 # 灵极优 L10-B 信任锚点导入 (旁路, 与 T1 FactChecker 导入灵知同模式)
-_LINGMINOPT_PATH = "/home/ai/lingminopt"
+_LINGMINOPT_PATH = os.environ.get(
+    "LINGMINOPT_PATH", str(Path(__file__).parent.parent.parent.parent / "lingminopt")
+)
 if _LINGMINOPT_PATH not in sys.path:
     sys.path.insert(0, _LINGMINOPT_PATH)
 
@@ -51,7 +55,10 @@ except ImportError:
 # 用 importlib 绝对路径加载, 避免 lingmemory/security_gate.py 旧骨架覆盖
 import importlib.util as _importlib_util
 
-_LINGAN_MODULE_PATH = "/home/ai/lingan/security_gate.py"
+_LINGAN_MODULE_PATH = os.environ.get(
+    "LINGAN_SECURITY_GATE_PATH",
+    str(Path(__file__).parent.parent.parent.parent / "lingan" / "security_gate.py"),
+)
 try:
     _spec = _importlib_util.spec_from_file_location("lingan_security_gate", _LINGAN_MODULE_PATH)
     _lingan_mod = _importlib_util.module_from_spec(_spec)
