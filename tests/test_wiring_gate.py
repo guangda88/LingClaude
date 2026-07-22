@@ -176,6 +176,10 @@ class TestNoDeadModules:
         "governance_verifier.py",
         "reasoning_chain.py",
         "skill_parser.py",
+        # L7 cognitive layer - standalone, not wired into query_engine
+        "l7_cognitive.py",
+        "l7_cognitive_bridge.py",
+        "l10_a_post_audit.py",
     }
 
     # Names that are internal implementation details, not "dead code"
