@@ -1,0 +1,4 @@
+#!/bin/bash
+# 在 22G 内存硬顶 + 18G 软顶的 cgroup scope 中启动 atomcode
+# 用法: atomcode-capped [atomcode 参数...]
+exec systemd-run --user --scope --quiet -p MemoryMax=22G -p MemoryHigh=18G --description="atomcode L6 capped" atomcode "$@"
