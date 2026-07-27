@@ -3,14 +3,37 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 
 class RoleType(str, Enum):
     """灵族成员的角色类型"""
-    RULE_MAKER = "rule_maker"  # 规则制定者
-    REFEREE = "referee"  # 裁判
-    SCORE_KEEPER = "score_keeper"  # 计分员
-    PARTICIPANT = "participant"  # 参赛者
+    RULE_MAKER = "rule_maker"
+    REFEREE = "referee"
+    SCORE_KEEPER = "score_keeper"
+    PARTICIPANT = "participant"
+
+
+class GateType(str, Enum):
+    """证据门类别（L7/L10 v0.5.1）"""
+    ROLE = "role"
+    IDENTITY = "identity"
+    CREDENTIAL = "credential"
+    AUTHORIZATION = "authorization"
+
+
+class EvidenceVerdict(str, Enum):
+    """证据验证结果"""
+    PASS = "pass"
+    FAIL = "fail"
+    GRAY = "gray"
+
+
+class FailClosedAction(str, Enum):
+    """fail-closed 时的具体动作"""
+    BLOCK = "block"
+    DOUBLE_SIGN = "double_sign"
+    ALERT = "alert"
 
 
 @dataclass
@@ -211,6 +234,146 @@ class RoleConflictChecker:
             "allowed": True,
         }
 
+    def validate_operation(
+        self,
+        action: str,
+        evidence: dict[str, Any],
+        *,
+        strict: bool = False,
+    ) -> dict[str, Any]:
+        """验证操作含必需 evidence 字段（L7/L10 工程化 v0.2）。
+
+        Args:
+            action: 操作名（如 "edit", "write", "deploy"）
+            evidence: 证据字典，必须含 gate_id / gate_type / evidence_payload / verdict
+            strict: 严格模式（额外要求 owner_sign + commit_hash）
+
+        Returns:
+            dict 含 allowed / reason / missing_fields / fail_closed_action
+        """
+        required = {"gate_id", "gate_type", "evidence_payload", "verdict"}
+        if strict:
+            required = required | {"owner_sign", "commit_hash"}
+
+        missing = required - set(evidence.keys())
+        if missing:
+            return {
+                "allowed": False,
+                "reason": f"missing required evidence fields: {sorted(missing)}",
+                "missing_fields": sorted(missing),
+                "fail_closed_action": FailClosedAction.BLOCK.value,
+            }
+
+        gate_type = evidence.get("gate_type")
+        if gate_type not in {g.value for g in GateType}:
+            return {
+                "allowed": False,
+                "reason": f"invalid gate_type: {gate_type}",
+                "missing_fields": [],
+                "fail_closed_action": FailClosedAction.BLOCK.value,
+            }
+
+        verdict = evidence.get("verdict")
+        if verdict == EvidenceVerdict.FAIL.value:
+            return {
+                "allowed": False,
+                "reason": f"evidence verdict is fail: {evidence.get('evidence_payload', {})}",
+                "missing_fields": [],
+                "fail_closed_action": evidence.get(
+                    "fail_closed_action", FailClosedAction.BLOCK.value
+                ),
+            }
+
+        return {
+            "allowed": True,
+            "reason": "evidence validated",
+            "missing_fields": [],
+            "fail_closed_action": evidence.get(
+                "fail_closed_action", FailClosedAction.ALERT.value
+            ),
+        }
+
+    def check_role_boundary(self, context: dict[str, Any]) -> dict[str, Any]:
+        """检查角色越位（L7/L10 工程化 v0.2）。
+
+        场景:
+        - 议程 owner vs 召集人 vs 主持人 三层身份不能由同一灵担任
+        - REFEREE 不能同时是 PARTICIPANT
+        - RULE_MAKER 不能 vote 自己提的案
+
+        Args:
+            context: 含 agent_id, action, agenda_owner, convener, host 字段
+
+        Returns:
+            dict 含 allowed / reason / boundary_violation
+        """
+        agent_id = context.get("agent_id")
+        if not agent_id:
+            return {
+                "allowed": False,
+                "reason": "missing agent_id in context",
+                "boundary_violation": "missing_agent",
+            }
+
+        agent = next((a for a in self.agent_roles if a.agent_id == agent_id), None)
+        if not agent:
+            return {
+                "allowed": False,
+                "reason": f"agent '{agent_id}' not found",
+                "boundary_violation": "unknown_agent",
+            }
+
+        if not agent.enabled:
+            return {
+                "allowed": False,
+                "reason": f"agent '{agent_id}' is disabled",
+                "boundary_violation": "disabled_agent",
+            }
+
+        # 检查议程角色越位
+        agenda_owner = context.get("agenda_owner")
+        convener = context.get("convener")
+        host = context.get("host")
+
+        if agenda_owner and convener and host:
+            distinct = {agenda_owner, convener, host}
+            if len(distinct) < 3:
+                return {
+                    "allowed": False,
+                    "reason": (
+                        f"议程角色重叠: owner={agenda_owner}, "
+                        f"convener={convener}, host={host} 必须是 3 个不同灵"
+                    ),
+                    "boundary_violation": "agenda_role_overlap",
+                }
+
+        action = context.get("action")
+        if action and not agent.can_perform_action(action):
+            return {
+                "allowed": False,
+                "reason": (
+                    f"agent '{agent_id}' (roles={[r.role_type.value for r in agent.roles]}) "
+                    f"cannot perform action '{action}'"
+                ),
+                "boundary_violation": "action_not_allowed",
+            }
+
+        # RULE_MAKER 不能 vote 自己提的案
+        if action == "vote_rule_change" and agent.has_role(RoleType.RULE_MAKER):
+            proposal_owner = context.get("proposal_owner")
+            if proposal_owner == agent_id:
+                return {
+                    "allowed": False,
+                    "reason": f"RULE_MAKER '{agent_id}' cannot vote on own proposal",
+                    "boundary_violation": "self_vote",
+                }
+
+        return {
+            "allowed": True,
+            "reason": "role boundary ok",
+            "boundary_violation": None,
+        }
+
 
 def create_lingclaude_role_separation() -> RoleConflictChecker:
     """创建灵克的角色分离配置
@@ -331,5 +494,5 @@ def load_role_config(path: Path) -> RoleConflictChecker:
     return RoleConflictChecker(agent_roles=agent_roles)
 
 
-# 类型注解导入
-from typing import Any
+# 类型注解导入（保留向后兼容）
+from typing import Any  # noqa: F401
