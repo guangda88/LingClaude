@@ -41,6 +41,8 @@ from lingclaude.core.handover import (
 )
 from lingclaude.core.handover import TaskStatus as HandoverTaskStatus
 
+from lingclaude.core.lm_quick import lm_done, lm_block, lm_status
+
 from lingclaude.core.governance import GovernanceGate, GovernanceCheckResult
 from lingclaude.core.safe_db import serialized_write
 from lingclaude.core.reasoning_chain import (
