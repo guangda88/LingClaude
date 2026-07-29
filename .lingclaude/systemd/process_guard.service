@@ -1,0 +1,16 @@
+[Unit]
+Description=灵族 process resource guard (L7/L10 v0.5 P3)
+Documentation=https://docs/lacp/L7_L10_ENGINEERING_PLAN.md
+After=local-fs.target
+ConditionACPower=true
+
+[Service]
+Type=oneshot
+User=ai
+ExecStart=/usr/bin/python3 /home/ai/lingclaude/scripts/process_guard.py check
+Nice=19
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

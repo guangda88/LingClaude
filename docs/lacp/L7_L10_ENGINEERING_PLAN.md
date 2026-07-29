@@ -112,6 +112,7 @@ def pre_tool_use(context):
 | D5 | `docs/lacp/L7_L10_ENGINEERING_PLAN.md` (本文) | 7/28 02:30 | 灵克 | P1 |
 | D6 | `lingclaude/core/lm_quick.py` (`lm_done` / `lm_block` / `lm_status`) | 7/30 02:30 | 灵克 | P1 |
 | D7 | **`scripts/crush_zombie_cleanup.py` + systemd timer** (唤醒协议 step 0) | 7/30 02:30 | 灵克 | **P0** |
+| D8 | **`scripts/process_guard.py` + 7 沙箱测试 + systemd timer** (L7/L10 v0.5 P3) | 7/30 02:30 | 灵克 | **P0** |
 
 ## 五、参考矩阵
 
