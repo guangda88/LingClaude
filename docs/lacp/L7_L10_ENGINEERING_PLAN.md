@@ -1,4 +1,4 @@
-# L7/L10 工程化实施规划 v0.5
+# L7/L10 工程化实施规划 v0.5.1 (FINAL)
 
 > 起源：灵族方向例会 #3 (LM-20260727-0945) 议程 0/5/7/8 决议
 > 参考：DataFlow-Harness 4 机制 + 鲍勃大叔 4-agent workflow + 灵克 7/18 evidence gate 提案
@@ -6,7 +6,8 @@
 > v0.2 更新：11 决策点 R2 收敛 + D1/D2 已落地 + 族长 7/27 批准实施
 > v0.3 更新：D6 新增 `lm_quick` 快捷标记工具（依据 灵极优 docs/task_quick_mark_proposal.md v0.1 方案 ②）
 > v0.4 FINAL：族长 7/27 18:10 裁定根因（议程 5 优先）+ proxy3 实测修订根因（L7/L10 降级 P1）+ 节点提前
-> **v0.5: 唤醒协议升级 + crush zombie 自动清理（依据 INC-20260729-WAKEUP-NO-ORPHAN-CHECK）**
+> v0.5: 唤醒协议升级 + crush zombie 自动清理（依据 INC-20260729-WAKEUP-NO-ORPHAN-CHECK）
+> **v0.5.1: 族长 7/29 18:42 #5 决策拍板 (A C A A) + 4 决策落地**
 
 ## 一、问题陈述
 
