@@ -276,7 +276,7 @@ def report(findings: dict) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("check", help="只检查")
+    sub.add_parser("check", help="只检查 (always rc=0, 检查完成即成功)")
     sub.add_parser("clean", help="检查 + kill long_run_abnormal + T-state")
     sub.add_parser("preflight", help="推理前 (rc=2 拒启动)")
     parser.add_argument("--max-kill", type=int, default=20, help="clean 模式最大 kill 数")
@@ -295,10 +295,10 @@ def main() -> int:
     findings["long_run_normal"] = n1
     findings["long_run_abnormal"] = n2
 
-    rc = report(findings)
+    report(findings)
 
     killed = []
-    if args.cmd in ("clean", "preflight"):
+    if args.cmd == "clean":
         # 杀 T 状态 (SIGCONT → SIGTERM → SIGKILL)
         for p in findings["t_state"][: args.max_kill]:
             try:
@@ -306,23 +306,28 @@ def main() -> int:
                 time.sleep(0.2)
                 os.kill(p["pid"], signal.SIGTERM)
                 time.sleep(0.5)
-                os.kill(p["pid"], 0)  # 测试
-            except ProcessLookupError:
+                os.kill(p["pid"], 0)
+            except (ProcessLookupError, PermissionError):
                 pass
             try:
                 os.kill(p["pid"], signal.SIGKILL)
                 killed.append(p["pid"])
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 pass
         # 杀 long_run_abnormal
         killed += kill_pids([p["pid"] for p in findings["long_run_abnormal"][: args.max_kill]])
+    # preflight: 只检查不 kill, 拒启动靠 rc=2 表达
 
     audit_log(findings, killed)
 
+    # 关键: check 模式 永远 rc=0 (timer 一致性)
+    #         preflight 模式 rc=2 仅当有异常 (拒启动)
+    #         clean 模式 rc=0 (清理成功即 OK)
     if args.cmd == "preflight" and (findings["t_state"] or findings["defunct"] or findings["long_run_abnormal"]):
-        print(f"\n[!!] preflight 拒启动: {len(findings['t_state']) + len(findings['defunct']) + len(findings['long_run_abnormal'])} 待清理")
+        n = len(findings["t_state"]) + len(findings["defunct"]) + len(findings["long_run_abnormal"])
+        print(f"\n[!!] preflight 拒启动: {n} 待清理")
         return 2
-    return rc
+    return 0
 
 
 if __name__ == "__main__":
