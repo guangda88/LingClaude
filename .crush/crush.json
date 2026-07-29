@@ -1,0 +1,48 @@
+{
+  "default_provider": "lingclan_proxy",
+  "default_small_model": {
+    "model": "glm-4-flash-250414",
+    "provider": "lingclan_proxy"
+  },
+  "options": {
+    "disable_auto_summarize": true,
+    "session_persistence": false,
+    "extra_headers": {
+      "X-Agent-Id": "lingclaude"
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "command": "python3 /home/ai/lingclaude/.lingclaude/hooks/pre_tool_use.py",
+        "timeout": 5
+      },
+      {
+        "matcher": "^(edit|write|multiedit)$",
+        "command": "/home/ai/lingclaude/.lingclaude/hooks/pre-edit-check-perm.sh",
+        "timeout": 5
+      },
+      {
+        "matcher": "^bash$",
+        "command": "/home/ai/lingclaude/.lingclaude/hooks/pre-bash-delete-check.sh",
+        "timeout": 5
+      },
+      {
+        "matcher": "^bash$",
+        "command": "python3 /home/ai/lingclaude/.lingclaude/hooks/pre-commit-linggit.py",
+        "timeout": 30
+      }
+    ]
+  },
+  "mcp": {
+    "ling-term-mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/home/ai/lingxi/dist/cli.js"
+      ]
+    }
+  },
+  "disable_default_providers": true
+}
