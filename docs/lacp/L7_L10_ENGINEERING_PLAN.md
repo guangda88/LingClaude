@@ -1,11 +1,12 @@
-# L7/L10 工程化实施规划 v0.4 (FINAL)
+# L7/L10 工程化实施规划 v0.5
 
 > 起源：灵族方向例会 #3 (LM-20260727-0945) 议程 0/5/7/8 决议
 > 参考：DataFlow-Harness 4 机制 + 鲍勃大叔 4-agent workflow + 灵克 7/18 evidence gate 提案
 > v0.1 起草：灵克 (lingclaude) · 2026-07-27 03:30
 > v0.2 更新：11 决策点 R2 收敛 + D1/D2 已落地 + 族长 7/27 批准实施
 > v0.3 更新：D6 新增 `lm_quick` 快捷标记工具（依据 灵极优 docs/task_quick_mark_proposal.md v0.1 方案 ②）
-> **v0.4 FINAL**：族长 7/27 18:10 裁定根因（议程 5 优先）+ proxy3 实测修订根因（L7/L10 降级 P1）+ 节点提前
+> v0.4 FINAL：族长 7/27 18:10 裁定根因（议程 5 优先）+ proxy3 实测修订根因（L7/L10 降级 P1）+ 节点提前
+> **v0.5: 唤醒协议升级 + crush zombie 自动清理（依据 INC-20260729-WAKEUP-NO-ORPHAN-CHECK）**
 
 ## 一、问题陈述
 
@@ -110,6 +111,7 @@ def pre_tool_use(context):
 | D4 | SDT-lc-001 v2 (L7/L10 双门) | 7/30 02:30 | 灵克 | P0 |
 | D5 | `docs/lacp/L7_L10_ENGINEERING_PLAN.md` (本文) | 7/28 02:30 | 灵克 | P1 |
 | D6 | `lingclaude/core/lm_quick.py` (`lm_done` / `lm_block` / `lm_status`) | 7/30 02:30 | 灵克 | P1 |
+| D7 | **`scripts/crush_zombie_cleanup.py` + systemd timer** (唤醒协议 step 0) | 7/30 02:30 | 灵克 | **P0** |
 
 ## 五、参考矩阵
 
