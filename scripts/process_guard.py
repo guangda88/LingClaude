@@ -250,6 +250,108 @@ def audit_log(findings: dict, killed: list[int]) -> None:
         pass
 
 
+NRESTARTS_SNAPSHOT = Path(
+    os.environ.get("PROC_GUARD_NRESTARTS_SNAP", "/home/ai/lingclaude/.lingclaude/nrestarts_snapshot.json")
+)
+
+
+def check_service_storms(threshold_abs: int = 50, threshold_delta: int = 10) -> list[str]:
+    """服务重启风暴检测 (INCIDENT_20260807: zhibridge 42743 次重启是放大器).
+
+    绝对值 >= threshold_abs 标记历史风暴 unit;
+    与上次快照对比 delta >= threshold_delta 标记进行中风暴;
+    zhibridge 专项: active 但 NRestarts 增长 = TTY 修复倒退 (atomcode P1-c).
+    返回告警描述列表 (空 = 健康).
+    """
+    import json
+
+    alerts: list[str] = []
+    try:
+        r = subprocess.run(
+            ["systemctl", "--system", "show", "*.service", "-p", "Id", "-p", "NRestarts", "-p", "ActiveState"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode != 0:
+            return [f"systemctl show 读取失败 rc={r.returncode}"]
+    except Exception as e:
+        return [f"systemctl show 异常 {e}"]
+
+    current: dict[str, tuple[int, str]] = {}
+    n = 0
+    state = ""
+    for line in r.stdout.splitlines():
+        if line.startswith("NRestarts="):
+            n = int(line.split("=", 1)[1] or 0)
+        elif line.startswith("ActiveState="):
+            state = line.split("=", 1)[1]
+        elif line.startswith("Id="):
+            unit = line.split("=", 1)[1]
+            current[unit] = (n, state)
+            n = 0
+            state = ""
+
+    for unit, (cnt, st) in current.items():
+        if cnt >= threshold_abs:
+            alerts.append(f"{unit}: NRestarts={cnt} (历史风暴, state={st})")
+
+    try:
+        prev = json.loads(NRESTARTS_SNAPSHOT.read_text()) if NRESTARTS_SNAPSHOT.exists() else {}
+    except Exception:
+        prev = {}
+    for unit, (cnt, st) in current.items():
+        delta = cnt - int(prev.get(unit, cnt))
+        if delta >= threshold_delta:
+            alerts.append(f"{unit}: NRestarts +{delta} 自上次巡检 (进行中风暴!)")
+    zb = current.get("zhibridge.service")
+    if zb and zb[1] == "active":
+        delta = zb[0] - int(prev.get("zhibridge.service", zb[0]))
+        if delta > 0:
+            alerts.append(f"zhibridge.service: active 但 NRestarts +{delta} (TTY 修复倒退?, atomcode P1-c)")
+
+    try:
+        NRESTARTS_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
+        NRESTARTS_SNAPSHOT.write_text(json.dumps({u: c for u, (c, _) in current.items()}))
+    except Exception:
+        pass
+    return alerts
+
+
+def check_protection_layers() -> list[str]:
+    """保护层存活检查 (INCIDENT_20260807: swapoff/stop earlyoom 手动拆除后无人知晓).
+
+    三项保护层任一缺失 -> 返回缺失描述列表 (空 = 全健康).
+    """
+    missing = []
+    try:
+        r = subprocess.run(
+            ["swapon", "--show", "--noheadings"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if not r.stdout.strip():
+            missing.append("swap: 无活跃 swap (8/1 swapoff 事故重演风险)")
+    except Exception as e:
+        missing.append(f"swap: 检查失败 {e}")
+    try:
+        r = subprocess.run(
+            ["pgrep", "-x", "earlyoom"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode != 0:
+            missing.append("earlyoom: 未运行 (8/2 stop 事故重演风险)")
+    except Exception as e:
+        missing.append(f"earlyoom: 检查失败 {e}")
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "memory-watchdog.timer"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if r.stdout.strip() != "active":
+            missing.append(f"memory-watchdog.timer: {r.stdout.strip() or 'inactive'}")
+    except Exception as e:
+        missing.append(f"memory-watchdog.timer: 检查失败 {e}")
+    return missing
+
+
 def report(findings: dict) -> int:
     """打印报告. 返回 rc (0 健康, 1 警告)."""
     print("=== process_guard report ===")
@@ -270,6 +372,14 @@ def report(findings: dict) -> int:
             pid = p.get("pid", "?")
             cmd = p.get("cmd", "?")
             print(f"    PID {pid:7d} | etime={etime:15s} | {cmd}{extra}")
+    layers = findings.get("protection_layers", [])
+    print(f"  保护层缺失 (swap/earlyoom/watchdog.timer): {len(layers)}")
+    for m in layers:
+        print(f"    [!] {m}")
+    storms = findings.get("service_storms", [])
+    print(f"  服务重启风暴 (NRestarts): {len(storms)}")
+    for m in storms:
+        print(f"    [!] {m}")
     return 1 if (findings["t_state"] or findings["defunct"] or findings["long_run_abnormal"]) else 0
 
 
@@ -290,6 +400,8 @@ def main() -> int:
         "long_run_normal": [],
         "long_run_abnormal": [],
         "high_cpu": check_high_cpu(),
+        "protection_layers": check_protection_layers(),
+        "service_storms": check_service_storms(),
     }
     n1, n2 = check_long_run(procs, chain)
     findings["long_run_normal"] = n1
@@ -318,6 +430,15 @@ def main() -> int:
         killed += kill_pids([p["pid"] for p in findings["long_run_abnormal"][: args.max_kill]])
     # preflight: 只检查不 kill, 拒启动靠 rc=2 表达
 
+    # 保护层缺失: 任何模式都打印醒目告警 (check 模式 rc 仍为 0, timer 一致性)
+    if findings["protection_layers"]:
+        print("\n[!!] CRITICAL 保护层被拆除, 参考 INCIDENT_20260807:")
+        for m in findings["protection_layers"]:
+            print(f"     - {m}")
+    if findings.get("service_storms"):
+        print("\n[!!] 服务重启风暴告警:")
+        for m in findings["service_storms"]:
+            print(f"     - {m}")
     audit_log(findings, killed)
 
     # 关键: check 模式 永远 rc=0 (timer 一致性)
