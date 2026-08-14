@@ -17,6 +17,18 @@ from typing import Any
 from lingmemory import LingMemory
 
 
+# L6 changeset 覆盖：灵克仓 lingclaude/governance/ 目录及下辖路径。
+# 任何修改都触发 gray_zone 双签流转。
+_GOVERNANCE_PATH_RE = re.compile(r"(^|/)lingclaude/governance(/|/)")
+
+
+def _is_governance_path(path: str) -> bool:
+    """判定路径是否在灵克仓 governance 目录内（用于 L6 changeset 触发）。"""
+    if not path:
+        return False
+    return bool(_GOVERNANCE_PATH_RE.search(path))
+
+
 class GrayZonePending(Exception):
     """灰区挂起: diff 命中灰区规则，等双签决议"""
 
@@ -44,12 +56,16 @@ class LingGitBot:
         db_path: str,
         registry_path: str | None = None,
         rules_dir: str = "",
+        llm_review: dict | None = None,
     ):
         self.lm = LingMemory(db_path)
         if registry_path:
             from lingmemory.core import TypeRegistry
             self.lm.registry = TypeRegistry()
         self.rules_dir = rules_dir
+        # LLM 复核插片（可选，默认关闭）: 语义层二次确认，剔除规则误报
+        from linggit.llm_review import LLMReviewer
+        self._llm = LLMReviewer(llm_review or {})
         # 确保 schema 存在
         from lingmemory.core import init_db
         init_db(db_path)
@@ -71,7 +87,24 @@ class LingGitBot:
         # 1. 创建 security_gate record (复用灵安主干)
         # issues 和 risk_level 放入 data，report() 可直接读取
         issues = self._analyze_diff(diff_text, files)
+        issues = self._llm.review(issues)  # LLM 复核插片: 剔除规则误报 (fail-open)
         risk = self._assess_risk(issues)
+
+        # L6 changeset: 灵克 governance 目录强制走 gray_zone（等灵安/灵通双签）
+        governance_paths = [f for f in files if _is_governance_path(f)]
+        governance_note = None
+        if governance_paths:
+            issues = list(issues) + [{
+                "rule": "L6-changeset-governance",
+                "severity": "high",
+                "file": ",".join(governance_paths),
+                "description": "governance 目录变更强制 L6 changeset 灰区双签",
+                "fix": "需灵安/灵通双签通过后流转",
+            }]
+            risk = "high"
+            governance_note = (
+                f"L6 changeset gate 触发：{len(governance_paths)} 个 governance 路径文件"
+            )
 
         gate_id = self.lm.create(
             type="security_gate",
@@ -83,6 +116,7 @@ class LingGitBot:
                 "project": project,
                 "issues": issues,
                 "risk_level": risk,
+                **({"governance_note": governance_note} if governance_note else {}),
             },
             created_by="linggit-bot",
         )
@@ -124,6 +158,10 @@ class LingGitBot:
                 return json.loads(value)
             except (json.JSONDecodeError, TypeError):
                 pass
+            return default
+        # list/dict 等结构体原样返回（存储时已是对象，非 JSON 字符串）
+        if value is not None:
+            return value
         return default
 
     def report(self, gate_id: str) -> dict:
@@ -138,6 +176,13 @@ class LingGitBot:
         files = d.get("target", "").split(",") if d.get("target") else []
         risk = d.get("risk_level", "unknown")
 
+        # LLM 复核 verdict 汇总（若启用且 issues 带 llm_verdict 字段）
+        verdict_counts = {}
+        for i in issues:
+            v = i.get("llm_verdict")
+            if v:
+                verdict_counts[v] = verdict_counts.get(v, 0) + 1
+
         return {
             "gate_id": gate_id,
             "state": record.get("state", "unknown"),
@@ -147,6 +192,7 @@ class LingGitBot:
             "risk_level": risk,
             "issue_count": len(issues),
             "issues": issues,
+            "llm_verdicts": verdict_counts,  # 双标注: 规则命中 + LLM 语义判定
             "summary": self._generate_summary(risk, files, issues),
         }
 
@@ -320,6 +366,7 @@ class LingGitBot:
                     all_issues.append(issue)
 
         elapsed = time.time() - t0
+        all_issues = self._llm.review(all_issues)  # LLM 复核插片: 剔除规则误报 (fail-open)
         risk = self._assess_risk(all_issues)
 
         sev_counts = {}
