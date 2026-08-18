@@ -172,6 +172,16 @@ class QueryEngine:
         self._role_checker = create_lingclaude_role_separation()
         self._l5_loop = L5ConversationLoop(l5_session_id=self.session_id)
         self._l5_orchestrator: Any = None  # lazy init
+        # LINGKERNEL_v1 D3: 拆包模块注入 (dsh spine 对位)
+        from lingclaude.core.session_store import SessionStore
+        from lingclaude.core.model_adapter import ModelAdapter
+        from lingclaude.core.audit_collector import AuditCollector
+        from lingclaude.core.model_request_log import ModelRequestLog
+        self.session_store = SessionStore(self.session_manager, self.session_id)
+        self.model_adapter = ModelAdapter(self._provider)
+        self.audit_collector = AuditCollector()
+        self.model_request_log = ModelRequestLog()
+        self._mv1_violations: list[str] = []
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
@@ -1151,6 +1161,8 @@ class QueryEngine:
         messages = self._build_messages(prompt)
         tools = self._build_openai_tools(query=prompt)
         resolved_config, decision = self._resolve_model_config(prompt)
+        # LINGKERNEL_v1 D3: MV-1 上线 - 发模型前先落 log, 发完断言可重建
+        mv1_seq = self._log_model_request(prompt, messages, tools)
         used_tools = False
         response = None
         total_input = 0
@@ -1161,6 +1173,8 @@ class QueryEngine:
             result = self._provider.complete(
                 tuple(messages), config=resolved_config, tools=tools,
             )
+            # MV-1 断言: 实际发往模型的消息必须可从 log 重建
+            self._assert_model_visible(mv1_seq, messages)
             if result.is_error:
                 consecutive_failures += 1
                 self._track_behavior(prompt, f"[模型调用失败] {result.error}", used_tools=False)
@@ -1219,6 +1233,53 @@ class QueryEngine:
 
         content = response.content if response and response.content else "[达到最大工具调用轮次]"
         return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+
+    def _log_model_request(self, prompt: str, messages: list, tools: Any) -> int:
+        """MV-1 L-a: model-visible means logged. 返回 seq 供事后断言。"""
+        from lingclaude.core.model_request_log import check_model_visible_invariant  # noqa: F401
+        try:
+            tool_names = tuple(
+                t.get("function", {}).get("name", "")
+                for t in (tools or [])
+                if isinstance(t, dict)
+            )
+            snapshot = [
+                m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
+                for m in messages
+            ]
+            from datetime import datetime, timezone as _tz
+            ev = self.model_request_log.append(
+                prompt=prompt,
+                messages=snapshot,
+                tool_names=tool_names,
+                timestamp=datetime.now(_tz.utc).isoformat(),
+            )
+            return ev.seq
+        except Exception as e:
+            logger.warning("model_request_log append failed: %s", e)
+            return -1
+
+    def _assert_model_visible(self, seq: int, messages: list) -> None:
+        """MV-1 断言: derive(log.prefix(seq)) == 实际发送。违反记入告警列表。"""
+        from lingclaude.core.model_request_log import check_model_visible_invariant
+        if seq < 0:
+            return
+        try:
+            snapshot = [
+                m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
+                for m in messages
+            ]
+            ok, reason = check_model_visible_invariant(self.model_request_log, seq, snapshot)
+            if not ok:
+                self._mv1_violations.append(reason)
+                logger.warning("MV-1 violated: %s", reason)
+        except Exception as e:
+            logger.warning("MV-1 assert failed to run: %s", e)
+
+    @property
+    def mv1_violations(self) -> tuple[str, ...]:
+        """MV-1 违规记录 (供灵信 invariant 框架 / LACP 验收消费)。"""
+        return tuple(self._mv1_violations)
 
     def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
         from lingclaude.model.types import ModelMessage, MessageRole, ModelUsage, ToolCall

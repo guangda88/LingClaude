@@ -1,0 +1,255 @@
+"""LINGKERNEL_v1 task #2 — Tool execution pipeline (5 段 waterfall).
+
+dsh reference: docs/tool-execution-pipeline.md
+  tool/call (logged)
+   → tools/pre-execute (hooks, permission, sandbox)
+   → monotonic guards (deny or abstain, identity protected)
+   → tools/execute (around-dispatch: timeout, retry, metrics)
+   → tools/post-execute (accept, block, replace, add context)
+   → finalizeContent (last content-only invariant)
+   → tools/result (frozen authoritative outcome)
+
+本模块提供 ToolPipeline 类, 实现 5 段流水线。
+CodingRuntime.execute_tool 调用本模块 (替代原 inline 实现)。
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass
+from typing import Any, Callable
+
+from lingclaude.core.types import Result
+from lingclaude.engine.tools import ToolDefinition, ToolRegistry
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PipelineContext:
+    """Tool execution 5 段间的共享上下文。
+
+    每段可读 + 修改; 写后可见。
+    """
+
+    name: str
+    args: dict[str, Any]
+    raw_result: Any = None
+    is_error: bool = False
+    error_msg: str = ""
+    aborted: bool = False
+    abort_reason: str = ""
+    metrics: dict[str, Any] = None
+
+    def __post_init__(self):
+        if self.metrics is None:
+            self.metrics = {}
+
+
+@dataclass
+class GuardDecision:
+    """dsh monotonic guards 输出。
+
+    - decision: "allow" | "deny" | "abstain"
+    - reason: str (deny 时必填; abstain 时可选)
+    """
+
+    decision: str  # allow / deny / abstain
+    reason: str = ""
+
+
+# 默认危险命令模式 (从原 coding.py:620 迁移)
+DEFAULT_DANGEROUS_PATTERNS: tuple[str, ...] = (
+    "rm -rf /",
+    "mkfs",
+    "dd if=",
+    "> /dev/sd",
+    "chmod 777 /",
+    ":(){:|:&};:",
+)
+
+
+class ToolPipeline:
+    """5 段工具执行流水线。"""
+
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        *,
+        dangerous_patterns: tuple[str, ...] = DEFAULT_DANGEROUS_PATTERNS,
+        write_scoped_tools: tuple[str, ...] = (),
+        critical_tools: tuple[str, ...] = (),
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        self._registry = registry
+        self._dangerous = dangerous_patterns
+        self._write_scoped = set(write_scoped_tools)
+        self._critical = set(critical_tools)
+        self._timeout = timeout_seconds
+
+        # 5 段 listeners (可扩展)
+        self._pre_listeners: list[Callable[[PipelineContext], None]] = []
+        self._guards: list[Callable[[ToolDefinition, PipelineContext], GuardDecision]] = []
+        self._post_listeners: list[Callable[[PipelineContext], None]] = []
+
+    # ----- listeners 注册 (扩展点) -----
+
+    def add_pre_listener(self, fn: Callable[[PipelineContext], None]) -> None:
+        self._pre_listeners.append(fn)
+
+    def add_guard(
+        self, fn: Callable[[ToolDefinition, PipelineContext], GuardDecision]
+    ) -> None:
+        self._guards.append(fn)
+
+    def add_post_listener(self, fn: Callable[[PipelineContext], None]) -> None:
+        self._post_listeners.append(fn)
+
+    # ----- 5 段执行 -----
+
+    def execute(
+        self,
+        name: str,
+        args: dict[str, Any],
+        *,
+        permissions_blocks: Callable[[str], bool] | None = None,
+        rate_check: Callable[[], tuple[bool, str]] | None = None,
+        pre_write_verify: Callable[[str, Any, Any], tuple[bool, str]] | None = None,
+        post_write_verify: Callable[[str], tuple[bool, str]] | None = None,
+    ) -> dict[str, Any]:
+        """5 段流水线主入口。
+
+        permissions_blocks: 名字→bool (True = blocked)
+        rate_check: ()→ (passed, err_msg)
+        pre_write_verify: (name, content, new_text)→ (passed, err_msg)
+        post_write_verify: (file_path)→ (passed, err_msg)
+        """
+        ctx = PipelineContext(name=name, args=args)
+
+        # === 1. pre-execute waterfall (hooks) ===
+        if permissions_blocks is not None and permissions_blocks(name):
+            ctx.aborted = True
+            ctx.abort_reason = f"Tool blocked by permissions: {name}"
+            return self._error(ctx.abort_reason)
+        if rate_check is not None:
+            passed, err = rate_check()
+            if not passed:
+                ctx.aborted = True
+                ctx.abort_reason = f"[rate-limit] {err}"
+                return self._error(ctx.abort_reason)
+
+        # 危险命令检查 (从原 coding.py:618-624 迁移)
+        if name in self._critical:
+            cmd = args.get("command", "")
+            for pat in self._dangerous:
+                if pat in cmd:
+                    ctx.aborted = True
+                    ctx.abort_reason = f"[安全限制] 危险命令被阻止: 含有 '{pat}'"
+                    return self._error(ctx.abort_reason)
+
+        # 写前 verify
+        if name in self._write_scoped and pre_write_verify is not None:
+            content = args.get("content") or args.get("new_text") or args.get("new_body")
+            file_path = args.get("path") or args.get("file_path")
+            passed, err = pre_write_verify(name, file_path, content)
+            if not passed:
+                ctx.aborted = True
+                ctx.abort_reason = f"[verify-pre] {err}"
+                return self._error(ctx.abort_reason)
+
+        for fn in self._pre_listeners:
+            try:
+                fn(ctx)
+                if ctx.aborted:
+                    return self._error(ctx.abort_reason or "pre-listener aborted")
+            except Exception as e:
+                logger.warning("pre-listener raised: %s", e)
+
+        # === 2. monotonic guards ===
+        tool = self._registry.get(name)
+        if not tool.is_ok:
+            return self._error(f"Tool not found: {name}")
+        tool_def = tool.data
+
+        for guard in self._guards:
+            try:
+                dec = guard(tool_def, ctx)
+                if dec.decision == "deny":
+                    ctx.aborted = True
+                    ctx.abort_reason = f"[guard deny] {dec.reason}"
+                    return self._error(ctx.abort_reason)
+                # abstain = pass through
+            except Exception as e:
+                logger.warning("guard raised: %s", e)
+                # guard 异常: 视为 abstain (dsh 规则)
+
+        # === 3. tools/execute (around-dispatch: timeout, retry, metrics) ===
+        ctx.metrics["start_ts"] = time.time()
+        try:
+            res = self._dispatch_with_timeout(tool_def, args)
+            if res.is_error:
+                ctx.is_error = True
+                ctx.error_msg = str(res.error)
+                ctx.raw_result = None
+            else:
+                ctx.raw_result = res.data
+        except Exception as e:
+            ctx.is_error = True
+            ctx.error_msg = f"Tool execution failed: {e}"
+            logger.exception("dispatch failed for %s", name)
+        ctx.metrics["end_ts"] = time.time()
+        ctx.metrics["duration"] = ctx.metrics["end_ts"] - ctx.metrics["start_ts"]
+
+        if ctx.is_error:
+            return self._error(ctx.error_msg)
+
+        # === 4. post-execute waterfall ===
+        for fn in self._post_listeners:
+            try:
+                fn(ctx)
+                if ctx.aborted:
+                    return self._error(ctx.abort_reason or "post-listener aborted")
+            except Exception as e:
+                logger.warning("post-listener raised: %s", e)
+
+        # 写后 verify
+        if name in self._write_scoped and post_write_verify is not None:
+            file_path = args.get("path") or args.get("file_path")
+            passed, err = post_write_verify(file_path)
+            if not passed:
+                ctx.aborted = True
+                ctx.abort_reason = f"[verify-post] {err}"
+                return self._error(ctx.abort_reason)
+
+        # === 5. finalizeContent (last content-only invariant) ===
+        finalized = self._registry.finalize_result(name, args, ctx.raw_result)
+        if finalized is not None:
+            ctx.raw_result = finalized
+
+        # dsh 规则: finalize 返回值 = replacement content, 直接作为最终 result
+        # (ContentBlock[] 或 dict 都直接返回)
+        if isinstance(ctx.raw_result, (dict, list)):
+            return ctx.raw_result
+        return {"result": ctx.raw_result}
+
+    # ----- 内部 -----
+
+    def _dispatch_with_timeout(
+        self, tool_def: ToolDefinition, args: dict[str, Any]
+    ) -> Result[Any]:
+        """around-dispatch: 调用 handler。
+
+        当前简化版: 不实现真 timeout (需要 thread + signal 或 async)。
+        保留接口以供 #2 完整版替换。
+        """
+        if tool_def.handler is None:
+            return Result.fail(f"Tool has no handler: {tool_def.name}", code="NO_HANDLER")
+        try:
+            return Result.ok(tool_def.handler(**args))
+        except Exception as e:
+            return Result.fail(f"Tool execution failed: {e}", code="EXECUTION_ERROR")
+
+    def _error(self, msg: str) -> dict[str, Any]:
+        return {"error": msg, "pipeline_aborted": True}

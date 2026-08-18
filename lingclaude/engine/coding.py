@@ -23,6 +23,7 @@ from lingclaude.engine.indexer import index_project
 from lingclaude.engine.ast_edit import list_functions, replace_function_body
 from lingclaude.engine.stt import STTEngine
 from lingclaude.engine.verification_gate import VerificationGate, WRITE_SCOPED_TOOLS, CRITICAL_TOOLS
+from lingclaude.engine.tool_pipeline import ToolPipeline
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
 from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig
 
@@ -340,6 +341,13 @@ class CodingRuntime:
             )
         )
         self._plan_mode_active: bool = False
+        # LINGKERNEL_v1 #2: 5 段 pipeline (dsh tool-execution-pipeline 对位)
+        self.tool_pipeline = ToolPipeline(
+            self.registry,
+            write_scoped_tools=WRITE_SCOPED_TOOLS,
+            critical_tools=CRITICAL_TOOLS,
+            timeout_seconds=self.config.optimizer.timeout_seconds,
+        )
 
     def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
         result = self.bash.run(command)
@@ -601,6 +609,42 @@ class CodingRuntime:
         return {"query": query, "results": result.data}
 
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
+        # LINGKERNEL_v1 #2: 5 段 pipeline (pre-execute -> guards -> execute -> post -> finalize)
+        # 旧 inline 实现保留为 _execute_tool_legacy, pipeline 透传原有校验逻辑
+        def _pre_write_verify(tool_name: str, file_path: Any, content: Any) -> tuple[bool, str]:
+            if not self.verification_gate.enabled:
+                return True, ""
+            pre = self.verification_gate.verify(tool_name, file_path=file_path, content=content)
+            if pre.passed:
+                return True, ""
+            failed = [c for c in pre.checks if not c.get("passed", True)]
+            return False, f"[验证关卡] 写入被阻止: {pre.error} | failed_checks={failed}"
+
+        def _post_write_verify(file_path: Any) -> tuple[bool, str]:
+            if not self.verification_gate.enabled:
+                return True, ""
+            if not file_path:
+                return True, ""
+            post = self.verification_gate.verify_post_write(file_path)
+            if post.passed:
+                return True, ""
+            failed = [c for c in post.checks if not c.get("passed", True)]
+            return False, f"[验证关卡] 写入后验证失败: {post.error} | failed_checks={failed}"
+
+        rate = self.verification_gate.check_rate_limit()
+        rate_ok = rate.passed
+        rate_err = ("[安全限制] " + (getattr(rate, "error", "") or "rate limited")) if not rate_ok else ""
+
+        return self.tool_pipeline.execute(
+            name,
+            kwargs,
+            permissions_blocks=self.permissions.blocks,
+            rate_check=lambda: (rate_ok, rate_err),
+            pre_write_verify=_pre_write_verify,
+            post_write_verify=_post_write_verify,
+        )
+
+    def _execute_tool_legacy(self, name: str, **kwargs: Any) -> dict[str, Any]:
         if self.permissions.blocks(name):
             return {"error": f"Tool blocked by permissions: {name}"}
 
