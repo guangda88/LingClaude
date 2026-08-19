@@ -249,12 +249,21 @@ class QueryEngine:
     def layered_memory(self) -> LayeredMemory:
         return self._layered_memory
 
+    def _sync_session_store(self) -> None:
+        """LINGKERNEL_v1 D5 修复: 同步 session_store 与 engine 当前 session_id / CHECKPOINT_DIR.
+
+        测试用 monkeypatch.setattr("lingclaude.core.query_engine.CHECKPOINT_DIR", ...)
+        或直接 engine.session_id = "..." 改变运行时状态; SessionStore 在 __init__ 固化
+        两者会导致 has_checkpoint/save/load/clear 走错路径. 现场同步保持旧语义.
+        """
+        self.session_store.session_id = self.session_id
+        self.session_store._checkpoint_dir = CHECKPOINT_DIR
+
     @property
     def has_checkpoint(self) -> bool:
-        if self._active_checkpoint and self._active_checkpoint.exists():
-            return True
-        cp_path = CHECKPOINT_DIR / f"{self.session_id}.json"
-        return cp_path.exists()
+        # LINGKERNEL_v1 D5: 委托 session_store
+        self._sync_session_store()
+        return self.session_store.has_checkpoint
 
     @property
     def meta_cognition(self) -> MetaCognition:
@@ -547,12 +556,10 @@ class QueryEngine:
         return True
 
     def _clear_checkpoint(self) -> None:
-        if self._active_checkpoint and self._active_checkpoint.exists():
-            try:
-                self._active_checkpoint.unlink()
-            except OSError:
-                pass
-            self._active_checkpoint = None
+        # LINGKERNEL_v1 D5: 委托 session_store
+        self._sync_session_store()
+        self.session_store.clear_checkpoint()
+        self._active_checkpoint = None
 
     def _save_checkpoint(
         self,
@@ -563,47 +570,38 @@ class QueryEngine:
         total_input: int,
         total_output: int,
     ) -> None:
-        try:
-            CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-            cp_path = CHECKPOINT_DIR / f"{self.session_id}.json"
-            serialized: list[dict[str, Any]] = []
-            for msg in messages:
-                d = msg.to_dict()
-                serialized.append(d)
-            data = {
-                "session_id": self.session_id,
-                "prompt": prompt,
-                "round_idx": round_idx,
-                "used_tools": used_tools,
-                "total_input": total_input,
-                "total_output": total_output,
-                "messages": serialized,
-                "conversation": list(self._conversation),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            cp_path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-            self._active_checkpoint = cp_path
-            logger.info("Checkpoint saved: session=%s round=%d", self.session_id, round_idx)
-        except Exception as e:
-            logger.warning("Checkpoint save failed: %s", e)
+        # LINGKERNEL_v1 D5: 委托 session_store (内联序列化逻辑已迁移)
+        self._sync_session_store()
+        cp = self.session_store.save_checkpoint(
+            messages=messages,
+            round_idx=round_idx,
+            prompt=prompt,
+            used_tools=used_tools,
+            total_input=total_input,
+            total_output=total_output,
+            conversation=self._conversation,
+        )
+        if cp is not None:
+            self._active_checkpoint = cp
 
     def _load_checkpoint(self) -> dict[str, Any] | None:
-        cp_path = self._active_checkpoint or (CHECKPOINT_DIR / f"{self.session_id}.json")
-        if not cp_path.exists():
+        # LINGKERNEL_v1 D5: 委托 session_store, 返回 dict (兼容 resume_interrupted 旧调用)
+        self._sync_session_store()
+        cp_path = Path(self.session_store._checkpoint_dir) / f"{self.session_id}.json"
+        cd = self.session_store.load_checkpoint()
+        if cd is None:
             return None
-        try:
-            data = json.loads(cp_path.read_text(encoding="utf-8"))
-            if data.get("session_id") != self.session_id:
-                return None
-            self._active_checkpoint = cp_path
-            logger.info("Checkpoint loaded: session=%s round=%d", self.session_id, data.get("round_idx", 0))
-            return data
-        except Exception as e:
-            logger.warning("Checkpoint load failed: %s", e)
-            return None
+        self._active_checkpoint = cp_path
+        return {
+            "session_id": cd.session_id,
+            "prompt": cd.prompt,
+            "round_idx": cd.round_idx,
+            "used_tools": cd.used_tools,
+            "total_input": cd.total_input,
+            "total_output": cd.total_output,
+            "messages": cd.raw_messages,
+            "conversation": cd.saved_conversation,
+        }
 
     def resume_interrupted(self) -> Result[str]:
         from lingclaude.model.types import ModelMessage, MessageRole, ToolCall
@@ -1777,136 +1775,16 @@ class QueryEngine:
         return config, route_key
 
     def _build_adaptive_system_prompt(self) -> str:
-        base = (
-            "你是灵克，一个会自我进化的开源 AI 编程助手。\n"
-            "\n"
-            "核心规则:\n"
-            "1. 先判断用户意图：只有涉及具体代码、文件、项目结构的问题才需要调用工具。\n"
-            "2. 一般性对话、观点讨论、概念解释等非代码问题，直接回答，不要调用工具。\n"
-            "3. 回答代码相关问题时，必须先用工具（read/grep/glob）读取源码，不要猜测。\n"
-            "4. 如果用户指出你胡说或没读代码，立即使用工具重新阅读相关文件。\n"
-            "5. 你擅长代码理解、编辑、终端操作，并通过自优化持续提升能力。\n"
-            "6. 用中文回答，代码保持原样。"
+        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        return build_adaptive_system_prompt(
+            behavior=self._behavior,
+            layered_memory=self._layered_memory,
+            meta_cognition=self._meta_cognition,
+            messages=self._messages,
+            session_cache_hits=self._session_cache_hits,
+            dementia_detector=self._dementia_detector,
+            project_index=self._project_index,
         )
-
-        extras: list[str] = []
-        bm = self._behavior
-
-        memory_text = self._layered_memory.inject_common_to_prompt()
-        if memory_text:
-            extras.append("\n\n" + memory_text)
-
-        meta_text = self._meta_cognition.get_system_prompt_injection()
-        if meta_text:
-            extras.append("\n\n" + meta_text)
-
-        if bm.hallucination_risk > 0.3:
-            extras.append(
-                "\n⚠ 行为警告: 你近期幻觉风险较高({:.0%})。回答代码问题时必须先调用工具读取文件，绝对不能凭记忆猜测代码内容。一般性问题可以直接回答。".format(bm.hallucination_risk)
-            )
-
-        if bm.frustration_rate > 0.2:
-            extras.append(
-                "\n⚠ 用户状态: 用户近期频繁表现出沮丧({:.0%})。请格外仔细，回答代码问题前先读文件。".format(bm.frustration_rate)
-            )
-
-        if bm.tool_error_rate > 0.3:
-            extras.append(
-                "\n⚠ 工具问题: 近期工具调用失败率较高({:.0%})。请检查参数格式，确保文件路径正确。".format(bm.tool_error_rate)
-            )
-
-        if bm.corrections_received >= 2:
-            extras.append(
-                "\n⚠ 纠正记录: 已收到 {} 次用户纠正。请更加谨慎，确认信息准确后再回答。".format(bm.corrections_received)
-            )
-
-        if bm.total_turns > 2 and bm.tool_use_rate < 0.2:
-            extras.append(
-                "\n💡 提醒: 你近期工具使用率较低({:.0%})。面对代码相关问题请积极使用工具。".format(bm.tool_use_rate)
-            )
-
-        if bm.tool_error_count > 0:
-            try:
-                from lingclaude.core.data_flywheel import DataFlywheel
-                fw = DataFlywheel()
-                if fw.should_alert(threshold=0.5):
-                    stats = fw.get_stats()
-                    extras.append(
-                        f"\n⚠ 错误复发: 错误复发率 {stats.recurrence_rate:.0%}，"
-                        f"共 {stats.total_errors} 个错误，{stats.total_corrections} 个修复。"
-                        "请避免重复已犯过的错误。"
-                    )
-                fw.close()
-            except Exception as e:
-                logger.warning("feedback writer close failed: %s", e)
-
-        if self._session_cache_hits > 2:
-            extras.append(
-                f"\n📂 文件缓存: 本次会话已命中 {self._session_cache_hits} 次。"
-                "已读文件不需要重复读取。"
-            )
-
-        # Loop 1: Knowledge read-back — rules learned from past turns
-        try:
-            from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
-            kb = KnowledgeBase()
-            keyword = self._messages[-1][:50] if self._messages else ""
-            result = kb.search_rules(keyword=keyword, limit=5)
-            if result.is_ok and result.data:
-                rule_lines = [
-                    f"  - {r.description} (置信度={r.confidence:.0%})"
-                    for r in result.data
-                    if r.confidence > 0.5
-                ]
-                if rule_lines:
-                    extras.append(
-                        "\n📚 已学经验:\n" + "\n".join(rule_lines)
-                    )
-            # Also fetch high-confidence rules regardless of keyword
-            all_result = kb.get_all_rules(limit=3)
-            if all_result.is_ok and all_result.data:
-                existing_descs = {r.description for r in (result.data or [])}
-                general_lines = [
-                    f"  - {r.description} (置信度={r.confidence:.0%})"
-                    for r in all_result.data
-                    if r.confidence > 0.7 and r.description not in existing_descs
-                ]
-                if general_lines:
-                    extras.append(
-                        "\n📚 通用经验:\n" + "\n".join(general_lines)
-                    )
-            kb.close()
-        except Exception as e:
-            logger.warning("knowledge base close failed: %s", e)
-
-        # Loop 2: Experience injection — recall relevant past experiences
-        try:
-            current_query = self._messages[-1] if self._messages else ""
-            experience_text = self._layered_memory.build_context_injection(
-                current_query=current_query,
-            )
-            if experience_text and len(experience_text) > 50:
-                extras.append("\n\n" + experience_text)
-        except Exception as e:
-            logger.warning("layered memory build_context_injection failed: %s", e)
-
-        diagnosis = self._dementia_detector.diagnose()
-        if diagnosis.intervention_prompt:
-            extras.append("\n\n" + diagnosis.intervention_prompt)
-
-        project_index = self._project_index
-        if project_index:
-            pkg_summary = "\n".join(
-                f"- {pkg}/: {', '.join(sorted(files[:5]))}"
-                for pkg, files in sorted(project_index.items())
-                if pkg != "."
-            )
-            if pkg_summary:
-                extras.append(
-                    "\n📁 当前项目结构:\n" + pkg_summary
-                )
-
-        return base + "".join(extras)
 
     def _execute_tool_with_retry(self, name: str, arguments_json: str) -> str:
         result = self._execute_tool(name, arguments_json)
@@ -2001,102 +1879,13 @@ class QueryEngine:
             logger.warning("Session history write failed: %s", e)
 
     def _learn_from_turn(self, prompt: str, response: str) -> None:
-        try:
-            from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
-            from lingclaude.self_optimizer.learner.models import (
-                FeedbackCategory,
-                LearnedRule,
-                Pattern,
-            )
-
-            turn_num = len(self._messages) // 2
-            bm = self._behavior
-
-            if bm.hallucination_risk > 0.3:
-                kb = KnowledgeBase()
-                rule = LearnedRule(
-                    id=f"hallucination_turn_{turn_num}_{self.session_id[:8]}",
-                    name="幻觉风险检测",
-                    description=f"第{turn_num}轮幻觉风险={bm.hallucination_risk:.0%}, query={prompt[:60]}",
-                    category=FeedbackCategory.SECURITY,
-                    pattern=Pattern(
-                        context_keywords=("hallucination", prompt[:30]),
-                        severity_distribution={"risk": bm.hallucination_risk},
-                    ),
-                    tools=("prior_verifier", "behavior"),
-                    frequency=1,
-                    confidence=0.7,
-                    quality_score=max(0.1, 1.0 - bm.hallucination_risk),
-                    status="active",
-                )
-                kb.add_rule(rule)
-                kb.close()
-
-            if bm.tool_error_count > 0:
-                kb = KnowledgeBase()
-                rule = LearnedRule(
-                    id=f"tool_error_turn_{turn_num}_{self.session_id[:8]}",
-                    name="工具错误记录",
-                    description=f"第{turn_num}轮工具错误={bm.tool_error_count}, query={prompt[:60]}",
-                    category=FeedbackCategory.BUG_RISK,
-                    pattern=Pattern(
-                        context_keywords=("tool_error", prompt[:30]),
-                        severity_distribution={"errors": bm.tool_error_count},
-                    ),
-                    tools=("behavior",),
-                    frequency=1,
-                    confidence=0.8,
-                    quality_score=0.5,
-                    status="active",
-                )
-                kb.add_rule(rule)
-                kb.close()
-
-            if bm.corrections_received > 0:
-                kb = KnowledgeBase()
-                rule = LearnedRule(
-                    id=f"correction_turn_{turn_num}_{self.session_id[:8]}",
-                    name="用户纠正记录",
-                    description=f"第{turn_num}轮用户纠正={bm.corrections_received}, query={prompt[:60]}",
-                    category=FeedbackCategory.BEST_PRACTICE,
-                    pattern=Pattern(
-                        context_keywords=("correction", prompt[:30]),
-                        severity_distribution={"count": bm.corrections_received},
-                    ),
-                    tools=("behavior",),
-                    frequency=1,
-                    confidence=0.9,
-                    quality_score=0.6,
-                    status="active",
-                )
-                kb.add_rule(rule)
-                kb.close()
-
-            if turn_num > 0 and turn_num % 5 == 0:
-                kb = KnowledgeBase()
-                rule = LearnedRule(
-                    id=f"session_milestone_{turn_num}_{self.session_id[:8]}",
-                    name=f"会话里程碑 #{turn_num}",
-                    description=f"会话进行到第{turn_num}轮, 幻觉风险={bm.hallucination_risk:.0%}, 沮丧率={bm.frustration_rate:.0%}, 工具错误={bm.tool_error_count}",
-                    category=FeedbackCategory.BEST_PRACTICE,
-                    pattern=Pattern(
-                        context_keywords=("milestone", str(turn_num)),
-                        severity_distribution={
-                            "hallucination_risk": bm.hallucination_risk,
-                            "frustration_rate": bm.frustration_rate,
-                        },
-                    ),
-                    tools=("behavior", "meta_cognition"),
-                    frequency=1,
-                    confidence=0.6,
-                    quality_score=0.5,
-                    status="active",
-                )
-                kb.add_rule(rule)
-                kb.close()
-
-        except Exception as e:
-            logger.warning("知识库学习失败: %s", e)
+        from lingclaude.core.turn_learner import record_turn_learnings
+        record_turn_learnings(
+            prompt=prompt,
+            behavior=self._behavior,
+            messages=self._messages,
+            session_id=self.session_id,
+        )
 
     def _log_to_flywheel(
         self,
