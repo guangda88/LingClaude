@@ -77,7 +77,8 @@ def test_mv1_violation_detectable():
 def test_mv1_violation_list_grows():
     eng, _ = _mk_engine()
     eng._assert_model_visible(1, [{"role": "user", "content": "x"}])  # log 为空 -> 违规
-    assert len(eng.mv1_violations) == 1
+    # D8: MV-1a + MV-1b 双断言各记 1 条
+    assert len(eng.mv1_violations) == 2
 
 
 def test_model_adapter_wired_to_provider():

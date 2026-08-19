@@ -176,12 +176,13 @@ class QueryEngine:
         from lingclaude.core.session_store import SessionStore
         from lingclaude.core.model_adapter import ModelAdapter
         from lingclaude.core.audit_collector import AuditCollector
-        from lingclaude.core.model_request_log import ModelRequestLog
+        from lingclaude.core.model_request_log import ModelRequestLog, Mv1Violation
         self.session_store = SessionStore(self.session_manager, self.session_id)
         self.model_adapter = ModelAdapter(self._provider)
         self.audit_collector = AuditCollector()
         self.model_request_log = ModelRequestLog()
-        self._mv1_violations: list[str] = []
+        # D8: 结构化违规记录 (灵信 L-b 按 seq 归因)
+        self._mv1_violations: list[Mv1Violation] = []
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
@@ -1161,6 +1162,10 @@ class QueryEngine:
         resolved_config, decision = self._resolve_model_config(prompt)
         # LINGKERNEL_v1 D3: MV-1 上线 - 发模型前先落 log, 发完断言可重建
         mv1_seq = self._log_model_request(prompt, messages, tools)
+        # D8 双点校验之一: pre-send fail-closed (不可重建则不发)
+        if not self._pre_send_check(mv1_seq, messages):
+            self._log_to_flywheel("mv1_pre_send_blocked", f"seq={mv1_seq} request blocked", tool_name="model_request_log")
+            return "[MV-1 fail-closed] 请求未通过可重建校验，已阻止发送并记录违规。"
         used_tools = False
         response = None
         total_input = 0
@@ -1258,8 +1263,15 @@ class QueryEngine:
             return -1
 
     def _assert_model_visible(self, seq: int, messages: list) -> None:
-        """MV-1 断言: derive(log.prefix(seq)) == 实际发送。违反记入告警列表。"""
-        from lingclaude.core.model_request_log import check_model_visible_invariant
+        """MV-1 断言: derive(log.prefix(seq)) == 实际发送。违反记入告警列表。
+
+        D8: 双点校验的 post-send 检测点 (审计角色) + MV-1b fold 校验。
+        """
+        from lingclaude.core.model_request_log import (
+            check_model_visible_invariant,
+            check_provenance_integrity,
+            Mv1Violation,
+        )
         if seq < 0:
             return
         try:
@@ -1267,16 +1279,58 @@ class QueryEngine:
                 m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
                 for m in messages
             ]
-            ok, reason = check_model_visible_invariant(self.model_request_log, seq, snapshot)
-            if not ok:
-                self._mv1_violations.append(reason)
-                logger.warning("MV-1 violated: %s", reason)
+            from datetime import datetime, timezone as _tz
+            ts = datetime.now(_tz.utc).isoformat()
+            ok_a, reason_a = check_model_visible_invariant(self.model_request_log, seq, snapshot)
+            if not ok_a:
+                v = Mv1Violation(seq=seq, reason=reason_a, timestamp=ts)
+                self._mv1_violations.append(v)
+                logger.warning("MV-1a violated: %s", reason_a)
+            ok_b, reason_b = check_provenance_integrity(self.model_request_log, seq, snapshot)
+            if not ok_b:
+                v = Mv1Violation(seq=seq, reason=reason_b, timestamp=ts)
+                self._mv1_violations.append(v)
+                logger.warning("MV-1b violated: %s", reason_b)
         except Exception as e:
             logger.warning("MV-1 assert failed to run: %s", e)
 
+    def _pre_send_check(self, seq: int, messages: list) -> bool:
+        """D8 双点校验的 pre-send fail-closed 点 (灵研 spec-review R2 处置)。
+
+        发送前断言可重建; 失败 → 不发该请求 (fail-closed), 返回 False。
+        供 _call_model / stream_call_model 在 provider.complete 前调用。
+        """
+        from lingclaude.core.model_request_log import check_model_visible_invariant, Mv1Violation
+        if seq < 0:
+            return True  # log append 失败时不阻断主流程 (旧行为兼容)
+        try:
+            snapshot = [
+                m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
+                for m in messages
+            ]
+            ok, reason = check_model_visible_invariant(self.model_request_log, seq, snapshot)
+            if not ok:
+                from datetime import datetime, timezone as _tz
+                v = Mv1Violation(
+                    seq=seq, reason=f"[pre-send blocked] {reason}",
+                    timestamp=datetime.now(_tz.utc).isoformat(),
+                )
+                self._mv1_violations.append(v)
+                logger.warning("MV-1 pre-send blocked: %s", reason)
+                return False
+            return True
+        except Exception as e:
+            logger.warning("MV-1 pre-send check failed to run: %s", e)
+            return True  # 检查器异常不阻断 (fail-open on checker, 审计已记录)
+
     @property
     def mv1_violations(self) -> tuple[str, ...]:
-        """MV-1 违规记录 (供灵信 invariant 框架 / LACP 验收消费)。"""
+        """MV-1 违规记录 (兼容元组接口, 供灵信 invariant 框架 / LACP 验收消费)。"""
+        return tuple(v.to_tuple_str() for v in self._mv1_violations)
+
+    @property
+    def mv1_violations_structured(self) -> tuple:
+        """D8: 结构化违规记录 (seq/reason/timestamp), 灵信 L-b 按 seq 归因用。"""
         return tuple(self._mv1_violations)
 
     def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
