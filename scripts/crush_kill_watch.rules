@@ -1,0 +1,10 @@
+## 监控发往 crush 进程的 kill/tkill/tgkill 信号（INCIDENT 20260814 五成员 crush 被杀案）
+## 记录 uid=1000 (ai) 和 root 发出的全部 kill 族系统调用
+## 字段: a0=目标PID a1=信号值(9=SIGKILL 15=SIGTERM 2=SIGINT)
+
+-a always,exit -F arch=b64 -S kill -S tkill -S tgkill -F auid=1000 -F key=crush_kill_watch
+-a always,exit -F arch=b64 -S kill -S tkill -S tgkill -F auid=0 -F key=crush_kill_watch
+
+## 监控 crush 二进制/脚本的 execve（谁在启动/重启 crush）
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/pkill -F key=crush_kill_watch
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/kill -F key=crush_kill_watch

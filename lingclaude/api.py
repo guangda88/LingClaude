@@ -77,6 +77,18 @@ class AskResponse(BaseModel):
     source: str = "lingclaude"
 
 
+class PermissionRequest(BaseModel):
+    session_id: str = ""
+    decision: str  # allow / deny / always_allow / allow_persist
+    tool_name: str = ""
+    reason: str = ""
+
+
+class PermissionResponse(BaseModel):
+    success: bool
+    decision: str
+
+
 class AnalyzeRequest(BaseModel):
     path: str
     focus: str = ""
@@ -122,6 +134,27 @@ async def ask(req: AskRequest, api_key: str = Security(verify_api_key)):
 
     answer = _route_question(prompt)
     return AskResponse(answer=answer)
+
+
+@app.post("/permission", response_model=PermissionResponse)
+async def permission(req: PermissionRequest, api_key: str = Security(verify_api_key)):
+    """webUI 审批决策入口 — 对接 governance_v2 / verification_gate。
+
+    lingclaude-webui 的 `/chat/permission` 桥接此端点。决策记录到审批日志，
+    供 verification_gate / governance 消费；未知决策返回 400。
+    """
+    valid = {"allow", "deny", "always_allow", "allow_persist"}
+    if req.decision not in valid:
+        raise HTTPException(400, f"无效决策: {req.decision}（允许: {sorted(valid)}）")
+
+    # 审批日志：供 governance_v2 / verification_gate 审计
+    _log_approval(
+        session_id=req.session_id,
+        decision=req.decision,
+        tool_name=req.tool_name,
+        reason=req.reason,
+    )
+    return PermissionResponse(success=True, decision=req.decision)
 
 
 @app.post("/analyze")
@@ -343,6 +376,25 @@ def _call_llm_direct(system_prompt: str, user_msg: str) -> str:
 
     logger.error("所有 LLM provider 均不可用")
     return ""
+
+
+_APPROVAL_LOG: list[dict[str, str]] = []
+
+
+def _log_approval(session_id: str, decision: str, tool_name: str, reason: str) -> None:
+    """记录 webUI 审批决策 — 供 governance_v2 / verification_gate 审计。
+
+    内存日志（进程退出即失效）；如需持久化可扩展为文件/数据库追加。
+    """
+    _APPROVAL_LOG.append(
+        {
+            "session_id": session_id,
+            "decision": decision,
+            "tool_name": tool_name,
+            "reason": reason,
+            "ts": __import__("datetime").datetime.now().isoformat(),
+        }
+    )
 
 
 def _route_question(prompt: str) -> str:

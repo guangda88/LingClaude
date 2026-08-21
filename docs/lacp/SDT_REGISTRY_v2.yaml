@@ -1,0 +1,57 @@
+# SDT 注册表 v2 — D4 联署版（挂载点）
+# 依据: 灵族方向例会 #3 (LM-20260727-0945) 议程 0 灵安 R2 风险分级修订
+# 联署: 灵克 ✅ (2026-08-04) / 灵安 ⏳ / 灵信 ⏳
+# 权威源: docs/lacp/SDT_REGISTRY_v2_DRAFT.md
+
+sdt_registry:
+  version: v2
+  mandatory_fields:
+    - id
+    - owner
+    - version
+    - frequency
+    - priority
+    - scope
+    - code_anchor
+    - hook_or_config
+    - verification
+    - last_run
+    - last_result
+    - evidence_ref
+
+  sdt-lc-001:
+    id: SDT-lc-001
+    owner: 灵克 (lingclaude)
+    version: v2
+    priority: P0
+    frequency: 每日 (启动时)
+    scope: 全族 14 成员元认知基础设施
+    description: L7 启动协议 5 项门 + L10 决议合规 evidence_gate 双门; v2 加风险分级 4 类 + owner 表完整性约束
+    code_anchor:
+      - docs/lacp/SDT_LC_001_V2_SPEC.md
+      - lingclaude/lingclaude/core/role_separation.py v2 (D1)
+      - lingclaude/.lingclaude/hooks/pre_tool_use.py (D2)
+    hook_or_config: ~/.crush/crush.json PreToolUse (D2 hook 已部署, 暂缓启用)
+    verification: tests/test_role_separation_v2.py (13) + tests/test_l7_hook.py (7)
+    last_run: 2026-07-27 14:30
+    last_result: partial (D2 hook 已部署, 暂缓启用等 proxy3 稳定)
+    evidence_ref: lm_create type=evidence_gate gate_id=待 L7/L10 灰度启动
+
+  sdt-lc-002:
+    id: SDT-lc-002
+    owner: 灵克 (lingclaude)
+    version: v2.1
+    priority: P0
+    frequency: 每日 (手动 + cron 02:00)
+    scope: 全族 LISTEN 端口健康检测
+    description: 全端口协议化; v2 加 4 类风险分级 availability/identity/credential/authorization
+    code_anchor:
+      - .lingclaude/scripts/sdt_lc_002_v2.py:24-32 (SERVICE_RISK_CLASS)
+      - .lingclaude/scripts/sdt_lc_002_v2.py:50-66 (fail_closed_action)
+      - .lingclaude/scripts/sdt_lc_002_v2.py:69-88 (main)
+      - lingclaude/lingclaude/core/role_separation.py (D1 联动)
+    hook_or_config: cron 每日 02:00; 手动 python3 /home/ai/lingclaude/.lingclaude/scripts/sdt_lc_002_v2.py
+    verification: tests/test_sdt_lc_002_v2_1.py (11) + health/ports_snapshot_*.md
+    last_run: 2026-07-27 14:30
+    last_result: rc=2 (CRITICAL: 4 fail-closed 风险类缺失 — 已 3/4 恢复, :13459 不管)
+    evidence_ref: lm_create type=evidence_gate gate_id=<待实施>

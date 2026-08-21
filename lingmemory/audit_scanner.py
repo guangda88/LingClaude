@@ -102,10 +102,15 @@ def scan_file(filepath: str, project: str) -> list[dict]:
     return findings
 
 
-def scan_project(path: str, name: str, api: LingMemoryAPI, scan_session_id: str | None = None) -> dict:
+def scan_project(path: str, name: str, api: LingMemoryAPI, scan_session_id: str | None = None,
+                 llm_review: dict | None = None) -> dict:
     """扫描单个项目, emit LACP trace.
 
     新增参数 scan_session_id: 由 run_full_scan 统一生成, 保证全 8 项目 context_ref 一致.
+    新增参数 llm_review (可选): 启用 LLM 语义复核双标注 (P3, 默认 None 不启用)。
+        传入形如 {"enabled": True, "threshold": "high", "batch_size": 6,
+                   "timeout_s": 90, "model_config": {...}} 的配置。
+        启用后对 findings 批量复核, 剔除 false_positive, 其余打 llm_verdict 字段。
     """
     import time
     scan_session_id = scan_session_id or _new_scan_session()
@@ -127,50 +132,85 @@ def scan_project(path: str, name: str, api: LingMemoryAPI, scan_session_id: str 
         metadata={"custom": {"project": name, "path": path}},
     )
 
+    collected: list[dict] = []
     for root, dirs, files in os.walk(path):
         dirs[:] = [d for d in dirs if d not in {"venv", "node_modules", ".git", ".crush", "__pycache__"}]
         for f in files:
             if os.path.splitext(f)[1] not in {".py", ".ts", ".go", ".js", ".sh"}:
                 continue
             stats["files"] += 1
-            for finding in scan_file(os.path.join(root, f), name):
-                t0 = time.monotonic()
-                try:
-                    api.lm.create(type="audit_finding", data=finding, created_by="lingclaude")
-                    stats["findings"] += 1
-                    # LACP trace: phase=EXECUTE per finding (成功)
-                    file_hash = uuid.uuid5(uuid.NAMESPACE_URL, finding["file"]).hex[:8]
-                    emitter.emit(
-                        phase=Phase.EXECUTE,
-                        actor="lingclaude",
-                        actor_role=ActorRole.MEMBER,
-                        executor="audit_scanner@1.0.0",
-                        outcome=Outcome.PASS,
-                        context_ref=f".ling/audit/{scan_session_id}/{file_hash}/{finding['check_id']}/{finding['line']}",
-                        duration_ms=int((time.monotonic() - t0) * 1000),
-                        caller_chain=["lingclaude", "audit_scanner"],
-                        target_plugin="audit_scanner@1.0.0",
-                        metadata={"custom": {"check_id": finding["check_id"],
-                                            "severity": finding["severity"]}},
-                    )
-                except Exception as e:
-                    logger.error(
-                        "audit_finding persist failed (file=%s): %s",
-                        finding.get("file"), e,
-                    )
-                    # LACP trace: phase=EXECUTE per finding (失败)
-                    emitter.emit(
-                        phase=Phase.EXECUTE,
-                        actor="lingclaude",
-                        actor_role=ActorRole.MEMBER,
-                        executor="audit_scanner@1.0.0",
-                        outcome=Outcome.FAIL,
-                        context_ref=f".ling/audit/{scan_session_id}/error/{finding.get('check_id', 'unknown')}",
-                        duration_ms=int((time.monotonic() - t0) * 1000),
-                        caller_chain=["lingclaude", "audit_scanner"],
-                        target_plugin="audit_scanner@1.0.0",
-                        metadata={"custom": {"error": str(e)[:200]}},
-                    )
+            collected.extend(scan_file(os.path.join(root, f), name))
+
+    # P3: LLM 语义复核双标注（可选）——规则命中 + LLM verdict，剔除误报
+    if llm_review and collected:
+        try:
+            from linggit.llm_review import LLMReviewer
+            reviewer = LLMReviewer(llm_review)
+            issues = [
+                {
+                    "severity": f.get("severity", "medium"),
+                    "file": f.get("file", "?"),
+                    "line": f.get("line", 0),
+                    "description": f"{f.get('check_id', '?')} {f.get('snippet', '')[:60]}",
+                    "content": f.get("snippet", ""),
+                }
+                for f in collected
+            ]
+            # review() 原地给 issues 打 llm_verdict（含被剔除的 false_positive），
+            # 返回的是剔除后的保留列表——因此 verdict_map 必须取自原始 issues。
+            reviewer.review(issues)
+            verdict_map = {f"{i['file']}:{i['line']}": i.get("llm_verdict", "uncertain")
+                           for i in issues}
+            kept = [f for f in collected
+                    if verdict_map.get(f"{f.get('file')}:{f.get('line')}") != "false_positive"]
+            for f in kept:
+                f["llm_verdict"] = verdict_map.get(
+                    f"{f.get('file')}:{f.get('line')}", "uncertain")
+            logger.info("LLM review: %d findings → %d kept (double-labeled)",
+                        len(collected), len(kept))
+            collected = kept
+        except Exception as e:  # fail-open: LLM 复核失败保留全部，不阻断 SDT-lc-001
+            logger.warning("LLM review skipped (fail-open): %s", e)
+
+    for finding in collected:
+        t0 = time.monotonic()
+        try:
+            api.lm.create(type="audit_finding", data=finding, created_by="lingclaude")
+            stats["findings"] += 1
+            # LACP trace: phase=EXECUTE per finding (成功)
+            file_hash = uuid.uuid5(uuid.NAMESPACE_URL, finding["file"]).hex[:8]
+            emitter.emit(
+                phase=Phase.EXECUTE,
+                actor="lingclaude",
+                actor_role=ActorRole.MEMBER,
+                executor="audit_scanner@1.0.0",
+                outcome=Outcome.PASS,
+                context_ref=f".ling/audit/{scan_session_id}/{file_hash}/{finding['check_id']}/{finding['line']}",
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                caller_chain=["lingclaude", "audit_scanner"],
+                target_plugin="audit_scanner@1.0.0",
+                metadata={"custom": {"check_id": finding["check_id"],
+                                    "severity": finding["severity"],
+                                    "llm_verdict": finding.get("llm_verdict", "not_reviewed")}},
+            )
+        except Exception as e:
+            logger.error(
+                "audit_finding persist failed (file=%s): %s",
+                finding.get("file"), e,
+            )
+            # LACP trace: phase=EXECUTE per finding (失败)
+            emitter.emit(
+                phase=Phase.EXECUTE,
+                actor="lingclaude",
+                actor_role=ActorRole.MEMBER,
+                executor="audit_scanner@1.0.0",
+                outcome=Outcome.FAIL,
+                context_ref=f".ling/audit/{scan_session_id}/error/{finding.get('check_id', 'unknown')}",
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                caller_chain=["lingclaude", "audit_scanner"],
+                target_plugin="audit_scanner@1.0.0",
+                metadata={"custom": {"error": str(e)[:200]}},
+            )
 
     elapsed_ms = int((time.monotonic() - start) * 1000)
 
@@ -193,14 +233,15 @@ def scan_project(path: str, name: str, api: LingMemoryAPI, scan_session_id: str 
     return stats
 
 
-def run_full_scan():
+def run_full_scan(llm_review: dict | None = None):
     api = LingMemoryAPI(str(DB_PATH), member="lingclaude")
     scan_session_id = _new_scan_session()
     total = dict(files=0, findings=0)
     print(f"  [scan_session_id={scan_session_id}] LACP v0.3.0 trace emission enabled")
     for name, path in PROJECT_PATHS.items():
         if not os.path.exists(path): continue
-        s = scan_project(path, name, api, scan_session_id=scan_session_id)
+        s = scan_project(path, name, api, scan_session_id=scan_session_id,
+                         llm_review=llm_review)
         total["files"] += s["files"]; total["findings"] += s["findings"]
         print(f"  [{name}] files={s['files']} findings={s['findings']}")
     api.close()

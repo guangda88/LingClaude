@@ -25,7 +25,8 @@ from lingclaude.engine.stt import STTEngine
 from lingclaude.engine.verification_gate import VerificationGate, WRITE_SCOPED_TOOLS, CRITICAL_TOOLS
 from lingclaude.engine.tool_pipeline import ToolPipeline
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
-from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig
+from lingclaude.engine.todo import TodoStore, make_handlers as _make_todo_handlers
+from lingclaude.engine.lsp_provider import StdioLspProvider, _path_to_uri
 
 
 class CodingRuntime:
@@ -35,6 +36,15 @@ class CodingRuntime:
         self._pattern_recognizer = PatternRecognizer()
         self.verification_gate = VerificationGate()
         self._setup_tools()
+        # P0-1: todo store (session-scoped SQLite)
+        data_dir = Path("/home/ai/lingclaude/data")
+        data_dir.mkdir(exist_ok=True)
+        session_id = getattr(self.config, "session_id", "default")
+        self._todo_store = TodoStore(data_dir / "todos.db", session_id=session_id)
+        self._todo_handlers = _make_todo_handlers(self._todo_store)
+        # P1-1: LSP provider (lazy init on first use)
+        self._lsp_provider: StdioLspProvider | None = None
+        self._lsp_workspace_root: Path | None = None
 
     def _setup_tools(self) -> None:
         self.bash = BashExecutor(timeout=self.config.optimizer.timeout_seconds)
@@ -300,6 +310,7 @@ class CodingRuntime:
                     "task": {"type": "string", "description": "Task description for the sub-agent"},
                     "context": {"type": "string", "description": "Additional context (optional)"},
                     "max_rounds": {"type": "integer", "description": "Max agentic rounds (default 5)"},
+                    "provider": {"type": "string", "description": "Backend provider: 'inprocess' (default) or 'acp'"},
                 },
                 handler=self._sub_agent_handler,
                 security_scope="execute",
@@ -337,6 +348,53 @@ class CodingRuntime:
                     "max_results": {"type": "integer", "description": "Max results to return (default 5)"},
                 },
                 handler=self._web_search_handler,
+                security_scope="read",
+            )
+        )
+        # P0-1: todo tool
+        self.registry.register(
+            ToolDefinition(
+                name="todo",
+                description="Task management: create/list/complete/cancel/start/delete a todo item",
+                parameters={
+                    "command": {"type": "string", "description": "Sub-command: create|list|complete|cancel|start|get|delete"},
+                    "id": {"type": "string", "description": "Todo ID (for complete/cancel/start/get/delete)"},
+                    "content": {"type": "string", "description": "Task content (for create)"},
+                    "priority": {"type": "integer", "description": "Priority 0-9, higher=more urgent (for create)"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags (for create)"},
+                    "status": {"type": "string", "description": "Filter by status: pending|in_progress|completed|cancelled (for list)"},
+                },
+                handler=self._todo_handler,
+                security_scope="read",
+            )
+        )
+        # P0-3: request_user_input tool
+        self.registry.register(
+            ToolDefinition(
+                name="request_user_input",
+                description="Request user input during agent loop (single/multiple/text modes)",
+                parameters={
+                    "header": {"type": "string", "description": "Optional header label"},
+                    "question": {"type": "string", "description": "The question to ask the user"},
+                    "mode": {"type": "string", "description": "Input mode: single (one answer) | multiple (comma-separated) | text (free-form)"},
+                    "options": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "description": {"type": "string"}}, "required": ["label"]}, "description": "Choice options for single/multiple mode"},
+                },
+                handler=self._request_user_input_handler,
+                security_scope="read",
+            )
+        )
+        # P1-1: LSP tool
+        self.registry.register(
+            ToolDefinition(
+                name="lsp",
+                description="LSP code navigation: goto_def / find_refs / hover / goto_impl",
+                parameters={
+                    "command": {"type": "string", "description": "lsp command: goto_def|find_refs|hover|goto_impl"},
+                    "file_path": {"type": "string", "description": "Absolute file path"},
+                    "line": {"type": "integer", "description": "0-based line number"},
+                    "character": {"type": "integer", "description": "0-based character offset"},
+                },
+                handler=self._lsp_handler,
                 security_scope="read",
             )
         )
@@ -559,11 +617,30 @@ class CodingRuntime:
         task: str,
         context: str = "",
         max_rounds: int = 5,
+        provider: str | None = None,
         **_kwargs: Any,
     ) -> dict[str, Any]:
-        config = SubAgentConfig(max_rounds=max_rounds)
-        agent = SubAgent(config=config, runtime=self, provider=self._model_provider)
-        result = agent.run(task, context)
+        from lingclaude.engine.subagent import (
+            SubagentContext,
+            SubagentManager,
+            SubagentRequest,
+        )
+
+        ctx = SubagentContext(
+            runtime=self,
+            model_provider=self._model_provider,
+        )
+        request = SubagentRequest(
+            task=task,
+            context=context,
+            max_rounds=max_rounds,
+            provider=provider,
+        )
+        manager = getattr(self, "_subagent_manager", None)
+        if manager is None:
+            manager = SubagentManager()
+            self._subagent_manager = manager
+        result = manager.run(request, ctx)
         return {
             "agent_id": result.agent_id,
             "output": result.output,
@@ -571,6 +648,7 @@ class CodingRuntime:
             "success": result.success,
             "error": result.error,
             "rounds": result.rounds,
+            "provider": result.provider,
         }
 
     def _plan_mode_handler(self, action: str = "enter", **_kwargs: Any) -> dict[str, Any]:
@@ -594,6 +672,154 @@ class CodingRuntime:
         if result.is_error:
             return {"error": result.error}
         return {"url": url, "content": result.data}
+
+    def _todo_handler(
+        self,
+        command: str,
+        id: str | None = None,
+        content: str | None = None,
+        priority: int = 0,
+        tags: list[str] | None = None,
+        status: str | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        """P0-1: Todo list tool dispatcher."""
+        h = self._todo_handlers
+        cmd = command.lower()
+        if cmd == "create":
+            return h["create"](content=content, priority=priority, tags=tags)
+        if cmd == "list":
+            return h["list"](status=status, tags=tags)
+        if cmd == "complete":
+            return h["complete"](id=id)
+        if cmd == "cancel":
+            return h["cancel"](id=id)
+        if cmd == "start":
+            return h["start"](id=id)
+        if cmd == "get":
+            return h["get"](id=id)
+        if cmd == "delete":
+            return h["delete"](id=id)
+        return {"ok": False, "error": f"unknown command: {command}"}
+
+    def _lsp_handler(
+        self,
+        command: str,
+        file_path: str,
+        line: int = 0,
+        character: int = 0,
+        **_: Any,
+    ) -> dict[str, Any]:
+        """P1-1: LSP dispatcher — routes to StdioLspProvider on first use."""
+        import asyncio
+        from pathlib import Path
+
+        cmd = command.lower()
+        if cmd not in ("goto_def", "find_refs", "hover", "goto_impl"):
+            return {"ok": False, "error": f"unknown LSP command: {command}"}
+
+        # Lazy-init LSP provider
+        if self._lsp_provider is None:
+            # Auto-detect workspace root: find .git / pyproject.toml / Cargo.toml
+            cwd = Path(file_path).resolve().parent
+            for parent in [cwd, *cwd.parents]:
+                if (parent / "pyproject.toml").exists():
+                    self._lsp_workspace_root = parent
+                    server = StdioLspProvider(["pylsp"], workspace_root=parent)
+                    break
+                if (parent / "Cargo.toml").exists():
+                    self._lsp_workspace_root = parent
+                    server = StdioLspProvider(["rust-analyzer"], workspace_root=parent)
+                    break
+            else:
+                self._lsp_workspace_root = cwd
+                server = StdioLspProvider(["pylsp"], workspace_root=cwd)
+            self._lsp_provider = server
+
+        provider = self._lsp_provider
+
+        async def run():
+            if not getattr(provider, "_initialized", False):
+                await provider.initialize(self._lsp_workspace_root)
+                provider._initialized = True
+            if cmd == "goto_def":
+                return await provider.go_to_definition(file_path, line, character)
+            if cmd == "find_refs":
+                return await provider.find_references(file_path, line, character)
+            if cmd == "hover":
+                return await provider.hover(file_path, line, character)
+            return await provider.go_to_implementation(file_path, line, character)
+
+        try:
+            result = asyncio.run(run())
+            return {
+                "ok": True,
+                "command": cmd,
+                "result": [
+                    {"uri": loc.uri, "line": loc.range.start.line, "col": loc.range.start.character}
+                    for loc in (result if isinstance(result, list) else [])
+                ],
+            }
+        except Exception as e:
+            return {"ok": False, "error": f"lsp error: {e}"}
+
+    # P0-3: request_user_input tool — registered below after _setup_tools
+    def _request_user_input_handler(
+        self,
+        header: str | None = None,
+        question: str | None = None,
+        mode: str = "single",
+        options: list[dict[str, str]] | None = None,
+        **_: Any,
+    ) -> dict[str, Any]:
+        """P0-3: Request user input during agent loop.
+
+        对标 AtomCode request_user_input / DSH user-questions。
+        当前实现：打印提示到 stdout 并等待 STDIN 读入。
+        后续可升级为 FastAPI / WebSocket 推送通知到前端。
+        """
+        prompt_parts = []
+        if header:
+            prompt_parts.append(f"[{header}]")
+        if question:
+            prompt_parts.append(question)
+        prompt = " ".join(prompt_parts) or "请输入："
+
+        if mode == "single" and options:
+            # single 模式：渲染选项列表
+            prompt += "\n"
+            for i, opt in enumerate(options, 1):
+                label = opt.get("label", opt.get("description", f"选项{i}"))
+                prompt += f"  {i}. {label}\n"
+            prompt += "请输入选项编号或直接回答："
+        elif mode == "multiple" and options:
+            prompt += "\n"
+            for i, opt in enumerate(options, 1):
+                label = opt.get("label", opt.get("description", f"选项{i}"))
+                prompt += f"  {i}. {label}\n"
+            prompt += "请输入选项编号（多个用逗号分隔）："
+
+        print(prompt, flush=True)
+        try:
+            answer = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            return {"ok": False, "error": "input cancelled", "answer": None}
+
+        # 解析选项编号
+        selected: str | list[str] = answer
+        if options and answer:
+            # 尝试解析为编号
+            try:
+                if "," in answer:
+                    indices = [int(x.strip()) for x in answer.split(",")]
+                    selected = [options[i - 1]["label"] for i in indices if 0 < i <= len(options)]
+                else:
+                    idx = int(answer)
+                    if 0 < idx <= len(options):
+                        selected = options[idx - 1]["label"]
+            except ValueError:
+                pass  # 非数字，原样返回
+        return {"ok": True, "answer": selected, "mode": mode}
 
     def _web_search_handler(
         self,

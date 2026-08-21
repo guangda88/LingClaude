@@ -92,6 +92,50 @@ class TestSession:
         assert delete_result.is_ok
         assert mgr.load(s.session_id).is_error
 
+    def test_session_manager_snapshot_rewind(self, tmp_path: Path) -> None:
+        mgr = SessionManager(tmp_path)
+        s = mgr.create(messages=("hello", "world"), input_tokens=5, output_tokens=10)
+        snap = mgr.snapshot(s)
+        assert snap.is_ok
+        assert snap.data.exists()
+        assert snap.data.name.startswith(mgr.SNAPSHOT_PREFIX)
+
+        restored = mgr.rewind(s.session_id, snap.data)
+        assert restored.is_ok
+        assert restored.data.session_id == s.session_id
+        assert restored.data.messages == ("hello", "world")
+        assert restored.data.input_tokens == 5
+
+    def test_session_manager_snapshot_rewind_errors(self, tmp_path: Path) -> None:
+        mgr = SessionManager(tmp_path)
+        s = mgr.create()
+        snap = mgr.snapshot(s)
+        assert snap.is_ok
+        # 非法快照文件 → rewind 报错
+        bad = tmp_path / "bad_snapshot.json"
+        bad.write_text("{not json")
+        assert mgr.rewind(s.session_id, bad).is_error
+        assert mgr.rewind(s.session_id, tmp_path / "missing.json").is_error
+
+    def test_session_manager_snapshot_not_listed_as_session(self, tmp_path: Path) -> None:
+        mgr = SessionManager(tmp_path)
+        s = mgr.create(messages=("hi",), project_path="/proj/a", project_name="a")
+        mgr.save(s)
+        mgr.snapshot(s)
+        snap = mgr.snapshot(s)
+        assert snap.is_ok
+        sessions = mgr.list_sessions(project_path="/proj/a")
+        # 快照文件不应被当作 session 列出
+        assert len(sessions) == 1
+        assert all(not sid.startswith(mgr.SNAPSHOT_PREFIX) for sid in [x["session_id"] for x in sessions])
+        # 快照可在真实 save_dir 中被发现并恢复（回归：daemon 启动恢复用 save_dir + snapshot_{sid}_*.json）
+        snap_dir = mgr.save_dir
+        candidates = list(snap_dir.glob(f"{mgr.SNAPSHOT_PREFIX}{s.session_id}_*.json"))
+        assert candidates
+        restored = mgr.rewind(s.session_id, sorted(candidates)[-1])
+        assert restored.is_ok
+        assert restored.data.messages == ("hi",)
+
 
 class TestPermissions:
     def test_blocks_by_name(self) -> None:

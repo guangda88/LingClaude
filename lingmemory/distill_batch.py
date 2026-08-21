@@ -48,7 +48,7 @@ def call_llm(prompt: str, max_tokens: int = 800) -> str:
 # 代码中出现的模式→rule的映射
 CODE_PATTERNS = [
     ("with ", "资源管理用with语句自动释放", "pattern"),
-    ("\.get\(", "dict.get(key, default)替代直接访问", "pattern"),
+    (r"\.get\(", "dict.get(key, default)替代直接访问", "pattern"),
     ("timeout", "网络请求必须设timeout参数", "pattern"),
     ("except.*log", "异常捕获后必须记录日志", "pattern"),
     ("retry", "失败操作应该带重试机制", "pattern"),

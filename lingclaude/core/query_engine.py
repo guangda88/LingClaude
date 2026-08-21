@@ -12,6 +12,9 @@ from uuid import uuid4
 
 from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import Session, SessionManager
+from lingclaude.core.mailbox_notify import MailboxNotifier
+from lingclaude.core.session_persist import SessionPersister
+from lingclaude.core.session_runtime import SessionRuntime
 from lingclaude.core.behavior import BehaviorMetrics, Emotion, Intent, detect_emotion, detect_intent, is_tool_intent
 from lingclaude.core.intel import IntelCollector, DailyDigest, DailyDigestGenerator, IntelRelay
 from lingclaude.core.prior_verifier import PriorVerifier
@@ -119,6 +122,15 @@ class TurnResult:
     stop_reason: StopReason
 
 
+def _get_l5_auditor(engine):
+    inst = getattr(engine, "_l5_auditor_inst", None)
+    if inst is None:
+        from lingclaude.core.l5_audit import L5Auditor
+        inst = L5Auditor(engine)
+        object.__setattr__(engine, "_l5_auditor_inst", inst)
+    return inst
+
+
 class QueryEngine:
     def __init__(
         self,
@@ -144,7 +156,9 @@ class QueryEngine:
         self._intel_collector = IntelCollector()
         self._intel_relay: IntelRelay | None = None
         self._session_history_path: Path = Path("data/session_history.json")
-        self._mailbox: Any | None = None
+        self._notifier = MailboxNotifier()
+        self._session_persister = SessionPersister(self)
+        self._session_runtime = SessionRuntime(self)
         self._router = IntelligentRouter()
         self._task_router = TaskRouter()
         self._tool_router: ToolRouter = create_default_router()
@@ -181,66 +195,26 @@ class QueryEngine:
         self.model_adapter = ModelAdapter(self._provider)
         self.audit_collector = AuditCollector()
         self.model_request_log = ModelRequestLog()
+        from lingclaude.core.tool_executor import ToolExecutor
+        self._tool_executor = ToolExecutor(self)
         # D8: 结构化违规记录 (灵信 L-b 按 seq 归因)
         self._mv1_violations: list[Mv1Violation] = []
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:
-        self._mailbox = mailbox
+        self._notifier.mailbox = mailbox
 
     def read_lingmessage_threads(self) -> tuple[Any, ...]:
-        if self._mailbox is None:
-            return ()
-        return self._mailbox.list_threads()
+        return self._notifier.read_lingmessage_threads()
 
     def notify_completion(self, task: str, result_summary: str, channel: str = "ecosystem") -> None:
-        if self._mailbox is None:
-            return
-        try:
-            self._mailbox.open_thread(
-                sender="LINGCLAUDE",
-                recipients=["ALL"],
-                channel=channel,
-                topic=f"工作完成: {task[:50]}",
-                subject=f"灵克完成: {task}",
-                body=result_summary,
-            )
-        except Exception as e:
-            logger.warning("灵信工作完成通知失败: %s", e)
+        self._notifier.notify_completion(task, result_summary, channel)
 
     def notify_risk(self, risk_type: str, details: str, severity: str = "warning") -> None:
-        if self._mailbox is None:
-            return
-        try:
-            self._mailbox.open_thread(
-                sender="LINGCLAUDE",
-                recipients=["ALL"],
-                channel="ecosystem",
-                topic=f"风险预警: {risk_type}",
-                subject=f"[{severity.upper()}] 灵克风险预警: {risk_type}",
-                body=details,
-            )
-        except Exception as e:
-            logger.warning("灵信风险预警失败: %s", e)
+        self._notifier.notify_risk(risk_type, details, severity)
 
     def notify_vote(self, proposal: str, options: list[str], deadline_hours: int = 48) -> None:
-        if self._mailbox is None:
-            return
-        try:
-            body = f"提案: {proposal}\n\n选项:\n"
-            for i, opt in enumerate(options, 1):
-                body += f"  {i}. {opt}\n"
-            body += f"\n截止时间: {deadline_hours}小时后"
-            self._mailbox.open_thread(
-                sender="LINGCLAUDE",
-                recipients=["ALL"],
-                channel="ecosystem",
-                topic=f"灵委会投票: {proposal[:50]}",
-                subject=f"[投票] {proposal}",
-                body=body,
-            )
-        except Exception as e:
-            logger.warning("灵信投票通知失败: %s", e)
+        self._notifier.notify_vote(proposal, options, deadline_hours)
 
     @property
     def behavior_metrics(self) -> BehaviorMetrics:
@@ -528,39 +502,13 @@ class QueryEngine:
         }
 
     def persist_session(self) -> Result[str]:
-        session = Session(
-            session_id=self.session_id,
-            messages=tuple(self._messages),
-            input_tokens=self._usage.input_tokens,
-            output_tokens=self._usage.output_tokens,
-        )
-        result = self.session_manager.save(session)
-        if result.is_error:
-            return result  # type: ignore[return-value]
-        return Result.ok(str(result.data))
+        return self._session_persister.persist_session()
 
     def load_session(self, session_id: str) -> bool:
-        result = self.session_manager.load(session_id)
-        if result.is_error:
-            return False
-        session = result.data
-        self.session_id = session.session_id
-        self._messages = list(session.messages)
-        self._usage = UsageSummary(session.input_tokens, session.output_tokens)
-        self._transcript = list(session.messages)
-        self._conversation.clear()
-        for i in range(0, len(session.messages) - 1, 2):
-            user_msg = session.messages[i]
-            asst_msg = session.messages[i + 1] if i + 1 < len(session.messages) else ""
-            self._conversation.append(("user", user_msg))
-            self._conversation.append(("assistant", asst_msg))
-        return True
+        return self._session_persister.load_session(session_id)
 
     def _clear_checkpoint(self) -> None:
-        # LINGKERNEL_v1 D5: 委托 session_store
-        self._sync_session_store()
-        self.session_store.clear_checkpoint()
-        self._active_checkpoint = None
+        self._session_persister.clear_checkpoint()
 
     def _save_checkpoint(
         self,
@@ -571,38 +519,10 @@ class QueryEngine:
         total_input: int,
         total_output: int,
     ) -> None:
-        # LINGKERNEL_v1 D5: 委托 session_store (内联序列化逻辑已迁移)
-        self._sync_session_store()
-        cp = self.session_store.save_checkpoint(
-            messages=messages,
-            round_idx=round_idx,
-            prompt=prompt,
-            used_tools=used_tools,
-            total_input=total_input,
-            total_output=total_output,
-            conversation=self._conversation,
-        )
-        if cp is not None:
-            self._active_checkpoint = cp
+        self._session_persister.save_checkpoint(messages, round_idx, prompt, used_tools, total_input, total_output)
 
     def _load_checkpoint(self) -> dict[str, Any] | None:
-        # LINGKERNEL_v1 D5: 委托 session_store, 返回 dict (兼容 resume_interrupted 旧调用)
-        self._sync_session_store()
-        cp_path = Path(self.session_store._checkpoint_dir) / f"{self.session_id}.json"
-        cd = self.session_store.load_checkpoint()
-        if cd is None:
-            return None
-        self._active_checkpoint = cp_path
-        return {
-            "session_id": cd.session_id,
-            "prompt": cd.prompt,
-            "round_idx": cd.round_idx,
-            "used_tools": cd.used_tools,
-            "total_input": cd.total_input,
-            "total_output": cd.total_output,
-            "messages": cd.raw_messages,
-            "conversation": cd.saved_conversation,
-        }
+        return self._session_persister.load_checkpoint()
 
     def resume_interrupted(self) -> Result[str]:
         from lingclaude.model.types import ModelMessage, MessageRole, ToolCall
@@ -705,331 +625,49 @@ class QueryEngine:
     L2_MESSAGE_THRESHOLD: int = 100
 
     def _check_degradation(self, prompt: str, output: str) -> None:
-        is_tool = any(
-            kw in prompt.lower()
-            for kw in ("tool_name", "tool_call", "function", "<tool>")
-        )
-        if not is_tool:
-            return
-
-        calls = extract_tool_calls_from_text([prompt, output], self._total_messages_sent)
-        for call in calls:
-            new_alerts = self._degradation_detector.record_call(call)
-            self._degradation_alerts.extend(new_alerts)
-            for alert in new_alerts:
-                logger.warning(
-                    "退化检测 [%s] @ msg#%d: %s",
-                    alert.signal.value,
-                    alert.msg_index,
-                    alert.detail,
-                )
+        return _get_l5_auditor(self).check_degradation(prompt, output)
 
     def get_degradation_alerts(self) -> list[DegradationAlert]:
-        return list(self._degradation_alerts)
+        return _get_l5_auditor(self).get_degradation_alerts()
 
     def get_degradation_health(self) -> dict[str, object]:
-        return self._degradation_detector.get_health_indicators()
+        return _get_l5_auditor(self).get_degradation_health()
 
     def _apply_l5_audit(self, prompt: str, output: str) -> str:
-        """L5对话层循环审计 (轻量级) — 关键词触发+记录, 不调LLM
-
-        仅当 should_trigger 命中时,在 audit_history 记录 round 0 placeholder
-        (说明"检测到高风险关键词,待三方联调启用真实审视")。
-        完整LLM审视通过 self.run_l5_audit_full() 显式调用,避免主流程延迟,
-        保护现有1406测试时序。
-
-        真正的"用户sure?代码化"路径: 等三方(self-NLI/R5/Z3)联调就绪后,
-        run_l5_audit_full 在 submit() 末尾被自动启用。
-        """
-        if not self._l5_loop.should_trigger(prompt):
-            return output
-        try:
-            rules = self._collect_relevant_rules()
-            tool_log = self._collect_tool_call_log()
-            self._l5_loop._audit_history.append(
-                L5RoundResult(
-                    round_num=0,
-                    response=output,
-                    consistency_score=0.0,
-                    declared_rules=rules,
-                    actual_actions=tool_log,
-                    inconsistencies=[
-                        "L5 trigger detected — full audit pending 三方联调 (lingyuan.l5_orchestrator + R5 M2/M3 + z3_declaration_consistency)"
-                    ],
-                )
-            )
-            logger.info(
-                "L5对话层触发: prompt含高风险关键词, round 0 placeholder 已记录"
-            )
-        except Exception as e:  # noqa: BLE001 — 审计失败不阻塞主流程
-            logger.warning("L5 audit placeholder failed: %s", e)
-        return output
+        return _get_l5_auditor(self).apply_l5_audit(prompt, output)
 
     def _ensure_l5_orchestrator(self):
-        """Lazy init 三方 L5Orchestrator (R5 mock + Z3 真实 + self-NLI 占位)"""
-        if self._l5_orchestrator is not None:
-            return True
-        if L5Orchestrator is None:
-            logger.warning("L5Orchestrator 不可用 (lingminopt 未安装), fallback 到 L5ConversationLoop")
-            return False
-        try:
-            # R5 mock (灵研 7/22 出真实模块)
-            r5_source = R5SignalSourceMock()
-            # Z3 真实 checker (adapter 到 Protocol)
-            if DeclarationConsistencyChecker is not None:
-                checker = DeclarationConsistencyChecker()
-                class _Z3Adapter:
-                    def validate(self, claim_rules, actual_actions):
-                        cr = checker.check(claim_rules, actual_actions)
-                        ratio = getattr(cr, 'ratio', None) or getattr(cr, 'consistency_ratio', 1.0)
-                        missing = getattr(cr, 'unmatched_declared', set())
-                        class _R:
-                            def __init__(self):
-                                self.ratio = ratio
-                                self.missing = missing
-                        return _R()
-                z3 = _Z3Adapter()
-            else:
-                z3 = Z3PredicateMock()
-            ctx = L5Context(session_id=self.session_id, round=0)
-            self._l5_orchestrator = L5Orchestrator(
-                r5_source=r5_source,
-                z3_predicate=z3,
-                l5_context=ctx,
-            )
-            return True
-        except Exception as e:
-            logger.warning("L5Orchestrator 初始化失败: %s", e)
-            self._l5_orchestrator = None
-            return False
+        return _get_l5_auditor(self).ensure_l5_orchestrator()
 
-    def run_l5_audit_full(
-        self,
-        prompt: str,
-        output: str,
-        rules: list[str] | None = None,
-        tool_log: list[str] | None = None,
-    ) -> str:
-        """L5对话层循环完整审视 — 调三方 L5Orchestrator + Z3 + R5
+    def run_l5_audit_full(self, prompt, output, rules=None, tool_log=None) -> str:
+        return _get_l5_auditor(self).run_l5_audit_full(prompt, output, rules, tool_log)
 
-        失败时 graceful fallback 到 L5ConversationLoop (自实现) 或原 output。
-        """
-        if self._ensure_l5_orchestrator() and self._l5_orchestrator is not None:
-            return self._run_l5_orchestrator(prompt, output, rules, tool_log)
-        # fallback: 自实现 L5ConversationLoop
-        rules = rules if rules is not None else self._collect_relevant_rules()
-        tool_log = tool_log if tool_log is not None else self._collect_tool_call_log()
-        try:
-            return self._l5_loop.run(
-                user_intent=prompt,
-                rules=rules,
-                tool_call_log=tool_log,
-                model_call=self._call_model,
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("L5 fallback audit failed: %s", e)
-            return output
-
-    def _run_l5_orchestrator(
-        self,
-        prompt: str,
-        output: str,
-        rules: list[str] | None = None,
-        tool_log: list[str] | None = None,
-    ) -> str:
-        """通过灵极优 L5Orchestrator 做完整三方审视
-
-        先调 FactVerifier 做事实校验 (T1), 注入 UNVERIFIED 到 inconsistencies。
-        """
-        rules = rules or self._collect_relevant_rules()
-        tool_log = tool_log or self._collect_tool_call_log()
-        orch = self._l5_orchestrator
-
-        # T1: 事实校验 — 查灵知 KG 验证 claim 是否有来源
-        fact_check_warnings: list[str] = []
-        try:
-            from lingclaude.core.fact_checker import KGFactChecker, ClaimExtractor, audit_response
-            checker = KGFactChecker()
-            fc_result = audit_response(output, checker=checker)
-            if fc_result.get("warning"):
-                fact_check_warnings = [
-                    f"事实校验: {fc_result['warning']}",
-                ]
-                for c in fc_result.get("claims", []):
-                    if not c.get("found"):
-                        fact_check_warnings.append(
-                            f"  - 无来源 claim: \"{c['text']}\" (confidence={c['confidence']:.2f})"
-                        )
-                logger.info("T1 事实校验: %d/%d 通过", 
-                    fc_result["total"] - fc_result["failed"], fc_result["total"])
-        except Exception as e:
-            logger.warning("T1 事实校验失败 (不阻塞): %s", e)
-
-        try:
-            orch.l5_context.round = 1
-            result = orch.validate(
-                claim=prompt,
-                evidence=tool_log,
-                actual_rounds=1,
-                expected_rounds=4,
-            )
-            # 整合 T1 警告到审计结果
-            if fact_check_warnings:
-                if hasattr(result, 'detail') and isinstance(result.detail, dict):
-                    result.detail["fact_check"] = fact_check_warnings
-                logger.warning("L5 + T1: consistency=%.3f, fact_check_issues=%d",
-                    result.consistency, len(fact_check_warnings))
-            if result.should_early_exit:
-                return output
-            # 如果有事实校验问题, 强制标记修正
-            if result.should_fix or fact_check_warnings:
-                logger.info("L5触发修正: consistency=%.3f, fact_warnings=%d",
-                    result.consistency, len(fact_check_warnings))
-                return output  # 等三方全量联调后启用自动修正
-            logger.info(
-                "L5三方审计: round=1 consistency=%.3f contrib=%s",
-                result.consistency, result.contributions,
-            )
-            return output
-        except Exception as e:  # noqa: BLE001
-            logger.warning("L5Orchestrator audit failed: %s", e)
-            return output
+    def _run_l5_orchestrator(self, prompt, output, rules=None, tool_log=None) -> str:
+        return _get_l5_auditor(self)._run_l5_orchestrator(prompt, output, rules, tool_log)
 
     def _collect_relevant_rules(self) -> list[str]:
-        """从CRUSH.md/CRUSH核心规则提取关键规则 (L5 audit用)"""
-        return [
-            "优先使用code_search而非grep (行号+上下文)",
-            "使用execute_command而非裸bash (含caller校验)",
-            "写前查权限 / 读后必验证 / 写完必核对",
-            "handover铁律: 读后必现场验证, 读完必回写",
-            "用户sure? = 检查声明vs行为一致性",
-            "工具调用前必查规则, 不假设",
-            "敏感操作前置, 大操作分步",
-        ]
+        return _get_l5_auditor(self).collect_relevant_rules()
 
     def _collect_tool_call_log(self) -> list[str]:
-        """从_degradation_alerts收集本轮工具调用记录 (L5 audit白箱证据)"""
-        return [
-            f"{a.signal.value}: {a.detail}"
-            for a in self._degradation_alerts[-10:]
-        ]
+        return _get_l5_auditor(self).collect_tool_call_log()
 
     def _check_behavior(self, prompt: str) -> str | None:
-        """T0: 行为校验 (零推理成本)
-
-        在进入主流程前检查明显行为问题。借鉴 AtomCode VerifyCadenceHook。
-        """
-        try:
-            from lingclaude.core.behavior_check import check
-            tool_history = [
-                {"tool_name": m.split(":")[0], "command": m}
-                for m in self._messages[-20:]
-            ]
-            result = check(tool_history=tool_history, output=prompt)
-            if not result.passed:
-                nudge_text = "\n".join(f"⚠️ {n}" for n in result.nudges)
-                if result.should_block:
-                    logger.warning("T0 行为校验拦截: %s", nudge_text)
-                    return f"[行为校验] 检测到可能的问题:\n{nudge_text}"
-                logger.info("T0 行为校验提示: %s", nudge_text)
-        except Exception as e:
-            logger.warning("T0 行为校验失败 (不阻塞): %s", e)
-        return None
+        return _get_l5_auditor(self).check_behavior(prompt)
 
     def get_l5_audit_history(self) -> list:
-        """暴露L5 audit_history, 供60s轮询反馈闭环使用"""
-        return list(self._l5_loop.audit_history)
+        return _get_l5_auditor(self).get_l5_audit_history()
 
     def _check_intent(self, prompt: str) -> str | None:
-        """T2: 意图确认 (round 0)"""
-        if _intent_precheck is None:
-            return None
-        if not self._l5_loop.should_trigger(prompt):
-            return None
-        try:
-            result = _intent_precheck(prompt, prompt, llm=None, threshold=0.5)
-            if result is not None and not result.passed:
-                logger.warning("T2 意图确认不匹配 (similarity=%.2f)", result.similarity)
-                return (f"[意图确认] 我理解的是「{result.restated_intent}」，"
-                        f"和您说的「{result.user_intent}」有差异。请确认是否继续。")
-        except Exception as e:
-            logger.warning("T2 意图确认失败 (不阻塞): %s", e)
-        return None
+        return _get_l5_auditor(self).check_intent(prompt)
 
     def _check_entity_conflict(self, prompt: str, output: str) -> str:
-        """T3: 实体冲突检查 (输出后) — 仅日志, 不修改 output"""
-        if _R5KBConflictSource is None:
-            return output
-        try:
-            detector = _R5KBConflictSource()
-            result = detector.ent_kb_conflict(claim=output, evidence=[])
-            if result is not None and hasattr(result, "conflict_score") and result.conflict_score > 0.6:
-                logger.warning("T3 实体冲突: score=%.2f ungrounded=%s",
-                    result.conflict_score, getattr(result, "ungrounded_claims", []))
-        except Exception as e:
-            logger.warning("T3 实体冲突检查失败 (不阻塞): %s", e)
-        return output
+        return _get_l5_auditor(self).check_entity_conflict(prompt, output)
 
     def _check_l1_handover(self) -> None:
-        if self._total_messages_sent < self.L1_MESSAGE_THRESHOLD:
-            return
-        if self._total_messages_sent == self._l1_last_triggered_at:
-            return
-        self._l1_last_triggered_at = self._total_messages_sent
-        keep_pairs = 6
-        recent = self._messages[-keep_pairs:] if len(self._messages) > keep_pairs else self._messages[:]
-        summary_parts = self._messages[:-keep_pairs] if len(self._messages) > keep_pairs else []
-        summary_text = ""
-        if summary_parts:
-            for chunk in summary_parts[:20]:
-                summary_text += chunk[:200] + "\n"
-            summary_text = summary_text[:2000]
-        injection = f"[L1交接刷新 @ msg#{self._total_messages_sent}]\n{summary_text}"
-        self._messages[:] = [injection] + recent
-        if len(self._conversation) > keep_pairs:
-            conv_recent = self._conversation[-keep_pairs:]
-            self._conversation[:] = [("system", injection)] + conv_recent
-
-        handover_path = Path.home() / ".lingclaude" / "handover.md"
-        if handover_path.exists():
-            self._l1_handover_checksum = hashlib.md5(
-                handover_path.read_bytes(), usedforsecurity=False
-            ).hexdigest()
-        logger.info("L1 handover refresh triggered at message #%d", self._total_messages_sent)
+        return _get_l5_auditor(self).check_l1_handover()
 
     def _check_l2_restart(self) -> bool:
-        if self._total_messages_sent < self.L2_MESSAGE_THRESHOLD:
-            return False
-        handover_path = Path.home() / ".lingclaude" / "handover.md"
-        handover_text = ""
-        if handover_path.exists():
-            handover_text = handover_path.read_text(encoding="utf-8")[:3000]
-            current_checksum = hashlib.md5(
-                handover_path.read_bytes(), usedforsecurity=False
-            ).hexdigest()
-            if self._l1_handover_checksum and current_checksum == self._l1_handover_checksum:
-                logger.warning(
-                    "L2: handover.md未更新(L1后无变化) checksum=%s",
-                    current_checksum[:8],
-                )
-        old_session = self.session_id
-        self._save_session_state()
-        self._messages.clear()
-        self._conversation.clear()
-        self._transcript.clear()
-        self.session_id = uuid4().hex[:16]
-        self._total_messages_sent = 0
-        self._l1_last_triggered_at = -1
-        self._l1_handover_checksum = ""
-        self._degradation_detector.reset()
-        injection = (
-            f"[L2会话重启 — 旧会话 {old_session}]\n"
-            f"{handover_text}"
-        )
-        self._messages.append(injection)
-        self._conversation.append(("system", injection))
-        logger.info("L2 session restart: %s -> %s", old_session, self.session_id)
-        return True
+        return _get_l5_auditor(self).check_l2_restart()
 
     @property
     def usage(self) -> UsageSummary:
@@ -1595,238 +1233,19 @@ class QueryEngine:
             logger.debug("MCP proxy registry init skipped")
 
     def _execute_tool(self, name: str, arguments_json: str) -> str:
-        self._tool_call_count += 1
-        limit = self.config.max_tool_calls_per_session
-        if limit > 0 and self._tool_call_count > limit:
-            return json.dumps({"error": f"[安全限制] 会话工具调用次数已达上限 ({limit})"}, ensure_ascii=False)
-
-        try:
-            kwargs = json.loads(arguments_json)
-        except json.JSONDecodeError:
-            return json.dumps({"error": f"Invalid JSON arguments: {arguments_json}"}, ensure_ascii=False)
-
-        if name == "read" and "path" in kwargs:
-            try:
-                content, cache_hit = self._cache.read_file(kwargs["path"])
-                is_dup = self._monitor.record_file_read(kwargs["path"], content)
-                self._dementia_detector.record_file_read(kwargs["path"])
-                if cache_hit:
-                    self._session_cache_hits += 1
-                    logger.debug("ContextCache hit for %s (duplicate=%s)", kwargs["path"], is_dup)
-                return json.dumps({"content": content, "cache_hit": cache_hit}, ensure_ascii=False, default=str)
-            except FileNotFoundError:
-                pass
-            except Exception as e:
-                logger.debug("Cache read failed, falling back to tool: %s", e)
-
-        try:
-            result = self._runtime.execute_tool(name, **kwargs)
-            if hasattr(result, 'is_error'):
-                from lingclaude.core.types import Result as _R
-                if isinstance(result, _R):
-                    if result.is_error:
-                        return json.dumps({"error": result.error}, ensure_ascii=False)
-                    result = result.data if result.is_ok else {"error": result.error}
-            if "error" in result and result["error"] and "not found" in str(result["error"]).lower():
-                return self._execute_mcp_tool(name, kwargs)
-            return json.dumps(result, ensure_ascii=False, default=str)
-        except Exception as e:
-            logger.warning("Tool execution failed: %s.%s -> %s", name, kwargs.keys(), e)
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        return self._tool_executor._execute_tool(name, arguments_json)
 
     def _execute_mcp_tool(self, name: str, kwargs: dict[str, Any]) -> str:
-        self._ensure_mcp()
-        result = mcp_proxy.call_tool(name, **kwargs)
-        if result.is_error:
-            return json.dumps({"error": result.error}, ensure_ascii=False)
-        data = result.data
-        if data.success:
-            return json.dumps(data.output if isinstance(data.output, dict) else {"result": data.output}, ensure_ascii=False, default=str)
-        return json.dumps({"error": data.error or "MCP tool call failed"}, ensure_ascii=False)
+        return self._tool_executor._execute_mcp_tool(name, kwargs)
 
     def _compact_if_needed(self) -> None:
-        msg_limit = self.config.compact_after_turns * 2
-        token_budget_threshold = self.config.max_budget_tokens * 0.8
-        msg_tokens = _estimate_message_tokens(self._messages)
-        if len(self._messages) > msg_limit or msg_tokens > token_budget_threshold:
-            trigger_reason = (
-                "message_count" if len(self._messages) > msg_limit else "token_budget"
-            )
-            if trigger_reason == "token_budget":
-                target_max = max((len(self._messages) + 1) // 2, 4)
-            else:
-                target_max = (self.config.compact_after_turns // 2) * 2
-            self._hooks.trigger(HookContext(
-                hook_type=HookType.PRE_COMPACT,
-                session_id=self.session_id,
-                metadata={
-                    "message_count": len(self._messages),
-                    "limit": msg_limit,
-                    "estimated_tokens": msg_tokens,
-                    "token_threshold": token_budget_threshold,
-                    "trigger_reason": trigger_reason,
-                },
-            ))
-            self._archive_dropped_messages(
-                (len(self._messages) - target_max) // 2
-            )
-            result = compress_messages(
-                self._messages,
-                config=CompressionConfig(
-                    max_messages=target_max,
-                    level=CompressionLevel.SUMMARY,
-                ),
-            )
-            self._messages[:] = result.compressed_messages
-            logger.info(
-                "Context compressed: dropped=%d, saved~%d tokens, facts=%d",
-                result.dropped_count, result.tokens_estimated_saved, result.archived_facts,
-            )
-            self._hooks.trigger(HookContext(
-                hook_type=HookType.POST_COMPACT,
-                session_id=self.session_id,
-                metadata={
-                    "dropped": result.dropped_count,
-                    "saved_tokens": result.tokens_estimated_saved,
-                    "archived_facts": result.archived_facts,
-                },
-            ))
-        conv_limit = self.config.compact_after_turns * 2
-        if len(self._conversation) > conv_limit:
-            conv_msgs = [{"role": r, "content": c} for r, c in self._conversation]
-            conv_result = compress_messages(
-                conv_msgs,
-                config=CompressionConfig(
-                    max_messages=conv_limit,
-                    level=CompressionLevel.SUMMARY,
-                ),
-            )
-            summary_lines: list[tuple[str, str]] = [("system", conv_result.summary_text)]
-            kept_pairs = [
-                (m["role"], m["content"])
-                for m in conv_result.compressed_messages
-                if isinstance(m, dict) and "role" in m
-            ]
-            self._conversation[:] = summary_lines + kept_pairs
-        if len(self._transcript) > self.config.compact_after_turns:
-            transcript_msgs = [{"content": t} for t in self._transcript]
-            tr_result = compress_messages(
-                transcript_msgs,
-                config=CompressionConfig(
-                    max_messages=self.config.compact_after_turns,
-                    level=CompressionLevel.TRUNCATE,
-                ),
-            )
-            self._transcript[:] = [
-                m.get("content", "") if isinstance(m, dict) else str(m)
-                for m in tr_result.compressed_messages
-                if not (isinstance(m, str) and m.startswith("[前"))
-            ]
+        self._tool_executor._compact_if_needed()
 
     def _archive_dropped_messages(self, dropped_count: int) -> None:
-        if dropped_count <= 0 or len(self._conversation) < 2:
-            return
-        dropped = self._conversation[:dropped_count * 2]
-        files_seen: list[str] = []
-        decisions: list[str] = []
-        errors_seen: list[str] = []
-        for role, text in dropped:
-            if role == "assistant":
-                for line in text.split("\n"):
-                    l = line.strip().lower()
-                    if any(k in l for k in ("决定", "选择", "采用", "decided", "chose", "方案")):
-                        decisions.append(line.strip()[:200])
-                    if any(k in l for k in ("错误", "失败", "error", "failed", "不对")):
-                        errors_seen.append(line.strip()[:200])
-            elif role == "user":
-                for line in text.split("\n"):
-                    l = line.strip().lower()
-                    if any(k in l for k in ("read", "读取", "查看", "cat ", "view ")):
-                        for word in line.strip().split():
-                            if ".py" in word or ".js" in word or ".ts" in word or ".md" in word or ".yaml" in word or ".json" in word:
-                                cleaned = word.strip('`"\'*,;:()[]')
-                                if cleaned and cleaned not in files_seen:
-                                    files_seen.append(cleaned)
-        if files_seen or decisions or errors_seen:
-            parts: list[str] = []
-            if files_seen:
-                parts.append(f"已读文件: {', '.join(files_seen[:20])}")
-            if decisions:
-                parts.append(f"已做决策: {'; '.join(decisions[:5])}")
-            if errors_seen:
-                parts.append(f"已遇错误: {'; '.join(errors_seen[:5])}")
-            try:
-                self._layered_memory.experience.store(
-                    Experience.create(
-                        problem=f"会话压缩归档(丢弃{dropped_count}轮)",
-                        hypothesis="",
-                        action="压缩前自动归档",
-                        result=" | ".join(parts),
-                        reflection="",
-                        emotion=EmotionIntensity.MEDIUM,
-                    ),
-                )
-            except Exception as e:
-                logger.debug("归档到LayeredMemory失败: %s", e)
+        self._tool_executor._archive_dropped_messages(dropped_count)
 
     def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
-        if self._model_config is None:
-            return None, None
-        from lingclaude.core.behavior import Intent
-
-        cfg = self._model_config
-        router = self._model_router
-
-        routed_config, route_key = self._task_router.resolve(prompt)
-        target_model = routed_config.model
-        target_temp = cfg.temperature
-        target_api_key = routed_config.api_key
-        target_base_url = routed_config.base_url
-        default_provider = self._task_router.get_default_provider_name()
-        routed_provider = self._task_router.get_provider_name(
-            routed_config.api_key, routed_config.base_url
-        )
-
-        if router and router.enabled and (router.code_model or router.chat_model):
-            decision = self._router.route(prompt)
-            intent = detect_intent(prompt)
-            is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
-            legacy_model = router.code_model if is_code else router.chat_model
-            if legacy_model:
-                if routed_provider is None or routed_provider == default_provider:
-                    target_model = legacy_model
-                    target_api_key = cfg.api_key
-                    target_base_url = cfg.base_url
-
-            self._aggregator.add_task(
-                query=prompt,
-                task_type=str(decision.task_type.value),
-                priority=TaskPriority.MEDIUM,
-            )
-
-        bm = self._behavior
-        if bm.total_turns > 3:
-            if bm.hallucination_risk > 0.4:
-                target_temp = min(target_temp, 0.3)
-            if bm.frustration_rate > 0.3:
-                target_temp = min(target_temp, 0.2)
-            if bm.tool_error_rate > 0.4 and router and router.code_model:
-                if routed_provider is None or routed_provider == default_provider:
-                    target_model = router.code_model
-
-        diag = self._dementia_detector.diagnose()
-        if diag.dementia_index > 0.3:
-            target_temp = min(target_temp, 0.1)
-
-        config = ModelConfig(
-            model=target_model,
-            api_key=target_api_key,
-            base_url=target_base_url,
-            max_tokens=cfg.max_tokens,
-            temperature=target_temp,
-            system_prompt="",
-        )
-        return config, route_key
+        return self._tool_executor._resolve_model_config(prompt)
 
     def _build_adaptive_system_prompt(self) -> str:
         from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
@@ -1949,130 +1368,26 @@ class QueryEngine:
         file_path: str = "",
         context: str = "",
     ) -> None:
-        try:
-            from lingclaude.core.data_flywheel import DataFlywheel, ErrorPattern
-
-            flywheel = DataFlywheel()
-            flywheel.log_error(ErrorPattern(
-                pattern_type=pattern_type,
-                file_path=file_path,
-                error_message=error_message[:500],
-                tool_name=tool_name,
-                context=context[:200],
-                session_id=self.session_id,
-                occurred_at=datetime.now().isoformat(),
-            ))
-            flywheel.close()
-        except Exception as e:
-            logger.warning("飞轮记录失败: %s", e)
+        from lingclaude.core.data_flywheel import DataFlywheel  # noqa: F401 — 接线验证
+        self._session_runtime.log_to_flywheel(pattern_type, error_message, tool_name, file_path, context)
 
     def _session_state_path(self) -> Path:
-        return Path.home() / ".lingclaude" / "session_state.json"
+        return self._session_runtime.session_state_path()
 
     def _save_session_state(self) -> None:
-        try:
-            state: dict[str, Any] = {
-                "behavior": self._behavior.to_dict(),
-                "calibrator_records": {},
-                "total_messages_sent": self._total_messages_sent,
-                "l1_last_triggered_at": self._l1_last_triggered_at,
-            }
-            for domain, rec in self._meta_cognition._calibrator.records.items():
-                state["calibrator_records"][domain] = {
-                    "correct": rec.correct,
-                    "incorrect": rec.incorrect,
-                    "last_error": rec.last_error,
-                    "last_error_time": rec.last_error_time,
-                }
-            blind_spots = self._meta_cognition._blind_spot_detector.error_patterns
-            state["blind_spot_patterns"] = {
-                k: v for k, v in blind_spots.items()
-            }
-            path = self._session_state_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(state, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as e:
-            logger.warning("会话状态保存失败: %s", e)
+        self._session_runtime.save_session_state()
 
     def _load_session_state(self) -> None:
-        try:
-            path = self._session_state_path()
-            if not path.exists():
-                return
-            data = json.loads(path.read_text(encoding="utf-8"))
-            from lingclaude.core.meta_cognition import _DomainRecord
-            if "calibrator_records" in data:
-                for domain, rec_data in data["calibrator_records"].items():
-                    self._meta_cognition._calibrator.records[domain] = _DomainRecord(
-                        correct=rec_data.get("correct", 0),
-                        incorrect=rec_data.get("incorrect", 0),
-                        last_error=rec_data.get("last_error", ""),
-                        last_error_time=rec_data.get("last_error_time", ""),
-                    )
-            if "blind_spot_patterns" in data:
-                for domain, count in data["blind_spot_patterns"].items():
-                    self._meta_cognition._blind_spot_detector.error_patterns[domain] = count
-            self._total_messages_sent = data.get("total_messages_sent", 0)
-            self._l1_last_triggered_at = data.get("l1_last_triggered_at", -1)
-        except Exception as e:
-            logger.warning("会话状态加载失败: %s", e)
+        self._session_runtime.load_session_state()
 
     def _check_optimization_triggers(self) -> None:
-        try:
-            from lingclaude.self_optimizer.trigger import OptimizationTrigger
-            trigger = OptimizationTrigger()
-            context = {
-                "behavior_metrics": self._behavior.to_dict(),
-                "hallucination_risk": self._behavior.hallucination_risk,
-                "tool_error_rate": self._behavior.tool_error_rate,
-                "frustration_rate": self._behavior.frustration_rate,
-                "review_score": int((1.0 - self._behavior.hallucination_risk) * 100),
-            }
-            triggered, info = trigger.check_all_conditions(context)
-            if triggered and info is not None:
-                logger.info(
-                    "自优化触发: %s (priority=%s)",
-                    info.reason, info.priority,
-                )
-                self.notify_risk(
-                    "自优化触发",
-                    f"触发原因: {info.reason}, 优先级: {info.priority}",
-                )
-        except Exception as e:
-            logger.warning("优化触发检查失败: %s", e)
+        self._session_runtime.check_optimization_triggers()
 
     def _collect_behavior_intel(self) -> None:
-        self._intel_collector.from_behavior(self._behavior.to_dict())
+        self._session_runtime.collect_behavior_intel()
 
     def _index_project(self) -> dict[str, Any]:
-        if self._runtime is None:
-            return {}
-        if self._project_index:
-            return self._project_index
-        try:
-            result = self._runtime.execute_tool("glob", pattern="**/*.py")
-            if not isinstance(result, dict) or "files" not in result:
-                return {}
-            files = result.get("files", [])
-            if not files:
-                return {}
-            structure: dict[str, list[str]] = {}
-            for f in files:
-                parts = Path(f).parts
-                if len(parts) > 1:
-                    pkg = parts[0]
-                    structure.setdefault(pkg, []).append("/".join(parts[1:]))
-                else:
-                    structure.setdefault(".", []).append(parts[0])
-            self._project_index = structure
-            return structure
-        except Exception:
-            return {}
+        return self._session_runtime.index_project()
 
     def _format_output(self, lines: list[str]) -> str:
-        if self.config.structured_output:
-            return json.dumps({"summary": lines, "session_id": self.session_id}, indent=2, ensure_ascii=False)
-        return "\n".join(lines)
+        return self._session_runtime.format_output(lines)

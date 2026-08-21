@@ -78,6 +78,18 @@ from lingclaude.coordination import (
     create_responder,
 )
 
+from lingclaude.core.session_projection import (
+    TokenProjection,
+    ToolStat,
+    ToolProjection,
+    RoundProjection,
+    project_tokens,
+    project_tools,
+    project_rounds,
+    project_session,
+    aggregate_sessions,
+)
+
 __all__ = [
     "Result",
     "lingclaudeConfig",
@@ -183,4 +195,13 @@ __all__ = [
     "PROBE_TIMEOUT",
     "PROXY_API_KEY",
     "PROXY_URL",
+    "TokenProjection",
+    "ToolStat",
+    "ToolProjection",
+    "RoundProjection",
+    "project_tokens",
+    "project_tools",
+    "project_rounds",
+    "project_session",
+    "aggregate_sessions",
 ]

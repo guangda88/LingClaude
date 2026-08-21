@@ -34,9 +34,9 @@ checks:
     fix: "至少 log.warning(str(e))"
 
   - type: pattern
-    pattern: '(password|secret|token|api_key)\s*=\s*[''"][^''"]+[''"]'
+    pattern: '(password|secret|token|api_key)\s*=\s*[''"][^''"$<]{12,}[''"]'
     severity: critical
-    description: "硬编码密钥"
+    description: "硬编码密钥 (已排除测试桩/占位符/环境变量引用)"
     fix: "使用环境变量或配置文件"
 
   - type: pattern
@@ -50,6 +50,37 @@ checks:
     severity: high
     description: "subprocess.call + shell=True"
     fix: "使用 subprocess.run() + shell=False"
+
+  # === Rust 规则插片 (2026-08-02 灵克补) ===
+  - type: pattern
+    pattern: 'Command::new\(\s*["''](sh|bash|/bin/(sh|bash))["'']\s*\)'
+    severity: high
+    description: "Rust 直接执行 shell — 命令注入风险"
+    fix: "改用 Command::new(程序).arg(参数列表)，或对命令字符串做白名单校验"
+
+  - type: pattern
+    pattern: '(std::)?env::var\s*\([^)]*\)\s*\.(unwrap|expect)\s*\('
+    severity: high
+    description: "Rust 环境变量读取后直接 unwrap — 缺配置即 panic"
+    fix: "改用 .unwrap_or_default() / match / 显式错误处理"
+
+  - type: pattern
+    pattern: 'unsafe\s*\{'
+    severity: medium
+    description: "Rust unsafe 块 — 需人工审查"
+    fix: "补 // SAFETY 注释，最小化 unsafe 范围"
+
+  - type: pattern
+    pattern: '\.join\(\s*["''][^"'']*\.\.[^"'']*["'']\s*\)'
+    severity: medium
+    description: "Rust 路径 join 含 .. — 路径穿越风险"
+    fix: "canonicalize 后校验前缀，拒绝 .. 组件"
+
+  - type: pattern
+    pattern: '(from_utf8_unchecked|transmute)'
+    severity: high
+    description: "Rust 未检查 UTF-8 转换 / 类型强转 — UB 风险"
+    fix: "改用 from_utf8_lossy / TryFrom 安全转换"
 
   # === 灵族特有规则 (medium) ===
   - type: filename

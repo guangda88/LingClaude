@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -138,6 +139,37 @@ class SessionManager:
             project_name=project_name or _project_dir_name(project_path),
         )
 
+    # P0-4: snapshot / rewind
+    SNAPSHOT_PREFIX = "snapshot_"
+
+    def snapshot(self, session: Session) -> Result[Path]:
+        """AtomCode-style session snapshot: persist a named point-in-time copy."""
+        try:
+            path = self._session_path(session)
+            snap_path = path.parent / f"{self.SNAPSHOT_PREFIX}{session.session_id}_{int(time.time())}.json"
+            snap_path.write_text(json.dumps(session.to_dict_redacted(), indent=2, ensure_ascii=False))
+            return Result.ok(snap_path)
+        except Exception as e:
+            return Result.fail(f"Snapshot failed: {e}", code="SNAPSHOT_ERROR")
+
+    def rewind(self, session_id: str, snap_path: str | Path, project_path: str = "") -> Result[Session]:
+        """AtomCode-style rewind: restore session from a snapshot file."""
+        try:
+            data = json.loads(Path(snap_path).read_text())
+            # 丢弃 snap_path 之后的消息（实现：messages 截断到 snapshot 时刻）
+            session = Session(
+                session_id=data["session_id"],
+                messages=tuple(data.get("messages", ())),
+                input_tokens=data.get("input_tokens", 0),
+                output_tokens=data.get("output_tokens", 0),
+                created_at=data.get("created_at", ""),
+                project_path=data.get("project_path", ""),
+                project_name=data.get("project_name", ""),
+            )
+            return Result.ok(session)
+        except Exception as e:
+            return Result.fail(f"Rewind failed: {e}", code="REWIND_ERROR")
+
     def list_sessions(self, project_path: str = "") -> tuple[dict[str, str], ...]:
         results: list[dict[str, str]] = []
         if not self.save_dir.exists():
@@ -159,6 +191,8 @@ class SessionManager:
     def _list_sessions_in(self, directory: Path, project_hint: str) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
         for p in sorted(directory.glob("*.json")):
+            if p.stem.startswith(self.SNAPSHOT_PREFIX):
+                continue
             try:
                 data = json.loads(p.read_text())
                 items.append({

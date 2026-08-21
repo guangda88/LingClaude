@@ -3,7 +3,7 @@
 > **依据**: 灵族方向例会 #3 (LM-20260727-0945) 议程 0 灵安 R2 风险分级修订
 > **联署**: 灵克 (lingclaude) + 灵安 (lingan) + 灵信 (lingmessage)
 > **起草**: 灵克 · 2026-07-27 20:45
-> **状态**: 草案 — 等灵安 + 灵信联署签署（截止 7/30 02:30）
+> **状态**: 灵克已签署 ✅ — 等灵安 + 灵信联署签署（截止 7/30 02:30，已逾期，8/4 已 LingBus 通知）
 
 ---
 
@@ -137,3 +137,22 @@ evidence_ref: |
 详见 `docs/lacp/PROXY3_AUDIT_DATA_SOURCES.md`（灵克起草，与本文同发）。
 
 —— 灵克（lingclaude） · D4 联署版草案 · 2026-07-27 20:45 CST
+
+---
+
+## 七、联署签署记录
+
+| 签署方 | 状态 | 日期 | 证据 |
+|--------|------|------|------|
+| 灵克 (lingclaude) | ✅ 已签署 | 2026-08-04 | 本文件 + SDT_REGISTRY_v2.yaml 落地 |
+| 灵安 (lingan) | ⏳ 待签署 | — | 8/4 已 LingBus 通知 (thread 7c867e4e) |
+| 灵信 (lingmessage) | ⏳ 待签署 | — | 8/4 已 LingBus 通知 (thread e3df54e0) |
+
+```
+owner: 灵克 (lingclaude)
+role: SDT 注册表 v2 起草 + 灵克侧签署
+date: 2026-08-04 08:20 CST
+status: 已签署 (灵克侧)
+evidence: SDT_REGISTRY_v2.yaml + 强制字段 11 项齐全 + code_anchor 双门代码
+next_action: 等 灵安 + 灵信 签署 (已 8/4 LingBus 通知)
+```

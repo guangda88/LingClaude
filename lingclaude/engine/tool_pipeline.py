@@ -16,6 +16,8 @@ CodingRuntime.execute_tool 调用本模块 (替代原 inline 实现)。
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -223,6 +225,11 @@ class ToolPipeline:
                 ctx.abort_reason = f"[verify-post] {err}"
                 return self._error(ctx.abort_reason)
 
+        # === P0-2: output size pruning (tool result spill) ===
+        # 防止大输出（如 large grep / long ls）爆上下文
+        # 超过 threshold 的结果写临时文件，只返回 locator
+        ctx.raw_result = self._prune_output(name, ctx.raw_result)
+
         # === 5. finalizeContent (last content-only invariant) ===
         finalized = self._registry.finalize_result(name, args, ctx.raw_result)
         if finalized is not None:
@@ -250,6 +257,39 @@ class ToolPipeline:
             return Result.ok(tool_def.handler(**args))
         except Exception as e:
             return Result.fail(f"Tool execution failed: {e}", code="EXECUTION_ERROR")
+
+    # ----- P0-2: output pruning -----
+
+    # 输出 token 阈值（默认 4 096 tokens ≈ 16 KB），超过则 spill 到文件
+    _OUTPUT_TOKEN_LIMIT: int = 4096
+    _SPILL_DIR: str = "/home/ai/lingclaude/data/spill"
+
+    def _prune_output(self, tool_name: str, result: Any) -> Any:
+        """防止大 tool 输出爆上下文：超过阈值则写临时文件，只返回 locator。"""
+        if result is None:
+            return result
+        # 估算字符数（token 上界)
+        text = str(result)
+        if len(text) <= self._OUTPUT_TOKEN_LIMIT * 4:
+            return result
+        # spill
+        try:
+            os.makedirs(self._SPILL_DIR, exist_ok=True)
+            fd, path = tempfile.mkstemp(prefix=f"spill_{tool_name}_", suffix=".txt", dir=self._SPILL_DIR)
+            with os.fdopen(fd, "w") as f:
+                f.write(text)
+            return {
+                "_spilled": True,
+                "tool": tool_name,
+                "locator": path,
+                "size_bytes": len(text),
+                "truncated": True,
+                "read_with": f"cat {path}",
+            }
+        except Exception:
+            # spill 失败时降级：不丢弃结果，原样返回
+            logger.warning("output spill failed, returning original result")
+            return result
 
     def _error(self, msg: str) -> dict[str, Any]:
         return {"error": msg, "pipeline_aborted": True}

@@ -17,6 +17,7 @@ from lingclaude.self_optimizer.optimizer import (
     SynchronousOptimizer,
 )
 from lingclaude.self_optimizer.trigger import OptimizationTrigger
+from lingclaude.core.session import SessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,27 @@ class OptimizationDaemon:
         self.advisor = OptimizationAdvisor()
         self.state = DaemonState.load(self.state_path)
         self._behavior_snapshot: dict[str, Any] = {}
+        # P0-4: session snapshot/rewind
+        from pathlib import Path as P
+        self._session_mgr = SessionManager(save_dir=P(".lingclaude/sessions"))
+        self._current_session = self._session_mgr.create(
+            project_path=str(P(target).resolve()),
+            project_name=P(target).name,
+        )
+        # P0-4: on startup, rewind to last snapshot if any
+        sessions = self._session_mgr.list_sessions(project_path=str(P(target).resolve()))
+        if sessions:
+            latest = sorted(sessions, key=lambda s: s.get("created_at", ""))[-1]
+            sid = latest["session_id"]
+            snap_dir = self._session_mgr.save_dir
+            snap_candidates = list(snap_dir.glob(f"{self._session_mgr.SNAPSHOT_PREFIX}{sid}_*.json")) if snap_dir.exists() else []
+            if snap_candidates:
+                latest_snap = sorted(snap_candidates)[-1]
+                restored = self._session_mgr.rewind(sid, latest_snap)
+                if restored.is_ok:
+                    self._current_session = restored.data
+                    logger.info("已从快照恢复 session: %s", latest_snap.name)
+        self._snap_interval = 5  # 每 N 轮优化做一次 snapshot
 
     def collect_metrics(self) -> Result[dict[str, Any]]:
         try:
@@ -186,6 +208,11 @@ class OptimizationDaemon:
         )
 
         self._record_cycle(cycle)
+        # P0-4: snapshot every _snap_interval cycles
+        if (cycle.cycle_id % self._snap_interval) == 0:
+            snap_path = self._session_mgr.snapshot(self._current_session)
+            if snap_path.is_ok:
+                logger.debug("Session snapshot saved: %s", snap_path.data)
         logger.info(
             "优化完成: score=%.2f experiments=%d duration=%.1fs report=%s",
             cycle.best_score,
