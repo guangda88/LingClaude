@@ -28,6 +28,7 @@ class CompressionLevel(str, Enum):
     TRUNCATE = "truncate"
     SUMMARY = "summary"
     AGGRESSIVE = "aggressive"
+    REASONING_AWARE = "reasoning_aware"
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,24 @@ _ERROR_KEYWORDS = (
 )
 
 _BLOCK_DELIMITER = "---BLOCK---"
+
+_THINKING_BLOCK_RE = re.compile(
+    r'<thinking[^>]*>(.*?)</thinking>',
+    re.DOTALL | re.IGNORECASE,
+)
+
+_REASONING_BLOCK_RE = re.compile(
+    r'<reasoning[^>]*>(.*?)</reasoning>',
+    re.DOTALL | re.IGNORECASE,
+)
+
+_REASONING_KEYWORDS = (
+    "分析", "考虑", "权衡", "替代", "方案", "假设", "推测",
+    "analyze", "consider", "tradeoff", "alternative", "hypothesis",
+    "infer", "deduce", "evaluate", "assess", "weigh",
+    "because", "since", "therefore", "thus", "hence",
+    "key insight", "important", "critical", "should", "must",
+)
 
 
 def extract_facts_from_messages(
@@ -262,6 +281,31 @@ def compress_messages(
             level=config.level,
         )
 
+    if config.level == CompressionLevel.REASONING_AWARE:
+        reasoning = extract_reasoning_from_messages(dropped)
+        reasoning_summary = generate_reasoning_summary(reasoning, dropped_count)
+        recent_text = _extract_text(kept[0]) if kept else ""
+        fact_summary = generate_chinese_summary(
+            facts, dropped_count,
+            recent_context=recent_text,
+            handover_conclusions=config.handover_conclusions,
+        )
+
+        combined = reasoning_summary + "\n" + fact_summary
+        if len(combined) > config.summary_max_chars:
+            combined = combined[:config.summary_max_chars] + "\n... (摘要已截断)"
+
+        archived_count = sum(len(v) for v in facts.values()) + sum(len(v) for v in reasoning.values())
+
+        return CompressionResult(
+            compressed_messages=[combined] + kept,
+            dropped_count=dropped_count,
+            summary_text=combined,
+            archived_facts=archived_count,
+            tokens_estimated_saved=_estimate_tokens_saved(dropped) - len(combined),
+            level=config.level,
+        )
+
     recent_text = _extract_text(kept[0]) if kept else ""
     summary = generate_chinese_summary(
         facts, dropped_count,
@@ -292,6 +336,111 @@ def _extract_text(msg: Any) -> str:
     if hasattr(msg, "content"):
         return msg.content or ""
     return str(msg) if msg else ""
+
+
+def extract_reasoning_from_messages(
+    messages: list[Any],
+) -> dict[str, list[str]]:
+    """Extract reasoning/thinking content from messages.
+
+    Detects <thinking> and <reasoning> XML blocks in assistant messages
+    and extracts key insights, alternatives considered, and conclusions.
+
+    Returns:
+        {
+            "reasoning_chains": [...],
+            "alternatives": [...],
+            "conclusions": [...],
+            "thinking_snippets": [...],
+        }
+    """
+    reasoning_chains: list[str] = []
+    alternatives: list[str] = []
+    conclusions: list[str] = []
+    thinking_snippets: list[str] = []
+
+    for msg in messages:
+        text = _extract_text(msg)
+        if not text:
+            continue
+
+        for match in _THINKING_BLOCK_RE.finditer(text):
+            block = match.group(1).strip()
+            if block:
+                thinking_snippets.append(block[:500])
+                _extract_reasoning_insights(block, reasoning_chains, alternatives, conclusions)
+
+        for match in _REASONING_BLOCK_RE.finditer(text):
+            block = match.group(1).strip()
+            if block:
+                thinking_snippets.append(block[:500])
+                _extract_reasoning_insights(block, reasoning_chains, alternatives, conclusions)
+
+    return {
+        "reasoning_chains": reasoning_chains[:20],
+        "alternatives": alternatives[:15],
+        "conclusions": conclusions[:15],
+        "thinking_snippets": thinking_snippets[:15],
+    }
+
+
+def _extract_reasoning_insights(
+    text: str,
+    reasoning_chains: list[str],
+    alternatives: list[str],
+    conclusions: list[str],
+) -> None:
+    """Extract structured insights from a reasoning block."""
+    lines = text.split("\n")
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or len(stripped) < 10:
+            continue
+        lower = stripped.lower()
+
+        if any(k in lower for k in _REASONING_KEYWORDS):
+            if len(reasoning_chains) < 20:
+                reasoning_chains.append(stripped[:250])
+
+        if any(k in lower for k in ("替代", "alternative", "instead", "rather", "otherwise", "换个", "另一个")):
+            if len(alternatives) < 15:
+                alternatives.append(stripped[:250])
+
+        if any(k in lower for k in ("结论", "conclusion", "因此", "所以", "thus", "therefore", "hence", "最终", "finally")):
+            if len(conclusions) < 15:
+                conclusions.append(stripped[:250])
+
+
+def generate_reasoning_summary(
+    reasoning: dict[str, list[str]],
+    dropped_count: int,
+) -> str:
+    """Generate a concise summary of reasoning chains from compressed messages.
+
+    Preserves the decision-making logic while discarding verbose thinking.
+    """
+    sections: list[str] = []
+    sections.append(f"## 推理压缩摘要（前 {dropped_count} 轮推理链）\n")
+
+    if reasoning.get("conclusions"):
+        sections.append("### 推理结论")
+        for c in reasoning["conclusions"][:10]:
+            sections.append(f"- {c}")
+        sections.append("")
+
+    if reasoning.get("alternatives"):
+        sections.append("### 考虑过的替代方案")
+        for a in reasoning["alternatives"][:8]:
+            sections.append(f"- {a}")
+        sections.append("")
+
+    if reasoning.get("reasoning_chains"):
+        sections.append("### 关键推理步骤")
+        for r in reasoning["reasoning_chains"][:12]:
+            sections.append(f"- {r}")
+        sections.append("")
+
+    return "\n".join(sections)
 
 
 def _estimate_tokens_saved(messages: list[Any]) -> int:

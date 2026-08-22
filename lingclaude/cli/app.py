@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import shutil
+import subprocess
 import sys
+import time
+import urllib.request
 import warnings
 from pathlib import Path
 from typing import Any
@@ -498,6 +503,135 @@ def _cmd_governance_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _find_webui_binary() -> Path | None:
+    """定位 lingclaude-webui 二进制：优先 webui-server/target/release，其次 PATH。"""
+    root = Path(__file__).resolve().parent.parent.parent
+    candidates = [
+        root / "webui-server" / "target" / "release" / "lingclaude-webui",
+        root / "target" / "release" / "lingclaude-webui",
+        Path.cwd() / "webui-server" / "target" / "release" / "lingclaude-webui",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    in_path = shutil.which("lingclaude-webui")
+    if in_path:
+        return Path(in_path)
+    return None
+
+
+def _wait_for_http(url: str, timeout: float = 15.0) -> bool:
+    """轮询直到 HTTP 端点可访问。任何 HTTP 响应（含 4xx 鉴权错误）都视为可达。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1.0) as resp:
+                if resp.status < 500:
+                    return True
+        except urllib.error.HTTPError as e:
+            if e.code < 500:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return False
+
+
+def _cmd_webui(args: argparse.Namespace) -> int:
+    """启动 WebUI：webui-server(Rust, 前端) + 可选引擎(api.py :8700)。"""
+    port = args.port
+    engine_port = args.engine_port
+
+    # 1. 引擎侧：默认假定 8700 已运行；--with-engine 则自动拉起 api.py
+    engine_proc: subprocess.Popen | None = None
+    engine_url = f"http://127.0.0.1:{engine_port}"
+    if args.with_engine:
+        api_file = Path(__file__).resolve().parent.parent / "api.py"
+        print_info(f"启动引擎 {api_file} (端口 {engine_port})")
+        engine_proc = subprocess.Popen(
+            [sys.executable, str(api_file), "--port", str(engine_port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if not _wait_for_http(f"{engine_url}/status", timeout=20.0):
+            print_error(f"引擎 {engine_url}/status 超时未就绪")
+            if engine_proc:
+                engine_proc.terminate()
+            return 1
+    elif not _wait_for_http(f"{engine_url}/status", timeout=3.0):
+        print_warning(f"引擎 {engine_url}/status 不可达，聊天将不可用（可用 --with-engine 自动拉起）")
+
+    # 2. webui-server 二进制
+    binary = _find_webui_binary()
+    if binary is None:
+        print_error(
+            "未找到 lingclaude-webui 二进制。请先构建:\n"
+            "  cd webui-server && cargo build --release\n"
+            "  (或确保 webui/dist 已构建: cd webui && npm run build)"
+        )
+        if engine_proc:
+            engine_proc.terminate()
+        return 1
+
+    # 3. 启动 webui-server（守护：转 background，输出重定向）
+    log_path = Path(f"/tmp/lingclaude-webui-{port}.log")
+    env = os.environ.copy()
+    env.setdefault("LINGCLAUDE_BASE", engine_url)
+    with open(log_path, "w") as logf:
+        webui_proc = subprocess.Popen(
+            [str(binary), str(port)],
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            env=env,
+        )
+    print_info(f"webui-server 已启动 (pid {webui_proc.pid})，日志 {log_path}")
+
+    # 4. 就绪探测
+    if not _wait_for_http(f"http://127.0.0.1:{port}/status", timeout=15.0):
+        print_error(f"webui-server 端口 {port} 未就绪，查看日志 {log_path}")
+        webui_proc.terminate()
+        if engine_proc:
+            engine_proc.terminate()
+        return 1
+
+    # 5. /mint 拿带 token 的 URL
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/mint", timeout=3.0) as resp:
+            url = resp.read().decode().strip()
+    except Exception as e:
+        print_error(f"/mint 失败: {e}")
+        url = f"http://127.0.0.1:{port}"
+
+    print_header("WebUI 已就绪")
+    print_kv("URL", url)
+    print_kv("webui-server", f"pid {webui_proc.pid} port {port}")
+    if engine_proc:
+        print_kv("engine(api.py)", f"pid {engine_proc.pid} port {engine_port}")
+
+    # 6. 打开浏览器（尽力而为）
+    if args.open and not args.no_open:
+        for opener in ("xdg-open", "open"):
+            if shutil.which(opener):
+                try:
+                    subprocess.Popen([opener, url])
+                    break
+                except Exception:
+                    pass
+
+    # 7. 守护直到 Ctrl+C（webui-server 退出则引擎一起停）
+    try:
+        while webui_proc.poll() is None:
+            time.sleep(1.0)
+        print_warning(f"webui-server 已退出 (rc={webui_proc.returncode})，日志 {log_path}")
+    except KeyboardInterrupt:
+        print_info("收到 Ctrl+C，停止服务")
+    finally:
+        webui_proc.terminate()
+        if engine_proc:
+            engine_proc.terminate()
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="lingclaude",
@@ -556,6 +690,17 @@ def main() -> int:
     gov_parser = subparsers.add_parser("governance-audit", help="Audit governance votes")
     gov_parser.add_argument("--proposals-file", "-p", help="Path to proposals.json")
 
+    webui_parser = subparsers.add_parser("webui", help="Start the WebUI server (webui-server + optional engine)")
+    webui_parser.add_argument("--port", type=int, default=13458, help="WebUI server port (default 13458)")
+    webui_parser.add_argument(
+        "--engine-port", type=int, default=8700, help="lingclaude engine api.py port (default 8700)"
+    )
+    webui_parser.add_argument(
+        "--with-engine", action="store_true", help="Auto-start the engine (api.py) on --engine-port"
+    )
+    webui_parser.add_argument("--no-open", action="store_true", help="Do not open the browser")
+    webui_parser.add_argument("--open", action="store_true", help="Open browser (also default when TTY)")
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -574,6 +719,8 @@ def main() -> int:
         return _cmd_metrics(args)
     elif args.command == "governance-audit":
         return _cmd_governance_audit(args)
+    elif args.command == "webui":
+        return _cmd_webui(args)
     else:
         parser.print_help()
         return 0

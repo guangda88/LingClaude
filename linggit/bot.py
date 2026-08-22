@@ -58,6 +58,8 @@ class LingGitBot:
         rules_dir: str = "",
         llm_review: dict | None = None,
     ):
+        from lingmemory.core import init_db
+        init_db(db_path)
         self.lm = LingMemory(db_path)
         if registry_path:
             from lingmemory.core import TypeRegistry
@@ -66,9 +68,6 @@ class LingGitBot:
         # LLM 复核插片（可选，默认关闭）: 语义层二次确认，剔除规则误报
         from linggit.llm_review import LLMReviewer
         self._llm = LLMReviewer(llm_review or {})
-        # 确保 schema 存在
-        from lingmemory.core import init_db
-        init_db(db_path)
 
     def review(
         self,

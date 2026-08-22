@@ -52,6 +52,7 @@ from lingclaude.core.governance_integration import pre_submit_governance
 from lingclaude.core.context_compression import (
     CompressionLevel, CompressionConfig, CompressionResult,
     extract_facts_from_messages, generate_chinese_summary, compress_messages,
+    extract_reasoning_from_messages, generate_reasoning_summary,
 )
 from lingclaude.core.dementia_detector import (
     CognitiveState, DementiaDetector, DementiaDiagnosis, ToolCallFingerprint,

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -27,6 +28,30 @@ from lingclaude.engine.tools import ToolDefinition, ToolRegistry
 
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# A3: 工具执行增量事件缓冲 — 供 webUI `/live` 轮询（tool_start/tool_result）
+# 线程安全环形列表，容量固定（默认 200 条），防止无限增长。
+# ---------------------------------------------------------------------------
+_TOOL_EVENT_BUFFER: list[dict[str, Any]] = []
+_TOOL_EVENT_LOCK = threading.Lock()
+_TOOL_EVENT_MAX = 200
+
+
+def record_tool_event(event: dict[str, Any]) -> None:
+    """记录一条工具执行增量事件（tool_start / tool_result / state）。"""
+    with _TOOL_EVENT_LOCK:
+        _TOOL_EVENT_BUFFER.append(event)
+        if len(_TOOL_EVENT_BUFFER) > _TOOL_EVENT_MAX:
+            del _TOOL_EVENT_BUFFER[: len(_TOOL_EVENT_BUFFER) - _TOOL_EVENT_MAX]
+
+
+def read_tool_events(since: int = 0) -> tuple[list[dict[str, Any]], int]:
+    """读取 `since` 之后的新增量事件；返回 (events, 最新序号)。"""
+    with _TOOL_EVENT_LOCK:
+        events = [e for e in _TOOL_EVENT_BUFFER if e.get("seq", 0) > since]
+        latest = _TOOL_EVENT_BUFFER[-1].get("seq", 0) if _TOOL_EVENT_BUFFER else 0
+    return events, latest
 
 
 @dataclass
@@ -189,6 +214,13 @@ class ToolPipeline:
 
         # === 3. tools/execute (around-dispatch: timeout, retry, metrics) ===
         ctx.metrics["start_ts"] = time.time()
+        # A3: tool_start 增量事件（webUI /live 实时同步）
+        record_tool_event({
+            "seq": len(_TOOL_EVENT_BUFFER) + 1,
+            "type": "tool_start",
+            "name": name,
+            "ts": time.time(),
+        })
         try:
             res = self._dispatch_with_timeout(tool_def, args)
             if res.is_error:
@@ -203,6 +235,15 @@ class ToolPipeline:
             logger.exception("dispatch failed for %s", name)
         ctx.metrics["end_ts"] = time.time()
         ctx.metrics["duration"] = ctx.metrics["end_ts"] - ctx.metrics["start_ts"]
+        # A3: tool_result 增量事件（含成败 + 耗时）
+        record_tool_event({
+            "seq": len(_TOOL_EVENT_BUFFER) + 1,
+            "type": "tool_result",
+            "name": name,
+            "success": not ctx.is_error,
+            "duration_ms": int(ctx.metrics["duration"] * 1000),
+            "ts": time.time(),
+        })
 
         if ctx.is_error:
             return self._error(ctx.error_msg)

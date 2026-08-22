@@ -142,6 +142,27 @@ class SessionManager:
     # P0-4: snapshot / rewind
     SNAPSHOT_PREFIX = "snapshot_"
 
+    def stop(self, session_id: str, project_path: str = "") -> Result[Session]:
+        """Stop a session: mark it as expired (expires_at = now) and persist."""
+        load_result = self.load(session_id, project_path)
+        if load_result.is_error:
+            return load_result
+        session = load_result.data
+        stopped_session = Session(
+            session_id=session.session_id,
+            messages=session.messages,
+            input_tokens=session.input_tokens,
+            output_tokens=session.output_tokens,
+            created_at=session.created_at,
+            expires_at=datetime.now().isoformat(),
+            project_path=session.project_path,
+            project_name=session.project_name,
+        )
+        save_result = self.save(stopped_session)
+        if save_result.is_error:
+            return Result.fail(f"Failed to stop session: {save_result.error}", code="STOP_SAVE_ERROR")
+        return Result.ok(stopped_session)
+
     def snapshot(self, session: Session) -> Result[Path]:
         """AtomCode-style session snapshot: persist a named point-in-time copy."""
         try:

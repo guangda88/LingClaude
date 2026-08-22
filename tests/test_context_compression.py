@@ -6,7 +6,9 @@ from lingclaude.core.context_compression import (
     CompressionResult,
     compress_messages,
     extract_facts_from_messages,
+    extract_reasoning_from_messages,
     generate_chinese_summary,
+    generate_reasoning_summary,
 )
 
 
@@ -152,3 +154,124 @@ class TestCompressMessages:
         assert isinstance(result, CompressionResult)
         assert isinstance(result.compressed_messages, list)
         assert isinstance(result.level, CompressionLevel)
+
+
+class TestExtractReasoningFromMessages:
+    def test_extracts_from_thinking_blocks(self) -> None:
+        messages = [
+            "<thinking>分析：需要将 session 状态持久化，使用 JSON 序列化。\n方案：异步写入 + 内存缓存。\n排除：SQLite 太重，不适用。\n错误：之前用 pickle 导致版本兼容问题。</thinking>",
+        ]
+        extracted = extract_reasoning_from_messages(messages)
+        assert len(extracted["thinking_snippets"]) >= 1
+        assert "session" in extracted["thinking_snippets"][0]
+
+    def test_extracts_from_reasoning_blocks(self) -> None:
+        messages = [
+            "<reasoning>We need to consider the tradeoff between memory and speed.\nThe key insight is that caching at L3 layer avoids recomputation.\nTherefore, the approach should use lazy evaluation.</reasoning>",
+        ]
+        extracted = extract_reasoning_from_messages(messages)
+        assert len(extracted["thinking_snippets"]) >= 1
+        assert "tradeoff" in extracted["thinking_snippets"][0].lower()
+        assert len(extracted["conclusions"]) >= 1
+
+    def test_ignores_non_reasoning_text(self) -> None:
+        messages = [
+            "普通消息：今天天气很好。",
+            "<thinking>关键发现：测试覆盖率不足，需要补充 edge case。</thinking>",
+            "另一个普通消息。",
+        ]
+        extracted = extract_reasoning_from_messages(messages)
+        assert len(extracted["thinking_snippets"]) == 1
+        assert "关键发现" in extracted["thinking_snippets"][0]
+
+    def test_extracts_multiple_blocks(self) -> None:
+        messages = [
+            "<thinking>第一步：分析问题根源。考虑方案A。</thinking>",
+            "<reasoning>Step 2: evaluate alternatives. Hypothesis: cache hit rate > 90%.</reasoning>",
+        ]
+        extracted = extract_reasoning_from_messages(messages)
+        assert len(extracted["thinking_snippets"]) >= 2
+
+    def test_empty_messages(self) -> None:
+        extracted = extract_reasoning_from_messages([])
+        assert extracted["thinking_snippets"] == []
+        assert extracted["reasoning_chains"] == []
+
+    def test_no_reasoning_blocks(self) -> None:
+        messages = [
+            "纯文本对话，没有思考块。",
+            "Another normal message without any thinking.",
+        ]
+        extracted = extract_reasoning_from_messages(messages)
+        assert extracted["thinking_snippets"] == []
+
+    def test_respects_max_chars(self) -> None:
+        long_content = "分析：" + "X" * 3000
+        messages = [f"<thinking>{long_content}</thinking>"]
+        extracted = extract_reasoning_from_messages(messages)
+        assert len(extracted["thinking_snippets"]) >= 1
+        assert len(extracted["thinking_snippets"][0]) <= 500
+
+
+class TestGenerateReasoningSummary:
+    def test_produces_structured_summary(self) -> None:
+        extracted = {
+            "reasoning_chains": [
+                "分析：需要将 session 数据持久化，考虑使用 JSON 方案。",
+            ],
+            "conclusions": [
+                "最终决定采用 JSON + 异步写入。",
+            ],
+            "alternatives": [],
+            "thinking_snippets": [],
+        }
+        summary = generate_reasoning_summary(extracted, 3)
+        assert "推理压缩摘要" in summary
+        assert "session" in summary
+        assert "JSON" in summary
+
+    def test_empty_input(self) -> None:
+        summary = generate_reasoning_summary({}, 0)
+        assert summary == "## 推理压缩摘要（前 0 轮推理链）\n"
+
+
+class TestCompressMessagesReasoningAware:
+    def test_reasoning_aware_truncate(self) -> None:
+        messages = [
+            "第一条消息",
+            "第二条消息",
+            "<thinking>分析：第三条消息包含重要思考。</thinking>",
+            "第四条消息",
+            "第五条消息",
+        ]
+        result = compress_messages(
+            messages,
+            CompressionConfig(max_messages=4, level=CompressionLevel.TRUNCATE),
+        )
+        assert result.level == CompressionLevel.TRUNCATE
+        assert result.dropped_count == 1
+        assert len(result.compressed_messages) == 5
+        assert any("分析" in _extract_text(msg) for msg in result.compressed_messages)
+
+    def test_reasoning_aware_summary(self) -> None:
+        messages = [
+            "消息1",
+            "<thinking>权衡：消息2的方案A vs 方案B</thinking>",
+            "消息3",
+            "<reasoning>Key insight: message 4 approach is better. Therefore we should use it.</reasoning>",
+            "消息5",
+            "消息6",
+        ]
+        result = compress_messages(
+            messages,
+            CompressionConfig(
+                max_messages=3, level=CompressionLevel.REASONING_AWARE
+            ),
+        )
+        assert result.level == CompressionLevel.REASONING_AWARE
+        assert result.dropped_count == 3
+        assert "推理压缩摘要" in result.summary_text
+
+
+def _extract_text(msg: str) -> str:
+    return msg

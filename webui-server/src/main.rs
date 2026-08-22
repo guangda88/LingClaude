@@ -18,14 +18,92 @@ use axum::{
     routing::get,
     Router,
 };
-use futures_util::stream;
-use futures_util::StreamExt;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use uuid::Uuid;
+
+/// 防裸名 compile-time assert：cookie 名前缀必须以 `_` 结尾（port-scoped）。
+/// 若有人改成裸名 `atomcode_webui`，编译时立即报错（而非运行时 401 踩坑）。
+const COOKIE_NAME_PREFIX: &str = "atomcode_webui_";
+// const 函数检查：字符串最后字符是否为 `_`
+const fn is_port_scoped_prefix(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    !bytes.is_empty() && bytes[bytes.len() - 1] == b'_'
+}
+const _: () = assert!(is_port_scoped_prefix(COOKIE_NAME_PREFIX),
+    "cookie 名前缀必须以 _ 结尾（port-scoped），否则多实例会互踩");
+
+/// Harness 审计日志 — JSONL 格式，对齐 DSH datalog。
+/// 每次请求记录：method, path, timestamp, session_id, status, error（如有）。
+/// SSE 事件流也逐事件记录（仅 error/done 事件，避免日志膨胀）。
+#[derive(Clone)]
+struct AuditLogger {
+    log_path: PathBuf,
+    handle: Arc<Mutex<File>>,
+}
+
+impl AuditLogger {
+    fn new(log_path: PathBuf) -> Self {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .unwrap_or_else(|e| {
+                eprintln!("WARN: 无法打开审计日志 {}: {}", log_path.display(), e);
+                File::create("/dev/null").unwrap()
+            });
+        AuditLogger {
+            log_path,
+            handle: Arc::new(Mutex::new(file)),
+        }
+    }
+
+    /// 记录一次 HTTP 请求审计条目。
+    fn log_request(
+        &self,
+        method: &str,
+        path: &str,
+        session_id: Option<&str>,
+        status: u16,
+        error: Option<&str>,
+    ) {
+        let entry = serde_json::json!({
+            "type": "request",
+            "ts": chrono::Utc::now().timestamp_millis(),
+            "method": method,
+            "path": path,
+            "session_id": session_id.unwrap_or(""),
+            "status": status,
+            "error": error,
+        });
+        let mut f = self.handle.lock().unwrap();
+        let _ = writeln!(f, "{}", entry);
+        let _ = f.flush();
+    }
+
+    /// 记录 SSE 事件（仅 error/done 类型，避免高频事件日志膨胀）。
+    fn log_event(&self, event_type: &str, data: &str, session_id: Option<&str>) {
+        if !matches!(event_type, "error" | "done" | "approval") {
+            return;
+        }
+        let entry = serde_json::json!({
+            "type": "sse_event",
+            "ts": chrono::Utc::now().timestamp_millis(),
+            "event": event_type,
+            "session_id": session_id.unwrap_or(""),
+            "data_preview": &data[..data.char_indices().take(200).count()],
+        });
+        let mut f = self.handle.lock().unwrap();
+        let _ = writeln!(f, "{}", entry);
+        let _ = f.flush();
+    }
+}
 
 /// 前端 dist 目录（vite build 产物）——经 rust-embed 编进二进制。
 #[derive(RustEmbed)]
@@ -158,23 +236,6 @@ struct ChatRequest {
     mode: String,
 }
 
-/// SSE 事件（对齐 AtomCode live_api 事件形状）。
-#[derive(Serialize)]
-struct ChatEvent {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    input: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    output: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    session_id: Option<String>,
-}
-
 /// lingclaude 8700 api.py 的 `/ask` 请求体（契约见 lingclaude/api.py）。
 #[derive(Serialize)]
 struct LingclaudeAskRequest {
@@ -183,17 +244,11 @@ struct LingclaudeAskRequest {
     context: Option<String>,
 }
 
-/// lingclaude 8700 api.py 的 `/ask` 响应体。
-#[derive(Deserialize)]
-struct LingclaudeAskResponse {
-    answer: String,
-}
-
-/// `/chat` SSE 流式对话 — HTTP 桥接 lingclaude 引擎（8700 `/ask`）。
+/// `/chat` SSE 流式对话 — HTTP 桥接 lingclaude 引擎（8700 `/ask/stream`）。
 ///
 /// 桥接协议：
-/// 1. 解析前端请求 → 构造 `{question, context}` POST 到 `{lingclaude_base}/ask`
-/// 2. 收到 `{answer}` 后按 AtomCode SSE 事件形状逐段推送（runtime_info → text → done）
+/// 1. 解析前端请求 → 构造 `{question, context}` POST 到 `{lingclaude_base}/ask/stream`
+/// 2. 逐事件读取引擎 SSE 流，按事件边界（`\n\n`）切分，提取 `data:` 行原样转发
 /// 3. 桥接失败/超时 → 推送 `error` 事件（fail-closed，不静默）
 async fn chat_sse(State(state): State<AppState>, body: axum::body::Bytes) -> Response {
     let req: ChatRequest = match serde_json::from_slice(&body) {
@@ -208,7 +263,7 @@ async fn chat_sse(State(state): State<AppState>, body: axum::body::Bytes) -> Res
         question: req.message.clone(),
         context: req.session_id.as_deref().map(|_| format!("session={}", req.session_id.as_deref().unwrap_or(""))),
     };
-    let url = format!("{}/ask", state.lingclaude_base);
+    let url = format!("{}/ask/stream", state.lingclaude_base);
 
     let mut builder = state
         .client
@@ -218,78 +273,59 @@ async fn chat_sse(State(state): State<AppState>, body: axum::body::Bytes) -> Res
         builder = builder.header("X-API-Key", key);
     }
 
-    let events: Vec<ChatEvent> = match builder.json(&ask_body).send().await {
-        Ok(resp) if resp.status().is_success() => match resp.json::<LingclaudeAskResponse>().await {
-            Ok(answer) => {
-                // 成功：runtime_info + text(引擎回答) + done
-                vec![
-                    ChatEvent {
-                        kind: "runtime_info".into(),
-                        content: Some(format!("lingclaude@{}", state.lingclaude_base)),
-                        name: None,
-                        input: None,
-                        output: None,
-                        session_id: req.session_id.clone(),
-                    },
-                    ChatEvent {
-                        kind: "text".into(),
-                        content: Some(answer.answer),
-                        name: None,
-                        input: None,
-                        output: None,
-                        session_id: None,
-                    },
-                    ChatEvent {
-                        kind: "done".into(),
-                        content: None,
-                        name: None,
-                        input: None,
-                        output: None,
-                        session_id: req.session_id.clone(),
-                    },
-                ]
+    let _session_id = req.session_id.clone();
+    let stream = async_stream::stream! {
+        match builder.json(&ask_body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                use futures_util::StreamExt;
+                let mut sse_stream = resp.bytes_stream();
+                let mut buffer = String::new();
+                while let Some(chunk) = sse_stream.next().await {
+                    match chunk {
+                        Ok(bytes) => {
+                            buffer.push_str(&String::from_utf8_lossy(&bytes));
+                            // 按 SSE 事件边界（空行）切分
+                            while let Some(pos) = buffer.find("\n\n") {
+                                let block = buffer[..pos].to_string();
+                                buffer = buffer[pos + 2..].to_string();
+                                let data_line = block
+                                    .lines()
+                                    .find(|l| l.starts_with("data:"))
+                                    .map(|l| l[5..].trim().to_string())
+                                    .unwrap_or_default();
+                                if data_line.is_empty() {
+                                    continue;
+                                }
+                                let ev = Event::default().event("message").data(data_line);
+                                yield Ok::<Event, std::convert::Infallible>(ev);
+                            }
+                        }
+                        Err(e) => {
+                            let ev = Event::default().event("error").data(format!(
+                                "{{\"type\":\"error\",\"message\":\"stream read failed: {e}\"}}"
+                            ));
+                            yield Ok::<Event, std::convert::Infallible>(ev);
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                let ev = Event::default().event("error").data(format!(
+                    "{{\"type\":\"error\",\"message\":\"lingclaude engine HTTP {status}: {text}\"}}"
+                ));
+                yield Ok::<Event, std::convert::Infallible>(ev);
             }
             Err(e) => {
-                vec![ChatEvent {
-                    kind: "error".into(),
-                    content: Some(format!("bridge response parse failed: {e}")),
-                    name: None,
-                    input: None,
-                    output: None,
-                    session_id: None,
-                }]
+                let ev = Event::default().event("error").data(format!(
+                    "{{\"type\":\"error\",\"message\":\"lingclaude engine unreachable: {e}\"}}"
+                ));
+                yield Ok::<Event, std::convert::Infallible>(ev);
             }
-        },
-        Ok(resp) => {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            vec![ChatEvent {
-                kind: "error".into(),
-                content: Some(format!("lingclaude engine HTTP {status}: {text}")),
-                name: None,
-                input: None,
-                output: None,
-                session_id: None,
-            }]
-        }
-        Err(e) => {
-            vec![ChatEvent {
-                kind: "error".into(),
-                content: Some(format!("lingclaude engine unreachable: {e}")),
-                name: None,
-                input: None,
-                output: None,
-                session_id: None,
-            }]
         }
     };
-
-    let stream = stream::iter(events.into_iter().map(|e| {
-        Ok::<Event, std::convert::Infallible>(
-            Event::default().event(&e.kind).json_data(&e).unwrap(),
-        )
-    }))
-    .chain(stream::empty());
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response()
 }
@@ -305,25 +341,27 @@ struct LingclaudeStatus {
     auth_required: bool,
 }
 
-/// `/live` 实时状态同步 SSE — HTTP 桥接 lingclaude 引擎（8700 `/status`）。
+/// `/live` 实时状态同步 SSE — HTTP 桥接 lingclaude 引擎（8700 `/status` + `/live/events`）。
 ///
 /// 前端 LiveWireEvent 事件形状（api.ts L696-717）：
 /// `snapshot {messages, session_id, project_hash, provider, mode}` + 增量事件。
-/// 骨架先推 `snapshot`（含引擎在线状态）+ `provider`，再按周期心跳推送引擎状态；
-/// 桥接失败时推 `error`（fail-closed，不静默）。
+/// 实现：
+/// 1. 首次推 `snapshot`（桥接 8700 /status，含引擎在线状态）
+/// 2. 周期轮询 8700 `/live/events?since=N`，有新事件则转发 `tool_start` / `tool_result`
+/// 3. 无新事件时推心跳保活；桥接失败推 `error`（fail-closed，不静默）
 async fn live_sse(State(state): State<AppState>, Query(_q): Query<std::collections::HashMap<String, String>>) -> Response {
-    // 周期心跳：每 15s 桥接一次 8700 /status 推送引擎状态
     let base = state.lingclaude_base.clone();
     let api_key = state.lingclaude_api_key.clone();
     let client = state.client.clone();
 
-    let stream = stream::once(async move {
-        let status_json = async {
+    let stream = async_stream::stream! {
+        // 1. 首次 snapshot（桥接 /status）
+        {
             let mut builder = client.get(format!("{base}/status"));
             if let Some(key) = &api_key {
                 builder = builder.header("X-API-Key", key);
             }
-            match builder.send().await {
+            let status_json = match builder.send().await {
                 Ok(resp) if resp.status().is_success() => match resp.json::<LingclaudeStatus>().await {
                     Ok(s) => serde_json::json!({
                         "type": "snapshot",
@@ -338,31 +376,75 @@ async fn live_sse(State(state): State<AppState>, Query(_q): Query<std::collectio
                 },
                 Ok(resp) => serde_json::json!({"type": "error", "message": format!("engine HTTP {}", resp.status())}),
                 Err(e) => serde_json::json!({"type": "error", "message": format!("engine unreachable: {e}")}),
-            }
+            };
+            yield Ok::<Event, std::convert::Infallible>(Event::default().event("snapshot").json_data(&status_json).unwrap());
         }
-        .await;
-        Ok::<Event, std::convert::Infallible>(Event::default().event("snapshot").json_data(&status_json).unwrap())
-    })
-    .chain(stream::repeat_with(move || {
-        Ok::<Event, std::convert::Infallible>(
-            Event::default()
-                .event("heartbeat")
-                .data(format!("{{\"ts\":{}}}", std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs())),
-        )
-    }));
+
+        // 2-3. 周期轮询 /live/events 增量转发 + 心跳
+        let mut since: i64 = 0;
+        loop {
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            let mut builder = client.get(format!("{base}/live/events?since={since}"));
+            if let Some(key) = &api_key {
+                builder = builder.header("X-API-Key", key);
+            }
+            match builder.send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    #[derive(Deserialize)]
+                    struct LiveEventsResp {
+                        events: Vec<serde_json::Value>,
+                        latest: i64,
+                    }
+                    match resp.json::<LiveEventsResp>().await {
+                        Ok(r) => {
+                            since = r.latest;
+                            for ev in r.events {
+                                let ev_type = ev.get("type").and_then(|t| t.as_str()).unwrap_or("state");
+                                yield Ok::<Event, std::convert::Infallible>(
+                                    Event::default().event(ev_type).json_data(&ev).unwrap(),
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            yield Ok::<Event, std::convert::Infallible>(
+                                Event::default().event("error").data(format!("{{\"type\":\"error\",\"message\":\"live events parse failed: {e}\"}}")),
+                            );
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    yield Ok::<Event, std::convert::Infallible>(
+                        Event::default().event("error").data(format!("{{\"type\":\"error\",\"message\":\"engine HTTP {}\"}}", resp.status())),
+                    );
+                }
+                Err(e) => {
+                    yield Ok::<Event, std::convert::Infallible>(
+                        Event::default().event("error").data(format!("{{\"type\":\"error\",\"message\":\"engine unreachable: {e}\"}}")),
+                    );
+                }
+            }
+            // 心跳保活
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            yield Ok::<Event, std::convert::Infallible>(
+                Event::default().event("heartbeat").data(format!("{{\"ts\":{ts}}}")),
+            );
+        }
+    };
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response()
 }
 
 /// lingclaude 8700 `/permission` 请求体（契约见 lingclaude/api.py）。
+/// `reason` 可选：前端 respondPermission 只发 session_id/decision/tool_name。
 #[derive(Serialize, Deserialize)]
 struct PermissionRequest {
     session_id: String,
     decision: String,
     tool_name: String,
+    #[serde(default)]
     reason: String,
 }
 
@@ -409,7 +491,69 @@ async fn chat_permission(State(state): State<AppState>, body: axum::body::Bytes)
     }
 }
 
-/// `/?token=` mint 端点（webui 启动时由 CLI 侧调用并打开浏览器）。
+/// lingclaude 8700 `/stop` 响应体（契约待灵克补充）。
+#[derive(Deserialize)]
+struct StopResponse {
+    stopped: bool,
+    final_turns: Option<u32>,
+}
+
+/// lingclaude 8700 `/sessions/{session_id}/stop` 响应体。
+#[derive(Deserialize)]
+struct StopSessionResponse {
+    session_id: String,
+    stopped: bool,
+    #[serde(default)]
+    final_turns: u32,
+}
+
+/// `/chat/stop` 停止会话 — HTTP 桥接 lingclaude 8700 `/sessions/{session_id}/stop`。
+async fn chat_stop(State(state): State<AppState>, body: axum::body::Bytes) -> Response {
+    #[derive(Deserialize)]
+    struct StopRequest {
+        session_id: Option<String>,
+    }
+    let req: StopRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("bad request: {e}")).into_response();
+        }
+    };
+    let session_id = match req.session_id {
+        Some(id) if !id.is_empty() => id,
+        _ => {
+            return (StatusCode::BAD_REQUEST, "session_id is required").into_response();
+        }
+    };
+
+    let base = "http://127.0.0.1:8700";
+    let url = format!("{base}/sessions/{session_id}/stop");
+    let mut builder = state.client.post(&url).header("Content-Type", "application/json");
+    if let Some(key) = &state.lingclaude_api_key {
+        builder = builder.header("X-API-Key", key);
+    }
+
+    match builder.send().await {
+        Ok(resp) if resp.status().is_success() => match resp.json::<StopSessionResponse>().await {
+            Ok(s) => axum::Json(serde_json::json!({
+                "stopped": s.stopped,
+                "session_id": s.session_id,
+                "final_turns": s.final_turns,
+            })).into_response(),
+            Err(e) => (StatusCode::BAD_GATEWAY, format!("bridge parse failed: {e}")).into_response(),
+        },
+        Ok(resp) => {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            (StatusCode::BAD_GATEWAY, format!("engine HTTP {status}: {text}")).into_response()
+        }
+        Err(e) => {
+            (StatusCode::BAD_GATEWAY, format!("engine unreachable: {e}")).into_response()
+        }
+    }
+}
+
+/// `/mint` 端点返回一次性 token URL（webui 启动时由 CLI 侧调用并打开浏览器）。
 async fn mint_token(State(state): State<AppState>) -> Response {
     let token = state.tokens.mint();
     (StatusCode::OK, format!("http://127.0.0.1:{}/?token={}", state.port, token)).into_response()
@@ -423,7 +567,7 @@ async fn status(State(state): State<AppState>) -> Response {
             "port": state.port,
             "enforce_token": state.enforce_token,
             "cookie": state.cookie_name(),
-            "sse": ["/chat", "/live"],
+            "sse": ["/chat", "/chat/stop", "/live"],
         })),
     )
         .into_response()
@@ -451,6 +595,7 @@ async fn main() {
         .route("/status", get(status))
         .route("/mint", get(mint_token))
         .route("/chat", axum::routing::post(chat_sse))
+        .route("/chat/stop", axum::routing::post(chat_stop))
         .route("/chat/permission", axum::routing::post(chat_permission))
         .route("/live", get(live_sse))
         .fallback(serve_static)

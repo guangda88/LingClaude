@@ -2,10 +2,37 @@ from __future__ import annotations
 
 import re
 import resource
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
+
+# bwrap 可用性探测结果缓存（None=未探测，False=本环境不可用）
+_BWARP_PROBE_RESULT: bool | None = None
+
+
+def _bwrap_probe(bwrap: str) -> bool:
+    """探测 bwrap 在本环境是否真正可用（一次性，结果缓存）。
+
+    本环境常见失败：uid map / net namespace 被禁（无特权容器），
+    此时 bwrap 即使存在也无法运行——必须降级，不能反复失败。
+    """
+    global _BWARP_PROBE_RESULT
+    if _BWARP_PROBE_RESULT is not None:
+        return _BWARP_PROBE_RESULT
+    try:
+        r = subprocess.run(
+            [bwrap, "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--", "/bin/true"],
+            capture_output=True,
+            timeout=5,
+        )
+        ok = r.returncode == 0
+    except Exception:
+        ok = False
+    _BWARP_PROBE_RESULT = ok
+    return ok
 
 
 @dataclass(frozen=True)
@@ -47,6 +74,31 @@ _BLOCKED_BASE_COMMANDS = frozenset({
 _DEFAULT_MEMORY_LIMIT = 512 * 1024 * 1024  # 512 MB
 _DEFAULT_CPU_LIMIT = 30  # seconds
 
+# P0-1: 凭据模式检测（对标 AtomCode atomgit_bash_gate.rs TOKEN_MARKERS）
+# 防止模型通过 bash 传递凭据（access_token、bearer token、环境变量引用）
+_CREDENTIAL_MARKERS = frozenset({
+    "access_token=",
+    "authorization: bearer",
+    "api_key=",
+    "apikey=",
+    "x-api-key:",
+    "sk-",  # DeepSeek/OpenAI 风格 key 前缀
+    "$ATOMCODE_API_KEY",
+    "${ATOMCODE_API_KEY",
+    "$LINGCLAUDE_API_KEY",
+    "${LINGCLAUDE_API_KEY",
+    "$DEEPSEEK_API_KEY",
+    "${DEEPSEEK_API_KEY",
+})
+
+# 禁止直接调用的外部 API host（强制走专用工具或 SDK）
+_FORBIDDEN_API_HOSTS = frozenset({
+    "api.atomgit.com",
+    "api.deepseek.com",
+    "open.bigmodel.cn",
+    "dashscope.aliyuncs.com",
+})
+
 
 class BashExecutor:
     def __init__(
@@ -81,8 +133,10 @@ class BashExecutor:
 
         start = time.monotonic()
         try:
-            result = subprocess.run(  # nosec B602 — shell=True 由 _check_blocked 黑名单+白名单+资源限制三重缓解
-                command,
+            # B3：bwrap 沙箱包裹（可用时）— 只读系统路径 + 可写工作目录
+            cmd = self._sandbox_command(command)
+            result = subprocess.run(  # nosec B602 — shell=True 由 _check_blocked 黑名单+白名单+资源限制+沙箱四重缓解
+                cmd,
                 shell=True,
                 capture_output=True,
                 text=True,
@@ -116,6 +170,41 @@ class BashExecutor:
                 duration=duration,
                 command=command,
             )
+
+    def _sandbox_command(self, command: str) -> str:
+        """B3：bwrap 沙箱包裹 — 可用时用，不可用降级为原命令。
+
+        策略（对标 DSH sandbox read-only/workspace-write）：
+        - 系统路径只读（/usr /lib /etc /bin /sbin）
+        - 工作目录可写（workspace-write）
+        - /tmp 可写（工具产物、spill 文件）
+        - 网络隔离（--unshare-net）
+
+        降级条件：bwrap 不存在、或本环境无权限（uid map / net ns 被禁）。
+        降级后黑名单+白名单+资源限制三重缓解仍然生效（fail-safe，不静默）。
+        """
+        bwrap = shutil.which("bwrap")
+        if bwrap is None or not _bwrap_probe(bwrap):
+            return command
+        # working_dir 为 None 时退化到当前目录（避免 --bind None None）
+        wd = str(self.working_dir or Path.cwd())
+        parts = [
+            bwrap,
+            "--unshare-net",
+            "--ro-bind", "/usr", "/usr",
+            "--ro-bind", "/lib", "/lib",
+            "--ro-bind", "/etc", "/etc",
+            "--ro-bind", "/bin", "/bin",
+            "--ro-bind", "/sbin", "/sbin",
+            "--bind", wd, wd,
+            "--bind", "/tmp", "/tmp",
+            "--die-with-parent",
+            "--",
+            "/bin/bash", "-c", command,
+        ]
+        import shlex
+
+        return " ".join(shlex.quote(p) for p in parts)
 
     @staticmethod
     def _normalize_command(command: str) -> str:
@@ -152,6 +241,17 @@ class BashExecutor:
     def _check_blocked(self, command: str) -> str | None:
         cmd_stripped = command.strip()
         cmd_normalized = self._normalize_command(cmd_stripped)
+        cmd_lower = cmd_normalized.lower()
+
+        # P0-1: 凭据模式检测（fail-closed）
+        for marker in _CREDENTIAL_MARKERS:
+            if marker.lower() in cmd_lower:
+                return f"命令包含凭据模式 '{marker}'，禁止通过 bash 传递凭据"
+
+        # P0-1: 禁止直接调用外部 API host
+        for host in _FORBIDDEN_API_HOSTS:
+            if host in cmd_lower:
+                return f"禁止直接调用 {host}，请使用专用工具或 SDK"
 
         for blocked in self.blocked_commands:
             bl = blocked.lower()
@@ -186,7 +286,52 @@ class BashExecutor:
             ):
                 return f"'{base_cmd_name}' 不在允许列表中"
 
+        # P1-1: Workspace 外审批（对标 AtomCode bash_workspace_gate.rs）
+        # 破坏性命令目标在 working_dir 外 → 拦截
+        if self.working_dir:
+            working_path = Path(self.working_dir).resolve()
+            destructive_targets = self._extract_destructive_targets(cmd_stripped)
+            for target in destructive_targets:
+                try:
+                    target_path = Path(target)
+                    if not target_path.is_absolute():
+                        target_path = working_path / target_path
+                    target_resolved = target_path.resolve(strict=False)
+                    if not str(target_resolved).startswith(str(working_path)):
+                        return f"破坏性命令目标 {target} 在 workspace 外（{working_path}），禁止执行"
+                except (OSError, ValueError):
+                    # 路径不可解析 → fail-closed
+                    return f"破坏性命令目标 {target} 无法解析，禁止执行（fail-closed）"
+
         return None
+
+    @staticmethod
+    def _extract_destructive_targets(command: str) -> list[str]:
+        """提取破坏性命令的目标路径。
+
+        支持：rm <path>, mv <src> <dst>, cp <src> <dst>, shred <path> 等。
+        返回目标路径列表（相对或绝对）。
+        """
+        destructive_cmds = {"rm", "rmdir", "unlink", "shred", "truncate"}
+        move_copy_cmds = {"mv", "cp"}
+
+        tokens = command.split()
+        if not tokens:
+            return []
+
+        cmd = Path(tokens[0]).name.lower()
+
+        if cmd in destructive_cmds:
+            # rm/file-delete: 所有非选项参数都是目标
+            return [t for t in tokens[1:] if not t.startswith("-")]
+
+        if cmd in move_copy_cmds:
+            # mv/cp: 最后一个是目标（dst）
+            if len(tokens) >= 3:
+                return [tokens[-1]]
+            return []
+
+        return []
 
     def _set_resource_limits(self) -> None:
         try:

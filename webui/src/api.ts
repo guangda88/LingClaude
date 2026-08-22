@@ -3,6 +3,36 @@
 // Read the one-time token from URL; never persist to localStorage
 const token = new URLSearchParams(location.search).get('token') ?? '';
 
+/** Backend type detection — auto-detect based on /status response shape. */
+export type BackendType = 'atomcode' | 'lingclaude';
+
+let _backendType: BackendType | null = null;
+
+/** Get cached backend type (auto-detect on first call). */
+export async function getBackendType(): Promise<BackendType> {
+  return detectBackend();
+}
+
+export async function detectBackend(): Promise<BackendType> {
+  if (_backendType) return _backendType;
+  try {
+    const r = await fetch('/status', { headers: authHeaders() });
+    if (!r.ok) throw new Error('status check failed');
+    const body = await r.json() as Record<string, unknown>;
+    // lingclaude-webui returns { service: "lingclaude-webui", port, cookie, sse: [...] }
+    // AtomCode returns { providers: [...], models: [...] } or similar
+    if (body['service'] === 'lingclaude-webui' || Array.isArray(body['sse'])) {
+      _backendType = 'lingclaude';
+    } else {
+      _backendType = 'atomcode';
+    }
+  } catch {
+    // Default to atomcode (original behavior)
+    _backendType = 'atomcode';
+  }
+  return _backendType;
+}
+
 function authHeaders(): Record<string, string> {
   // X-AtomCode-Client lets the daemon tag telemetry as webui-originated
   // (resolve_client_mode → SessionMode::Webui); sent regardless of token.
@@ -900,7 +930,8 @@ export async function postLivePermission(
   decision: 'allow' | 'deny' | 'always_allow' | 'allow_persist',
   toolName?: string,
 ): Promise<{ accepted: boolean }> {
-  const resp = await fetch('/live/permission', {
+  // lingclaude-webui: 端点从 AtomCode 的 /live/permission 适配为 /chat/permission
+  const resp = await fetch('/chat/permission', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ decision, tool_name: toolName }),
@@ -954,4 +985,69 @@ export async function postLiveUserInput(
     throw new Error(result.error ?? 'live runtime did not accept the user input answer');
   }
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Engine-adapter: 按后端类型自动适配端点
+// ---------------------------------------------------------------------------
+
+/**
+ * Adapter: 根据后端类型映射端点路径。
+ * - atomcode: /live/*, /sessions/*, /cd, /project, etc.
+ * - lingclaude: /chat/*, /live/events, /sessions/*, etc.
+ */
+export async function adapterFetch(
+  endpoint: string,
+  options: RequestInit = {},
+): Promise<Response> {
+  const backend = await getBackendType();
+  let path = endpoint;
+
+  if (backend === 'lingclaude') {
+    // lingclaude-webui 端点映射
+    if (endpoint.startsWith('/live/message')) {
+      path = '/chat';
+    } else if (endpoint.startsWith('/live/stop')) {
+      path = '/chat/stop';
+    } else if (endpoint.startsWith('/live/permission')) {
+      path = '/chat/permission';
+    } else if (endpoint.startsWith('/live/')) {
+      // /live/* 其他端点在 lingclaude 中可能不存在，降级为 404
+      path = endpoint.replace('/live/', '/');
+    }
+  }
+
+  return fetch(path, options);
+}
+
+/**
+ * Convenience: 发送消息到后端（自动适配端点）。
+ */
+export async function sendToEngine(
+  message: string,
+  images?: ImageData[],
+  provider?: string,
+  sessionId?: string | null,
+): Promise<Response> {
+  const backend = await getBackendType();
+  const body = {
+    message,
+    ...(images && images.length ? { images } : {}),
+    ...(provider ? { provider } : {}),
+    ...(sessionId ? { session_id: sessionId } : {}),
+  };
+
+  if (backend === 'lingclaude') {
+    return fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+  }
+
+  return fetch('/live/message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  });
 }

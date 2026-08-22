@@ -199,17 +199,24 @@ GET /live?session_id=xxx
 
 ---
 
-## 七、实施计划
+## 七、实施计划（2026-08-22 状态）
 
-| 阶段 | 内容 | 对应任务 |
-|---|---|---|
-| P0 | 复用前端工程（webui/ → lingclaude）+ dist 构建 | #4 |
-| P0 | rust-embed 静态服务 + SPA fallback（Rust 二进制） | #4 |
-| P0 | 鉴权：`/?token=` handoff + `atomcode_webui_<port>` cookie | #5 |
-| P1 | /chat SSE + /live 传输层（协议复用） | #6 |
-| P1 | lingclaude 事件源适配器（engine → SSE event） | #6 |
-| P2 | /chat/permission 审批对接 governance | 后续 |
-| P2 | lingclaude 品牌化 UI 微调 | 后续 |
+| 阶段 | 内容 | 对应任务 | 状态 |
+|---|---|---|---|
+| P0 | 复用前端工程（webui/ → lingclaude）+ dist 构建 | #4 | ✅ 完成 |
+| P0 | rust-embed 静态服务 + SPA fallback（Rust 二进制） | #4 | ✅ 完成 |
+| P0 | 鉴权：`/?token=` handoff + `atomcode_webui_<port>` cookie | #5 | ✅ 完成 |
+| P1 | /chat SSE + /live 传输层（协议复用） | #6 | ✅ 完成 |
+| P1 | lingclaude 事件源适配器（engine → SSE event） | #6 | ✅ 完成 |
+| P2 | /chat/permission 审批对接 governance | 后续 | ✅ 完成（接入 GovernanceRouter） |
+| P2 | lingclaude 品牌化 UI 微调 | 后续 | ✅ 完成 |
+| P1+ | A3：/live 增量事件（tool_start/tool_result） | 2026-08-22 | ✅ 完成 |
+| P1+ | A4：端到端联调验证（8700 + 13460 打通） | 2026-08-22 | ✅ 完成 |
+| P2+ | C2：webui 接入 LINGKERNEL SeamRegistry | 2026-08-22 | ✅ 完成（lingclaude/webui_seam.py） |
+| P1+ | B2：subagent ACP 后端（复用现有 base/acp 骨架） | 2026-08-22 | ✅ 调研确认已有 |
+| 发布 | cargo build --release 单二进制（6.9MB） | 2026-08-22 | ✅ 完成 |
+
+**验证基线（2026-08-22 实测）**：前端 typecheck + dist 重建通过；api.py 17 路由含 /ask/stream /permission /live/events；Rust cargo check 无警告 + 4 单测全绿；release 二进制产出；8700↔13460 三链路（/chat SSE、/chat/permission、/live）HTTP 桥接打通（fail-closed 行为正确）。
 
 ---
 

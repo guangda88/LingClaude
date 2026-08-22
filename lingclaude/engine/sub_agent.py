@@ -139,6 +139,20 @@ class SubAgent:
         except json.JSONDecodeError:
             return json.dumps({"error": f"Invalid JSON: {arguments_json}"}, ensure_ascii=False)
 
+        # P1-2: 敏感路径隔离（对标 AtomCode task.rs hard deny）
+        from lingclaude.engine.sensitive_path_gate import check_sensitive_path
+        for key, value in kwargs.items():
+            if isinstance(value, str) and check_sensitive_path(value)[0]:
+                return json.dumps({
+                    "error": f"Tool '{name}' rejected: argument '{key}' references sensitive path"
+                }, ensure_ascii=False)
+            elif isinstance(value, dict):
+                for v in value.values():
+                    if isinstance(v, str) and check_sensitive_path(v)[0]:
+                        return json.dumps({
+                            "error": f"Tool '{name}' rejected: nested argument references sensitive path"
+                        }, ensure_ascii=False)
+
         try:
             result = self._runtime.execute_tool(name, **kwargs)
             if isinstance(result, dict):

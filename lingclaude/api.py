@@ -13,6 +13,7 @@ from pathlib import Path  # noqa: E402
 
 from fastapi import FastAPI, HTTPException, Security  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import StreamingResponse  # noqa: E402
 from fastapi.security import APIKeyHeader  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
@@ -124,6 +125,77 @@ async def get_status(api_key: str = Security(verify_api_key)):
     }
 
 
+@app.get("/live/events")
+async def live_events(since: int = 0, api_key: str = Security(verify_api_key)):
+    """webUI `/live` 增量事件轮询端点 — 返回 since 之后的新工具执行事件。
+
+    供 lingclaude-webui Rust server 轮询并转发为前端 LiveWireEvent。
+    """
+    from lingclaude.engine.tool_pipeline import read_tool_events
+
+    events, latest = read_tool_events(since)
+    return {"events": events, "latest": latest}
+
+
+# ---------------------------------------------------------------------------
+# C2: Session snapshot 接口（webui LingBus 断线续传）
+# ---------------------------------------------------------------------------
+
+class SessionSnapshotRequest(BaseModel):
+    session_id: str
+    project_path: str = ""
+
+
+@app.get("/sessions")
+async def list_sessions(api_key: str = Security(verify_api_key)):
+    """列出所有会话（供 webUI 侧会话管理）。"""
+    from lingclaude.core.session import SessionManager
+
+    mgr = SessionManager()
+    sessions = mgr.list_sessions()
+    return {"sessions": list(sessions)}
+
+
+@app.get("/sessions/{session_id}")
+async def get_session(session_id: str, project_path: str = "", api_key: str = Security(verify_api_key)):
+    """获取单个会话详情（供 webUI 快照恢复）。"""
+    from lingclaude.core.session import SessionManager
+
+    mgr = SessionManager()
+    result = mgr.load(session_id, project_path)
+    if result.is_err:
+        raise HTTPException(404, f"Session not found: {result.error}")
+    return result.data.to_dict_redacted()
+
+
+@app.post("/sessions/snapshot")
+async def create_snapshot(req: SessionSnapshotRequest, api_key: str = Security(verify_api_key)):
+    """创建会话快照（供 webUI 断线续传）。"""
+    from lingclaude.core.session import SessionManager
+
+    mgr = SessionManager()
+    # 先加载 session
+    load_result = mgr.load(req.session_id, req.project_path)
+    if load_result.is_err:
+        raise HTTPException(404, f"Session not found: {req.session_id}")
+    snap_result = mgr.snapshot(load_result.data)
+    if snap_result.is_err:
+        raise HTTPException(500, f"Snapshot failed: {snap_result.error}")
+    return {"path": str(snap_result.data), "session_id": req.session_id}
+
+
+@app.post("/sessions/{session_id}/stop")
+async def stop_session(session_id: str, project_path: str = "", api_key: str = Security(verify_api_key)):
+    """停止会话：标记过期（供 webUI 侧会话管理）。"""
+    from lingclaude.core.session import SessionManager
+
+    mgr = SessionManager()
+    result = mgr.stop(session_id, project_path)
+    if result.is_error:
+        raise HTTPException(404, f"Failed to stop session: {result.error}")
+    return result.data.to_dict_redacted()
+
+
 @app.post("/ask", response_model=AskResponse)
 async def ask(req: AskRequest, api_key: str = Security(verify_api_key)):
     q = req.question
@@ -136,12 +208,71 @@ async def ask(req: AskRequest, api_key: str = Security(verify_api_key)):
     return AskResponse(answer=answer)
 
 
+@app.post("/ask/stream")
+async def ask_stream(req: AskRequest, api_key: str = Security(verify_api_key)):
+    """流式提问端点 — 供 lingclaude-webui `/chat` SSE 桥接。
+
+    基于 QueryEngine.stream_submit 的逐事件流（message_start / message_delta /
+    tool_call_start / tool_call_end / status / error / message_stop），
+    以 text/event-stream 逐事件推送。
+    """
+    from lingclaude.core.query_engine import QueryEngine
+
+    engine_result = QueryEngine.from_config_file()
+    if engine_result.is_err:
+        raise HTTPException(500, f"QueryEngine 初始化失败: {engine_result.error}")
+
+    engine = engine_result.data
+    prompt = req.question
+    if req.context:
+        prompt = f"上下文：{req.context}\n\n问题：{req.question}"
+
+    def event_gen():
+        yield "retry: 3000\n\n"
+        for ev in engine.stream_submit(prompt):
+            event_type = ev.get("type", "unknown")
+            # 对齐前端 SSEEvent：message_delta → text，message_stop → done
+            if event_type == "message_delta":
+                payload = {"type": "text", "content": ev.get("text", "")}
+            elif event_type == "message_stop":
+                payload = {"type": "done", "session_id": ev.get("session_id", "")}
+            elif event_type == "tool_call_start":
+                payload = {
+                    "type": "tool_start",
+                    "id": ev.get("call_id", ""),
+                    "name": ev.get("name", ""),
+                    "arguments": ev.get("arguments", {}),
+                }
+            elif event_type == "tool_call_end":
+                payload = {
+                    "type": "tool_result",
+                    "id": ev.get("call_id", ""),
+                    "name": ev.get("name", ""),
+                    "output": str(ev.get("output_preview", "")),
+                    "success": not ev.get("is_error", False),
+                    "duration_ms": 0,
+                }
+            elif event_type == "error":
+                payload = {"type": "error", "message": str(ev.get("error", "error"))}
+            elif event_type == "status":
+                payload = {"type": "warning", "message": str(ev.get("message", ""))}
+            else:
+                payload = {"type": "text", "content": ""}
+            yield f"event: {event_type}\ndata: {__import__('json').dumps(payload, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/permission", response_model=PermissionResponse)
 async def permission(req: PermissionRequest, api_key: str = Security(verify_api_key)):
     """webUI 审批决策入口 — 对接 governance_v2 / verification_gate。
 
     lingclaude-webui 的 `/chat/permission` 桥接此端点。决策记录到审批日志，
-    供 verification_gate / governance 消费；未知决策返回 400。
+    并接入 GovernanceRouter（工具审批作为治理提案流转）；未知决策返回 400。
     """
     valid = {"allow", "deny", "always_allow", "allow_persist"}
     if req.decision not in valid:
@@ -154,6 +285,27 @@ async def permission(req: PermissionRequest, api_key: str = Security(verify_api_
         tool_name=req.tool_name,
         reason=req.reason,
     )
+
+    # 接入 GovernanceRouter：工具审批决策作为治理投票流转（失败不阻塞 webUI 响应）
+    try:
+        from lingclaude.governance.governance_router import GovernanceRouter
+
+        router = GovernanceRouter()
+        if req.decision == "always_allow" or req.decision == "allow_persist":
+            router.propose(
+                title=f"工具审批: {req.tool_name or 'unknown'}",
+                proposer="webui",
+                body=f"session={req.session_id} decision={req.decision} reason={req.reason}",
+            )
+        else:
+            router.propose(
+                title=f"工具审批决策: {req.decision}",
+                proposer="webui",
+                body=f"tool={req.tool_name or 'unknown'} session={req.session_id} reason={req.reason}",
+            )
+    except Exception as e:  # noqa: BLE001 — 治理后端不可用时降级为纯日志
+        logger.warning("GovernanceRouter 不可用，仅记录审批日志: %s", e)
+
     return PermissionResponse(success=True, decision=req.decision)
 
 
