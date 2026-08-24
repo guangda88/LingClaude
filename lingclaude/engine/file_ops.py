@@ -94,10 +94,12 @@ class FileOps:
         write_result = self.write(path, new_content)
         return write_result
 
-    def glob(self, pattern: str) -> Result[tuple[str, ...]]:
+    def glob(self, pattern: str, path: str | None = None) -> Result[tuple[str, ...]]:
+        # T0-5: path 参数 — 指定 glob 根目录（默认 base_dir）
         try:
-            matches = sorted(self.base_dir.glob(pattern))
-            return Result.ok(tuple(str(m.relative_to(self.base_dir)) for m in matches if m.is_file()))
+            base = Path(path).resolve() if path else self.base_dir
+            matches = sorted(base.glob(pattern))
+            return Result.ok(tuple(str(m.relative_to(base)) for m in matches if m.is_file()))
         except Exception as e:
             return Result.fail(f"Glob error: {e}")
 

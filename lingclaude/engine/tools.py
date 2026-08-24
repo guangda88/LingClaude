@@ -61,6 +61,9 @@ class ToolDefinition:
     finalize_content: Callable[[Any, Any], Any] | None = None
     present_call: Callable[[Any], Any] | None = None
     present_result: Callable[[Any, Any], Any] | None = None
+    # T0-8: 显式 required 参数列表（空 = 全部参数视为 required，保持旧行为）。
+    # MCP 工具带完整 JSON Schema 时用它区分可选参数，避免模型被迫填所有参数。
+    required_params: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         d = {

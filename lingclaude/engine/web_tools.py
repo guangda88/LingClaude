@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -68,16 +69,55 @@ class WebFetcher:
 
 
 class WebSearcher:
-    def __init__(self, backend: str | None = None) -> None:
+    """T0-6: web 搜索 — 后端链 searxng（本地实例，真搜索）→ duckduckgo（Instant Answer 兜底）。
+
+    backend 优先级：显式参数 > LINGCLAUDE_SEARCH_BACKEND 环境变量 > auto。
+    auto = searxng 失败时降级 duckduckgo（不再是 NOT_CONFIGURED 死路）。
+    """
+
+    DEFAULT_SEARXNG_URL = "http://127.0.0.1:8888"
+
+    def __init__(self, backend: str | None = None, searxng_url: str | None = None) -> None:
         self._backend = backend
+        self._searxng_url = (searxng_url or os.environ.get("SEARXNG_URL") or self.DEFAULT_SEARXNG_URL).rstrip("/")
 
     def search(self, query: str, max_results: int = 5) -> Result[list[dict[str, str]]]:
-        if self._backend == "duckduckgo":
-            return self._search_duckduckgo(query, max_results)
-        return Result.fail(
-            "Web search not configured. Set web_search.backend in config (e.g., 'duckduckgo').",
-            code="NOT_CONFIGURED",
-        )
+        backend = (self._backend or os.environ.get("LINGCLAUDE_SEARCH_BACKEND") or "auto").lower()
+        if backend not in ("auto", "searxng", "duckduckgo"):
+            return Result.fail(
+                f"Unknown web search backend: {backend}（允许: auto / searxng / duckduckgo）",
+                code="NOT_CONFIGURED",
+            )
+        if backend in ("auto", "searxng"):
+            res = self._search_searxng(query, max_results)
+            if not res.is_error:
+                return res
+            if backend == "searxng":
+                return res
+            logger.warning("searxng 搜索失败(%s)，降级 duckduckgo", res.error)
+        return self._search_duckduckgo(query, max_results)
+
+    def _search_searxng(self, query: str, max_results: int) -> Result[list[dict[str, str]]]:
+        try:
+            url = (
+                f"{self._searxng_url}/search?q={urllib.parse.quote(query)}"
+                f"&format=json&language=zh-CN&safesearch=0"
+            )
+            req = urllib.request.Request(url, headers={"User-Agent": "lingclaude/0.3"})
+            with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — 固定本地 SearXNG URL
+                data = json.loads(resp.read().decode("utf-8"))
+
+            results: list[dict[str, str]] = []
+            for item in (data.get("results") or [])[:max_results]:
+                results.append({
+                    "title": str(item.get("title", ""))[:200],
+                    "url": str(item.get("url", "")),
+                    "snippet": str(item.get("content", ""))[:500],
+                })
+            return Result.ok(results[:max_results])
+
+        except Exception as e:
+            return Result.fail(f"SearXNG search failed: {e}", code="SEARCH_ERROR")
 
     def _search_duckduckgo(self, query: str, max_results: int) -> Result[list[dict[str, str]]]:
         try:

@@ -179,7 +179,10 @@ class CodingRuntime:
             ToolDefinition(
                 name="glob",
                 description="Find files by pattern",
-                parameters={"pattern": {"type": "string"}},
+                parameters={
+                    "pattern": {"type": "string"},
+                    "path": {"type": "string", "description": "Root directory (default: cwd)"},
+                },
                 handler=self._glob_handler,
                 security_scope="read",
             )
@@ -187,12 +190,15 @@ class CodingRuntime:
         self.registry.register(
             ToolDefinition(
                 name="grep",
-                description="Search file contents with regex, literal, and case options",
+                description="Search file contents with regex (defaults to all file types)",
                 parameters={
                     "pattern": {"type": "string"},
-                    "include": {"type": "string"},
+                    "path": {"type": "string", "description": "Search root directory (default: cwd)"},
+                    "include": {"type": "string", "description": "File glob filter (default: * = all files)"},
                     "literal": {"type": "boolean"},
                     "case_sensitive": {"type": "boolean"},
+                    "before": {"type": "integer", "description": "Context lines before match (grep -B)"},
+                    "after": {"type": "integer", "description": "Context lines after match (grep -A)"},
                 },
                 handler=self._grep_handler,
                 security_scope="read",
@@ -406,8 +412,23 @@ class CodingRuntime:
             critical_tools=CRITICAL_TOOLS,
             timeout_seconds=self.config.optimizer.timeout_seconds,
         )
+        # T0-1: plan_mode 接入 — 用于过滤写工具
+        from lingclaude.engine.plan_mode import PlanMode
+        self.plan_mode = PlanMode()
+        # T0-2: 敏感路径门接入 pipeline — 覆盖全部带路径参数的工具（write/edit/ast_replace 等）
+        self.tool_pipeline.add_guard(self._sensitive_path_guard)
 
     def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
+        # T0-2: sensitive_path_gate 检查 bash 命令中的路径
+        from lingclaude.engine.sensitive_path_gate import check_sensitive_path
+        # 扫描命令中的所有路径（简单启发式）
+        import re
+        paths_in_cmd = re.findall(r'[/\w][\w./-]*', command)
+        for p in paths_in_cmd:
+            if len(p) > 3 and '/' in p:
+                is_sensitive, reason = check_sensitive_path(p)
+                if is_sensitive:
+                    return {"error": f"Path blocked by sensitive_path_gate in command: {p} ({reason})"}
         result = self.bash.run(command)
         return {
             "exit_code": result.exit_code,
@@ -433,6 +454,11 @@ class CodingRuntime:
         line_numbers: bool = True,
         **_kwargs: Any,
     ) -> dict[str, Any]:
+        # T0-2: sensitive_path_gate 检查
+        from lingclaude.engine.sensitive_path_gate import check_sensitive_path
+        is_sensitive, reason = check_sensitive_path(path)
+        if is_sensitive:
+            return {"error": f"Path blocked by sensitive_path_gate: {path} ({reason})"}
         result = self.file_read.read(path, offset=offset, limit=limit, line_numbers=line_numbers)
         if result.is_error:
             return {"error": result.error}
@@ -489,8 +515,12 @@ class CodingRuntime:
             return {"error": result.error}
         return {"result": result.data}
 
-    def _glob_handler(self, pattern: str, **_kwargs: Any) -> dict[str, Any]:
-        result = self.file_ops.glob(pattern)
+    def _glob_handler(self, pattern: str, path: str | None = None, **_kwargs: Any) -> dict[str, Any]:
+        # T0-2: sensitive_path_gate 检查（带 T0-3 审批逃生门）
+        gated = self._gate_sensitive("glob", pattern, path)
+        if gated:
+            return {"error": gated}
+        result = self.file_ops.glob(pattern, path=path)
         if result.is_error:
             return {"error": result.error}
         return {"files": result.data}
@@ -498,12 +528,22 @@ class CodingRuntime:
     def _grep_handler(
         self,
         pattern: str,
+        path: str | None = None,
         include: str | None = None,
         literal: bool = False,
         case_sensitive: bool = True,
+        before: int = 0,
+        after: int = 0,
         **_kwargs: Any,
     ) -> dict[str, Any]:
-        result = self.grep_tool.search(pattern, include=include, literal=literal, case_sensitive=case_sensitive)
+        # T0-2: sensitive_path_gate 检查（带 T0-3 审批逃生门）
+        gated = self._gate_sensitive("grep", pattern, path, include)
+        if gated:
+            return {"error": gated}
+        result = self.grep_tool.search(
+            pattern, include=include, literal=literal, case_sensitive=case_sensitive,
+            path=path, before=before, after=after,
+        )
         if result.is_error:
             return {"error": result.error}
         return result.data.to_dict()
@@ -653,9 +693,11 @@ class CodingRuntime:
 
     def _plan_mode_handler(self, action: str = "enter", **_kwargs: Any) -> dict[str, Any]:
         if action == "enter":
+            self.plan_mode.enter()
             self._plan_mode_active = True
             return {"plan_mode": True, "message": "Plan mode activated. Tool execution disabled."}
         elif action == "exit":
+            self.plan_mode.exit()
             self._plan_mode_active = False
             return {"plan_mode": False, "message": "Plan mode deactivated. Tool execution enabled."}
         return {"error": f"Unknown action: {action}. Use 'enter' or 'exit'."}
@@ -834,6 +876,46 @@ class CodingRuntime:
             return {"error": result.error}
         return {"query": query, "results": result.data}
 
+    def _tool_scope(self, name: str) -> str:
+        """工具的 security_scope（plan_mode 判定用）。"""
+        tool = self.registry.get(name)
+        return tool.data.security_scope if tool.is_ok else "read"
+
+    def _gate_sensitive(self, name: str, *candidates: str | None) -> str | None:
+        """T0-2: 敏感路径门 — 命中敏感标记且无审批放行时返回错误信息（fail-closed）。
+
+        T0-3 逃生门：会话内对该工具做过 allow/always_allow 决策则放行。
+        """
+        from lingclaude.engine.sensitive_path_gate import check_sensitive_path
+        from lingclaude.core.permissions import get_permission_store
+
+        for cand in candidates:
+            if not cand:
+                continue
+            is_sensitive, reason = check_sensitive_path(str(cand))
+            if is_sensitive:
+                store = get_permission_store(getattr(self.config, "session_id", "default"))
+                if store.explicitly_allowed(name):
+                    return None
+                return (
+                    f"Path blocked by sensitive_path_gate: {cand} ({reason}；"
+                    f"如需访问请通过审批放行 {name})"
+                )
+        return None
+
+    def _sensitive_path_guard(self, tool_def: Any, ctx: Any) -> Any:
+        """T0-2: pipeline 守卫 — 全部工具的 path/file_path 参数检查。
+
+        read/glob/grep 的 pattern 级检查在各自 handler 内（含本守卫同一逃生门）。
+        """
+        from lingclaude.engine.tool_pipeline import GuardDecision
+
+        candidates = [ctx.args.get("path"), ctx.args.get("file_path")]
+        err = self._gate_sensitive(tool_def.name, *(str(c) for c in candidates if c))
+        if err:
+            return GuardDecision(decision="deny", reason=err)
+        return GuardDecision(decision="abstain")
+
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         # LINGKERNEL_v1 #2: 5 段 pipeline (pre-execute -> guards -> execute -> post -> finalize)
         # 旧 inline 实现保留为 _execute_tool_legacy, pipeline 透传原有校验逻辑
@@ -860,6 +942,10 @@ class CodingRuntime:
         rate = self.verification_gate.check_rate_limit()
         rate_ok = rate.passed
         rate_err = ("[安全限制] " + (getattr(rate, "error", "") or "rate limited")) if not rate_ok else ""
+
+        # T0-1: plan_mode 拦截写工具
+        if self.plan_mode.is_active and name in WRITE_SCOPED_TOOLS:
+            return {"error": f"Tool '{name}' blocked by plan_mode (write tool disabled)"}
 
         return self.tool_pipeline.execute(
             name,

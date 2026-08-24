@@ -7,6 +7,17 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lingclaude.lacp.sandbox_policy import SandboxPolicy
+
+
+class SandboxUnavailableError(RuntimeError):
+    """sandbox_policy 要求 bwrap 但环境不可用时抛出（fail-closed）。
+
+    接线修复：bash.py:188 此前静默降级为无沙箱，违反 fail-closed 原则。
+    """
 
 
 # bwrap 可用性探测结果缓存（None=未探测，False=本环境不可用）
@@ -109,6 +120,7 @@ class BashExecutor:
         blocked_commands: list[str] | None = None,
         memory_limit: int = _DEFAULT_MEMORY_LIMIT,
         cpu_limit: int = _DEFAULT_CPU_LIMIT,
+        sandbox_policy: SandboxPolicy | None = None,
     ) -> None:
         self.working_dir = working_dir
         self.timeout = timeout
@@ -117,6 +129,7 @@ class BashExecutor:
         self.blocked_commands = _ALWAYS_BLOCKED | frozenset(extra_blocked)
         self.memory_limit = memory_limit
         self.cpu_limit = cpu_limit
+        self.sandbox_policy = sandbox_policy
 
     def run(self, command: str, timeout: int | None = None) -> BashResult:
         effective_timeout = timeout or self.timeout
@@ -135,9 +148,10 @@ class BashExecutor:
         try:
             # B3：bwrap 沙箱包裹（可用时）— 只读系统路径 + 可写工作目录
             cmd = self._sandbox_command(command)
+            # 显式使用 bash 而非 sh（dash），避免 bash 语法兼容问题
+            # shell=True 默认用 /bin/sh（本环境是 dash），不支持数组、() 等语法
             result = subprocess.run(  # nosec B602 — shell=True 由 _check_blocked 黑名单+白名单+资源限制+沙箱四重缓解
-                cmd,
-                shell=True,
+                ['/bin/bash', '-c', cmd],
                 capture_output=True,
                 text=True,
                 timeout=effective_timeout,
@@ -161,6 +175,9 @@ class BashExecutor:
                 duration=duration,
                 command=command,
             )
+        except SandboxUnavailableError:
+            # 重新抛出 — 配置错误，不应被吞为普通 exit_code=1
+            raise
         except Exception as e:
             duration = time.monotonic() - start
             return BashResult(
@@ -184,7 +201,29 @@ class BashExecutor:
         降级后黑名单+白名单+资源限制三重缓解仍然生效（fail-safe，不静默）。
         """
         bwrap = shutil.which("bwrap")
-        if bwrap is None or not _bwrap_probe(bwrap):
+        bwrap_ok = bwrap is not None and _bwrap_probe(bwrap)
+
+        # Fail-closed：sandbox_policy 严格模式 + bwrap 不可用 → 抛异常（不再静默降级）
+        if not bwrap_ok and self.sandbox_policy is not None:
+            from lingclaude.lacp.sandbox_policy import SandboxMode
+            if self.sandbox_policy.mode in (
+                SandboxMode.RESTRICTED,
+                SandboxMode.STRICT,
+                SandboxMode.PARANOID,
+            ):
+                raise SandboxUnavailableError(
+                    f"sandbox_policy={self.sandbox_policy.mode.value} requires bwrap, "
+                    f"but bwrap is unavailable in this environment (fail-closed)"
+                )
+
+        if not bwrap_ok:
+            # T0-10: 降级不再静默 — 无策略约束时 WARNING（策略约束路径上方已 fail-closed）
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "bwrap 不可用，bash 命令以非沙箱方式执行（黑名单+资源限制仍生效）: %s",
+                command[:80],
+            )
             return command
         # working_dir 为 None 时退化到当前目录（避免 --bind None None）
         wd = str(self.working_dir or Path.cwd())

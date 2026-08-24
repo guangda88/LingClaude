@@ -17,6 +17,10 @@ from fastapi.responses import StreamingResponse  # noqa: E402
 from fastapi.security import APIKeyHeader  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
+# T0-3: 全局 PermissionStore — 存储审批决策，供 engine 读取
+from lingclaude.core.permissions import PermissionStore
+_permission_store = PermissionStore()
+
 logger = logging.getLogger(__name__)
 
 # API Key 认证
@@ -66,6 +70,25 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key"],
 )
+
+
+def _register_webui_seam_safe() -> None:
+    """注册 webui seam 到 SeamRegistry（fail-soft：失败只警告，不阻断启动）。
+
+    接线修复：webui_seam.py 此前仅在 __main__ 自检调用，未在主循环接线。
+    """
+    try:
+        from lingclaude.webui_seam import register_webui_seam
+        register_webui_seam()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "webui seam 注册失败（不影响 API 启动）: %s: %s",
+            type(e).__name__, e,
+        )
+
+
+_register_webui_seam_safe()
 
 
 class AskRequest(BaseModel):
@@ -305,6 +328,10 @@ async def permission(req: PermissionRequest, api_key: str = Security(verify_api_
             )
     except Exception as e:  # noqa: BLE001 — 治理后端不可用时降级为纯日志
         logger.warning("GovernanceRouter 不可用，仅记录审批日志: %s", e)
+
+    # T0-3: 回灌 PermissionStore（审批回路）
+    _permission_store.record_approval(req.tool_name or "unknown", req.decision)
+    logger.info(f"T0-3: permission recorded tool={req.tool_name} decision={req.decision}")
 
     return PermissionResponse(success=True, decision=req.decision)
 

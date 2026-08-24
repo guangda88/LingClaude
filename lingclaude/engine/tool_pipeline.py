@@ -120,6 +120,8 @@ class ToolPipeline:
         self._pre_listeners: list[Callable[[PipelineContext], None]] = []
         self._guards: list[Callable[[ToolDefinition, PipelineContext], GuardDecision]] = []
         self._post_listeners: list[Callable[[PipelineContext], None]] = []
+        # T0-7: 工具错误监听器 — (tool_name, error_msg)，接 ON_ERROR hook
+        self._error_listeners: list[Callable[[str, str], None]] = []
 
     # ----- listeners 注册 (扩展点) -----
 
@@ -133,6 +135,17 @@ class ToolPipeline:
 
     def add_post_listener(self, fn: Callable[[PipelineContext], None]) -> None:
         self._post_listeners.append(fn)
+
+    def add_error_listener(self, fn: Callable[[str, str], None]) -> None:
+        """T0-7: 注册工具错误监听器 (tool_name, error_msg)。"""
+        self._error_listeners.append(fn)
+
+    def _notify_error(self, name: str, error_msg: str) -> None:
+        for fn in self._error_listeners:
+            try:
+                fn(name, error_msg)
+            except Exception as e:  # noqa: BLE001 — 监听器异常不阻塞流水线
+                logger.warning("error-listener raised: %s", e)
 
     # ----- 5 段执行 -----
 
@@ -246,6 +259,8 @@ class ToolPipeline:
         })
 
         if ctx.is_error:
+            # T0-7: 触发错误监听器（query_engine 接 ON_ERROR hook）
+            self._notify_error(name, ctx.error_msg)
             return self._error(ctx.error_msg)
 
         # === 4. post-execute waterfall ===
@@ -287,17 +302,34 @@ class ToolPipeline:
     def _dispatch_with_timeout(
         self, tool_def: ToolDefinition, args: dict[str, Any]
     ) -> Result[Any]:
-        """around-dispatch: 调用 handler。
+        """around-dispatch: 真超时执行 handler（T0-7）。
 
-        当前简化版: 不实现真 timeout (需要 thread + signal 或 async)。
-        保留接口以供 #2 完整版替换。
+        worker 线程跑 handler，主线程 join(timeout)。
+        超时后放弃等待、返回 TIMEOUT（daemon 线程无法强杀，结果丢弃——
+        已知局限，与 bash.py 自身超时互为兜底）。
         """
         if tool_def.handler is None:
             return Result.fail(f"Tool has no handler: {tool_def.name}", code="NO_HANDLER")
-        try:
-            return Result.ok(tool_def.handler(**args))
-        except Exception as e:
-            return Result.fail(f"Tool execution failed: {e}", code="EXECUTION_ERROR")
+
+        holder: dict[str, Any] = {}
+
+        def _run() -> None:
+            try:
+                holder["result"] = Result.ok(tool_def.handler(**args))
+            except Exception as e:  # noqa: BLE001 — handler 异常转为 Result.fail
+                holder["error"] = e
+
+        t = threading.Thread(target=_run, daemon=True, name=f"tool:{tool_def.name}")
+        t.start()
+        t.join(self._timeout)
+        if t.is_alive():
+            return Result.fail(
+                f"Tool '{tool_def.name}' timed out after {self._timeout}s",
+                code="TIMEOUT",
+            )
+        if "error" in holder:
+            return Result.fail(f"Tool execution failed: {holder['error']}", code="EXECUTION_ERROR")
+        return holder["result"]
 
     # ----- P0-2: output pruning -----
 

@@ -244,6 +244,28 @@ def sign_manifest(p: Plugin, secret: bytes) -> str:
     return f"hmac-sha256:{sig}"
 
 
+def verify_signature(p: Plugin, secret: bytes) -> bool:
+    """验证 manifest 签名（防御供应链攻击）。
+
+    P1-2 灵元安全策略：
+    - 签名验证失败 → 拒绝加载
+    - 无签名 → 允许（兼容旧插件）
+    - 签名有效 → 允许加载
+    """
+    if not p.signature:
+        # 无签名 = 旧插件，允许（向后兼容）
+        logger.warning(f"Plugin '{p.name}' has no signature (old plugin, allowed)")
+        return True
+
+    expected = sign_manifest(p, secret)
+    if p.signature != expected:
+        logger.error(f"Plugin '{p.name}' signature mismatch! Expected: {expected[:16]}..., Got: {p.signature[:16]}...")
+        return False
+
+    logger.info(f"Plugin '{p.name}' signature verified ✓")
+    return True
+
+
 # === 简单 YAML 输出 (避免 pyyaml 依赖) ===
 def _dict_to_yaml(d: dict, indent: int = 0) -> str:
     """手写 YAML serializer (支持 dict / list / str / int / float / bool / None)."""
