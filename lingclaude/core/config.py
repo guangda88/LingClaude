@@ -28,6 +28,10 @@ class EngineConfig:
     compact_after_turns: int = 12
     structured_output: bool = False
     bash_executor_type: str = "native"  # "native" or "lingxi"
+    # T1-1 深化: LLM 摘要开关
+    use_llm_summary: bool = False
+    # T1-1 深化: 按模型窗口动态预算（None = 用 max_budget_tokens 兜底）
+    context_window_tokens: int | None = None
 
 
 @dataclass(frozen=True)
