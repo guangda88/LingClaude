@@ -44,6 +44,7 @@ import { ModeSelector } from './ModeSelector';
 import { AttachMenu } from './AttachMenu';
 import { FilePicker } from './FilePicker';
 import { PermissionCard } from './PermissionCard';
+import { PermissionModeToggle } from './PermissionModeToggle';
 import { UserInputCard } from './UserInputCard';
 import { useT } from '../settings';
 import type { MsgKey } from '../i18n';
@@ -2921,6 +2922,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, onPermissionRe
         </div>
       </div>
       {filePickerModal}
+      <PermissionModeToggle />
       {livePermissionCard}
       {liveUserInputCard}
     </>

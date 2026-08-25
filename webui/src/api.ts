@@ -248,6 +248,35 @@ export async function respondPermission(
   return resp.json();
 }
 
+// --- T1-2 深化: permission mode API ---
+export type PermissionMode = 'auto' | 'ask' | 'strict';
+
+export interface PermissionModeResponse {
+  mode: PermissionMode;
+}
+
+export async function getPermissionMode(): Promise<PermissionModeResponse> {
+  const resp = await fetch('/permission/mode', { headers: authHeaders() });
+  if (!resp.ok) throw new Error(`getPermissionMode failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function setPermissionMode(mode: PermissionMode): Promise<{ success: boolean }> {
+  const resp = await fetch('/permission/mode', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(),
+    },
+    body: JSON.stringify({ mode }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.message || `setPermissionMode failed: ${resp.status}`);
+  }
+  return resp.json();
+}
+
 // --- Session types ---
 
 export interface SessionMeta {

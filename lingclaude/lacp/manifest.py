@@ -143,6 +143,11 @@ class Plugin:
     replaced_by: str | None = None
     schema_version: str = SCHEMA_VERSION
     signature: str | None = None  # hmac-sha256 of manifest
+    # T1-5 深化: MCP transport 配置 — 仅当 transports 含 Transport.MCP 时有意义
+    # mcp_command: stdio 传输的启动命令（列表形式，如 ["npx", "-y", "server-name"]）
+    # mcp_url: http 传输的端点（streamable HTTP）
+    mcp_command: list[str] = field(default_factory=list)
+    mcp_url: str | None = None
 
     def __post_init__(self) -> None:
         # name: kebab-case
@@ -157,6 +162,15 @@ class Plugin:
         # name unique
         if len(set(self.transports)) != len(self.transports):
             raise ValueError(f"transports must be unique, got {self.transports}")
+        # T1-5 深化: MCP transport 声明时必须提供命令或 URL 之一
+        if Transport.MCP in self.transports and not self.mcp_command and not self.mcp_url:
+            raise ValueError(
+                f"plugin '{self.name}' declares mcp transport but has no mcp_command/mcp_url"
+            )
+        if self.mcp_command and self.mcp_url:
+            raise ValueError(
+                f"plugin '{self.name}' cannot set both mcp_command (stdio) and mcp_url (http)"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -174,6 +188,51 @@ class Plugin:
         """手写 YAML 输出（避免额外依赖）."""
         d = self.to_dict()
         return _dict_to_yaml(d)
+
+
+def register_mcp_from_manifest(p: Plugin) -> None:
+    """T1-5 深化: 把声明 MCP transport 的 LACP 插件注册到 mcp_proxy。
+
+    - transports 含 MCP + mcp_command → stdio transport
+    - transports 含 MCP + mcp_url → http transport
+    其余插件（无 MCP transport）静默跳过。
+    """
+    from lingclaude.engine import mcp_proxy
+
+    if Transport.MCP not in p.transports:
+        return
+    if p.mcp_command:
+        mcp_proxy.register_server(
+            key=f"lacp:{p.name}",
+            name=p.name,
+            agent_id=p.owner,
+            tools=(),  # tools/list 发现后由调用方填充
+            transport="stdio",
+            command=p.mcp_command,
+        )
+    elif p.mcp_url:
+        mcp_proxy.register_server(
+            key=f"lacp:{p.name}",
+            name=p.name,
+            agent_id=p.owner,
+            tools=(),
+            transport="http",
+            url=p.mcp_url,
+        )
+
+
+def scan_and_register_mcp_plugins(manifests: list[Plugin]) -> int:
+    """T1-5 深化: 批量注册声明 MCP transport 的插件。
+
+    Returns:
+        注册的 MCP server 数。
+    """
+    count = 0
+    for p in manifests:
+        if Transport.MCP in p.transports:
+            register_mcp_from_manifest(p)
+            count += 1
+    return count
 
 
 # === Validator ===
@@ -351,4 +410,6 @@ def _manifest_from_dict(d: dict[str, Any]) -> Plugin:
         dependencies=deps,
         replaceable=Replaceable(d.get("replaceable", "false")),
         replaced_by=d.get("replaced_by"),
+        mcp_command=list(d.get("mcp_command") or []),
+        mcp_url=d.get("mcp_url"),
     )

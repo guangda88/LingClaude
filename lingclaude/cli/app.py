@@ -134,6 +134,30 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
     return 0
 
 
+def _esc_pressed() -> bool:
+    """T1-7: 非阻塞检测 Esc(0x1b) 按键。POSIX select + tty 原始模式，超时 0.05s。"""
+    try:
+        import select
+        import termios
+        import tty
+
+        if not sys.stdin.isatty():
+            return False
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            readable, _, _ = select.select([fd], [], [], 0.05)
+            if readable:
+                ch = sys.stdin.read(1)
+                return ch == "\x1b"
+            return False
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    except Exception:  # noqa: BLE001 — 非 tty/无 termios 时静默禁用 Esc 打断
+        return False
+
+
 def _handle_stream_event(event: dict[str, Any]) -> None:
     etype = event.get("type")
     if etype == "text_delta":
@@ -185,6 +209,30 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             print("[输入编码错误，请检查终端编码设置]")
             return ""
 
+    def _handle_slash_command(cmd: str) -> bool:
+        """T1-7: 斜杠命令 — /help /clear /compact /model。处理返回 True 表示已消费。"""
+        parts = cmd.strip().split(maxsplit=1)
+        if not parts or not parts[0].startswith("/"):
+            return False
+        name = parts[0].lower()
+        arg = parts[1] if len(parts) > 1 else ""
+        if name in ("/help", "/?"):
+            print("[斜杠命令] /help 帮助 | /clear 清空会话 | /compact 立即压缩 | /model 当前模型")
+            return True
+        if name == "/clear":
+            engine._messages.clear()
+            engine._conversation.clear()
+            print("[会话已清空]")
+            return True
+        if name == "/compact":
+            engine._compact_if_needed()
+            print("[已触发压缩]")
+            return True
+        if name == "/model":
+            print(f"[当前模型] {getattr(engine.config, 'model', 'unknown')}")
+            return True
+        return False
+
     prompt = first_prompt or ""
     while True:
         if not prompt:
@@ -198,13 +246,23 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             break
         if not prompt:
             continue
+        # T1-7: 斜杠命令优先消费
+        if _handle_slash_command(prompt):
+            prompt = ""
+            continue
 
         if engine._provider:
             sys.stdout.write("思考中...\r")
             sys.stdout.flush()
             response_content = ""
             got_first_token = False
+            interrupted = False
             for event in engine.stream_call_model(prompt):
+                # T1-7: Esc 打断 — 非阻塞检测 stdin，Esc(0x1b) 中断生成
+                if _esc_pressed():
+                    interrupted = True
+                    print("\n[已打断]")
+                    break
                 if not got_first_token and event.get("type") in ("text_delta", "error"):
                     got_first_token = True
                     sys.stdout.write("            \r")
@@ -214,7 +272,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                     response_content += event.get("text", "")
                 elif event.get("type") == "done":
                     response_content = event.get("content", response_content)
-            if response_content:
+            if response_content and not interrupted:
                 engine._messages.append(prompt)
                 engine._messages.append(response_content)
                 engine._compact_if_needed()

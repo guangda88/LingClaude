@@ -2056,6 +2056,70 @@ body {
   padding: 0 18px;
 }
 
+/* === PermissionModeToggle (T1-2 深化) === */
+.permission-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px;
+  background: var(--app-surface, #f5f5f5);
+  border-bottom: 1px solid var(--app-border, #e0e0e0);
+  font-size: 13px;
+  color: var(--app-text-secondary, #666);
+}
+.permission-mode-bar.error {
+  background: #fff3f3;
+  border-bottom-color: #ffcccc;
+  color: #cc0000;
+}
+.permission-mode-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.permission-mode-group {
+  display: flex;
+  gap: 4px;
+}
+.permission-mode-btn {
+  padding: 2px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border, #e0e0e0);
+  background: var(--app-bg, #fff);
+  color: var(--app-text, #333);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+.permission-mode-btn:hover:not(:disabled) {
+  background: var(--app-brand-light, #e8f4fc);
+  border-color: var(--app-brand, #007acc);
+  color: var(--app-brand, #007acc);
+}
+.permission-mode-btn.active {
+  background: var(--app-brand, #007acc);
+  color: #fff;
+  border-color: var(--app-brand, #007acc);
+}
+.permission-mode-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.permission-mode-hint {
+  font-size: 12px;
+  color: var(--app-text-secondary, #888);
+  flex: 1;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.permission-mode-error {
+  font-size: 12px;
+  color: #cc0000;
+  margin-left: auto;
+}
+
 /* === UserInputCard (request_user_input tool) === */
 /* Option row: wraps a radio/checkbox + label body inline; the whole label is
    clickable (native label-for semantics via wrapping). */

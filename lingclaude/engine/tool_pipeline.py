@@ -311,6 +311,9 @@ class ToolPipeline:
         if tool_def.handler is None:
             return Result.fail(f"Tool has no handler: {tool_def.name}", code="NO_HANDLER")
 
+        # T1-3 深化: 工具级超时优先（None = pipeline 全局默认）
+        effective_timeout = getattr(tool_def, "timeout", None) or self._timeout
+
         holder: dict[str, Any] = {}
 
         def _run() -> None:
@@ -321,10 +324,10 @@ class ToolPipeline:
 
         t = threading.Thread(target=_run, daemon=True, name=f"tool:{tool_def.name}")
         t.start()
-        t.join(self._timeout)
+        t.join(effective_timeout)
         if t.is_alive():
             return Result.fail(
-                f"Tool '{tool_def.name}' timed out after {self._timeout}s",
+                f"Tool '{tool_def.name}' timed out after {effective_timeout}s",
                 code="TIMEOUT",
             )
         if "error" in holder:

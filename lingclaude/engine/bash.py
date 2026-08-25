@@ -148,16 +148,29 @@ class BashExecutor:
         try:
             # B3：bwrap 沙箱包裹（可用时）— 只读系统路径 + 可写工作目录
             cmd = self._sandbox_command(command)
-            # 显式使用 bash 而非 sh（dash），避免 bash 语法兼容问题
-            # shell=True 默认用 /bin/sh（本环境是 dash），不支持数组、() 等语法
-            result = subprocess.run(  # nosec B602 — shell=True 由 _check_blocked 黑名单+白名单+资源限制+沙箱四重缓解
-                ['/bin/bash', '-c', cmd],
-                capture_output=True,
-                text=True,
-                timeout=effective_timeout,
-                cwd=self.working_dir,
-                preexec_fn=self._set_resource_limits,
-            )
+            if cmd != command:
+                # bwrap 已包裹：bwrap 自身是 argv 边界，shell=True 执行不会二次解析
+                # 内层命令的引号/命令替换（P1-1 审计修复）
+                result = subprocess.run(  # nosec B602 — 仅 bwrap 包裹路径走 shell=True，_check_blocked 四重缓解仍生效
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=effective_timeout,
+                    cwd=self.working_dir,
+                    preexec_fn=self._set_resource_limits,
+                )
+            else:
+                # 无 bwrap：显式使用 bash 而非 sh（dash），避免 bash 语法兼容问题
+                # shell=True 默认用 /bin/sh（本环境是 dash），不支持数组、() 等语法
+                result = subprocess.run(  # nosec B602 — shell=True 由 _check_blocked 黑名单+白名单+资源限制+沙箱四重缓解
+                    ['/bin/bash', '-c', cmd],
+                    capture_output=True,
+                    text=True,
+                    timeout=effective_timeout,
+                    cwd=self.working_dir,
+                    preexec_fn=self._set_resource_limits,
+                )
             duration = time.monotonic() - start
             return BashResult(
                 exit_code=result.returncode,

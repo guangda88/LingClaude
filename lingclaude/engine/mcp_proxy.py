@@ -22,6 +22,10 @@ class MCPServerInfo:
     working_dir: str | None = None
     module_path: str | None = None
     tools: tuple[str, ...] = ()
+    # T1-5: 标准 MCP client 字段 — transport: "module"(默认,进程内) / "stdio" / "http"
+    transport: str = "module"
+    command: tuple[str, ...] = ()
+    url: str | None = None
 
 
 @dataclass
@@ -51,6 +55,10 @@ def register_server(
     *,
     working_dir: str | None = None,
     module_path: str | None = None,
+    # T1-5: 标准 MCP client 参数
+    transport: str = "module",
+    command: tuple[str, ...] | list[str] | None = None,
+    url: str | None = None,
 ) -> None:
     _SERVERS[key] = MCPServerInfo(
         key=key,
@@ -59,6 +67,9 @@ def register_server(
         working_dir=working_dir,
         module_path=module_path,
         tools=tuple(tools),
+        transport=transport,
+        command=tuple(command) if command else (),
+        url=url,
     )
 
 
@@ -209,6 +220,52 @@ def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
             code="TOOL_NOT_FOUND",
         )
 
+    t0 = time.monotonic()
+
+    # T1-5: 标准 MCP client 路径（stdio/http transport）
+    if server.transport in ("stdio", "http"):
+        from lingclaude.engine.mcp_client import MCPHttpClient, MCPStdioClient
+
+        try:
+            if server.transport == "stdio":
+                client: Any = MCPStdioClient(command=list(server.command), cwd=server.working_dir)
+                conn = client.connect()
+                if conn.is_error:
+                    return Result.fail(conn.error or "stdio connect failed", code="CONNECT_FAILED")
+            else:
+                client = MCPHttpClient(url=server.url or "")
+            result = client.call_tool(tool_name, kwargs)
+            elapsed = (time.monotonic() - t0) * 1000
+            if result.is_error:
+                return Result.ok(ToolCallResult(
+                    success=False,
+                    output=None,
+                    server_key=server.key,
+                    tool_name=tool_name,
+                    error=result.error,
+                    duration_ms=elapsed,
+                ))
+            return Result.ok(ToolCallResult(
+                success=True,
+                output=result.data,
+                server_key=server.key,
+                tool_name=tool_name,
+                duration_ms=elapsed,
+            ))
+        except Exception as e:  # noqa: BLE001 — 标准 client 调用异常包装
+            elapsed = (time.monotonic() - t0) * 1000
+            return Result.ok(ToolCallResult(
+                success=False,
+                output=None,
+                server_key=server.key,
+                tool_name=tool_name,
+                error=str(e),
+                duration_ms=elapsed,
+            ))
+        finally:
+            if server.transport == "stdio":
+                client.close()  # type: ignore[attr-defined] — stdio client 才有 close
+
     fn = _get_tool_function(server, tool_name)
     if fn is None:
         return Result.fail(
@@ -216,7 +273,6 @@ def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
             code="MODULE_LOAD_FAILED",
         )
 
-    t0 = time.monotonic()
     try:
         result = fn(**kwargs)
         elapsed = (time.monotonic() - t0) * 1000
@@ -242,6 +298,76 @@ def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
 async def call_tool_async(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: call_tool(tool_name, **kwargs))
+
+
+# ---------------------------------------------------------------------------
+# T0-8: MCP 工具参数 schema — 供 query_engine._build_mcp_tool_defs 注入注册
+# 优先级：FastMCP Tool.parameters（JSON Schema）> 函数签名推导 > ({}, [])
+# ---------------------------------------------------------------------------
+
+_SIGNATURE_TYPE_MAP: dict[type, str] = {
+    str: "string", int: "integer", float: "number", bool: "boolean",
+    list: "array", tuple: "array", dict: "object", set: "array",
+}
+
+# from __future__ import annotations 模块里注解是字符串（PEP 563）
+_SIGNATURE_NAME_MAP: dict[str, str] = {
+    "str": "string", "int": "integer", "float": "number", "bool": "boolean",
+    "list": "array", "tuple": "array", "dict": "object", "set": "array",
+    "Any": "string",
+}
+
+
+def _annotation_to_json_type(annotation: Any) -> str:
+    if isinstance(annotation, str):
+        return _SIGNATURE_NAME_MAP.get(annotation.strip(), "string")
+    return _SIGNATURE_TYPE_MAP.get(annotation, "string")
+
+
+def _schema_from_signature(fn: Callable[..., Any]) -> tuple[dict[str, Any], list[str]]:
+    """从 Python 函数签名推导 (properties, required)。无注解参数按 string 处理。"""
+    import inspect
+
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return {}, []
+
+    props: dict[str, Any] = {}
+    required: list[str] = []
+    for pname, param in sig.parameters.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
+        json_type = "string"
+        if param.annotation is not inspect.Parameter.empty:
+            json_type = _annotation_to_json_type(param.annotation)
+        props[pname] = {"type": json_type}
+        if param.default is inspect.Parameter.empty:
+            required.append(pname)
+    return props, required
+
+
+def get_tool_schema(tool_name: str) -> tuple[dict[str, Any], list[str]]:
+    """取 MCP 工具参数 schema，返回 (properties_map, required_list)。"""
+    server = find_server(tool_name)
+    if server is None:
+        return {}, []
+
+    module = _load_module(server)
+    if module is not None and hasattr(module, "mcp"):
+        mgr = getattr(module.mcp, "_tool_manager", None)
+        tools = getattr(mgr, "_tools", {}) if mgr is not None else {}
+        tool_obj = tools.get(tool_name)
+        if tool_obj is not None:
+            # FastMCP Tool.parameters 属性即完整 JSON Schema
+            schema = getattr(tool_obj, "parameters", None)
+            if isinstance(schema, dict) and schema.get("properties"):
+                return dict(schema["properties"]), list(schema.get("required") or [])
+
+    fn = _get_tool_function(server, tool_name)
+    if fn is None:
+        return {}, []
+    return _schema_from_signature(fn)
 
 
 def clear_cache() -> None:

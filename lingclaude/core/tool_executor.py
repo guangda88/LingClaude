@@ -117,6 +117,10 @@ class ToolExecutor:
                 config=CompressionConfig(
                     max_messages=target_max,
                     level=CompressionLevel.SUMMARY,
+                    # T1-1: 动态预算 + LLM 摘要通道（provider 来自 engine）
+                    model_window_tokens=getattr(self._engine.config, "max_budget_tokens", None),
+                    use_llm_summary=getattr(self._engine.config, "use_llm_summary", False),
+                    provider=getattr(self._engine, "_provider", None),
                 ),
             )
             self._engine._messages[:] = result.compressed_messages
@@ -197,6 +201,13 @@ class ToolExecutor:
                 parts.append(f"已做决策: {'; '.join(decisions[:5])}")
             if errors_seen:
                 parts.append(f"已遇错误: {'; '.join(errors_seen[:5])}")
+
+            # T1-1 深化: LLM 摘要归档 — 开启 use_llm_summary 且 provider 可用时，
+            # 用 LLM 生成结构化摘要作为 result 主体（替代纯正则提取）
+            llm_summary = self._try_archive_llm_summary(dropped)
+            if llm_summary:
+                parts.append(f"LLM 摘要: {llm_summary}")
+
             try:
                 self._engine._layered_memory.experience.store(
                     Experience.create(
@@ -210,6 +221,35 @@ class ToolExecutor:
                 )
             except Exception as e:
                 logger.debug("归档到LayeredMemory失败: %s", e)
+
+    def _try_archive_llm_summary(self, dropped: list[tuple[str, str]]) -> str | None:
+        """T1-1 深化: 用 LLM 生成归档摘要（失败降级返回 None，正则提取仍生效）。"""
+        if not getattr(self._engine.config, "use_llm_summary", False):
+            return None
+        provider = getattr(self._engine, "_provider", None)
+        if provider is None:
+            return None
+        try:
+            from lingclaude.core.model_adapter import ModelAdapter
+
+            transcript = "\n".join(f"{role}: {text[:200]}" for role, text in dropped[-20:])
+            adapter = ModelAdapter(provider)
+            result = adapter.call(
+                messages=(("user", (
+                    "你是一个对话归档器。把以下历史对话压缩成结构化中文摘要，"
+                    "保留：关键决策、已排除方案、遇到的错误、任务进展。控制在 300 字符内。\n\n"
+                    + transcript
+                )),),
+                max_tokens=256,
+            )
+            if result.is_error:
+                logger.warning("LLM 归档摘要失败: %s", result.error)
+                return None
+            content = result.data.content
+            return content.strip() if content and content.strip() else None
+        except Exception as e:  # noqa: BLE001 — LLM 归档失败静默降级
+            logger.debug("LLM 归档摘要降级: %s", e)
+            return None
 
     def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
         if self._engine._model_config is None:

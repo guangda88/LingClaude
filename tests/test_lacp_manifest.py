@@ -64,15 +64,24 @@ def test_minimal_manifest_valid():
 
 
 def test_transports_six_channels():
-    """T2: transports 6-channel 全部接受 (Agent-Native 借鉴)."""
+    """T2: transports 6-channel 全部接受 (Agent-Native 借鉴).
+
+    T1-5 修复：MCP transport 需要 mcp_command 或 mcp_url 之一。
+    """
     for t in [Transport.UI, Transport.AGENT, Transport.HTTP,
               Transport.MCP, Transport.A2A, Transport.CLI]:
-        p = _minimal_plugin(transports=[t])
+        overrides = {"transports": [t]}
+        if t == Transport.MCP:
+            overrides["mcp_command"] = ["npx", "-y", "test-server"]
+        p = _minimal_plugin(**overrides)
         ok, err = validate_manifest(p)
         assert ok, f"transport {t.value} should be accepted: {err}"
 
-    # 全部 6 个一起
-    p = _minimal_plugin(transports=list(Transport))
+    # 全部 6 个一起（MCP 带命令）
+    p = _minimal_plugin(
+        transports=list(Transport),
+        mcp_command=["npx", "-y", "test-server"],
+    )
     ok, err = validate_manifest(p)
     assert ok, f"all 6 transports should be accepted: {err}"
     assert len(p.to_dict()["transports"]) == 6
@@ -134,10 +143,14 @@ def test_signature_and_verification():
 
 
 def test_yaml_round_trip():
-    """T7: YAML 序列化往返 (to_yaml + load_manifest)."""
+    """T7: YAML 序列化往返 (to_yaml + load_manifest).
+
+    T1-5 修复：MCP transport 需要 mcp_command 或 mcp_url 之一。
+    """
     import yaml
     p = _minimal_plugin(
         transports=[Transport.MCP, Transport.A2A],
+        mcp_command=["npx", "-y", "test-server"],
         dependencies=[
             Dependency(kind=DependencyKind.PLUGIN, target="audit_scanner@1.0.0"),
         ],

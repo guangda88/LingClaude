@@ -17,9 +17,9 @@ from fastapi.responses import StreamingResponse  # noqa: E402
 from fastapi.security import APIKeyHeader  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-# T0-3: 全局 PermissionStore — 存储审批决策，供 engine 读取
-from lingclaude.core.permissions import PermissionStore
-_permission_store = PermissionStore()
+# T0-3: 会话级审批回路 — 决策经 record_permission_decision 写入会话 store，
+# CodingRuntime.execute_tool / sensitive_path_gate 通过 get_permission_store 读取（同一注册表）
+from lingclaude.core.permissions import record_permission_decision
 
 logger = logging.getLogger(__name__)
 
@@ -329,11 +329,36 @@ async def permission(req: PermissionRequest, api_key: str = Security(verify_api_
     except Exception as e:  # noqa: BLE001 — 治理后端不可用时降级为纯日志
         logger.warning("GovernanceRouter 不可用，仅记录审批日志: %s", e)
 
-    # T0-3: 回灌 PermissionStore（审批回路）
-    _permission_store.record_approval(req.tool_name or "unknown", req.decision)
-    logger.info(f"T0-3: permission recorded tool={req.tool_name} decision={req.decision}")
+    # T0-3: 回灌 PermissionStore（审批回路 — 会话级，与 execute_tool 同一注册表）
+    record_permission_decision(req.session_id or "default", req.tool_name or "unknown", req.decision)
+    logger.info(f"T0-3: permission recorded session={req.session_id} tool={req.tool_name} decision={req.decision}")
 
     return PermissionResponse(success=True, decision=req.decision)
+
+
+class PermissionModeRequest(BaseModel):
+    """T1-2 深化: 设置全局 permission mode 请求体。"""
+    mode: str
+
+
+@app.get("/permission/mode")
+async def get_permission_mode_endpoint(api_key: str = Security(verify_api_key)):
+    """T1-2 深化: 读取当前全局 permission mode（auto/ask/strict）。"""
+    from lingclaude.core.permissions import get_permission_mode
+    return {"mode": get_permission_mode()}
+
+
+@app.post("/permission/mode")
+async def set_permission_mode_endpoint(
+    req: PermissionModeRequest,
+    api_key: str = Security(verify_api_key),
+):
+    """T1-2 深化: 设置全局 permission mode（auto/ask/strict），持久化落盘。"""
+    from lingclaude.core.permissions import set_permission_mode
+    ok = set_permission_mode(req.mode)
+    if not ok:
+        raise HTTPException(400, f"无效 mode: {req.mode}（允许: auto/ask/strict）")
+    return {"success": True, "mode": req.mode.lower()}
 
 
 @app.post("/analyze")

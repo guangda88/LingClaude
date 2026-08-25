@@ -34,6 +34,8 @@ class EngineConfig:
 class PermissionConfig:
     deny_tools: list[str] = field(default_factory=list)
     deny_prefixes: list[str] = field(default_factory=list)
+    # T1-2: permission mode — auto(写工具自动放行) / ask(写工具需审批, 默认) / strict(非读域一律拦截)
+    mode: str = "ask"
 
 
 @dataclass(frozen=True)

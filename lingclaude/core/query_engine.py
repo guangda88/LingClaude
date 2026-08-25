@@ -4,6 +4,7 @@ import json
 import logging
 import hashlib
 import os
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -109,6 +110,9 @@ class QueryEngineConfig:
     structured_retry_limit: int = 2
     consecutive_failure_limit: int = CONSECUTIVE_FAILURE_LIMIT
     max_tool_calls_per_session: int = 500
+    # T1-1: LLM 摘要开关 — True 且 provider 可用时压缩走 LLM 摘要（失败降级正则）。
+    # 此前 tool_executor 用 getattr(self, "use_llm_summary", False) 读不到本字段 → 恒 False 死接线。
+    use_llm_summary: bool = False
 
 
 @dataclass(frozen=True)
@@ -181,8 +185,10 @@ class QueryEngine:
         self._degradation_detector = DegradationDetector()
         self._degradation_alerts: list[DegradationAlert] = []
         self._task_manager = TaskManager()
+        # T0-4: 接入 SkillIndex（skill match 用于 prompt 预处理）
         self._skill_index = SkillIndex()
-        self._memory_engine = MemoryStore()
+        # T0-4: 删除 MemoryEngine 死接线（无消费者）
+        self._memory_engine = None
         self._role_checker = create_lingclaude_role_separation()
         self._l5_loop = L5ConversationLoop(l5_session_id=self.session_id)
         self._l5_orchestrator: Any = None  # lazy init
@@ -197,6 +203,20 @@ class QueryEngine:
         self.model_request_log = ModelRequestLog()
         from lingclaude.core.tool_executor import ToolExecutor
         self._tool_executor = ToolExecutor(self)
+        # T1-3 深化: 并行冲突检测 — 写工具序列化锁（防止并发写冲突）
+        self._write_lock = threading.Lock()
+        # T0-7: 工具错误 → ON_ERROR hook（ToolPipeline error listener 接线，原先定义无触发点）
+        if self._runtime is not None:
+            _pipeline = getattr(self._runtime, "tool_pipeline", None)
+            if _pipeline is not None and hasattr(_pipeline, "add_error_listener"):
+                def _on_tool_error(tool_name: str, error_msg: str) -> None:
+                    self._hooks.trigger(HookContext(
+                        hook_type=HookType.ON_ERROR,
+                        session_id=self.session_id,
+                        tool_name=tool_name,
+                        error_message=error_msg,
+                    ))
+                _pipeline.add_error_listener(_on_tool_error)
         # D8: 结构化违规记录 (灵信 L-b 按 seq 归因)
         self._mv1_violations: list[Mv1Violation] = []
         self._load_session_state()
@@ -343,6 +363,16 @@ class QueryEngine:
         # TaskManager: 新需求进来 → 挂起当前任务上下文
         self._task_manager.on_new_request(prompt, self)
 
+        # T0-4: SkillIndex 匹配 — 将匹配的 skill 提示注入 prompt
+        # （带 SKILL.md 路径 — 索引哲学是"不加载不执行，灵元自己读自己执行"，无路径则读不了）
+        if self._skill_index is not None:
+            matched_skills = self._skill_index.match(prompt)
+            if matched_skills:
+                skill_hint = "\n\n[匹配的 skills]\n" + "\n".join(
+                    f"- {s['name']}: {s['desc']}（SKILL.md: {s['path']}）" for s in matched_skills[:3]
+                )
+                prompt = prompt + skill_hint
+
         pre_ctx = HookContext(
             hook_type=HookType.PRE_TASK,
             session_id=self.session_id,
@@ -365,6 +395,9 @@ class QueryEngine:
                 usage=self._usage,
                 stop_reason=StopReason.COMPLETED,
             )
+
+        # T1-1: turn 内触发 — 模型请求前预检预算，超预算先压缩再请求（原仅 turn 后触发）
+        self._pre_check_compact()
 
         output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
 
@@ -776,6 +809,12 @@ class QueryEngine:
             content=content,
             tool_calls=tool_calls,
         ))
+
+        # T1-3: 并行工具执行 — 全部 is_concurrency_safe 且 >1 个时并行，否则顺序
+        if len(tool_calls) > 1 and all(self._is_concurrency_safe(tc.name) for tc in tool_calls):
+            self._process_tool_calls_parallel(tool_calls, messages)
+            return
+
         for tc in tool_calls:
             self._dementia_detector.record_tool_call(tc.name, tc.arguments)
             tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
@@ -792,6 +831,76 @@ class QueryEngine:
                 name=tc.name,
                 tool_call_id=tc.id,
             ))
+
+    def _process_tool_calls_parallel(self, tool_calls: tuple, messages: list) -> None:
+        """T1-3: 并行执行一批 concurrency-safe 工具，按原顺序收集结果。
+
+        T1-3 深化: 并行冲突检测 — 写工具不标记 is_concurrency_safe=True，
+        此处兜底校验：若误标了写工具，自动降级为顺序执行并记录警告。
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        from lingclaude.model.types import ModelMessage, MessageRole
+        from lingclaude.engine.verification_gate import WRITE_SCOPED_TOOLS
+
+        # 检测是否存在并发写冲突
+        write_tools = {tc.name for tc in tool_calls if tc.name in WRITE_SCOPED_TOOLS}
+        if write_tools:
+            logger.warning(
+                "T1-3 并行冲突检测: 以下工具不应并发执行（已降级为顺序执行）: %s",
+                write_tools,
+            )
+            # 降级为顺序执行
+            for tc in tool_calls:
+                self._process_single_tool_call(tc, messages)
+            return
+
+        def _run(tc: Any) -> tuple[Any, str]:
+            # 写工具加锁序列化
+            with self._write_lock:
+                self._dementia_detector.record_tool_call(tc.name, tc.arguments)
+                return tc, self._execute_tool_with_retry(tc.name, tc.arguments)
+
+        results: list[tuple[Any, str]] = []
+        with ThreadPoolExecutor(max_workers=min(len(tool_calls), 4)) as pool:
+            futures = [pool.submit(_run, tc) for tc in tool_calls]
+            for fut in futures:
+                tc, tool_output = fut.result()
+                results.append((tc, tool_output))
+
+        for tc, tool_output in results:
+            if '"error"' in tool_output:
+                self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
+                self._log_to_flywheel(
+                    pattern_type="tool_error",
+                    error_message=tool_output[:200],
+                    tool_name=tc.name,
+                )
+            messages.append(ModelMessage(
+                role=MessageRole.TOOL,
+                content=tool_output,
+                name=tc.name,
+                tool_call_id=tc.id,
+            ))
+
+    def _process_single_tool_call(self, tc: Any, messages: list) -> None:
+        """T1-3: 执行单个工具调用（供降级路径复用）。"""
+        from lingclaude.model.types import ModelMessage, MessageRole
+        self._dementia_detector.record_tool_call(tc.name, tc.arguments)
+        with self._write_lock:
+            tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
+        if '"error"' in tool_output:
+            self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
+            self._log_to_flywheel(
+                pattern_type="tool_error",
+                error_message=tool_output[:200],
+                tool_name=tc.name,
+            )
+        messages.append(ModelMessage(
+            role=MessageRole.TOOL,
+            content=tool_output,
+            name=tc.name,
+            tool_call_id=tc.id,
+        ))
 
     def _call_model(self, prompt: str) -> str:
         decision = self._router.route(prompt)
@@ -1173,6 +1282,12 @@ class QueryEngine:
         if mcp_defs:
             tool_defs.extend(mcp_defs)
 
+        # T0-1: plan 模式下过滤模型可见工具列表（只留读域 + plan_mode 自身）
+        # is True 严格判定 — MagicMock runtime 的自动属性是 Mock 而非 bool，不能触发过滤
+        plan_mode = getattr(self._runtime, "plan_mode", None)
+        if plan_mode is not None and getattr(plan_mode, "is_active", False) is True:
+            tool_defs = plan_mode.filter_tools(tool_defs)
+
         if not tool_defs:
             return None
         if not query or len(tool_defs) <= ToolRouter.MAX_TOOLS_PER_REQUEST:
@@ -1183,7 +1298,12 @@ class QueryEngine:
                     "parameters": {
                         "type": "object",
                         "properties": {k: v for k, v in t.parameters.items()},
-                        "required": list(t.parameters.keys()),
+                        # T0-8: MCP 工具带显式 required 列表时用它；空 = 全部 required（旧行为）
+                        "required": (
+                            list(t.required_params)
+                            if getattr(t, "required_params", ())
+                            else list(t.parameters.keys())
+                        ),
                     },
                 }
                 for t in tool_defs
@@ -1216,10 +1336,16 @@ class QueryEngine:
             if name in native_names:
                 continue
             server_name = server_map.get(name, "unknown")
+            # T0-8: 注入参数 schema — 优先 FastMCP Tool.parameters，其次函数签名推导
+            try:
+                props, required = mcp_proxy.get_tool_schema(name)
+            except Exception:
+                props, required = {}, []
             defs.append(ToolDefinition(
                 name=name,
                 description=f"[MCP:{server_name}] {name}",
-                parameters={},
+                parameters=dict(props),
+                required_params=tuple(required),
             ))
         return defs
 
@@ -1231,6 +1357,70 @@ class QueryEngine:
             mcp_proxy.init_from_lingflow_registry()
         except Exception:
             logger.debug("MCP proxy registry init skipped")
+        # T1-5 深化: 批量注册 LACP manifest 中声明 MCP transport 的插件
+        try:
+            from lingclaude.lacp.manifest import scan_and_register_mcp_plugins
+            # 扫描 manifest 目录并注册（不阻塞主流程，失败静默）
+            count = scan_and_register_mcp_plugins([])
+            if count > 0:
+                logger.info("T1-5: registered %d MCP servers from LACP manifests", count)
+        except Exception as e:
+            logger.debug("LACP MCP manifest scan skipped: %s", e)
+        # T1-5 深化: tools/list 发现 — 对 stdio/http 传输连接并发现工具名
+        self._discover_mcp_tools()
+
+    def _discover_mcp_tools(self) -> None:
+        """T1-5 深化: 对 stdio/http MCP server 执行 tools/list 发现，填充 server.tools。
+
+        仅对有 tools=() 的空 server 执行发现（避免重复调用）。
+        发现失败不阻塞主流程，仅记录警告。
+        """
+        from lingclaude.engine.mcp_client import discover_and_register
+        import threading
+
+        empty_servers = [
+            s for s in mcp_proxy.list_servers()
+            if s.transport in ("stdio", "http") and not s.tools
+        ]
+        if not empty_servers:
+            return
+
+        def _discover_one(server_key: str, command: tuple[str, ...], url: str | None, cwd: str | None) -> None:
+            try:
+                if command:
+                    result = discover_and_register(
+                        key=server_key,
+                        name=f"mcp-{server_key}",
+                        transport="stdio",
+                        command=list(command),
+                        cwd=cwd,
+                    )
+                elif url:
+                    result = discover_and_register(
+                        key=server_key,
+                        name=f"mcp-{server_key}",
+                        transport="http",
+                        url=url,
+                    )
+                else:
+                    return
+                if result.is_ok:
+                    logger.info("MCP tools/list discovered %d tools for %s", len(result.data), server_key)
+            except Exception as e:
+                logger.warning("MCP tools/list discovery failed for %s: %s", server_key, e)
+
+        # 并行发现（limit 3 避免并发过多）
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(empty_servers))) as pool:
+            futures = []
+            for s in empty_servers:
+                fut = pool.submit(_discover_one, s.key, s.command, s.url, s.working_dir)
+                futures.append(fut)
+            for fut in concurrent.futures.as_completed(futures, timeout=30):
+                try:
+                    fut.result()
+                except Exception:
+                    pass
 
     def _execute_tool(self, name: str, arguments_json: str) -> str:
         return self._tool_executor._execute_tool(name, arguments_json)
@@ -1240,6 +1430,22 @@ class QueryEngine:
 
     def _compact_if_needed(self) -> None:
         self._tool_executor._compact_if_needed()
+
+    def _pre_check_compact(self) -> None:
+        """T1-1: turn 内触发 — 模型请求前预算预检，超阈值先压缩。
+
+        与 turn 后 _compact_if_needed 的区别：请求前触发，避免把超预算上下文
+        发给模型（原实现仅在 turn 结束后才压缩，超预算请求已经发出）。
+        压缩条件由 tool_executor._compact_if_needed 内部判定，此处幂等调用。
+        """
+        msg_tokens = _estimate_message_tokens(self._messages)
+        threshold = self.config.max_budget_tokens * 0.8
+        if msg_tokens > threshold:
+            logger.info(
+                "T1-1 pre-compact before model request: %d tokens > %.0f threshold",
+                msg_tokens, threshold,
+            )
+            self._tool_executor._compact_if_needed()
 
     def _archive_dropped_messages(self, dropped_count: int) -> None:
         self._tool_executor._archive_dropped_messages(dropped_count)
@@ -1270,6 +1476,13 @@ class QueryEngine:
             return self._execute_tool(name, retry_args)
 
         return result
+
+    def _is_concurrency_safe(self, name: str) -> bool:
+        """T1-3: 查询工具是否可并行执行（is_concurrency_safe 字段落地）。"""
+        if self._runtime is None:
+            return False
+        tool = self._runtime.registry.get(name)
+        return tool.is_ok and getattr(tool.data, "is_concurrency_safe", False)
 
     def _fix_tool_arguments(self, name: str, args_json: str, error_result: str) -> str | None:
         try:

@@ -91,6 +91,7 @@ class GrepTool:
         path: str | None = None,
         before: int = 0,
         after: int = 0,
+        context: int = 0,
     ) -> Result[GrepResult]:
         start = time.monotonic()
         glob_pattern = include or self.default_include
@@ -153,11 +154,13 @@ class GrepTool:
                     if len(display_line) > self.max_line_length:
                         display_line = display_line[:self.max_line_length] + "..."
 
-                    # T0-5: 上下文行（对标 grep -B/-A）
+                    # T0-5: 上下文行（对标 grep -B/-A/-C）
                     context_lines: tuple[str, ...] = ()
-                    if before > 0 or after > 0:
-                        lo = max(0, i - 1 - before)
-                        hi = min(len(lines), i + after)
+                    effective_before = before if before > 0 else context
+                    effective_after = after if after > 0 else context
+                    if effective_before > 0 or effective_after > 0:
+                        lo = max(0, i - 1 - effective_before)
+                        hi = min(len(lines), i + effective_after)
                         ctx = [
                             f"{j+1}: {lines[j].rstrip()[:self.max_line_length]}"
                             for j in range(lo, hi)
@@ -178,6 +181,8 @@ class GrepTool:
                     if len(matches) >= self.max_results:
                         truncated = True
                         break
+                if truncated:
+                    break
             if truncated:
                 break
 

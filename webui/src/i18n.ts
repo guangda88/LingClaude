@@ -263,6 +263,13 @@ const zh = {
   'perm.alwaysAllow': '本会话总是允许',
   'perm.allowPersist': '永久允许此工具',
 
+  // Permission mode
+  'perm.mode.title': '权限模式',
+  'perm.mode.auto': '自动（所有工具无需审批）',
+  'perm.mode.ask': '询问（写工具需审批）',
+  'perm.mode.strict': '严格（非只读工具一律拦截）',
+  'perm.mode.switchFailed': '权限模式切换失败：{error}',
+
   // User input card
   'userInput.submit': '提交',
   'userInput.skip': '跳过',
@@ -583,6 +590,13 @@ const en: Record<MsgKey, string> = {
   'perm.approve': 'Approve',
   'perm.alwaysAllow': 'Always allow this session',
   'perm.allowPersist': 'Always allow this tool',
+
+  // Permission mode
+  'perm.mode.title': 'Permission Mode',
+  'perm.mode.auto': 'Auto (all tools bypass approval)',
+  'perm.mode.ask': 'Ask (write tools require approval)',
+  'perm.mode.strict': 'Strict (non-read tools blocked by default)',
+  'perm.mode.switchFailed': 'Permission mode switch failed: {error}',
 
   // User input card
   'userInput.submit': 'Submit',

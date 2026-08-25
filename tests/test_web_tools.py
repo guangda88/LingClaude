@@ -81,16 +81,12 @@ class TestWebFetcher:
 
 
 class TestWebSearcher:
-    def test_not_configured(self) -> None:
-        s = WebSearcher()
+    def test_unknown_backend_not_configured(self) -> None:
+        """T0-6 契约更新：默认 backend=auto（searxng→duckduckgo），仅未知后端报错。"""
+        s = WebSearcher(backend="no_such_backend")
         result = s.search("test query")
         assert result.is_error
-        assert "not configured" in result.error
-
-    def test_duckduckgo_backend_not_configured(self) -> None:
-        s = WebSearcher(backend=None)
-        result = s.search("test")
-        assert result.is_error
+        assert "Unknown web search backend" in result.error
 
     @patch("urllib.request.urlopen")
     def test_duckduckgo_search(self, mock_urlopen: MagicMock) -> None:

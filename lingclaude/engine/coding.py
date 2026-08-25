@@ -47,7 +47,22 @@ class CodingRuntime:
         self._lsp_workspace_root: Path | None = None
 
     def _setup_tools(self) -> None:
-        self.bash = BashExecutor(timeout=self.config.optimizer.timeout_seconds)
+        # T0-10: 沙箱策略 — LINGCLAUDE_SANDBOX_MODE=strict/paranoid 时 bwrap 不可用即 fail-closed
+        import os
+
+        sandbox_mode = os.environ.get("LINGCLAUDE_SANDBOX_MODE")
+        sandbox_policy = None
+        if sandbox_mode:
+            from lingclaude.lacp.sandbox_policy import SandboxMode, SandboxPolicy
+
+            try:
+                sandbox_policy = SandboxPolicy(mode=SandboxMode(sandbox_mode.lower()))
+            except ValueError:
+                sandbox_policy = None
+        self.bash = BashExecutor(
+            timeout=self.config.optimizer.timeout_seconds,
+            sandbox_policy=sandbox_policy,
+        )
         # Initialize BashlingxiExecutor with no restrictions (allow all commands)
         self.bash_lingxi = BashlingxiExecutor(
             timeout=self.config.optimizer.timeout_seconds,
@@ -62,6 +77,7 @@ class CodingRuntime:
         self.permissions = PermissionContext.from_config(
             deny_tools=self.config.permissions.deny_tools,
             deny_prefixes=self.config.permissions.deny_prefixes,
+            mode=getattr(self.config.permissions, "mode", "ask"),
         )
         self.evaluator = StructureEvaluator()
         self.optimizer = SynchronousOptimizer()
@@ -100,6 +116,7 @@ class CodingRuntime:
                 },
                 handler=self._read_handler,
                 security_scope="read",
+                is_concurrency_safe=True,  # T1-3: 只读工具可并行
             )
         )
         self.registry.register(
@@ -185,6 +202,7 @@ class CodingRuntime:
                 },
                 handler=self._glob_handler,
                 security_scope="read",
+                is_concurrency_safe=True,  # T1-3: 只读工具可并行
             )
         )
         self.registry.register(
@@ -202,6 +220,7 @@ class CodingRuntime:
                 },
                 handler=self._grep_handler,
                 security_scope="read",
+                is_concurrency_safe=True,  # T1-3: 只读工具可并行
             )
         )
         self.stt = STTEngine()
@@ -322,6 +341,39 @@ class CodingRuntime:
                 security_scope="execute",
             )
         )
+        # T1-6: 子代理控制工具
+        self.registry.register(
+            ToolDefinition(
+                name="list_agents",
+                description="List all running sub-agents and their status",
+                parameters={},
+                handler=self._list_agents_handler,
+                security_scope="read",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="interrupt_agent",
+                description="Interrupt/abort a running sub-agent by agent_id",
+                parameters={
+                    "agent_id": {"type": "string", "description": "Agent ID to interrupt"},
+                },
+                handler=self._interrupt_agent_handler,
+                security_scope="execute",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="send_message",
+                description="Send a message to a running sub-agent (ACP backend only)",
+                parameters={
+                    "agent_id": {"type": "string", "description": "Agent ID to send message to"},
+                    "message": {"type": "string", "description": "Message content"},
+                },
+                handler=self._send_message_handler,
+                security_scope="execute",
+            )
+        )
         self.registry.register(
             ToolDefinition(
                 name="plan_mode",
@@ -421,11 +473,12 @@ class CodingRuntime:
     def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
         # T0-2: sensitive_path_gate 检查 bash 命令中的路径
         from lingclaude.engine.sensitive_path_gate import check_sensitive_path
-        # 扫描命令中的所有路径（简单启发式）
+        # P2-1 收紧：只提取路径形 token（~ / ./ ../ 前缀），且 / 前不是单词字符
+        # （否则 echo "abc/def" 会把 /def 误当路径；引号内真实路径 cat "/home/x" 仍会命中）
         import re
-        paths_in_cmd = re.findall(r'[/\w][\w./-]*', command)
+        paths_in_cmd = re.findall(r'(?:~|(?<![\w])/|\.\.?/)[\w./~-]+', command)
         for p in paths_in_cmd:
-            if len(p) > 3 and '/' in p:
+            if len(p) > 1:
                 is_sensitive, reason = check_sensitive_path(p)
                 if is_sensitive:
                     return {"error": f"Path blocked by sensitive_path_gate in command: {p} ({reason})"}
@@ -454,11 +507,10 @@ class CodingRuntime:
         line_numbers: bool = True,
         **_kwargs: Any,
     ) -> dict[str, Any]:
-        # T0-2: sensitive_path_gate 检查
-        from lingclaude.engine.sensitive_path_gate import check_sensitive_path
-        is_sensitive, reason = check_sensitive_path(path)
-        if is_sensitive:
-            return {"error": f"Path blocked by sensitive_path_gate: {path} ({reason})"}
+        # T0-2: sensitive_path_gate 检查（带 T0-3 审批逃生门）
+        gated = self._gate_sensitive("read", path)
+        if gated:
+            return {"error": gated}
         result = self.file_read.read(path, offset=offset, limit=limit, line_numbers=line_numbers)
         if result.is_error:
             return {"error": result.error}
@@ -691,6 +743,56 @@ class CodingRuntime:
             "provider": result.provider,
         }
 
+    def _list_agents_handler(self, **_kwargs: Any) -> dict[str, Any]:
+        """T1-6: 列出所有子代理及其状态."""
+        from lingclaude.engine.subagent import SubagentManager
+        manager = getattr(self, "_subagent_manager", None)
+        if manager is None:
+            return {"agents": [], "backends": []}
+        backends = manager.list_backends()
+        # 列出各后端的运行中 agent（通过 _running dict）
+        agents = []
+        for backend_name in backends:
+            backend = manager.get_backend(backend_name)
+            if hasattr(backend, '_running'):
+                for agent_id, info in backend._running.items():
+                    status = backend.status(agent_id)
+                    agents.append({
+                        "agent_id": agent_id,
+                        "backend": backend_name,
+                        "status": status.value,
+                        "task": info.get("result", {}).get("task", "") if isinstance(info.get("result"), dict) else "",
+                    })
+        return {"agents": agents, "backends": backends}
+
+    def _interrupt_agent_handler(self, agent_id: str, **_kwargs: Any) -> dict[str, Any]:
+        """T1-6: 中止指定子代理."""
+        from lingclaude.engine.subagent import SubagentManager
+        manager = getattr(self, "_subagent_manager", None)
+        if manager is None:
+            return {"success": False, "error": "No subagent manager"}
+        # 尝试所有后端
+        for backend_name in manager.list_backends():
+            backend = manager.get_backend(backend_name)
+            if hasattr(backend, 'abort'):
+                if backend.abort(agent_id):
+                    return {"success": True, "agent_id": agent_id, "message": "Agent interrupted"}
+        return {"success": False, "agent_id": agent_id, "error": "Agent not found or backend doesn't support abort"}
+
+    def _send_message_handler(self, agent_id: str, message: str, **_kwargs: Any) -> dict[str, Any]:
+        """T1-6: 向运行中的子代理发送消息（AcpSubagentBackend 支持）."""
+        from lingclaude.engine.subagent import SubagentManager
+        manager = getattr(self, "_subagent_manager", None)
+        if manager is None:
+            return {"success": False, "error": "No subagent manager"}
+        # 仅 ACP 后端支持 send_message
+        acp = manager.get_backend("acp")
+        if not hasattr(acp, '_running') or agent_id not in acp._running:
+            return {"success": False, "agent_id": agent_id, "error": "Agent not found or not running on ACP"}
+        # ACP send_message 实现（简化版：记录消息，实际由 ACP server 处理）
+        acp._running[agent_id]["last_message"] = message
+        return {"success": True, "agent_id": agent_id, "message": "Message recorded"}
+
     def _plan_mode_handler(self, action: str = "enter", **_kwargs: Any) -> dict[str, Any]:
         if action == "enter":
             self.plan_mode.enter()
@@ -881,6 +983,14 @@ class CodingRuntime:
         tool = self.registry.get(name)
         return tool.data.security_scope if tool.is_ok else "read"
 
+    @property
+    def permission_store(self) -> PermissionStore:
+        """T0-3: 当前会话的审批 store — webUI /permission 决策的落点与查询入口。"""
+        from lingclaude.core.permissions import PermissionStore, get_permission_store
+
+        store: PermissionStore = get_permission_store(getattr(self.config, "session_id", "default"))
+        return store
+
     def _gate_sensitive(self, name: str, *candidates: str | None) -> str | None:
         """T0-2: 敏感路径门 — 命中敏感标记且无审批放行时返回错误信息（fail-closed）。
 
@@ -943,14 +1053,39 @@ class CodingRuntime:
         rate_ok = rate.passed
         rate_err = ("[安全限制] " + (getattr(rate, "error", "") or "rate limited")) if not rate_ok else ""
 
-        # T0-1: plan_mode 拦截写工具
-        if self.plan_mode.is_active and name in WRITE_SCOPED_TOOLS:
-            return {"error": f"Tool '{name}' blocked by plan_mode (write tool disabled)"}
+        # T0-1: plan_mode 拦截 — 只放行读域工具 + plan_mode 自身（bash 等 execute 域同封）
+        if self.plan_mode.is_active and not self.plan_mode.allows(name, self._tool_scope(name)):
+            return {"error": f"Tool '{name}' blocked by plan_mode (read-only mode active; call plan_mode with action=exit to leave)"}
+
+        # T0-3: 审批回路 — webUI /permission 决策实时回灌
+        # deny 决策 → 拦截；always_allow → 覆盖静态 deny_names
+        from lingclaude.core.permissions import (
+            READ_ONLY_TOOLS,
+            get_permission_mode,
+            get_permission_store,
+        )
+
+        store = get_permission_store(getattr(self.config, "session_id", "default"))
+        # T1-2 深化: 全局 mode 优先（webUI /permission/mode 可实时切换，覆盖静态 config mode）
+        active_mode = get_permission_mode()
+
+        def _blocks(tool_name: str) -> bool:
+            if store.blocks(tool_name):
+                return True
+            if active_mode == "auto" and not store.blocks(tool_name):
+                # auto 模式：非 deny 全部放行（写工具也放行）
+                return False
+            if self.permissions.blocks(tool_name) and not store.explicitly_allowed(tool_name):
+                return True
+            if active_mode == "strict" and tool_name not in READ_ONLY_TOOLS:
+                # strict 模式：非只读工具一律拦截（除非显式放行）
+                return not store.explicitly_allowed(tool_name)
+            return False
 
         return self.tool_pipeline.execute(
             name,
             kwargs,
-            permissions_blocks=self.permissions.blocks,
+            permissions_blocks=_blocks,
             rate_check=lambda: (rate_ok, rate_err),
             pre_write_verify=_pre_write_verify,
             post_write_verify=_post_write_verify,

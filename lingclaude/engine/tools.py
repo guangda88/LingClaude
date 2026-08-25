@@ -64,6 +64,8 @@ class ToolDefinition:
     # T0-8: 显式 required 参数列表（空 = 全部参数视为 required，保持旧行为）。
     # MCP 工具带完整 JSON Schema 时用它区分可选参数，避免模型被迫填所有参数。
     required_params: tuple[str, ...] = ()
+    # T1-3 深化: 工具级超时（秒）— None = 用 pipeline 全局默认超时
+    timeout: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -73,6 +75,8 @@ class ToolDefinition:
             "security_scope": self.security_scope,
             "is_concurrency_safe": self.is_concurrency_safe,
         }
+        if self.timeout is not None:
+            d["timeout"] = self.timeout
         if self.output is not None:
             d["output_schema"] = self.output.schema
         return d

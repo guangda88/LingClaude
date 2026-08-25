@@ -49,12 +49,28 @@ class CompressionConfig:
     level: CompressionLevel = CompressionLevel.SUMMARY
     priority_hints: list[str] = None  # handover重点词表，优先保留包含这些词的消息
     handover_conclusions: list[str] = None  # handover key_conclusions，强制注入摘要
+    # T1-1: 动态预算 — 按模型真实窗口计算 summary 上限（None = 用 summary_max_chars 兜底）
+    model_window_tokens: int | None = None
+    # T1-1: LLM 摘要开关 — True 且 provider 可用时用 LLM 摘要，失败降级正则
+    use_llm_summary: bool = False
+    # T1-1: LLM 摘要 provider — 由调用方传入 engine 持有的 provider；None 时自动降级正则
+    provider: Any | None = None
 
     def __post_init__(self):
         if self.priority_hints is None:
             self.priority_hints = []
         if self.handover_conclusions is None:
             self.handover_conclusions = []
+
+    def effective_summary_chars(self) -> int:
+        """T1-1: 动态预算 — 模型窗口×4% 或 summary_max_chars，取较小者。
+
+        4 字符≈1 token 的保守估算；窗口越大摘要可越长，但不超过硬上限。
+        """
+        if self.model_window_tokens:
+            window_budget = self.model_window_tokens * 4 // 100
+            return min(window_budget, self.summary_max_chars)
+        return self.summary_max_chars
 
 
 _FILE_PATH_RE = re.compile(
@@ -292,8 +308,9 @@ def compress_messages(
         )
 
         combined = reasoning_summary + "\n" + fact_summary
-        if len(combined) > config.summary_max_chars:
-            combined = combined[:config.summary_max_chars] + "\n... (摘要已截断)"
+        budget = config.effective_summary_chars()
+        if len(combined) > budget:
+            combined = combined[:budget] + "\n... (摘要已截断)"
 
         archived_count = sum(len(v) for v in facts.values()) + sum(len(v) for v in reasoning.values())
 
@@ -313,8 +330,15 @@ def compress_messages(
         handover_conclusions=config.handover_conclusions,
     )
 
-    if len(summary) > config.summary_max_chars:
-        summary = summary[:config.summary_max_chars] + "\n... (摘要已截断)"
+    # T1-1: LLM 摘要通道 — use_llm_summary 且 provider 可用时替换正则摘要，失败降级
+    if config.use_llm_summary:
+        llm_summary = _try_llm_summary(facts, dropped_count, config)
+        if llm_summary:
+            summary = llm_summary
+
+    budget = config.effective_summary_chars()
+    if len(summary) > budget:
+        summary = summary[:budget] + "\n... (摘要已截断)"
 
     archived_count = sum(len(v) for v in facts.values())
 
@@ -336,6 +360,49 @@ def _extract_text(msg: Any) -> str:
     if hasattr(msg, "content"):
         return msg.content or ""
     return str(msg) if msg else ""
+
+
+def _try_llm_summary(
+    facts: dict[str, list[str]],
+    dropped_count: int,
+    config: CompressionConfig,
+) -> str | None:
+    """T1-1: LLM 摘要通道 — 用 provider 生成结构化摘要，失败/不可用返回 None（正则兜底）。
+
+    调用约定：provider 来自 config.provider（engine 持有）；无 provider 或
+    调用异常时静默降级正则，不阻塞压缩。
+    """
+    if not config.use_llm_summary or config.provider is None:
+        return None
+    try:
+        from lingclaude.core.model_adapter import ModelAdapter
+
+        adapter = ModelAdapter(config.provider)
+        budget = config.effective_summary_chars()
+        prompt = (
+            "你是一个对话压缩器。把以下历史对话事实压缩成结构化中文摘要，"
+            "保留：已读文件、关键决策、已排除方案、遇到的错误。"
+            f"控制在 {budget} 字符内，代码/路径保持英文原文。\n\n"
+            "### 事实\n"
+        )
+        for key, items in facts.items():
+            if items:
+                prompt += f"- {key}: {', '.join(items[:20])}\n"
+
+        result = adapter.call(
+            messages=(("user", prompt),),
+            max_tokens=max(budget // 4, 256),
+        )
+        if result.is_error:
+            logger.warning("LLM summary failed: %s", result.error)
+            return None
+        summary = result.data.content
+        if summary and summary.strip():
+            logger.info("LLM summary generated (%d chars) for %d dropped turns", len(summary), dropped_count)
+            return summary.strip()
+    except Exception as e:  # noqa: BLE001 — LLM 摘要失败静默降级正则，不阻塞压缩
+        logger.warning("LLM summary failed, falling back to regex: %s", e)
+    return None
 
 
 def extract_reasoning_from_messages(

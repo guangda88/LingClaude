@@ -206,6 +206,31 @@ def print_trend(name: str, direction: str, delta: float, moving_avg: float) -> N
         print(f"  {name}: {arrow} avg={moving_avg:.3f} delta={delta:+.3f}")
 
 
+def print_diff(diff_text: str, language: str = "diff") -> None:
+    """T1-7: diff 高亮 — 绿色新增/红色删除。Rich Syntax 优先，纯文本兜底。"""
+    if not diff_text:
+        return
+    if _HAS_RICH:
+        try:
+            from rich.syntax import Syntax
+
+            console = _get_console()
+            console.print(Syntax(diff_text, language, theme="monokai", line_numbers=False))
+            return
+        except Exception:  # noqa: BLE001 — Rich 语法高亮失败降级纯文本
+            pass
+    # 纯文本兜底：逐行前缀着色（unified diff 风格）
+    for line in diff_text.splitlines():
+        if line.startswith("+"):
+            print(f"\033[32m{line}\033[0m")
+        elif line.startswith("-"):
+            print(f"\033[31m{line}\033[0m")
+        elif line.startswith("@@"):
+            print(f"\033[36m{line}\033[0m")
+        else:
+            print(line)
+
+
 def print_metrics_stats(stats: dict[str, Any]) -> None:
     if _HAS_RICH:
         console = _get_console()

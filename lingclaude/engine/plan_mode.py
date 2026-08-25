@@ -42,11 +42,20 @@ class PlanMode:
         return tool_name == PLAN_MODE_EXIT_TOOL or security_scope == "read"
 
     def filter_tools(self, tools: list[Any]) -> list[Any]:
-        """过滤模型可见工具列表：plan 模式只保留读域工具 + plan_mode 自身。"""
+        """过滤模型可见工具列表：plan 模式只保留读域工具 + plan_mode 自身。
+
+        兼容 ToolDefinition 对象与 dict（getattr/get 双路取值）。
+        """
         if not self._active:
             return list(tools)
+
+        def _field(t: Any, key: str, default: Any) -> Any:
+            if isinstance(t, dict):
+                return t.get(key, default)
+            return getattr(t, key, default)
+
         return [
             t for t in tools
-            if getattr(t, "name", "") == PLAN_MODE_EXIT_TOOL
-            or getattr(t, "security_scope", "read") == "read"
+            if _field(t, "name", "") == PLAN_MODE_EXIT_TOOL
+            or _field(t, "security_scope", "read") == "read"
         ]
