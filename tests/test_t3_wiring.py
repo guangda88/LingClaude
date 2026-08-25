@@ -97,13 +97,14 @@ class TestScheduleManagerWiring:
 
     def test_register_daily_task(self):
         """注册 @daily 任务。"""
-        from lingclaude.core.scheduler import ScheduleManager
+        from lingclaude.core.scheduler import ScheduleManager, ScheduledTask
         mgr = ScheduleManager()
         task_id = mgr.register("@daily", "每日备份")
         assert task_id is not None
         tasks = mgr.list_tasks()
         assert len(tasks) == 1
         assert tasks[0].cron == "@daily"
+        assert isinstance(tasks[0], ScheduledTask)  # list_tasks 返回公共类型（wiring gate 要求跨模块导入）
 
     def test_register_interval_task(self):
         """注册 interval:N 任务。"""
@@ -135,6 +136,7 @@ class TestCliScheduleCommand:
     def test_slash_schedule_exists(self):
         """cli/app.py 有 /schedule 命令处理。"""
         from pathlib import Path
-        app_py = Path("lingclaude/cli/app.py").read_text()
+        # 锚定仓库根，不依赖进程 cwd（全量跑时其他测试会改 cwd 不还原 → 相对路径偶发炸）
+        app_py = (Path(__file__).resolve().parents[1] / "lingclaude" / "cli" / "app.py").read_text()
         assert "/schedule" in app_py
         assert "get_schedule_manager" in app_py

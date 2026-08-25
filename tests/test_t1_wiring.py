@@ -26,6 +26,7 @@ from lingclaude.core.context_compression import (
     compress_messages,
     _try_llm_summary,
 )
+from lingclaude.core.image_content import extract_image_content, image_tool_text
 from lingclaude.core.permissions import (
     PermissionContext,
     get_permission_mode,
@@ -161,10 +162,16 @@ class TestContextCompression:
         assert hasattr(qe._write_lock, "release")
 
     def test_process_tool_calls_parallel_exists(self, runtime):
-        """_process_tool_calls_parallel 方法存在."""
+        """T3-3 拆分后: 并行执行逻辑迁移至 ToolCallExecutor（engine 经 _tool_call_executor 接线）。"""
         from lingclaude.core.query_engine import QueryEngine
+        from lingclaude.core.tool_call_executor import ToolCallExecutor
         qe = QueryEngine(runtime)
-        assert hasattr(qe, "_process_tool_calls_parallel")
+        # 引擎通过 _tool_call_executor 暴露 process（并行/顺序分流入口）
+        assert hasattr(qe, "_tool_call_executor")
+        assert isinstance(qe._tool_call_executor, ToolCallExecutor)
+        assert hasattr(qe._tool_call_executor, "process")
+        assert hasattr(qe._tool_call_executor, "_process_parallel")
+        assert hasattr(qe._tool_call_executor, "_process_single")
 
 
 # ── T1-5: MCP stdio client ────────────────────────────────────────────────
@@ -372,16 +379,16 @@ class TestMultimodalWiring:
             "path": "a.png", "is_image": True,
             "image_mime": "image/png", "content": "iVBORw0KGgo=",
         })
-        img = QueryEngine._extract_image_content(output)
+        img = extract_image_content(output)
         assert img == ("iVBORw0KGgo=", "image/png")
 
     def test_extract_image_content_non_image_returns_none(self):
         """非图片输出返回 None。"""
         from lingclaude.core.query_engine import QueryEngine
 
-        assert QueryEngine._extract_image_content('{"content": "text"}') is None
-        assert QueryEngine._extract_image_content("plain text") is None
-        assert QueryEngine._extract_image_content("") is None
+        assert extract_image_content('{"content": "text"}') is None
+        assert extract_image_content("plain text") is None
+        assert extract_image_content("") is None
 
     def test_read_image_full_chain(self, tmp_path):
         """完整链路: read 图片文件 → to_dict → _extract_image_content。"""
@@ -405,7 +412,7 @@ class TestMultimodalWiring:
         assert d["is_image"] is True
         assert d["image_mime"] == "image/png"
 
-        img = QueryEngine._extract_image_content(json.dumps(d))
+        img = extract_image_content(json.dumps(d))
         assert img is not None
         assert img[1] == "image/png"
         assert len(img[0]) > 50  # base64 内容非空
@@ -482,9 +489,9 @@ class TestImageSinglePayload:
             "path": "a.png", "size": 100, "is_image": True,
             "image_mime": "image/png", "content": "iVBORw0KGgo=",
         })
-        img = QueryEngine._extract_image_content(output)
+        img = extract_image_content(output)
         assert img == ("iVBORw0KGgo=", "image/png")
-        text = QueryEngine._image_tool_text(output, img)
+        text = image_tool_text(output, img)
         assert "iVBORw0KGgo=" not in text  # base64 不进文本通道
         assert "[image: a.png (image/png, 100 bytes)]" in text
         # 占位符文本仍是合法 JSON（历史/压缩管线兼容）
@@ -492,10 +499,10 @@ class TestImageSinglePayload:
 
     def test_non_image_passthrough(self):
         from lingclaude.core.query_engine import QueryEngine
-        assert QueryEngine._image_tool_text('{"content": "hi"}', None) == '{"content": "hi"}'
-        assert QueryEngine._image_tool_text("plain text", None) == "plain text"
+        assert image_tool_text('{"content": "hi"}', None) == '{"content": "hi"}'
+        assert image_tool_text("plain text", None) == "plain text"
         # image 非 None 但 payload 不可解析 → 原样返回
-        assert QueryEngine._image_tool_text("plain text", ("x", "image/png")) == "plain text"
+        assert image_tool_text("plain text", ("x", "image/png")) == "plain text"
 
 
 class TestSendMessageWithdrawn:

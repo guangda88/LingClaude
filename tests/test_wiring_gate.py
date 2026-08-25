@@ -48,14 +48,18 @@ def _get_init_exports() -> set[str]:
     return names
 
 
-def _get_qe_imports() -> set[str]:
-    tree = ast.parse(QE_PATH.read_text(encoding="utf-8"))
+def _get_module_imports(path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
                 names.add(alias.asname or alias.name)
     return names
+
+
+def _get_qe_imports() -> set[str]:
+    return _get_module_imports(QE_PATH)
 
 
 class TestExportCompleteness:
@@ -99,23 +103,24 @@ class TestExportCompleteness:
 class TestWiringGate:
     """核心模块必须在 query_engine.py 中被接入。"""
 
-    # Modules that MUST be imported and used in query_engine.py
-    WIRED_REQUIRED: dict[str, set[str]] = {
-        "context_cache": {"ContextCache"},
-        "token_monitor": {"TokenMonitor"},
-        "data_flywheel": {"DataFlywheel"},
-        "layered_memory": {"LayeredMemory", "Experience"},
-        "dementia_detector": {"DementiaDetector"},
-        "context_compression": {"compress_messages", "CompressionConfig"},
-        "behavior": {"BehaviorMetrics"},
-        "intel": {"IntelCollector"},
+    # Modules that MUST be imported and used（T3-3 瘦身后接线随拆分迁移，
+    # value = (所在文件, 必须导入的名字)；context_compression 现消费于 tool_call_executor）
+    WIRED_REQUIRED: dict[str, tuple[str, set[str]]] = {
+        "context_cache": ("query_engine.py", {"ContextCache"}),
+        "token_monitor": ("query_engine.py", {"TokenMonitor"}),
+        "data_flywheel": ("query_engine.py", {"DataFlywheel"}),
+        "layered_memory": ("query_engine.py", {"LayeredMemory", "Experience"}),
+        "dementia_detector": ("query_engine.py", {"DementiaDetector"}),
+        "context_compression": ("tool_executor.py", {"compress_messages", "CompressionConfig"}),
+        "behavior": ("query_engine.py", {"BehaviorMetrics"}),
+        "intel": ("query_engine.py", {"IntelCollector"}),
     }
 
     def test_required_modules_wired_in_query_engine(self) -> None:
-        qe_imports = _get_qe_imports()
         missing: dict[str, set[str]] = {}
-        for module, names in self.WIRED_REQUIRED.items():
-            unwired = names - qe_imports
+        for module, (fname, names) in self.WIRED_REQUIRED.items():
+            imports = _get_module_imports(CORE_DIR / fname)
+            unwired = names - imports
             if unwired:
                 missing[module] = unwired
         assert not missing, (
