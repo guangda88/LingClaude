@@ -178,16 +178,18 @@ class TestContextCompression:
         assert "inputSchema" in d
 
     def test_bad_transport_rejected(self):
-        """无效 transport → BAD_TRANSPORT."""
-        r = discover_and_register("x", "x", "bad_transport")
-        assert r.is_error
-        assert r.code == "BAD_TRANSPORT"
+        """无效 transport → (False, [], {})."""
+        success, names, schemas = discover_and_register("x", "x", "bad_transport")
+        assert success is False
+        assert names == []
+        assert schemas == {}
 
     def test_stdio_spawn_failure(self):
-        """spawn 失败 → SPAWN_FAILED."""
-        r = discover_and_register("x", "x", "stdio", command=["nonexistent-binary-xyz"])
-        assert r.is_error
-        assert r.code == "SPAWN_FAILED"
+        """spawn 失败 → (False, [], {})."""
+        success, names, schemas = discover_and_register("x", "x", "stdio", command=["nonexistent-binary-xyz"])
+        assert success is False
+        assert names == []
+        assert schemas == {}
 
     def test_http_transport_error(self):
         """HTTP 不可达 → TRANSPORT_ERROR."""
