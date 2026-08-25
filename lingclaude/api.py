@@ -219,6 +219,36 @@ async def stop_session(session_id: str, project_path: str = "", api_key: str = S
     return result.data.to_dict_redacted()
 
 
+@app.get("/sessions/{session_id}/projection")
+async def get_session_projection(session_id: str, view: str = "all", api_key: str = Security(verify_api_key)):
+    """T3-2/案 5: 会话投影 — 多视角分析（token 用量/工具调用频率/轮次统计）。
+
+    修复死接线第 5 案：session_projection.py 已存在但零消费方。
+    """
+    from lingclaude.core.session import SessionManager
+    from lingclaude.core.session_projection import (
+        project_session,
+        project_tokens,
+        project_tools,
+        project_rounds,
+    )
+
+    mgr = SessionManager()
+    result = mgr.load(session_id)
+    if result.is_error:
+        raise HTTPException(404, f"Session not found: {session_id}")
+    session = result.data
+
+    if view == "tokens":
+        return project_tokens(session).to_dict()
+    elif view == "tools":
+        return project_tools(session).to_dict()
+    elif view == "rounds":
+        return project_rounds(session).to_dict()
+    else:
+        return project_session(session)
+
+
 @app.post("/ask", response_model=AskResponse)
 async def ask(req: AskRequest, api_key: str = Security(verify_api_key)):
     q = req.question
