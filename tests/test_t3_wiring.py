@@ -84,3 +84,57 @@ class TestApiProjectionEndpoint:
         
         routes = [r.path for r in app.routes]
         assert any("/sessions/" in r and "projection" in r for r in routes)
+
+
+class TestScheduleManagerWiring:
+    """案 4: ScheduleManager 接线验证。"""
+
+    def test_schedule_manager_exists(self):
+        """core/scheduler.py 存在且可导入。"""
+        from lingclaude.core.scheduler import ScheduleManager, get_schedule_manager
+        assert ScheduleManager is not None
+        assert get_schedule_manager is not None
+
+    def test_register_daily_task(self):
+        """注册 @daily 任务。"""
+        from lingclaude.core.scheduler import ScheduleManager
+        mgr = ScheduleManager()
+        task_id = mgr.register("@daily", "每日备份")
+        assert task_id is not None
+        tasks = mgr.list_tasks()
+        assert len(tasks) == 1
+        assert tasks[0].cron == "@daily"
+
+    def test_register_interval_task(self):
+        """注册 interval:N 任务。"""
+        from lingclaude.core.scheduler import ScheduleManager
+        mgr = ScheduleManager()
+        task_id = mgr.register("interval:30", "每 30 分钟检查")
+        tasks = mgr.list_tasks()
+        assert tasks[0].cron == "interval:30"
+
+    def test_cancel_task(self):
+        """取消任务。"""
+        from lingclaude.core.scheduler import ScheduleManager
+        mgr = ScheduleManager()
+        task_id = mgr.register("@hourly", "每小时任务")
+        assert mgr.cancel(task_id) is True
+        assert len(mgr.list_tasks()) == 0
+
+    def test_invalid_cron(self):
+        """无效 cron 抛错。"""
+        from lingclaude.core.scheduler import ScheduleManager
+        mgr = ScheduleManager()
+        with pytest.raises(ValueError):
+            mgr.register("invalid-cron", "无效任务")
+
+
+class TestCliScheduleCommand:
+    """案 4: CLI /schedule 命令接线验证。"""
+
+    def test_slash_schedule_exists(self):
+        """cli/app.py 有 /schedule 命令处理。"""
+        from pathlib import Path
+        app_py = Path("lingclaude/cli/app.py").read_text()
+        assert "/schedule" in app_py
+        assert "get_schedule_manager" in app_py

@@ -231,6 +231,42 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
         if name == "/model":
             print(f"[当前模型] {getattr(engine.config, 'model', 'unknown')}")
             return True
+        # T2-2/案 4: /schedule 命令 — 定时任务注册/列出/取消
+        if name == "/schedule":
+            from lingclaude.core.scheduler import get_schedule_manager, ScheduleType
+
+            mgr = get_schedule_manager()
+            if not arg:
+                # 列出任务
+                tasks = mgr.list_tasks()
+                if not tasks:
+                    print("[定时任务] 无任务")
+                else:
+                    print(f"[定时任务] 共 {len(tasks)} 个：")
+                    for t in tasks:
+                        print(f"  - {t.task_id[:8]} | {t.cron} | {t.query[:40]}")
+            elif arg.startswith("cancel "):
+                # 取消任务
+                task_id = arg[7:].strip()
+                if mgr.cancel(task_id):
+                    print(f"[已取消] {task_id}")
+                else:
+                    print(f"[未找到] {task_id}")
+            else:
+                # 注册任务：/schedule @daily "查询内容"
+                parts = arg.split(maxsplit=1)
+                if len(parts) < 2:
+                    print("[用法] /schedule @daily|@hourly|@weekly|interval:N \"任务内容\"")
+                    print("       /schedule cancel <task_id>")
+                    print("       /schedule  (列出任务)")
+                else:
+                    cron, query = parts
+                    try:
+                        task_id = mgr.register(cron, query)
+                        print(f"[已注册] {task_id[:8]} | {cron} | {query[:40]}")
+                    except ValueError as e:
+                        print(f"[错误] {e}")
+            return True
         return False
 
     prompt = first_prompt or ""
