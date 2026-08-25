@@ -113,6 +113,9 @@ class QueryEngineConfig:
     # T1-1: LLM 摘要开关 — True 且 provider 可用时压缩走 LLM 摘要（失败降级正则）。
     # 此前 tool_executor 用 getattr(self, "use_llm_summary", False) 读不到本字段 → 恒 False 死接线。
     use_llm_summary: bool = False
+    # T1-1: 按模型窗口动态预算 — 压缩摘要预算基数（窗口×4%），None 时回退 max_budget_tokens。
+    # 此前 EngineConfig 有字段但 loader 不读、本类无该字段 → tool_executor 恒回退静态 200k。
+    context_window_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -289,6 +292,9 @@ class QueryEngine:
                 max_budget_tokens=cfg.engine.max_budget_tokens,
                 compact_after_turns=cfg.engine.compact_after_turns,
                 structured_output=cfg.engine.structured_output,
+                # T1-1: 此前构造点不透传 → from_config 主路径下两开关均不可达（死接线）
+                use_llm_summary=cfg.engine.use_llm_summary,
+                context_window_tokens=cfg.engine.context_window_tokens,
             )
 
             provider = None
@@ -827,7 +833,7 @@ class QueryEngine:
                 )
             messages.append(ModelMessage(
                 role=MessageRole.TOOL,
-                content=tool_output,
+                content=self._image_tool_text(tool_output, self._extract_image_content(tool_output)),
                 name=tc.name,
                 tool_call_id=tc.id,
                 image_content=self._extract_image_content(tool_output),
@@ -878,7 +884,7 @@ class QueryEngine:
                 )
             messages.append(ModelMessage(
                 role=MessageRole.TOOL,
-                content=tool_output,
+                content=self._image_tool_text(tool_output, self._extract_image_content(tool_output)),
                 name=tc.name,
                 tool_call_id=tc.id,
                 image_content=self._extract_image_content(tool_output),
@@ -899,7 +905,7 @@ class QueryEngine:
             )
         messages.append(ModelMessage(
             role=MessageRole.TOOL,
-            content=tool_output,
+            content=self._image_tool_text(tool_output, self._extract_image_content(tool_output)),
             name=tc.name,
             tool_call_id=tc.id,
             image_content=self._extract_image_content(tool_output),
@@ -924,6 +930,28 @@ class QueryEngine:
         if not b64 or not mime:
             return None
         return str(b64), str(mime)
+
+    @staticmethod
+    def _image_tool_text(tool_output: str, image: tuple[str, str] | None) -> str:
+        """T1-4: 图片工具输出的文本形态 — base64 只走 image_content 侧信道。
+
+        双份 payload（文本 JSON 含 base64 + image_url block 又一份）会让 1MB 图
+        ≈2.7MB 请求，且 base64 沉淀进历史/压缩管线。此处把文本中的 content 替换
+        为占位符，base64 仅保留在 image_content。非图片输出原样返回。
+        """
+        if image is None:
+            return tool_output
+        try:
+            data = json.loads(tool_output)
+        except (json.JSONDecodeError, TypeError):
+            return tool_output
+        if not isinstance(data, dict) or not data.get("is_image"):
+            return tool_output
+        data["content"] = (
+            f"[image: {data.get('path', '?')} "
+            f"({data.get('image_mime', '?')}, {data.get('size', '?')} bytes)]"
+        )
+        return json.dumps(data, ensure_ascii=False)
 
     def _call_model(self, prompt: str) -> str:
         decision = self._router.route(prompt)

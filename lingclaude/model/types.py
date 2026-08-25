@@ -23,8 +23,9 @@ class ModelMessage:
     tool_call_id: str | None = None
     tool_calls: tuple[ToolCall, ...] | None = None
     # T1-4: 多模态 — 图片内容（base64 + mime type）
-    # 预留字段：当前无生产者（read 工具不产出 image_content），openai_provider 会透传。
-    # 待 read 工具支持图片返回后启用。
+    # 生产者: query_engine._extract_image_content（read 图片结果的三条工具路径均接线）。
+    # openai_provider 经 to_dict 透传为 OpenAI image_url content blocks
+    # （anthropic_provider 不走 to_dict，暂不消费本字段）。
     image_content: tuple[str, str] | None = None  # (base64_data, mime_type)
 
     def to_dict(self) -> dict[str, Any]:

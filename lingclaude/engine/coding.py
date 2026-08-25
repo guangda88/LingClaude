@@ -362,18 +362,10 @@ class CodingRuntime:
                 security_scope="execute",
             )
         )
-        self.registry.register(
-            ToolDefinition(
-                name="send_message",
-                description="Send a message to a running sub-agent (ACP backend only)",
-                parameters={
-                    "agent_id": {"type": "string", "description": "Agent ID to send message to"},
-                    "message": {"type": "string", "description": "Message content"},
-                },
-                handler=self._send_message_handler,
-                security_scope="execute",
-            )
-        )
+        # T1-6: send_message 已撤下 — ACP run() 是同步单轮（POST /message 等完整结果返回），
+        # _running 里注册的是已完成结果、不持有 session_id，没有可投递的活会话；
+        # 原实现只写 _running[id]["last_message"] 就返回 success（假成功）。
+        # 待 ACP 后端支持异步会话后再真实现并重新注册。
         self.registry.register(
             ToolDefinition(
                 name="plan_mode",
@@ -745,7 +737,6 @@ class CodingRuntime:
 
     def _list_agents_handler(self, **_kwargs: Any) -> dict[str, Any]:
         """T1-6: 列出所有子代理及其状态."""
-        from lingclaude.engine.subagent import SubagentManager
         manager = getattr(self, "_subagent_manager", None)
         if manager is None:
             return {"agents": [], "backends": []}
@@ -767,7 +758,6 @@ class CodingRuntime:
 
     def _interrupt_agent_handler(self, agent_id: str, **_kwargs: Any) -> dict[str, Any]:
         """T1-6: 中止指定子代理."""
-        from lingclaude.engine.subagent import SubagentManager
         manager = getattr(self, "_subagent_manager", None)
         if manager is None:
             return {"success": False, "error": "No subagent manager"}
@@ -778,20 +768,6 @@ class CodingRuntime:
                 if backend.abort(agent_id):
                     return {"success": True, "agent_id": agent_id, "message": "Agent interrupted"}
         return {"success": False, "agent_id": agent_id, "error": "Agent not found or backend doesn't support abort"}
-
-    def _send_message_handler(self, agent_id: str, message: str, **_kwargs: Any) -> dict[str, Any]:
-        """T1-6: 向运行中的子代理发送消息（AcpSubagentBackend 支持）."""
-        from lingclaude.engine.subagent import SubagentManager
-        manager = getattr(self, "_subagent_manager", None)
-        if manager is None:
-            return {"success": False, "error": "No subagent manager"}
-        # 仅 ACP 后端支持 send_message
-        acp = manager.get_backend("acp")
-        if not hasattr(acp, '_running') or agent_id not in acp._running:
-            return {"success": False, "agent_id": agent_id, "error": "Agent not found or not running on ACP"}
-        # ACP send_message 实现（简化版：记录消息，实际由 ACP server 处理）
-        acp._running[agent_id]["last_message"] = message
-        return {"success": True, "agent_id": agent_id, "message": "Message recorded"}
 
     def _plan_mode_handler(self, action: str = "enter", **_kwargs: Any) -> dict[str, Any]:
         if action == "enter":

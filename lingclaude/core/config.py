@@ -144,6 +144,9 @@ class lingclaudeConfig:
                 compact_after_turns=engine_raw.get("compact_after_turns", 12),
                 structured_output=engine_raw.get("structured_output", False),
                 bash_executor_type=engine_raw.get("bash_executor_type", "native"),
+                # T1-1: 此前字段存在但 loader 不读 → yaml 配置被静默忽略（死接线）
+                use_llm_summary=engine_raw.get("use_llm_summary", False),
+                context_window_tokens=engine_raw.get("context_window_tokens", None),
             ),
             permissions=PermissionConfig(
                 deny_tools=perm_raw.get("deny_tools", []),

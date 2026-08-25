@@ -435,3 +435,79 @@ class TestMultimodalWiring:
         msg = ModelMessage(role=MessageRole.USER, content="hi")
         d = msg.to_dict()
         assert d["content"] == "hi"
+
+
+# ── 二次审计修复验收: T1-1 配置可达 / T1-4 单份 payload / T1-6 send_message 撤下 ──
+
+
+class TestT1ConfigReachability:
+    """T1-1: use_llm_summary / context_window_tokens 从 yaml 到 QueryEngineConfig 全链可达。
+
+    此前 loader 不读这两个字段 + QueryEngineConfig 构造点不透传 → from_config
+    主路径下动态预算恒为静态 200k、LLM 摘要永远走不到（双重死接线）。
+    """
+
+    @staticmethod
+    def _write_yaml(tmp_path):
+        yml = tmp_path / "config.yaml"
+        yml.write_text(
+            "engine:\n"
+            "  use_llm_summary: true\n"
+            "  context_window_tokens: 128000\n",
+            encoding="utf-8",
+        )
+        return yml
+
+    def test_loader_reads_t1_fields(self, tmp_path):
+        from lingclaude.core.config import load_config
+        cfg = load_config(self._write_yaml(tmp_path))
+        assert cfg.engine.use_llm_summary is True
+        assert cfg.engine.context_window_tokens == 128000
+
+    def test_from_config_file_passthrough(self, tmp_path, monkeypatch):
+        from lingclaude.core.query_engine import QueryEngine
+        monkeypatch.chdir(tmp_path)
+        result = QueryEngine.from_config_file(str(self._write_yaml(tmp_path)))
+        assert result.is_ok, f"from_config_file failed: {getattr(result, 'error', None)}"
+        assert result.data.config.use_llm_summary is True
+        assert result.data.config.context_window_tokens == 128000
+
+
+class TestImageSinglePayload:
+    """T1-4: base64 只走 image_content 侧信道，文本为占位符（不再双份 payload）。"""
+
+    def test_image_text_is_placeholder(self):
+        from lingclaude.core.query_engine import QueryEngine
+        output = json.dumps({
+            "path": "a.png", "size": 100, "is_image": True,
+            "image_mime": "image/png", "content": "iVBORw0KGgo=",
+        })
+        img = QueryEngine._extract_image_content(output)
+        assert img == ("iVBORw0KGgo=", "image/png")
+        text = QueryEngine._image_tool_text(output, img)
+        assert "iVBORw0KGgo=" not in text  # base64 不进文本通道
+        assert "[image: a.png (image/png, 100 bytes)]" in text
+        # 占位符文本仍是合法 JSON（历史/压缩管线兼容）
+        assert json.loads(text)["is_image"] is True
+
+    def test_non_image_passthrough(self):
+        from lingclaude.core.query_engine import QueryEngine
+        assert QueryEngine._image_tool_text('{"content": "hi"}', None) == '{"content": "hi"}'
+        assert QueryEngine._image_tool_text("plain text", None) == "plain text"
+        # image 非 None 但 payload 不可解析 → 原样返回
+        assert QueryEngine._image_tool_text("plain text", ("x", "image/png")) == "plain text"
+
+
+class TestSendMessageWithdrawn:
+    """T1-6: send_message 假实现撤下 — 注册表不再暴露，其余控制工具保留。
+
+    ACP run() 是同步单轮、_running 只存已完成结果，没有可投递的活会话；
+    原实现写 dict 即返回 success（假成功比报错更危险）。
+    """
+
+    def test_send_message_not_registered(self):
+        runtime = CodingRuntime(config=lingclaudeConfig())
+        names = {t.name for t in runtime.registry.list_tools()}
+        assert "send_message" not in names
+        assert "list_agents" in names
+        assert "interrupt_agent" in names
