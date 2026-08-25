@@ -77,16 +77,36 @@ SUBAGENT_SEAM = CapabilitySeam("subagent", {
 
 
 def register_default_providers() -> None:
-    """注册默认能力提供者（延迟导入避免循环依赖）"""
-    from lingclaude.engine.file_ops import FileReadTool, FileWriteTool
+    """注册默认能力提供者（延迟导入避免循环依赖）。
+
+    修复：FileReadTool/FileWriteTool 不存在，实际类名是 FileOps/BashExecutor。
+    FileOps/BashExecutor 无 name/version 属性，用类名代替。
+    """
+    from lingclaude.engine.file_ops import FileOps
     from lingclaude.engine.bash import BashExecutor
-    
+
+    # 包装器：给 FileOps/BashExecutor 加 name/version 属性
+    class FileOpsProvider:
+        name = "file_ops"
+        version = "0.1.0"
+        def __init__(self):
+            self._impl = FileOps()
+        def execute(self, *args, **kwargs):
+            return self._impl.read(*args, **kwargs)
+
+    class BashExecutorProvider:
+        name = "bash_executor"
+        version = "0.1.0"
+        def __init__(self):
+            self._impl = BashExecutor()
+        def execute(self, *args, **kwargs):
+            return self._impl.run(*args, **kwargs)
+
     # fs seam
-    FS_SEAM.register_provider(FileReadTool(), default=True)
-    FS_SEAM.register_provider(FileWriteTool())
-    
+    FS_SEAM.register_provider(FileOpsProvider(), default=True)
+
     # shell seam
-    SHELL_SEAM.register_provider(BashExecutor(), default=True)
+    SHELL_SEAM.register_provider(BashExecutorProvider(), default=True)
 
 
 # 全局注册表
