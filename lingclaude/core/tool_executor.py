@@ -117,8 +117,8 @@ class ToolExecutor:
                 config=CompressionConfig(
                     max_messages=target_max,
                     level=CompressionLevel.SUMMARY,
-                    # T1-1: 动态预算 + LLM 摘要通道（provider 来自 engine）
-                    model_window_tokens=getattr(self._engine.config, "max_budget_tokens", None),
+                    # T1-1 深化: 按模型窗口动态预算（优先 context_window_tokens）
+                    model_window_tokens=getattr(self._engine.config, "context_window_tokens", None) or getattr(self._engine.config, "max_budget_tokens", None),
                     use_llm_summary=getattr(self._engine.config, "use_llm_summary", False),
                     provider=getattr(self._engine, "_provider", None),
                 ),
