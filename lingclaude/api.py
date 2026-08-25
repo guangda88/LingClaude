@@ -249,6 +249,60 @@ async def get_session_projection(session_id: str, view: str = "all", api_key: st
         return project_session(session)
 
 
+# ── T3-1/任务1: LACP 插件市场端点（接线 marketplace.py 死接线第6 案）──
+
+
+@app.post("/marketplace/upload")
+async def marketplace_upload(
+    name: str,
+    version: str,
+    code: str,  # base64 or plain text
+    uploader: str = "anonymous",
+    api_key: str = Security(verify_api_key),
+):
+    """上传插件（含静态安全分析 + 风险评级）。
+
+    修复死接线第6 案：marketplace.py 已有 PluginMarketplace 但零消费方。
+    """
+    from lingclaude.lacp.marketplace import get_marketplace
+    from lingclaude.lacp.manifest import Plugin, Interface, Transport
+
+    mp = get_marketplace()
+    manifest = Plugin(
+        name=name,
+        version=version,
+        owner=uploader,
+        description="Uploaded via /marketplace/upload",
+        interface=Interface(input_schema={}, output_schema={}),
+        transports=[Transport.CLI],
+    )
+    success, error = mp.upload(manifest, code.encode("utf-8"), uploader, secret=b"")
+    return {"success": success, "error": error, "plugin_id": name}
+
+
+@app.get("/marketplace/list")
+async def marketplace_list(api_key: str = Security(verify_api_key)):
+    """列出已上传的插件 + 风险等级 + 信誉评分。"""
+    from lingclaude.lacp.marketplace import get_marketplace
+
+    mp = get_marketplace()
+    plugins = mp.list_plugins() if hasattr(mp, "list_plugins") else []
+    return {"plugins": plugins}
+
+
+@app.get("/marketplace/reputation/{plugin_id}")
+async def marketplace_reputation(plugin_id: str, api_key: str = Security(verify_api_key)):
+    """查询插件信誉评分（综合安全评分 + 用户评分）。"""
+    from lingclaude.lacp.marketplace import get_marketplace
+
+    mp = get_marketplace()
+    return {
+        "plugin_id": plugin_id,
+        "rating": mp.get_rating(plugin_id),
+        "trust_score": mp.get_trust_score(plugin_id),
+    }
+
+
 @app.post("/ask", response_model=AskResponse)
 async def ask(req: AskRequest, api_key: str = Security(verify_api_key)):
     q = req.question

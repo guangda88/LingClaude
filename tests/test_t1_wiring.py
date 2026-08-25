@@ -528,7 +528,7 @@ class TestToolOutputPruner:
     def test_prune_over_threshold_stubs(self):
         """超阈值输出加 truncated 标记"""
         from lingclaude.core.tool_executor import ToolExecutor
-        out = "x" * 20000  # 20K bytes
+        out = "x" * 20480  # 20KB
         pruned = ToolExecutor._prune_output(out)
         assert "[... truncated:" in pruned
         assert "20480 bytes total" in pruned
@@ -555,3 +555,96 @@ class TestToolOutputPruner:
         # head 和 tail 都应是合法中文（decode errors=replace 不报错）
         # 验证不抛异常且不出现 null 字节
         assert "\x00" not in pruned
+
+
+# ── 任务1: marketplace 接线验收（修复死接线第6 案）──
+
+
+class TestMarketplaceAPI:
+    """marketplace.py 已有完整实现但零消费方 — 加 3 个 api.py 端点接入"""
+
+    def test_marketplace_list_endpoint(self):
+        """GET /marketplace/list 返回插件列表"""
+        from lingclaude.api import app
+
+        paths = [r.path for r in app.routes]
+        assert "/marketplace/list" in paths
+
+    def test_marketplace_upload_endpoint(self):
+        from lingclaude.api import app
+        paths = [r.path for r in app.routes]
+        assert "/marketplace/upload" in paths
+
+    def test_marketplace_reputation_endpoint(self):
+        from lingclaude.api import app
+        paths = [r.path for r in app.routes]
+        assert any(p.startswith("/marketplace/reputation/") for p in paths)
+
+
+class TestMarketplaceRealAPI:
+    """直调 get_marketplace() 单例 + 上传 + 评级完整链路"""
+
+    def test_upload_safe_plugin_succeeds(self):
+        """上传安全插件（无危险 import）应成功"""
+        from lingclaude.lacp.marketplace import get_marketplace
+        from lingclaude.lacp.manifest import Plugin, Interface, Transport
+
+        mp = get_marketplace()
+        # 安全的代码（无 eval/exec/__import__）
+        safe_code = b"def hello():\n    return 'world'\n"
+        manifest = Plugin(
+            name="test-safe-plugin",
+            version="0.1.0",
+            owner="lingke",
+            description="safe test",
+            interface=Interface(input_schema={}, output_schema={}),
+            transports=[Transport.CLI],
+        )
+        success, error = mp.upload(manifest, safe_code, "lingke", secret=b"")
+        assert success is True, f"expected success, got error: {error}"
+
+    def test_upload_critical_plugin_rejected(self):
+        """上传含 eval() 的代码应被 critical 风险标记"""
+        from lingclaude.lacp.marketplace import get_marketplace
+        from lingclaude.lacp.manifest import Plugin, Interface, Transport
+
+        mp = get_marketplace()
+        bad_code = b"def evil():\n    eval('1+1')\n"
+        manifest = Plugin(
+            name="test-bad-plugin",
+            version="0.1.0",
+            owner="lingke",
+            description="bad test",
+            interface=Interface(input_schema={}, output_schema={}),
+            transports=[Transport.CLI],
+        )
+        success, error = mp.upload(manifest, bad_code, "lingke", secret=b"")
+        # critical 风险进入 PENDING 审核队列（人工介入），不直接拒绝
+        assert success is True  # 上传本身允许
+        info = mp._plugins["test-bad-plugin"]
+        from lingclaude.lacp.marketplace import ReviewStatus
+        assert info["status"] == ReviewStatus.PENDING
+        assert info["scan_result"].has_critical()
+        assert "eval" in str(info["scan_result"].issues).lower()
+
+    def test_rate_and_trust_score(self):
+        """评级 + 信誉评分"""
+        from lingclaude.lacp.marketplace import get_marketplace
+        from lingclaude.lacp.manifest import Plugin, Interface, Transport
+
+        mp = get_marketplace()
+        manifest = Plugin(
+            name="test-rate-plugin",
+            version="0.1.0",
+            owner="lingke",
+            description="rate test",
+            interface=Interface(input_schema={}, output_schema={}),
+            transports=[Transport.CLI],
+        )
+        mp.upload(manifest, b"def x(): return 1\n", "lingke", secret=b"")
+        # rate 后 rating 应被记录
+        mp.rate("test-rate-plugin", "lingke", 5, "great")
+        rating = mp.get_rating("test-rate-plugin")
+        trust = mp.get_trust_score("test-rate-plugin")
+        assert rating == 5.0
+        assert 0.0 <= trust <= 1.0
