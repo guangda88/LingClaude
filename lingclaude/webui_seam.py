@@ -66,6 +66,29 @@ def webui_seam_graph() -> dict[str, list[str]]:
     return get_seam_registry().build_dependency_graph()
 
 
+def register_capability_seams() -> None:
+    """T3-1: 注册 capability seam 到 SeamRegistry（fs/shell/llm/subagent）。
+
+    局部引入：只 4 个能力，不全面插件化。
+    """
+    from lingclaude.lacp.capability_seam import (
+        FS_SEAM, SHELL_SEAM, LLM_SEAM, SUBAGENT_SEAM,
+        register_default_providers,
+    )
+    from lingflow.coordination.seam_registry import get_seam_registry
+
+    registry = get_seam_registry()
+
+    # 注册能力 seam
+    registry.register_service("fs", FS_SEAM.interface, provider="lingclaude")
+    registry.register_service("shell", SHELL_SEAM.interface, provider="lingclaude")
+    registry.register_service("llm", LLM_SEAM.interface, provider="lingclaude")
+    registry.register_service("subagent", SUBAGENT_SEAM.interface, provider="lingclaude")
+
+    # 注册默认提供者
+    register_default_providers()
+
+
 if __name__ == "__main__":
     # 验证入口：注册 + 拓扑校验 + 快照
     from lingflow.coordination.seam_registry import get_seam_registry
