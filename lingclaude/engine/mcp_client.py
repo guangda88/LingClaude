@@ -276,28 +276,33 @@ def discover_and_register(
     url: str | None = None,
     cwd: str | None = None,
     timeout: float = 30.0,
-) -> Result[list[str]]:
+) -> tuple[bool, list[str], dict[str, dict[str, Any]]]:
     """T1-5: 连接标准 MCP server，tools/list 发现并注册工具名列表。
 
-    返回工具名列表（供 mcp_proxy.register_server 使用）。连接失败返回 Result.fail。
+    Returns:
+        (success, tool_names, tool_schemas)
+        - success: 是否成功
+        - tool_names: 工具名列表
+        - tool_schemas: {tool_name: inputSchema} 字典
     """
     if transport == "stdio" and command:
         client: Any = MCPStdioClient(command=command, cwd=cwd, timeout=timeout)
     elif transport == "http" and url:
         client = MCPHttpClient(url=url, timeout=timeout)
     else:
-        return Result.fail(f"Invalid MCP transport config: {transport}", code="BAD_TRANSPORT")
+        return False, [], {}
 
     if isinstance(client, MCPStdioClient):
         conn = client.connect()
         if conn.is_error:
-            return conn
+            return False, [], {}
     try:
         tools = client.list_tools()
         if tools.is_error:
-            return tools
+            return False, [], {}
         names = [t.name for t in tools.data]
-        return Result.ok(names)
+        schemas = {t.name: t.input_schema for t in tools.data}
+        return True, names, schemas
     finally:
         if isinstance(client, MCPStdioClient):
             client.close()

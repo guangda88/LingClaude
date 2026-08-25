@@ -14,7 +14,7 @@ from lingclaude.core.types import Result
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass
 class MCPServerInfo:
     key: str
     name: str
@@ -22,6 +22,8 @@ class MCPServerInfo:
     working_dir: str | None = None
     module_path: str | None = None
     tools: tuple[str, ...] = ()
+    # T1-5 深化: tools/list 发现的 inputSchema 缓存
+    tool_schemas: dict[str, dict[str, Any]] = field(default_factory=dict)
     # T1-5: 标准 MCP client 字段 — transport: "module"(默认,进程内) / "stdio" / "http"
     transport: str = "module"
     command: tuple[str, ...] = ()
@@ -59,6 +61,7 @@ def register_server(
     transport: str = "module",
     command: tuple[str, ...] | list[str] | None = None,
     url: str | None = None,
+    tool_schemas: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     _SERVERS[key] = MCPServerInfo(
         key=key,
@@ -70,6 +73,7 @@ def register_server(
         transport=transport,
         command=tuple(command) if command else (),
         url=url,
+        tool_schemas=tool_schemas or {},
     )
 
 
@@ -348,10 +352,24 @@ def _schema_from_signature(fn: Callable[..., Any]) -> tuple[dict[str, Any], list
 
 
 def get_tool_schema(tool_name: str) -> tuple[dict[str, Any], list[str]]:
-    """取 MCP 工具参数 schema，返回 (properties_map, required_list)。"""
+    """取 MCP 工具参数 schema，返回 (properties_map, required_list)。
+
+    优先级：
+    1. FastMCP Tool.parameters（module transport）
+    2. tools/list 发现的 inputSchema（stdio/http transport，T1-5 深化）
+    3. 函数签名推导
+    """
     server = find_server(tool_name)
     if server is None:
         return {}, []
+
+    # T1-5 深化: 优先使用 tools/list 发现的 inputSchema
+    tool_schema = server.tool_schemas.get(tool_name)
+    if tool_schema and isinstance(tool_schema, dict):
+        properties = tool_schema.get("properties", {})
+        required = tool_schema.get("required", [])
+        if properties:
+            return dict(properties), list(required)
 
     module = _load_module(server)
     if module is not None and hasattr(module, "mcp"):

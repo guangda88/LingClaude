@@ -1388,7 +1388,7 @@ class QueryEngine:
         def _discover_one(server_key: str, command: tuple[str, ...], url: str | None, cwd: str | None) -> None:
             try:
                 if command:
-                    result = discover_and_register(
+                    success, names, schemas = discover_and_register(
                         key=server_key,
                         name=f"mcp-{server_key}",
                         transport="stdio",
@@ -1396,7 +1396,7 @@ class QueryEngine:
                         cwd=cwd,
                     )
                 elif url:
-                    result = discover_and_register(
+                    success, names, schemas = discover_and_register(
                         key=server_key,
                         name=f"mcp-{server_key}",
                         transport="http",
@@ -1404,8 +1404,15 @@ class QueryEngine:
                     )
                 else:
                     return
-                if result.is_ok:
-                    logger.info("MCP tools/list discovered %d tools for %s", len(result.data), server_key)
+                if success:
+                    # T1-5 深化: 将 inputSchema 写入 server.tool_schemas
+                    from lingclaude.engine import mcp_proxy
+                    server = mcp_proxy._SERVERS.get(server_key)
+                    if server is not None:
+                        server.tool_schemas.update(schemas)
+                        # 更新 tools 列表
+                        server.tools = tuple(names)
+                    logger.info("MCP tools/list discovered %d tools for %s", len(names), server_key)
             except Exception as e:
                 logger.warning("MCP tools/list discovery failed for %s: %s", server_key, e)
 
