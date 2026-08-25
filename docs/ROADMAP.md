@@ -117,7 +117,7 @@
 
 ### P1-5：Schedule / Jobs（后台定时任务）
 
-**现状**：daemon 是自优化专用，无通用 schedule
+**现状**：daemon 是自优化专用，无通用 schedule；`core/task_scheduler.py`（281 行）机制类写好但零接线（无 cron 语义、无 LingBus 唤醒、全仓唯一消费方是自己的测试文件）
 **目标**：
 - `schedule`：基于 cron 表达式注册定时任务，到期发 LingBus 消息唤醒
 - `jobs`：长任务后台执行，支持 status / cancel / result 查询
@@ -125,6 +125,7 @@
 **落地**：新建 `core/scheduler.py` + `core/jobs.py`
 **影响文件**：`core/scheduler.py`（新建）+ `core/jobs.py`（新建）
 **依赖**：无（基于现有 LingBus 消息机制，实现成本低）
+**当前状态**：🔶 **机制就绪、未接线**（2026-08-25 CC 审查降级）
 
 ### P1-6：Code intelligence 图谱（基于现有 indexer.py 扩展）
 
@@ -214,6 +215,39 @@ P1-1 + P1-6 ──────────────────────�
 - P1-3 spill 依赖 P0-2 tool pruning 的阈值判断
 - P2-2 session projection 依赖 P0-4 snapshot/rewind 的事件化改造
 - P2-1 capability seam RFC 可在 P1-1/6 完成后启动
+
+---
+
+## T1/T2 完成状态（2026-08-25 CC 审查校准）
+
+### T1 引擎质量（7 项）
+
+| # | 任务 | 状态 | 备注 |
+|---|------|------|------|
+| T1-1 | 上下文工程升级 | ✅ 完成 | 前提是 CC 的 loader 修复（config.py + query_engine.py 透传） |
+| T1-2 | 权限模型 | ✅ 完成 | 3 档 modes + 持久 allow + webui 端点 |
+| T1-3 | 并行工具执行 + 后台任务 | 🔶 部分完成 | 并行 ✅（ThreadPoolExecutor + write_lock + 冲突检测）；**后台任务 ❌ 0%**（run_in_background 全仓 0 命中） |
+| T1-4 | 多模态通路 | ✅ 完成 | image_content 预留字段 + _extract_image_content + 单份 payload |
+| T1-5 | 标准 MCP client | ✅ 完成 | stdio/HTTP + tools/list 发现 + LACP manifest transport |
+| T1-6 | 子代理多后端 | ✅ 完成 | 双后端 + parallel + abort/status 控制通道（send_message 假实现已撤下） |
+| T1-7 | 终端交互升级 | 🔶 半成品 | 斜杠命令/Esc/diff 高亮 ✅；**输入骨架仍是裸 input()**（无历史/Ctrl 键位/渲染） |
+
+### T2 ROADMAP P1 剩余项（3 项）
+
+| # | 任务 | 状态 | 备注 |
+|---|------|------|------|
+| T2-1 | Sandbox 三态模式 + fail-closed | ✅ 完成 | 4 档 + SandboxUnavailableError fail-closed + bash.py:227 完整接线 |
+| T2-2 | Schedule / Jobs | 🔶 **机制就绪、未接线** | `core/task_scheduler.py`（281 行）写好但零接线（无 cron 语义、无 LingBus 唤醒、唯一消费方是自己的测试文件）——第 4 次死接线前科 |
+| T2-3 | webui 4 迭代计划 | 🔶 部分完成 | Iteration 1 完成 80%；`/sessions/:id/stop` 已实现；协议 v0.1 已确认 |
+
+### 死接线前科记录（4 次）
+
+1. **use_llm_summary**（T1-1）— config.py 有字段但 loader 不读（CC 已修）
+2. **context_window_tokens**（T1-1）— EngineConfig 有字段但 QueryEngineConfig 无（CC 已修）
+3. **T1-6 控制工具**（send_message/abort/status）— 注册处假实现（CC 已撤下）
+4. **T2-2 Schedule/Jobs** — task_scheduler.py 机制类写好但零接线（待接线或降级）
+
+**教训**：机制类写好 ≠ 功能完成。有单测的孤立模块 = 零接线 = 不可达。T3 启动前必须清账。
 
 ---
 
