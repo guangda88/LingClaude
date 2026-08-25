@@ -299,3 +299,139 @@ class TestContextCompression:
         """print_diff 函数存在且可调用."""
         from lingclaude.cli.display import print_diff
         assert callable(print_diff)
+
+
+# ── T1-1 深化: prefix cache 保留（方向修复验收）──────────────────────────────
+
+
+class TestPrefixCache:
+    def test_preserve_head_not_tail(self):
+        """preserve_prefix_cache 保留头部 N 条（前缀稳定），不是尾部。"""
+        from lingclaude.core.context_compression import PrefixCacheConfig, preserve_prefix_cache
+
+        msgs = ["msg1", "msg2", "msg3", "msg4", "msg5", "msg6"]
+        cfg = PrefixCacheConfig(enabled=True, preserve_messages=3)
+        preserved = preserve_prefix_cache(msgs, cfg)
+        assert preserved == ["msg1", "msg2", "msg3"], f"应保留头部, 实际 {preserved}"
+
+    def test_should_preserve_messages_path(self):
+        """should_preserve 走 preserve_messages 路径（此前只走 preserve_tokens）。"""
+        from lingclaude.core.context_compression import PrefixCacheConfig
+
+        cfg = PrefixCacheConfig(enabled=True, preserve_messages=5)
+        assert cfg.should_preserve(100) is True
+
+    def test_should_preserve_tokens_threshold(self):
+        """preserve_tokens 路径按阈值判断。"""
+        from lingclaude.core.context_compression import PrefixCacheConfig
+
+        cfg = PrefixCacheConfig(enabled=True, preserve_tokens=500)
+        assert cfg.should_preserve(1000) is True
+        assert cfg.should_preserve(100) is False
+
+    def test_should_preserve_disabled(self):
+        """未启用时始终 False。"""
+        from lingclaude.core.context_compression import PrefixCacheConfig
+
+        cfg = PrefixCacheConfig(enabled=False, preserve_messages=5)
+        assert cfg.should_preserve(1000) is False
+
+
+# ── T1-4: 多模态 content blocks（read 工具图片产出链路验收）───────────────────
+
+
+class TestMultimodalWiring:
+    def test_read_result_image_includes_content(self):
+        """ReadResult.to_dict 图片时输出 base64 content（此前丢弃）。"""
+        from lingclaude.engine.file_read import ReadResult
+
+        r = ReadResult(
+            path="a.png", content="iVBORw0KGgo=", size=10, lines=0,
+            is_image=True, image_mime="image/png",
+        )
+        d = r.to_dict()
+        assert d["is_image"] is True
+        assert d["image_mime"] == "image/png"
+        assert d["content"] == "iVBORw0KGgo="
+
+    def test_read_result_text_unchanged(self):
+        """文本读取 to_dict 行为不变（不输出 is_image 键，content 为文本）。"""
+        from lingclaude.engine.file_read import ReadResult
+
+        r = ReadResult(path="a.txt", content="hello", size=5, lines=1)
+        d = r.to_dict()
+        assert "is_image" not in d
+        assert d["content"] == "hello"
+
+    def test_extract_image_content(self):
+        """_extract_image_content 从 JSON 输出提取 (base64, mime)。"""
+        import json
+        from lingclaude.core.query_engine import QueryEngine
+
+        output = json.dumps({
+            "path": "a.png", "is_image": True,
+            "image_mime": "image/png", "content": "iVBORw0KGgo=",
+        })
+        img = QueryEngine._extract_image_content(output)
+        assert img == ("iVBORw0KGgo=", "image/png")
+
+    def test_extract_image_content_non_image_returns_none(self):
+        """非图片输出返回 None。"""
+        from lingclaude.core.query_engine import QueryEngine
+
+        assert QueryEngine._extract_image_content('{"content": "text"}') is None
+        assert QueryEngine._extract_image_content("plain text") is None
+        assert QueryEngine._extract_image_content("") is None
+
+    def test_read_image_full_chain(self, tmp_path):
+        """完整链路: read 图片文件 → to_dict → _extract_image_content。"""
+        import json
+        from pathlib import Path
+        from lingclaude.engine.file_read import FileReadTool
+        from lingclaude.core.query_engine import QueryEngine
+
+        png = bytes.fromhex(
+            "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+            "1f15c4890000000d49444154789c626001000000ffff03000006000557"
+            "bfabd40000000049454e44ae426082"
+        )
+        p = Path(tmp_path) / "test.png"
+        p.write_bytes(png)
+
+        tool = FileReadTool(base_dir=str(tmp_path))
+        res = tool.read("test.png")
+        assert res.is_ok
+        d = res.data.to_dict()
+        assert d["is_image"] is True
+        assert d["image_mime"] == "image/png"
+
+        img = QueryEngine._extract_image_content(json.dumps(d))
+        assert img is not None
+        assert img[1] == "image/png"
+        assert len(img[0]) > 50  # base64 内容非空
+
+    def test_model_message_image_content_blocks(self):
+        """ModelMessage.to_dict 产出 OpenAI image_url content blocks。"""
+        from lingclaude.model.types import ModelMessage, MessageRole
+
+        msg = ModelMessage(
+            role=MessageRole.TOOL,
+            content="read result",
+            name="read",
+            tool_call_id="call_1",
+            image_content=("iVBORw0KGgo=", "image/png"),
+        )
+        d = msg.to_dict()
+        assert isinstance(d["content"], list)
+        assert len(d["content"]) == 2
+        assert d["content"][0]["type"] == "text"
+        assert d["content"][1]["type"] == "image_url"
+        assert d["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
+
+    def test_model_message_plain_content_unchanged(self):
+        """无图片时 ModelMessage.to_dict 行为不变。"""
+        from lingclaude.model.types import ModelMessage, MessageRole
+
+        msg = ModelMessage(role=MessageRole.USER, content="hi")
+        d = msg.to_dict()
+        assert d["content"] == "hi"

@@ -513,3 +513,55 @@ def generate_reasoning_summary(
 def _estimate_tokens_saved(messages: list[Any]) -> int:
     total_chars = sum(len(_extract_text(m)) for m in messages)
     return total_chars // 4
+
+
+# T1-1 深化: prefix cache 保留 stub
+# 设计目标: 压缩后保留前 N 个 token 不变（用于 prompt cache 命中）
+# 当前为 stub，后续可接入 Tier1 stub 化逻辑
+
+@dataclass
+class PrefixCacheConfig:
+    """Prefix cache 保留配置。"""
+    enabled: bool = False
+    preserve_tokens: int = 0  # 保留的 token 数（0 = 不保留）
+    preserve_messages: int = 0  # 或保留的消息数（优先于 tokens）
+
+    def should_preserve(self, total_tokens: int) -> bool:
+        """判断是否需要保留 prefix cache。
+
+        preserve_messages 优先：有值时按消息数判断（len(messages) > preserve_messages），
+        否则按 token 数判断（total_tokens > preserve_tokens）。
+        """
+        if not self.enabled:
+            return False
+        if self.preserve_messages > 0:
+            return True  # 有 preserve_messages 时总是启用（具体保留逻辑在 preserve_prefix_cache）
+        if self.preserve_tokens > 0:
+            return total_tokens > self.preserve_tokens
+        return False
+
+
+def _estimate_prefix_cache_tokens(messages: list[Any], config: PrefixCacheConfig) -> int:
+    """估算可保留的 prefix cache token 数。
+
+    返回: 0 = 不保留; N = 保留前 N 个 token
+    修复: 用真实 token 估算（chars // 4），不再拍脑袋 len(messages) * 100
+    """
+    total_tokens = _estimate_tokens_saved(messages)
+    if not config.should_preserve(total_tokens):
+        return 0
+    return config.preserve_tokens
+
+
+def preserve_prefix_cache(messages: list[Any], config: PrefixCacheConfig) -> list[Any]:
+    """保留 prefix cache 的消息，其余压缩。
+
+    返回: 压缩后的消息列表（前 N 条不变 — prefix cache 命中前提是前缀稳定）
+
+    修复: messages[-N:] → messages[:N]（保头不是保尾，cache 命中前提是前缀稳定）
+    """
+    if not config.enabled or config.preserve_messages <= 0:
+        return messages
+    preserve_count = min(config.preserve_messages, len(messages) // 2)
+    preserved = messages[:preserve_count]  # 保留最前的几条（prefix cache 命中前提是前缀稳定）
+    return preserved

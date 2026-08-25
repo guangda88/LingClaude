@@ -49,6 +49,8 @@ class ReadResult:
         if self.is_image:
             d["is_image"] = True
             d["image_mime"] = self.image_mime
+            # T1-4: 图片 content 是 base64，供多模态 content blocks 使用
+            d["content"] = self.content
         else:
             d["content"] = self.content
             if self.offset:

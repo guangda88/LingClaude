@@ -22,9 +22,25 @@ class ModelMessage:
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: tuple[ToolCall, ...] | None = None
+    # T1-4: 多模态 — 图片内容（base64 + mime type）
+    # 预留字段：当前无生产者（read 工具不产出 image_content），openai_provider 会透传。
+    # 待 read 工具支持图片返回后启用。
+    image_content: tuple[str, str] | None = None  # (base64_data, mime_type)
 
     def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"role": getattr(self.role, "value", self.role), "content": self.content}
+        d: dict[str, Any] = {"role": getattr(self.role, "value", self.role)}
+        # T1-4: 多模态 content blocks
+        if self.image_content is not None:
+            b64, mime = self.image_content
+            d["content"] = [
+                {"type": "text", "text": self.content},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                },
+            ]
+        else:
+            d["content"] = self.content
         if self.name is not None:
             d["name"] = self.name
         if self.tool_call_id is not None:

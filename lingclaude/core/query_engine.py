@@ -830,6 +830,7 @@ class QueryEngine:
                 content=tool_output,
                 name=tc.name,
                 tool_call_id=tc.id,
+                image_content=self._extract_image_content(tool_output),
             ))
 
     def _process_tool_calls_parallel(self, tool_calls: tuple, messages: list) -> None:
@@ -880,6 +881,7 @@ class QueryEngine:
                 content=tool_output,
                 name=tc.name,
                 tool_call_id=tc.id,
+                image_content=self._extract_image_content(tool_output),
             ))
 
     def _process_single_tool_call(self, tc: Any, messages: list) -> None:
@@ -900,7 +902,28 @@ class QueryEngine:
             content=tool_output,
             name=tc.name,
             tool_call_id=tc.id,
+            image_content=self._extract_image_content(tool_output),
         ))
+
+    @staticmethod
+    def _extract_image_content(tool_output: str) -> tuple[str, str] | None:
+        """T1-4: 从 read 工具输出（JSON 字符串）提取图片 base64 + mime。
+
+        返回 (base64_data, mime_type)；非图片或不可解析时返回 None。
+        """
+        if '"is_image"' not in tool_output:
+            return None
+        try:
+            data = json.loads(tool_output)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not data.get("is_image"):
+            return None
+        b64 = data.get("content")
+        mime = data.get("image_mime")
+        if not b64 or not mime:
+            return None
+        return str(b64), str(mime)
 
     def _call_model(self, prompt: str) -> str:
         decision = self._router.route(prompt)

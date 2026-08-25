@@ -161,5 +161,6 @@ class TestReadResultToDict:
         )
         d = r.to_dict()
         assert d["is_image"] is True
-        assert "content" not in d
+        # T1-4: 图片 content 必须包含（query_engine._extract_image_content 依赖）
+        assert d["content"] == "base64data"
         assert d["image_mime"] == "image/png"
