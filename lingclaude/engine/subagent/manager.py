@@ -14,6 +14,7 @@ from lingclaude.engine.subagent.base import (
     SubagentContext,
     SubagentRequest,
     SubagentResult,
+    SubagentStatus,
 )
 from lingclaude.engine.subagent.inprocess import InProcessSubagentBackend
 from lingclaude.engine.subagent.acp import AcpSubagentBackend
@@ -88,9 +89,36 @@ class SubagentManager:
 
         任何后端抛出的异常都会被收敛为 SubagentResult(success=False).
         """
+        # T3-1/任务3: depth_limit 强制检查（防递归风暴）
+        if request.depth_limit > 0 and ctx.current_depth >= request.depth_limit:
+            return SubagentResult(
+                agent_id="",
+                task=request.task,
+                output="",
+                success=False,
+                error=(
+                    f"Subagent depth limit exceeded: "
+                    f"current={ctx.current_depth} >= limit={request.depth_limit}"
+                ),
+                provider=request.provider,
+                status=SubagentStatus.FAILED,
+            )
+        # T3-1/任务3: tool_filter 派生 allowed_tools（子代理白名单）
+        effective_ctx = ctx
+        if request.tool_filter:
+            from dataclasses import replace as _dc_replace
+            effective_ctx = _dc_replace(ctx, allowed_tools=request.tool_filter)
+        # T3-1/任务3: persona 注入到 config（供 backend 拼装 system_prompt）
+        effective_request = request
+        if request.persona:
+            from dataclasses import replace as _dc_replace
+            effective_request = _dc_replace(
+                request,
+                config={**request.config, "_persona": request.persona},
+            )
         backend = self.get_backend(request.provider)
         try:
-            result = backend.run(request, ctx)
+            result = backend.run(effective_request, effective_ctx)
         except Exception as exc:  # noqa: BLE001 - backend boundary
             return SubagentResult(
                 agent_id="",
@@ -99,6 +127,7 @@ class SubagentManager:
                 success=False,
                 error=f"SubagentManager.run: {exc}",
                 provider=request.provider,
+                status=SubagentStatus.FAILED,
             )
         if result.provider is None:
             return SubagentResult(

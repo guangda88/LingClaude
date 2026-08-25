@@ -104,3 +104,110 @@ class TestSubagentManagerRun:
         m = SubagentManager(default="acp")
         # default acp has no live server; run should still resolve to AcpSubagentBackend
         assert isinstance(m.get_backend(None), AcpSubagentBackend)
+
+
+# ── 任务3: SubagentCapabilities 4 flag 验收 ────────────────────────────────
+
+
+class TestSubagentCapabilitiesFlags:
+    """DSH SubagentCapabilities 4 flag: outputSchema / depthLimit / toolFilter / persona"""
+
+    def test_output_schema_field_exists(self):
+        from lingclaude.engine.subagent.base import SubagentRequest
+        req = SubagentRequest(task="test", output_schema='{"type":"object"}')
+        assert req.output_schema == '{"type":"object"}'
+
+    def test_depth_limit_field_exists(self):
+        from lingclaude.engine.subagent.base import SubagentRequest
+        req = SubagentRequest(task="test", depth_limit=3)
+        assert req.depth_limit == 3
+
+    def test_tool_filter_field_exists(self):
+        from lingclaude.engine.subagent.base import SubagentRequest
+        req = SubagentRequest(task="test", tool_filter=("read", "grep"))
+        assert req.tool_filter == ("read", "grep")
+
+    def test_persona_field_exists(self):
+        from lingclaude.engine.subagent.base import SubagentRequest
+        req = SubagentRequest(task="test", persona="你是一个代码审查员")
+        assert req.persona == "你是一个代码审查员"
+
+    def test_context_has_current_depth(self):
+        from lingclaude.engine.subagent.base import SubagentContext
+        ctx = SubagentContext(current_depth=2, parent_agent_id="lingke-123")
+        assert ctx.current_depth == 2
+        assert ctx.parent_agent_id == "lingke-123"
+
+
+class TestSubagentManagerDepthEnforcement:
+    """manager.run 应在 current_depth >= depth_limit 时拒绝执行"""
+
+    def test_depth_limit_blocks_execution(self):
+        from lingclaude.engine.subagent.base import (
+            SubagentContext,
+            SubagentRequest,
+            SubagentStatus,
+        )
+        from lingclaude.engine.subagent.manager import SubagentManager
+
+        mgr = SubagentManager()
+        # 注册一个假 backend（不调用 run）
+        class _Never:
+            name = "never"
+            def run(self, request, ctx):
+                raise AssertionError("backend.run 不应在 depth 拦截前被调用")
+        mgr.register(_Never(), names=("never",))
+
+        req = SubagentRequest(task="test", provider="never", depth_limit=2)
+        ctx = SubagentContext(current_depth=2)
+        result = mgr.run(req, ctx)
+        assert result.success is False
+        assert "depth limit exceeded" in result.error
+        assert result.status == SubagentStatus.FAILED
+
+    def test_tool_filter_derives_allowed_tools(self):
+        """tool_filter 应替换 ctx.allowed_tools"""
+        from lingclaude.engine.subagent.base import (
+            SubagentContext,
+            SubagentRequest,
+        )
+        from lingclaude.engine.subagent.manager import SubagentManager
+
+        mgr = SubagentManager()
+        captured = {}
+
+        class _Capture:
+            name = "capture"
+            def run(self, request, ctx):
+                captured["allowed_tools"] = ctx.allowed_tools
+                from lingclaude.engine.subagent.base import SubagentResult
+                return SubagentResult(agent_id="x", task=request.task, output="ok")
+
+        mgr.register(_Capture(), names=("capture",))
+        req = SubagentRequest(task="t", provider="capture", tool_filter=("read",))
+        ctx = SubagentContext(allowed_tools=("read", "grep", "glob"))
+        mgr.run(req, ctx)
+        assert captured["allowed_tools"] == ("read",)
+
+    def test_persona_injected_into_config(self):
+        from lingclaude.engine.subagent.base import (
+            SubagentContext,
+            SubagentRequest,
+        )
+        from lingclaude.engine.subagent.manager import SubagentManager
+
+        mgr = SubagentManager()
+        captured = {}
+
+        class _Capture:
+            name = "capture"
+            def run(self, request, ctx):
+                captured["persona"] = request.config.get("_persona")
+                from lingclaude.engine.subagent.base import SubagentResult
+                return SubagentResult(agent_id="x", task=request.task, output="ok")
+
+        mgr.register(_Capture(), names=("capture",))
+        req = SubagentRequest(task="t", provider="capture", persona="你是审查员")
+        ctx = SubagentContext()
+        mgr.run(req, ctx)
+        assert captured["persona"] == "你是审查员"

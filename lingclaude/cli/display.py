@@ -249,3 +249,104 @@ def print_metrics_stats(stats: dict[str, Any]) -> None:
             print("  分类:")
             for cat, count in cats.items():
                 print(f"    {cat}: {count}")
+
+
+# ── Step 5: Markdown / ToolCallPanel / StatusBar（RFC §3.2）──────────────────
+
+
+def print_markdown(text: str) -> None:
+    """Step 5: rich.markdown 渲染模型输出（含代码块/列表/链接）。纯文本兜底。"""
+    if not text:
+        return
+    if _HAS_RICH:
+        try:
+            from rich.markdown import Markdown
+
+            console = _get_console()
+            console.print(Markdown(text))
+            return
+        except Exception:  # noqa: BLE001 — Markdown 渲染失败降级纯文本
+            pass
+    print(text)
+
+
+class ToolCallPanel:
+    """Step 5: 工具调用/结果流式面板（Rich Live）。
+
+    用法：panel = ToolCallPanel(); panel.start(); ...; panel.stop()。
+    """
+
+    def __init__(self, console: Any | None = None) -> None:
+        self._console = console or (_get_console() if _HAS_RICH else None)
+        self._live: Any = None
+        self._lines: list[str] = []
+
+    def start(self) -> None:
+        if self._console is not None:
+            try:
+                from rich.live import Live
+                from rich.panel import Panel
+
+                self._live = Live(
+                    Panel("", title="工具调用", border_style="cyan"),
+                    console=self._console,
+                    refresh_per_second=10,
+                    transient=True,
+                )
+                self._live.start()
+            except Exception:  # noqa: BLE001 — Live 不可用时降级为逐行打印
+                self._live = None
+
+    def add_tool_start(self, name: str, args_preview: str = "") -> None:
+        self._lines.append(f"[info]▶ {name}[/info] {args_preview}")
+        self._render()
+
+    def add_tool_end(self, is_error: bool, preview: str = "") -> None:
+        mark = "❌" if is_error else "✅"
+        style = "error" if is_error else "success"
+        self._lines.append(f"[{style}]{mark} {preview[:80]}[/{style}]")
+        self._render()
+
+    def _render(self) -> None:
+        if self._live is not None:
+            from rich.panel import Panel
+
+            self._live.update(Panel("\n".join(self._lines), title="工具调用", border_style="cyan"))
+        elif self._console is not None:
+            self._console.print(self._lines[-1] if self._lines else "")
+
+    def stop(self) -> None:
+        if self._live is not None:
+            try:
+                self._live.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self._live = None
+
+
+class StatusBar:
+    """Step 5: 底部状态栏 — 模型 / token 用量 / 当前模式（RFC §3.2）。"""
+
+    def __init__(self, console: Any | None = None) -> None:
+        self._console = console or (_get_console() if _HAS_RICH else None)
+
+    def render(self, model: str, tokens: int = 0, mode: str = "") -> str:
+        """构造状态栏文本（不自动打印，由调用方决定刷新策略）。"""
+        parts = [f"[accent]{model}[/accent]"]
+        if tokens:
+            parts.append(f"[muted]{tokens} tokens[/muted]")
+        if mode:
+            parts.append(f"[label]{mode}[/label]")
+        return " | ".join(parts)
+
+    def print(self, model: str, tokens: int = 0, mode: str = "") -> None:
+        text = self.render(model, tokens, mode)
+        if self._console is not None:
+            try:
+                from rich.panel import Panel
+
+                self._console.print(Panel(text, title="状态", border_style="dim"))
+                return
+            except Exception:  # noqa: BLE001 — 降级纯文本
+                pass
+        print(text)

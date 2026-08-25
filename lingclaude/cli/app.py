@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 import warnings
@@ -28,6 +29,7 @@ from lingclaude.cli.display import (
     print_warning,
     print_welcome,
 )
+from lingclaude.cli.interface import create_session, PromptSessionInterface
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
@@ -158,6 +160,14 @@ def _esc_pressed() -> bool:
         return False
 
 
+def _esc_listen_loop(session: PromptSessionInterface) -> None:
+    """Step 4: 后台线程监听 Esc → set interrupt_event（生成态 stdin 空闲）。"""
+    while not session.interrupt_event().is_set():
+        if _esc_pressed():
+            session.interrupt_event().set()
+            break
+
+
 def _handle_stream_event(event: dict[str, Any]) -> None:
     etype = event.get("type")
     if etype == "text_delta":
@@ -201,9 +211,26 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
     print(f"Provider: {'已连接' if engine._provider else '未配置（回退模式）'}")
     print()
 
+    # RFC §3.3: I/O 抽象层 — LINGCLAUDE_CLI_MODE=plain 或非 TTY → FallbackSession
+    # Step 3: Tab 补全 7 斜杠命令（prompt_toolkit WordCompleter）
+    _completer: Any = None
+    try:
+        from prompt_toolkit.completion import WordCompleter
+
+        _completer = WordCompleter(
+            ["/help", "/clear", "/compact", "/model", "/schedule", "/quit", "/undo"],
+            ignore_case=True,
+        )
+    except ImportError:
+        _completer = None
+    session: PromptSessionInterface = create_session(completer=_completer)
+
     def _read_input() -> str:
         try:
-            return input("灵克> ")
+            text = session.prompt("灵克> ")
+            if text.strip():
+                session.push_to_history(text)
+            return text
         except UnicodeDecodeError:
             sys.stdin.buffer.readline()
             print("[输入编码错误，请检查终端编码设置]")
@@ -288,14 +315,17 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             continue
 
         if engine._provider:
-            sys.stdout.write("思考中...\r")
-            sys.stdout.flush()
+            # Step 4: 流式 spinner + Esc 真打断（后台线程 → interrupt_event）
             response_content = ""
             got_first_token = False
             interrupted = False
+            # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成
+            _esc_thread = threading.Thread(
+                target=_esc_listen_loop, args=(session,), daemon=True,
+            )
+            _esc_thread.start()
             for event in engine.stream_call_model(prompt):
-                # T1-7: Esc 打断 — 非阻塞检测 stdin，Esc(0x1b) 中断生成
-                if _esc_pressed():
+                if session.interrupt_event().is_set():
                     interrupted = True
                     print("\n[已打断]")
                     break
@@ -308,6 +338,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                     response_content += event.get("text", "")
                 elif event.get("type") == "done":
                     response_content = event.get("content", response_content)
+            session.interrupt_event().clear()
             if response_content and not interrupted:
                 engine._messages.append(prompt)
                 engine._messages.append(response_content)

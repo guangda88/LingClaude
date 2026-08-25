@@ -29,6 +29,15 @@ class SubagentRequest:
     parallel: int = 1
     # T1-6: 是否启用控制通道（abort/status）
     control_channel: bool = False
+    # T3-1/任务3: SubagentCapabilities 4 flag（对齐 DSH SubagentCapabilities）
+    # output_schema: 输出 JSON schema 字符串（可选）；None 表示无 schema 约束
+    output_schema: str | None = None
+    # depth_limit: 嵌套深度上限（防递归风暴）；0 = 不限
+    depth_limit: int = 0
+    # tool_filter: 可见工具白名单（防越权）；空 tuple = 继承父 allowed_tools
+    tool_filter: tuple[str, ...] = ()
+    # persona: 注入人设（与主 agent 区分）；空字符串 = 默认
+    persona: str = ""
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,10 @@ class SubagentContext:
     allowed_tools: tuple[str, ...] = field(
         default_factory=lambda: ("read", "grep", "glob", "list_functions", "web_fetch")
     )
+    # T3-1/任务3: 嵌套深度计数器（由 SubagentManager 调用子代理时递增并传入）
+    current_depth: int = 0
+    # T3-1/任务3: 父级 agent_id（用于追溯和 depth_limit 校验）
+    parent_agent_id: str | None = None
 
 
 @dataclass(frozen=True)

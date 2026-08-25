@@ -240,14 +240,21 @@ P1-1 + P1-6 ──────────────────────�
 | T2-2 | Schedule / Jobs | 🔶 **机制就绪、未接线** | `core/task_scheduler.py`（281 行）写好但零接线（无 cron 语义、无 LingBus 唤醒、唯一消费方是自己的测试文件）——第 4 次死接线前科 |
 | T2-3 | webui 4 迭代计划 | 🔶 部分完成 | Iteration 1 完成 80%；`/sessions/:id/stop` 已实现；协议 v0.1 已确认 |
 
-### 死接线前科记录（5 次，已修复 2 次）
+### 死接线前科记录（6 次，已修复 5 次）
 
-1. **use_llm_summary**（T1-1）— config.py 有字段但 loader 不读（CC 已修）
-2. **context_window_tokens**（T1-1）— EngineConfig 有字段但 QueryEngineConfig 无（CC 已修）
-3. **T1-6 控制工具**（send_message/abort/status）— 注册处假实现（CC 已撤下）
-4. **T2-2 Schedule/Jobs** — task_scheduler.py 机制类写好但零接线（待接线或降级）
+1. **use_llm_summary**（T1-1）— config.py 有字段但 loader 不读（CC 已修，8d0dbbd）
+2. **context_window_tokens**（T1-1）— EngineConfig 有字段但 QueryEngineConfig 无（CC 已修，8d0dbbd）
+3. **T1-6 控制工具**（send_message/abort/status）— 注册处假实现（CC 已撤下，8d0dbbd）
+4. **T2-2 Schedule/Jobs** — task_scheduler.py 机制类写好但零接线（2189827 接好 CLI /schedule）
+5. **session_projection**（T3-2）— 模块存在但零消费方（62587fa 接好 webui `/sessions/{id}/projection`）
+6. **crush 进程被 systemd-oomd 批量 SIGKILL**（INCIDENT_20260825）— 不是机制缺陷而是系统级 OOM killer；OOMScore=-900 防护 + oomd 压力时间 30s→5min（已修，session 32）
 
-**教训**：机制类写好 ≠ 功能完成。有单测的孤立模块 = 零接线 = 不可达。T3 启动前必须清账。
+**教训**：
+- 机制类写好 ≠ 功能完成。有单测的孤立模块 = 零接线 = 不可达（T1-T3 通用教训）
+- **新增**：进程被系统级 killer 杀 ≠ 进程 bug。**看 syscall 起源，不要只看症状**——dbus-daemon 是 SIGKILL 执行者，但 root cause 是 systemd-oomd 通过 D-Bus `org.freedesktop.oom1` 触发。
+- 引用 INCIDENT_20260825_CRUSHP_OOMD_KILLER.md 完整根因诊断。
+
+T3 启动前必须清账。
 
 ---
 

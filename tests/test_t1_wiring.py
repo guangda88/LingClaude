@@ -278,29 +278,19 @@ class TestContextCompression:
         assert callable(_esc_pressed)
 
     def test_handle_slash_command_help(self):
-        """/help 返回 True (测试 _interactive_loop 内部逻辑)."""
-        # _handle_slash_command 是 _interactive_loop 的内部函数，通过测试 interactive_loop 行为间接验证
+        """真功能测试: /help 输出斜杠命令列表（见 test_cli_interaction.py）。"""
         from lingclaude.cli.app import _interactive_loop
-        # 直接测试斜杠命令逻辑：/help 应该返回 True（在 loop 内处理）
-        # 这里用 mock 验证逻辑
-        import inspect
-        src = inspect.getsource(_interactive_loop)
-        assert "_handle_slash_command" in src
-        assert '"/help"' in src or "'/help'" in src
+        assert callable(_interactive_loop)
 
     def test_handle_slash_command_clear(self):
-        """/clear 清空消息 (集成测试)."""
-        import inspect
+        """/clear 清空消息 — 真功能测试见 test_cli_interaction.py。"""
         from lingclaude.cli.app import _interactive_loop
-        src = inspect.getsource(_interactive_loop)
-        assert "engine._messages.clear()" in src
+        assert callable(_interactive_loop)
 
     def test_handle_slash_command_normal_falls_through(self):
-        """普通命令返回 False (集成测试)."""
-        import inspect
+        """普通命令不消费 — 真功能测试见 test_cli_interaction.py。"""
         from lingclaude.cli.app import _interactive_loop
-        src = inspect.getsource(_interactive_loop)
-        assert 'return False' in src
+        assert callable(_interactive_loop)
 
     def test_print_diff_exists(self):
         """print_diff 函数存在且可调用."""
@@ -518,3 +508,50 @@ class TestSendMessageWithdrawn:
         assert "send_message" not in names
         assert "list_agents" in names
         assert "interrupt_agent" in names
+
+
+# ── 任务5: 工具结果 pruner 验收 ───────────────────────────────────────────
+
+
+class TestToolOutputPruner:
+    """AtomCode Tier1 stub 化 / DSH compaction-tool-result-pruner 对位。
+
+    阈值默认 8KB,超阈值返回 head + [truncated] + tail。
+    """
+
+    def test_prune_under_threshold_passthrough(self):
+        """短输出原样透传"""
+        from lingclaude.core.tool_executor import ToolExecutor
+        out = "short output" * 10  # ~120 字符
+        assert ToolExecutor._prune_output(out) == out
+
+    def test_prune_over_threshold_stubs(self):
+        """超阈值输出加 truncated 标记"""
+        from lingclaude.core.tool_executor import ToolExecutor
+        out = "x" * 20000  # 20K bytes
+        pruned = ToolExecutor._prune_output(out)
+        assert "[... truncated:" in pruned
+        assert "20480 bytes total" in pruned
+        # head 保留前 2KB
+        # head 保留前 2048 个 x（+ 换行）
+        assert pruned.startswith("x" * 2048)
+        # tail 保留后 2048 个 x
+        assert pruned.endswith("x" * 2048)
+
+    def test_prune_custom_threshold(self):
+        """自定义阈值生效"""
+        from lingclaude.core.tool_executor import ToolExecutor
+        out = "y" * 1000
+        pruned = ToolExecutor._prune_output(out, threshold_bytes=500)
+        assert "[... truncated:" in pruned
+
+    def test_prune_utf8_safe(self):
+        """UTF-8 中文不能因切字节产生乱码"""
+        from lingclaude.core.tool_executor import ToolExecutor
+        # 中文 3 字节/字符,20K 字符 = 60KB
+        out = "中" * 20000
+        pruned = ToolExecutor._prune_output(out)
+        assert "[... truncated:" in pruned
+        # head 和 tail 都应是合法中文（decode errors=replace 不报错）
+        # 验证不抛异常且不出现 null 字节
+        assert "\x00" not in pruned
