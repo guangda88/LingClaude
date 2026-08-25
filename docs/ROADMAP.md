@@ -240,7 +240,7 @@ P1-1 + P1-6 ──────────────────────�
 | T2-2 | Schedule / Jobs | 🔶 **机制就绪、未接线** | `core/task_scheduler.py`（281 行）写好但零接线（无 cron 语义、无 LingBus 唤醒、唯一消费方是自己的测试文件）——第 4 次死接线前科 |
 | T2-3 | webui 4 迭代计划 | 🔶 部分完成 | Iteration 1 完成 80%；`/sessions/:id/stop` 已实现；协议 v0.1 已确认 |
 
-### 死接线前科记录（4 次）
+### 死接线前科记录（5 次，已修复 2 次）
 
 1. **use_llm_summary**（T1-1）— config.py 有字段但 loader 不读（CC 已修）
 2. **context_window_tokens**（T1-1）— EngineConfig 有字段但 QueryEngineConfig 无（CC 已修）
