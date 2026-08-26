@@ -923,20 +923,25 @@ class CodingRuntime:
 
         # Lazy-init LSP provider
         if self._lsp_provider is None:
+            # lsp add: 从注册表读取语言 → server 命令（用户配置优先，内置回退）
+            from lingclaude.engine.lsp_registry import detect_lang, get_server
+
+            lang = detect_lang(file_path)
+            server_cfg = get_server(lang) if lang else None
             # Auto-detect workspace root: find .git / pyproject.toml / Cargo.toml
             cwd = Path(file_path).resolve().parent
             for parent in [cwd, *cwd.parents]:
                 if (parent / "pyproject.toml").exists():
                     self._lsp_workspace_root = parent
-                    server = StdioLspProvider(["pylsp"], workspace_root=parent)
                     break
                 if (parent / "Cargo.toml").exists():
                     self._lsp_workspace_root = parent
-                    server = StdioLspProvider(["rust-analyzer"], workspace_root=parent)
                     break
             else:
                 self._lsp_workspace_root = cwd
-                server = StdioLspProvider(["pylsp"], workspace_root=cwd)
+            command = server_cfg["command"] if server_cfg else "pylsp"
+            args = server_cfg.get("args", []) if server_cfg else []
+            server = StdioLspProvider([command, *args], workspace_root=self._lsp_workspace_root)
             self._lsp_provider = server
 
         provider = self._lsp_provider

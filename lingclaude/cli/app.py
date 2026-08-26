@@ -302,6 +302,52 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                     except ValueError as e:
                         print(f"[错误] {e}")
             return True
+        if name == "/lsp":
+            # lsp add/list/remove — 注册 LSP server 配置（对标 Crush `lsp add`）
+            from lingclaude.engine.lsp_registry import list_servers, register, remove
+
+            if not arg:
+                print("[LSP 服务器] 内置 + 自定义：")
+                for s in list_servers():
+                    mark = "内置" if s.get("default") else "自定义"
+                    print(f"  - {s['lang']:<12} {s['command']} {(' '.join(s.get('args', [])))} [{mark}]")
+                print("用法: /lsp add <lang> --command <cmd> [--args 'a b'] | /lsp remove <lang>")
+            elif arg.startswith("add "):
+                rest = arg[4:].strip()
+                parts = rest.split(maxsplit=1)
+                if len(parts) < 1:
+                    print("[用法] /lsp add <lang> --command <cmd>")
+                else:
+                    lang = parts[0].strip()
+                    cmd_part = parts[1] if len(parts) > 1 else ""
+                    command = ""
+                    args: list[str] = []
+                    if "--command" in cmd_part:
+                        after = cmd_part.split("--command", 1)[1].strip()
+                        if "--args" in after:
+                            cmd_str, args_str = after.split("--args", 1)
+                            command = cmd_str.strip().split()[0] if cmd_str.strip() else ""
+                            args = args_str.strip().split()
+                        else:
+                            command = after.strip().split()[0] if after.strip() else ""
+                            args = after.strip().split()[1:]
+                    if not command:
+                        print("[用法] /lsp add <lang> --command <cmd> [--args 'a b']")
+                    else:
+                        try:
+                            reg = register(lang, command, args)
+                            print(f"[已注册] {reg['lang']} → {reg['command']} {' '.join(reg['args'])}")
+                        except ValueError as e:
+                            print(f"[错误] {e}")
+            elif arg.startswith("remove "):
+                lang = arg[7:].strip()
+                if remove(lang):
+                    print(f"[已删除] {lang}")
+                else:
+                    print(f"[无法删除] {lang}（内置默认不可删，或不存在）")
+            else:
+                print("[用法] /lsp add <lang> --command <cmd> | /lsp remove <lang> | /lsp 列出")
+            return True
         return False
 
     prompt = first_prompt or ""
