@@ -530,6 +530,46 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
     def _archive_dropped_messages(self, dropped_count: int) -> None:
         self._tool_executor._archive_dropped_messages(dropped_count)
 
+    def switch_model(self, model_name: str) -> Result[str]:
+        """P1-4: 会话中途切换模型（保留上下文，重建 provider）。
+
+        Args:
+            model_name: 目标模型名（如 gpt-4o / claude-3-5-sonnet / deepseek-chat）。
+
+        Returns:
+            Result.ok(新模型名)；失败返回错误。
+        """
+        from lingclaude.model.factory import create_provider
+        from lingclaude.model.types import ModelConfig
+
+        if not model_name or not model_name.strip():
+            return Result.fail("model name is required", code="BAD_MODEL_NAME")
+
+        base = self._model_config or ModelConfig()
+        new_cfg = ModelConfig(
+            model=model_name.strip(),
+            api_key=base.api_key,
+            base_url=base.base_url,
+            max_tokens=base.max_tokens,
+            temperature=base.temperature,
+            system_prompt=base.system_prompt,
+        )
+        provider_result = create_provider(config=new_cfg)
+        if provider_result.is_error:
+            return provider_result
+        self._provider = provider_result.data
+        self._model_config = new_cfg
+        # 同步 config.model（供 /model 显示与 tool_executor 读取）
+        try:
+            if hasattr(self.config, "model"):
+                self.config = self.config.__class__(
+                    **{**self.config.__dict__, "model": new_cfg.model}
+                )
+        except Exception:  # noqa: BLE001 — config 不可变时仅更新 _model_config
+            pass
+        logger.info("Switched model to %s", new_cfg.model)
+        return Result.ok(new_cfg.model)
+
     def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
         return self._tool_executor._resolve_model_config(prompt)
 

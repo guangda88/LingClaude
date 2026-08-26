@@ -89,6 +89,21 @@ class AnthropicProvider(ModelProvider):
                     "content": m.content,
                 }
                 msg_dicts.append({"role": "user", "content": [tool_result_block]})
+            elif m.image_content is not None:
+                # P1-1: 多模态 — anthropic image content block（base64 source）
+                b64, mime = m.image_content
+                blocks: list[dict[str, Any]] = []
+                if m.content:
+                    blocks.append({"type": "text", "text": m.content})
+                blocks.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": b64,
+                    },
+                })
+                msg_dicts.append({"role": m.role.value, "content": blocks})
             else:
                 msg_dicts.append({"role": m.role.value, "content": m.content})
         return system_prompt, msg_dicts

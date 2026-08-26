@@ -362,6 +362,50 @@ class CodingRuntime:
                 security_scope="execute",
             )
         )
+        # P0-1: run_in_background 后台任务（对标 DSH jobs / CC 后台 shell 简化版）
+        self.registry.register(
+            ToolDefinition(
+                name="run_in_background",
+                description="Run a bash command in the background, returns a job_id immediately",
+                parameters={
+                    "command": {"type": "string", "description": "Bash command to run in background"},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds (default 300)"},
+                },
+                handler=self._run_in_background_handler,
+                security_scope="execute",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="list_jobs",
+                description="List all background jobs and their status",
+                parameters={},
+                handler=self._list_jobs_handler,
+                security_scope="read",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="job_status",
+                description="Get status of a background job by job_id",
+                parameters={
+                    "job_id": {"type": "string", "description": "Job ID to query"},
+                },
+                handler=self._job_status_handler,
+                security_scope="read",
+            )
+        )
+        self.registry.register(
+            ToolDefinition(
+                name="cancel_job",
+                description="Cancel a pending/running background job by job_id",
+                parameters={
+                    "job_id": {"type": "string", "description": "Job ID to cancel"},
+                },
+                handler=self._cancel_job_handler,
+                security_scope="execute",
+            )
+        )
         # T1-6: send_message 已撤下 — ACP run() 是同步单轮（POST /message 等完整结果返回），
         # _running 里注册的是已完成结果、不持有 session_id，没有可投递的活会话；
         # 原实现只写 _running[id]["last_message"] 就返回 success（假成功）。
@@ -768,6 +812,45 @@ class CodingRuntime:
                 if backend.abort(agent_id):
                     return {"success": True, "agent_id": agent_id, "message": "Agent interrupted"}
         return {"success": False, "agent_id": agent_id, "error": "Agent not found or backend doesn't support abort"}
+
+    def _get_background_manager(self):
+        """P0-1: 惰性初始化后台任务管理器。"""
+        manager = getattr(self, "_background_manager", None)
+        if manager is None:
+            from lingclaude.engine.background import BackgroundTaskManager
+            manager = BackgroundTaskManager()
+            self._background_manager = manager
+        return manager
+
+    def _run_in_background_handler(self, command: str, timeout: int = 300, **_kwargs: Any) -> dict[str, Any]:
+        """P0-1: 后台执行 bash 命令，立即返回 job_id。"""
+        if not command or not command.strip():
+            return {"error": "command is required"}
+        manager = self._get_background_manager()
+        job_id = manager.submit(command, timeout=float(timeout))
+        return {"job_id": job_id, "status": "pending", "message": f"Background job {job_id} started"}
+
+    def _list_jobs_handler(self, **_kwargs: Any) -> dict[str, Any]:
+        """P0-1: 列出所有后台任务。"""
+        manager = self._get_background_manager()
+        jobs = manager.list_jobs()
+        return {"jobs": jobs, "count": len(jobs)}
+
+    def _job_status_handler(self, job_id: str, **_kwargs: Any) -> dict[str, Any]:
+        """P0-1: 查询单个后台任务状态。"""
+        manager = self._get_background_manager()
+        job = manager.status(job_id)
+        if job is None:
+            return {"error": f"Job not found: {job_id}"}
+        return job
+
+    def _cancel_job_handler(self, job_id: str, **_kwargs: Any) -> dict[str, Any]:
+        """P0-1: 取消后台任务。"""
+        manager = self._get_background_manager()
+        cancelled = manager.cancel(job_id)
+        if not cancelled:
+            return {"success": False, "job_id": job_id, "error": "Job not found or already finished"}
+        return {"success": True, "job_id": job_id, "message": "Job cancelled"}
 
     def _plan_mode_handler(self, action: str = "enter", **_kwargs: Any) -> dict[str, Any]:
         if action == "enter":

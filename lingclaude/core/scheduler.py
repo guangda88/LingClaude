@@ -66,6 +66,12 @@ class ScheduleManager:
         self._running = False
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        # P1-2: 挂回会话回调（由调用方注册；到期任务触发，把任务内容挂回会话上下文）
+        self._on_task_due: Callable[[ScheduledTask], None] | None = None
+
+    def set_on_task_due(self, callback: Callable[[ScheduledTask], None]) -> None:
+        """P1-2: 注册到期回调 — 挂回会话（如把任务内容注入会话待处理队列）。"""
+        self._on_task_due = callback
 
     def register(self, cron: str, query: str, priority: TaskPriority = TaskPriority.MEDIUM) -> str:
         """注册定时任务
@@ -110,6 +116,19 @@ class ScheduleManager:
         elif cron.startswith("interval:"):
             minutes = int(cron.split(":")[1])
             next_run = now + timedelta(minutes=minutes)
+        elif cron.startswith("after:"):
+            # P1-2: after:N — 延迟 N 秒后执行（一次性）
+            seconds = int(cron.split(":")[1])
+            next_run = now + timedelta(seconds=seconds)
+        elif cron.startswith("at:"):
+            # P1-2: at:HH:MM — 指定时刻执行（今天，若已过则明天）
+            parts = cron.split(":")  # ["at", "HH", "MM"]
+            if len(parts) < 3:
+                raise ValueError(f"Unsupported at: {cron}（应为 at:HH:MM）")
+            hour, minute = int(parts[1]), int(parts[2])
+            next_run = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if next_run <= now:
+                next_run += timedelta(days=1)
         else:
             # 简化版 cron：*/N * * * *（每 N 分钟）
             match = re.match(r"^\*/(\d+) \* \* \* \*$", cron)
@@ -158,6 +177,16 @@ class ScheduleManager:
             # 发 LingBus 唤醒
             for task in due_tasks:
                 self._send_wakeup(task)
+                # P1-2: 挂回会话 — 到期任务回调（如注入会话待处理队列）
+                callback = self._on_task_due
+                if callback is not None:
+                    try:
+                        callback(task)
+                    except Exception:  # noqa: BLE001 — 挂回失败不阻塞轮询
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            f"Schedule attach-to-session failed for {task.task_id}"
+                        )
             
             time.sleep(60)  # 每分钟检查一次
 

@@ -256,7 +256,15 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             print("[已触发压缩]")
             return True
         if name == "/model":
-            print(f"[当前模型] {getattr(engine.config, 'model', 'unknown')}")
+            # P1-4: /model 显示当前；/model <name> 会话中途切换（保留上下文）
+            if arg:
+                result = engine.switch_model(arg.strip())
+                if result.is_ok:
+                    print(f"[模型已切换] {result.data}")
+                else:
+                    print(f"[切换失败] {result.error}")
+            else:
+                print(f"[当前模型] {getattr(engine.config, 'model', 'unknown')}")
             return True
         # T2-2/案 4: /schedule 命令 — 定时任务注册/列出/取消
         if name == "/schedule":
