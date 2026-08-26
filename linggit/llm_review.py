@@ -91,10 +91,19 @@ class LLMReviewer:
         self.threshold = cfg.get("threshold", "high")  # 仅复核 high/critical 及以上
         self.batch_size = int(cfg.get("batch_size", 8))
         self.timeout_s = float(cfg.get("timeout_s", 20.0))
+        # 通道内重试（限流/5xx 退避），失败后轮换下一通道
+        self.channel_retries = int(cfg.get("channel_retries", 2))
         self._provider = provider  # 测试可注入 mock
         self._provider_checked = False
+        self._built_providers: list[ModelProvider] = []
         # 显式注入通道配置（优先于 config.yaml）：{provider, model, api_key, base_url}
         self._override = cfg.get("model_config") or {}
+        # 备用通道列表（多 provider 轮换）：[{provider, model, api_key, base_url}]
+        # 主通道失败（限流/5xx）时按序轮换；api_key 留空则从 api_key_env 环境变量读取
+        self._channels = [
+            ch for ch in (cfg.get("channels") or [])
+            if isinstance(ch, dict) and ch.get("model")
+        ]
         # verdict 缓存: key=(file, line, description) -> (verdict, ts)
         self._cache: dict[tuple[str, int, str], tuple[str, float]] = {}
         # 允许外部注入缓存（跨进程持久化时由调用方加载/回写）
@@ -127,41 +136,72 @@ class LLMReviewer:
 
     # ── provider 懒加载（复用灵族 model 栈）──
     def _get_provider(self) -> ModelProvider | None:
-        if self._provider is not None or self._provider_checked:
-            return self._provider
+        """返回主通道 provider（向后兼容单通道用法）。"""
+        providers = self._get_providers()
+        return providers[0] if providers else None
+
+    def _get_providers(self) -> list[ModelProvider]:
+        """构建可用通道 provider 列表（主通道 + 备用通道轮换）。
+
+        顺序：显式 model_config → config.yaml → 备用 channels（按序）。
+        每个通道 api_key 优先取配置值，留空时从 api_key_env 环境变量读取。
+        """
+        if self._provider is not None:
+            return [self._provider]
+        if self._provider_checked:
+            return self._built_providers
         self._provider_checked = True
+        built: list[ModelProvider] = []
         try:
+            channel_specs: list[dict] = []
             if self._override:
-                # 注入通道: 如 deepseek-v4-flash@atomgit (llm-api.atomgit.com/v1)
-                cfg = ModelConfig(
-                    model=self._override.get("model", "deepseek-v4-flash"),
-                    api_key=self._override.get("api_key", ""),
-                    base_url=self._override.get("base_url"),
-                    max_tokens=min(int(self._override.get("max_tokens", 4096)), 512),
-                    temperature=min(float(self._override.get("temperature", 0.2)), 0.3),
-                )
-                provider_name = self._override.get("provider", "openai")
+                channel_specs.append(self._override)
             else:
-                # 回退: config.yaml 的 model 配置（api_key/base_url/model）
                 from lingclaude.core.config import load_config
                 mc = load_config().model
+                channel_specs.append({
+                    "provider": mc.provider,
+                    "model": mc.model,
+                    "api_key": mc.api_key,
+                    "base_url": mc.base_url,
+                })
+            channel_specs.extend(self._channels)
+            for spec in channel_specs:
+                api_key = spec.get("api_key") or ""
+                if not api_key and spec.get("api_key_env"):
+                    import os
+                    api_key = os.environ.get(spec["api_key_env"], "")
+                    if not api_key:
+                        # 兜底: 从项目 .env 加载（gitignore 忽略，不提交凭据）
+                        # 锚定项目根（linggit/ 的上层目录），避免依赖调用方 cwd
+                        try:
+                            from dotenv import dotenv_values
+                            from pathlib import Path
+                            env_file = Path(__file__).resolve().parents[1] / ".env"
+                            if env_file.exists():
+                                api_key = (dotenv_values(str(env_file)) or {}).get(spec["api_key_env"], "")
+                        except ImportError:
+                            pass
+                if not api_key:
+                    logger.warning("LLM reviewer channel %s: api_key 缺失，跳过", spec.get("model"))
+                    continue
                 cfg = ModelConfig(
-                    model=mc.model,
-                    api_key=mc.api_key,
-                    base_url=mc.base_url,
-                    # 复核只需短 JSON 判定，压低 max_tokens 避免长生成拖慢
-                    max_tokens=min(mc.max_tokens, 512),
-                    temperature=min(mc.temperature, 0.3),  # 复核判定要稳定，压低温度
+                    model=spec.get("model", "deepseek-v4-flash"),
+                    api_key=api_key,
+                    base_url=spec.get("base_url"),
+                    max_tokens=min(int(spec.get("max_tokens", 4096)), 512),
+                    temperature=min(float(spec.get("temperature", 0.2)), 0.3),
                 )
-                provider_name = mc.provider
-            res = create_provider(cfg, provider_name=provider_name)
-            if res.is_ok and res.data is not None:
-                self._provider = res.data
-            else:
-                logger.warning("LLM reviewer provider unavailable: %s", res.error)
+                provider_name = spec.get("provider", "openai")
+                res = create_provider(cfg, provider_name=provider_name)
+                if res.is_ok and res.data is not None:
+                    built.append(res.data)
+                else:
+                    logger.warning("LLM reviewer channel %s 构建失败: %s", spec.get("model"), res.error)
         except Exception as e:  # 降级: provider 构建失败 → fail-open
             logger.warning("LLM reviewer provider init failed: %s", e)
-        return self._provider
+        self._built_providers = built
+        return built
 
     # ── 主入口: 过滤误报 ──
     def review(self, issues: list[dict]) -> list[dict]:
@@ -173,8 +213,8 @@ class LLMReviewer:
         """
         if not self.enabled or not issues:
             return issues
-        provider = self._get_provider()
-        if provider is None:
+        providers = self._get_providers()
+        if not providers:
             return issues  # fail-open
 
         candidates = [
@@ -197,7 +237,12 @@ class LLMReviewer:
         for start in range(0, len(to_ask), self.batch_size):
             batch = to_ask[start : start + self.batch_size]
             try:
-                batch_v = self._ask_batch(provider, batch)
+                # 多通道轮换：主通道失败 → 按序切备用通道；全部失败 → fail-open
+                batch_v: dict[str, str] = {}
+                for provider in providers:
+                    batch_v = self._ask_batch(provider, batch)
+                    if batch_v:
+                        break
                 verdicts.update(batch_v)
                 # 回写缓存
                 for i in batch:
@@ -224,8 +269,27 @@ class LLMReviewer:
             ModelMessage(role=MessageRole.SYSTEM, content=_REVIEW_SYSTEM_PROMPT),
             ModelMessage(role=MessageRole.USER, content=hits),
         )
-        res = provider.complete(messages)
-        if not res.is_ok or res.data is None:
-            logger.warning("LLM review call failed: %s", res.error)
-            return {}
-        return _parse_verdicts(res.data.content)
+        # 通道内重试：限流/5xx 指数退避（channel_retries 次），仍失败返回 {} 触发轮换
+        import time as _time
+
+        last_error = None
+        for attempt in range(1 + self.channel_retries):
+            if attempt:
+                backoff = 2.0 * (2 ** (attempt - 1))
+                logger.warning(
+                    "LLM review 通道 %s 第 %d 次重试（退避 %.1fs）: %s",
+                    getattr(provider, "_config", None).model if getattr(provider, "_config", None) else "?",
+                    attempt, backoff, last_error,
+                )
+                _time.sleep(backoff)
+            try:
+                res = provider.complete(messages)
+            except Exception as e:  # noqa: BLE001 — 通道异常记入重试
+                last_error = str(e)
+                continue
+            if not res.is_ok or res.data is None:
+                last_error = str(res.error)
+                continue
+            return _parse_verdicts(res.data.content)
+        logger.warning("LLM review 通道全部重试失败（最后错误: %s），切下一通道或 fail-open", last_error)
+        return {}

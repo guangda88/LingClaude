@@ -172,6 +172,50 @@ class SubagentRequest:
 - `SubagentBackend.abort(agent_id)` — 中止
 - `SubagentBackend.status(agent_id)` — 查询
 
+### 5.1 SubagentCapabilities 4 flag（v0.5 新增）
+
+`SubagentRequest` 与 `SubagentContext` 自 v0.5 起接受以下 4 字段，对齐 DSH `SubagentCapabilities`：
+
+| 字段 | 类型 | 默认 | 作用 |
+|------|------|------|------|
+| `output_schema` | `str \| None` | `None` | 输出 JSON schema 字符串；`None` = 无 schema 约束 |
+| `depth_limit` | `int` | 0 | 嵌套深度上限（防递归风暴）；`0` = 不限 |
+| `tool_filter` | `tuple[str, ...]` | `()` | 可见工具白名单（防越权）；空 = 继承父 `allowed_tools` |
+| `persona` | `str` | `""` | 注入人设（与主 agent 区分）；空 = 默认 |
+
+`SubagentContext` 新增 `current_depth: int = 0` 与 `parent_agent_id: str \| None = None`，由 `SubagentManager` 调用时传入。
+
+`SubagentManager.run` 强制检查：
+- `depth_limit > 0 and ctx.current_depth >= depth_limit` → 返回 `SubagentResult(success=False, status=FAILED, error="depth limit exceeded: ...")`
+- `tool_filter` 非空 → 用 `dataclasses.replace` 派生 `effective_ctx.allowed_tools = tool_filter`
+- `persona` 非空 → 注入 `effective_request.config["_persona"]`，由 backend 拼装 system_prompt
+
+示例：
+
+``````python
+from lingclaude.engine.subagent.base import SubagentRequest, SubagentContext
+
+req = SubagentRequest(
+    task="审查 PR diff",
+    provider="inprocess",
+    depth_limit=2,
+    tool_filter=("read", "grep"),
+    persona="你是代码审查员，专注安全和性能",
+    output_schema='{"type":"object", "properties": {"issues": {"type": "array"}}}',
+)
+ctx = SubagentContext(current_depth=1, parent_agent_id="lingke-root")
+result = manager.run(req, ctx)
+```
+
+适用场景：
+
+| 场景 | 推荐配置 |
+|------|----------|
+| 安全敏感子任务 | `tool_filter=("read",)` |
+| 多层嵌套调用 | `depth_limit=2~3`（防爆栈） |
+| 输出需 JSON Schema | `output_schema='...' ` + `depth_limit=1`（避免递归产出） |
+| 子代理角色专精 | `persona="..."` 注入人设提示 |
+
 ---
 
 ## 六、MCP（T1-5 落地）
@@ -375,6 +419,55 @@ GET /marketplace/reputation/my-plugin
 | /lsp 不生效 | LSP server 未安装 | `/lsp` 看内置配置 + 系统 PATH |
 | 沙箱 strict 模式报错 | bwrap 不可用 | 装 bubblewrap 或切 permissive |
 | 投影返回 404 | session_id 不存在 | `GET /sessions` 列出现有 |
+| **crush 进程被批量 SIGKILL** | systemd-oomd 通过 D-Bus `org.freedesktop.oom1` 周期性触发（INCIDENT_20260825） | 见 15.1 三层防护 |
+| OOMScoreAdjust 没生效 | cron / systemd 守护未跑 | `journalctl -u crush-low-oom.timer` + `crontab -l` |
+| /model <name> 报 `BAD_MODEL_NAME` | 模型名不在 `models_config.json` | 编辑 `lingclaude/model/providers.py` 加载列表 |
+
+### 15.1 INCIDENT_20260825 三层防护（v0.5 新增）
+
+**现象**：拉起 crush TUI（lingclaude/灵通/灵犀/灵信/灵研 等身份）后几分钟到几小时内被 SIGKILL。一次同帧 6-7 个 PID 死亡。
+
+**根因**：`systemd-oomd`（userspace OOM killer）通过 D-Bus `org.freedesktop.oom1` 周期性 SIGKILL 高 `OOMScore` 进程。crush 是 Go + Bubble Tea TUI + 18 worker 线程，单实例 90-150 MB，多实例并存总内存 1-2 GB，**高 OOMScore 是 oomd 首选目标**。
+
+**完整根因诊断**：`docs/incident/INCIDENT_20260825_CRUSHP_OOMD_KILLER.md`（276 行，含 auditd 取证 + dbus 服务清单 + 8 次错误归因排除过程）。
+
+**三层防护**（30 分钟内零死亡已验证）：
+
+| 层 | 配置 | 作用 |
+|----|------|------|
+| **1. 启动入口** | `~/.bashrc` `function crush_i` 与 `alias crush` 拉起前立即 `echo -900 > /proc/self/oom_score_adj` | 0 窗口保护新进程 |
+| **2. systemd 单元** | `/etc/systemd/system/zhibridge.service.d/oom.conf` 设 `OOMScoreAdjust=-900` + `OOMPolicy=continue` | zhibridge 重启自动保留 |
+| **3. 10s 兜底 timer** | `/etc/systemd/system/crush-low-oom.{service,timer}` 每 10s 扫描所有 crush PID 并设 oom=-900 | 任何漏网最多 10s 内补设 |
+
+**辅助修复**（已落地）：
+
+- `/etc/systemd/oomd.conf.d/slower.conf` 把 oomd 压力时间从 30s 拉长到 5min，压力阈值从 60% 提到 70%（降低频率，非根除）
+- `scripts/crush_low_oom.sh` + ai crontab 每分钟扫描兜底
+- zhibridge 的 `OOMScoreAdjust=-900` 配合 systemd RestartSec=10 自动重启 + OOMScore 保留
+
+**自检命令**：
+
+```bash
+# 看当前 crush 进程保护覆盖率
+for pid in $(pgrep -af bin/crush | awk '{print $1}'); do
+  oom=$(cat /proc/$pid/oom_score_adj 2>/dev/null)
+  cwd=$(readlink /proc/$pid/cwd)
+  echo "PID=$pid cwd=$cwd oom=$oom"
+done
+
+# 看 timer 是否在跑
+systemctl status crush-low-oom.timer
+#systemctl list-timers crush-low-oom.timer
+
+# 手动触发一次守护
+sudo systemctl start crush-low-oom.service
+tail /tmp/crush_low_oom.log
+
+# 看 audit.log 最新 oomd 触发的 SIGKILL
+sudo grep "crush_kill_watch" /var/log/audit/audit.log | tail -5
+```
+
+**解除三层防护**（不推荐）：`sudo systemctl disable --now crush-low-oom.timer` + `sudo systemctl disable --now systemd-oomd`。解除后失去 oomd 全系统保护，crush 必被高内存场景杀掉。
 
 ---
 
@@ -383,6 +476,21 @@ GET /marketplace/reputation/my-plugin
 - `docs/gap_analysis/GAP_ANALYSIS_20260821.md` — 3 方初步分析
 - `docs/gap_analysis/GAP_ANALYSIS_20260825_CC_DIMENSION.md` — Claude Code 对标
 - `docs/gap_analysis/GAP_ANALYSIS_20260825_CRUSH_DIMENSION.md` — Crush 对标
+- `docs/gap_analysis/GAP_ANALYSIS_20260825_DSH_DIMENSION.md` — DSH 第一手对标（v0.5 新增）
+- `docs/gap_analysis/GAP_ANALYSIS_20260825_TOTAL_CURRENT.md` — 4 家综合总表 + 12 维度差距矩阵（v0.5 新增）
+- `docs/incident/INCIDENT_20260825_CRUSHP_OOMD_KILLER.md` — systemd-oomd 杀 crush 根因诊断 + 三层防护（v0.5 新增，276 行）
+- `docs/lacp/CLI_INTERACTION_RFC.md` — CLI 交互形态 RFC v1.1，含 I/O 抽象层设计
+- `docs/cli/TERMINAL_UX.md` — 终端 UX 用户文档
+
+## 附录 A：版本历史
+
+| 版本 | 日期 | 主要变更 |
+|------|------|----------|
+| v0.1 | 2026-07 | 初版 |
+| v0.2 | 2026-08-10 | 工具 + 子代理 |
+| v0.3 | 2026-08-15 | 调度 + 沙箱 |
+| v0.4 | 2026-08-26 | 16 章全对齐 4 份 gap_analysis |
+| **v0.5** | **2026-08-26** | **新增 §5.1 SubagentCapabilities 4 flag + §15.1 INCIDENT 三层防护 + 4 条参考资料** |
 - `docs/gap_analysis/GAP_ANALYSIS_20260825_DSH_DIMENSION.md` — DSH 对标
 - `docs/gap_analysis/GAP_ANALYSIS_20260825_TOTAL_CURRENT.md` — 综合总表
 - `docs/lacp/CLI_INTERACTION_RFC.md` — CLI 交互 RFC
