@@ -411,6 +411,9 @@ class CodingRuntime(
                 security_scope="read",
             )
         )
+        # P1 解耦示范: 先注册 handler 到 HandlerRegistry，再以 handler_name 引用
+        # （定义与实现解耦，换 handler 只需 register_handler 覆盖，不改 ToolDefinition）
+        self.registry.register_handler("cancel_job_handler", self._cancel_job_handler)
         self.registry.register(
             ToolDefinition(
                 name="cancel_job",
@@ -418,7 +421,7 @@ class CodingRuntime(
                 parameters={
                     "job_id": {"type": "string", "description": "Job ID to cancel"},
                 },
-                handler=self._cancel_job_handler,
+                handler_name="cancel_job_handler",
                 security_scope="execute",
             )
         )
@@ -426,6 +429,7 @@ class CodingRuntime(
         # _running 里注册的是已完成结果、不持有 session_id，没有可投递的活会话；
         # 原实现只写 _running[id]["last_message"] 就返回 success（假成功）。
         # 待 ACP 后端支持异步会话后再真实现并重新注册。
+        self.registry.register_handler("plan_mode_handler", self._plan_mode_handler)
         self.registry.register(
             ToolDefinition(
                 name="plan_mode",
@@ -433,7 +437,7 @@ class CodingRuntime(
                 parameters={
                     "action": {"type": "string", "description": "'enter' or 'exit'"},
                 },
-                handler=self._plan_mode_handler,
+                handler_name="plan_mode_handler",
                 security_scope="read",
             )
         )

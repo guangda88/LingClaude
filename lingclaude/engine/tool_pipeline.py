@@ -308,8 +308,12 @@ class ToolPipeline:
         超时后放弃等待、返回 TIMEOUT（daemon 线程无法强杀，结果丢弃——
         已知局限，与 bash.py 自身超时互为兜底）。
         """
-        if tool_def.handler is None:
+        if tool_def.handler is None and getattr(tool_def, "handler_name", None) is None:
             return Result.fail(f"Tool has no handler: {tool_def.name}", code="NO_HANDLER")
+        # P1 解耦: 解析 handler（Callable 优先，其次 handler_name 按名查找）
+        handler = getattr(self._registry, "_resolve_handler", lambda t: t.handler)(tool_def)
+        if handler is None:
+            return Result.fail(f"Tool handler not resolvable: {tool_def.name}", code="NO_HANDLER")
 
         # T1-3 深化: 工具级超时优先（None = pipeline 全局默认）
         effective_timeout = getattr(tool_def, "timeout", None) or self._timeout
@@ -318,7 +322,7 @@ class ToolPipeline:
 
         def _run() -> None:
             try:
-                holder["result"] = Result.ok(tool_def.handler(**args))
+                holder["result"] = Result.ok(handler(**args))
             except Exception as e:  # noqa: BLE001 — handler 异常转为 Result.fail
                 holder["error"] = e
 

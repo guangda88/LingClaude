@@ -49,6 +49,9 @@ class ToolDefinition:
         present_call / present_result → dsh presentCall/presentResult (UI hooks)
 
     兼容性: handler / finalize_content / present_* 默认可空, 老调用方无需改。
+    解耦（P1）: handler_name 是新插片接口 — 定义与 handler 实现解耦，
+    允许"同一定义换 handler"。handler 字段保留用于向后兼容（Callable 直传）；
+    若同时设置 handler_name + handler，则 handler 优先（直传更具体）。
     """
 
     name: str
@@ -66,6 +69,10 @@ class ToolDefinition:
     required_params: tuple[str, ...] = ()
     # T1-3 深化: 工具级超时（秒）— None = 用 pipeline 全局默认超时
     timeout: float | None = None
+    # P1 解耦: handler_name 插片引用 — ToolDefinition 不直接绑定 handler Callable，
+    # 而是通过 HandlerRegistry 按名查找；这样定义（schema）与实现解耦。
+    # 优先级：handler (Callable, 向后兼容) > handler_name (按名查找) > None
+    handler_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = {
@@ -85,6 +92,9 @@ class ToolDefinition:
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, ToolDefinition] = {}
+        # P1 解耦: handler 注册表 — ToolDefinition 可通过 handler_name 按名引用，
+        # 定义（schema）与实现（handler Callable）解耦；同一 handler_name 可被多个 ToolDefinition 复用。
+        self._handlers: dict[str, Callable[..., Any]] = {}
 
     def register(self, tool: ToolDefinition) -> None:
         self._tools[tool.name] = tool
@@ -108,12 +118,34 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return Result.fail(f"Tool not found: {name}", code="NOT_FOUND")
-        if tool.handler is None:
+        # P1 解耦: 解析 handler — 优先 Callable（向后兼容），其次 handler_name 按名查找
+        handler = self._resolve_handler(tool)
+        if handler is None:
             return Result.fail(f"Tool has no handler: {name}", code="NO_HANDLER")
         try:
-            return Result.ok(tool.handler(**kwargs))
+            return Result.ok(handler(**kwargs))
         except Exception as e:
             return Result.fail(f"Tool execution failed: {e}", code="EXECUTION_ERROR")
+
+    def _resolve_handler(self, tool: ToolDefinition) -> Callable[..., Any] | None:
+        """P1 解耦: 解析 handler — handler > handler_name > None"""
+        if tool.handler is not None:
+            return tool.handler
+        if tool.handler_name is not None:
+            return self._handlers.get(tool.handler_name)
+        return None
+
+    def register_handler(self, handler_name: str, handler: Callable[..., Any]) -> None:
+        """P1 解耦: 注册 handler Callable（按名）— 后续 ToolDefinition 可通过 handler_name 引用。"""
+        self._handlers[handler_name] = handler
+
+    def get_handler(self, handler_name: str) -> Callable[..., Any] | None:
+        """P1 解耦: 按名查询 handler。"""
+        return self._handlers.get(handler_name)
+
+    def list_handlers(self) -> tuple[str, ...]:
+        """P1 解耦: 列出所有已注册 handler 名。"""
+        return tuple(self._handlers.keys())
 
     def get_all_definitions(self) -> tuple[dict[str, Any], ...]:
         return tuple(tool.to_dict() for tool in self._tools.values())

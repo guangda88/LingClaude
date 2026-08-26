@@ -202,7 +202,7 @@ class BashExecutor:
             )
 
     def _sandbox_command(self, command: str) -> str:
-        """B3：bwrap 沙箱包裹 — 可用时用，不可用降级为原命令。
+        """B3：沙箱包裹 — 通过 SandboxProvider（默认 bwrap，可换 noop/firejail 等）。
 
         策略（对标 DSH sandbox read-only/workspace-write）：
         - 系统路径只读（/usr /lib /etc /bin /sbin）
@@ -210,11 +210,31 @@ class BashExecutor:
         - /tmp 可写（工具产物、spill 文件）
         - 网络隔离（--unshare-net）
 
+        后端获取：默认构造 BwrapSandboxProvider（探测可用性）；若外部已注入
+        sandbox provider（set_sandbox_provider），优先使用注入的。
         降级条件：bwrap 不存在、或本环境无权限（uid map / net ns 被禁）。
         降级后黑名单+白名单+资源限制三重缓解仍然生效（fail-safe，不静默）。
         """
-        bwrap = shutil.which("bwrap")
-        bwrap_ok = bwrap is not None and _bwrap_probe(bwrap)
+        provider = getattr(self, "_sandbox_provider", None)
+        if provider is None:
+            # 优先从 SANDBOX_SEAM 拿默认后端（半 seam → 全 seam）：
+            # seam 里是 SignedProvider 包装（治理/审计），bash 执行需底层 wrap/available，
+            # 解包 _wrapped 拿 SandboxProviderAdapter（可用时）。seam 不可用回退 BwrapSandboxProvider。
+            try:
+                from lingclaude.lacp.capability_seam import SANDBOX_SEAM
+                seam = SANDBOX_SEAM.get_provider()
+                if hasattr(seam, "_wrapped"):
+                    seam = seam._wrapped  # 解包 SignedProvider → SandboxProviderAdapter
+                if hasattr(seam, "available") and hasattr(seam, "wrap"):
+                    provider = seam
+            except Exception:  # noqa: BLE001 — seam 不可用回退直接构造
+                provider = None
+            if provider is None:
+                from lingclaude.engine.sandbox_provider import BwrapSandboxProvider
+                provider = BwrapSandboxProvider()
+            self._sandbox_provider = provider
+
+        bwrap_ok = provider.available()
 
         # Fail-closed：sandbox_policy 严格模式 + bwrap 不可用 → 抛异常（不再静默降级）
         if not bwrap_ok and self.sandbox_policy is not None:
@@ -238,25 +258,14 @@ class BashExecutor:
                 command[:80],
             )
             return command
-        # working_dir 为 None 时退化到当前目录（避免 --bind None None）
-        wd = str(self.working_dir or Path.cwd())
-        parts = [
-            bwrap,
-            "--unshare-net",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/etc", "/etc",
-            "--ro-bind", "/bin", "/bin",
-            "--ro-bind", "/sbin", "/sbin",
-            "--bind", wd, wd,
-            "--bind", "/tmp", "/tmp",
-            "--die-with-parent",
-            "--",
-            "/bin/bash", "-c", command,
-        ]
-        import shlex
+        return provider.wrap(command, working_dir=self.working_dir)
 
-        return " ".join(shlex.quote(p) for p in parts)
+    def set_sandbox_provider(self, provider: Any) -> None:
+        """注入沙箱后端插片（SandboxProvider Protocol：name/available/wrap）。
+
+        默认 bwrap；可注入 NoopSandboxProvider（降级）/ 自定义 firejail 等。
+        """
+        self._sandbox_provider = provider
 
     @staticmethod
     def _normalize_command(command: str) -> str:

@@ -148,6 +148,11 @@ SUBAGENT_SEAM = CapabilitySeam("subagent", {
     "transport": "in-process",
 })
 
+SANDBOX_SEAM = CapabilitySeam("sandbox", {
+    "methods": ["wrap", "available"],
+    "transport": "local",
+})
+
 
 def register_default_providers() -> None:
     """注册默认能力提供者（延迟导入避免循环依赖）。
@@ -181,6 +186,26 @@ def register_default_providers() -> None:
     # shell seam
     SHELL_SEAM.register_provider(BashExecutorProvider(), default=True)
 
+    # sandbox seam — bwrap 可用时默认 bwrap，否则 noop（fail-safe 降级）
+    from lingclaude.engine.sandbox_provider import create_default_sandbox_provider
+    _sandbox = create_default_sandbox_provider()
+
+    class SandboxProviderAdapter:
+        """给 SandboxProvider 加 version 属性（适配 CapabilityProvider 协议）。
+
+        同时暴露 available/wrap（SandboxProvider 接口），使 bash 可直接消费 seam 后端。
+        """
+        name = _sandbox.name
+        version = "0.1.0"
+        def execute(self, *args: Any, **kwargs: Any) -> Any:
+            return _sandbox.wrap(*args, **kwargs)
+        def available(self) -> bool:
+            return _sandbox.available()
+        def wrap(self, command: str, working_dir: Any = None) -> str:
+            return _sandbox.wrap(command, working_dir=working_dir)
+
+    SANDBOX_SEAM.register_provider(SandboxProviderAdapter(), default=True)
+
 
 # 全局注册表
 _CAPABILITY_SEAMS: dict[str, CapabilitySeam] = {
@@ -188,6 +213,7 @@ _CAPABILITY_SEAMS: dict[str, CapabilitySeam] = {
     "shell": SHELL_SEAM,
     "llm": LLM_SEAM,
     "subagent": SUBAGENT_SEAM,
+    "sandbox": SANDBOX_SEAM,
 }
 
 

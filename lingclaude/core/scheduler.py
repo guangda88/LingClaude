@@ -23,6 +23,11 @@ from enum import Enum
 from typing import Any, Callable
 
 from lingclaude.core.task_scheduler import Task, TaskPriority, TaskScheduler
+from lingclaude.core.wakeup_channel import (
+    LingBusWakeupChannel,
+    LocalFileWakeupChannel,
+    WakeupChannel,
+)
 
 
 class ScheduleType(str, Enum):
@@ -68,10 +73,19 @@ class ScheduleManager:
         self._lock = threading.Lock()
         # P1-2: 挂回会话回调（由调用方注册；到期任务触发，把任务内容挂回会话上下文）
         self._on_task_due: Callable[[ScheduledTask], None] | None = None
+        # P1-3: 唤醒通道（灵元尺子：变化变成插片）— 默认 LingBus，可注入 LocalFile 等
+        self._wakeup_channel = LingBusWakeupChannel()
 
     def set_on_task_due(self, callback: Callable[[ScheduledTask], None]) -> None:
         """P1-2: 注册到期回调 — 挂回会话（如把任务内容注入会话待处理队列）。"""
         self._on_task_due = callback
+
+    def set_wakeup_channel(self, channel: Any) -> None:
+        """P1-3: 注入唤醒通道插片（默认 LingBus，可换 LocalFile/Email/Slack）。
+
+        实现类只需实现 send(task: dict) 方法（WakeupChannel Protocol）。
+        """
+        self._wakeup_channel = channel
 
     def register(self, cron: str, query: str, priority: TaskPriority = TaskPriority.MEDIUM) -> str:
         """注册定时任务
@@ -191,23 +205,21 @@ class ScheduleManager:
             time.sleep(60)  # 每分钟检查一次
 
     def _send_wakeup(self, task: ScheduledTask) -> None:
-        """发 LingBus 唤醒消息"""
+        """发唤醒消息（通过注入的 WakeupChannel，可换 LingBus/LocalFile/Email/Slack）。
+
+        P1-3 解耦前：直接 import lingmessage.LingBus + open_thread（焊死）。
+        解耦后：调用 self._wakeup_channel.send(task_dict)，主干与实现分离。
+        """
+        task_dict = {
+            "task_id": task.task_id,
+            "cron": task.cron,
+            "query": task.query,
+            "next_run": task.next_run,
+            "enabled": task.enabled,
+        }
         try:
-            import sys
-            sys.path.insert(0, "/home/ai/lingmessage")
-            from lingmessage.lingbus import LingBus
-            
-            bus = LingBus()
-            bus.open_thread(
-                topic=f"schedule_wakeup:{task.task_id}",
-                sender="lingclaude",
-                recipients=["lingclaude"],
-                subject=f"[Schedule] 定时任务到期: {task.query[:50]}",
-                body=f"任务 ID: {task.task_id}\nCron: {task.cron}\n内容: {task.query}",
-                channel="schedule",
-            )
-        except Exception as e:
-            # LingBus 不可用时降级为日志
+            self._wakeup_channel.send(task_dict)
+        except Exception as e:  # 唤醒失败不阻塞轮询（fail-soft）
             import logging
             logging.getLogger(__name__).warning(f"Schedule wakeup failed: {e}")
 
