@@ -35,7 +35,7 @@ class SandboxMode(str, Enum):
 @dataclass
 class SandboxPolicy:
     """插件执行环境隔离策略"""
-    mode: SandboxMode = SandboxMode.PERMISSIVE
+    mode: SandboxMode = SandboxMode.RESTRICTED
     allowed_imports: Optional[List[str]] = None  # 限制 import 路径
     allowed_paths: Optional[List[str]] = None     # 允许访问的文件系统路径
     network_access: bool = True                   # 是否允许网络访问
@@ -77,8 +77,12 @@ class SandboxPolicy:
         return True, "OK"
 
 
-# 全局默认策略
-DEFAULT_POLICY = SandboxPolicy(mode=SandboxMode.PERMISSIVE)
+# 全局默认策略 (P2 fix: 从 PERMISSIVE 升级为 RESTRICTED, 强制 allowlist)
+DEFAULT_POLICY = SandboxPolicy(
+    mode=SandboxMode.RESTRICTED,
+    allowed_paths=["/home/ai", "/tmp"],
+    network_access=False,
+)
 
 # paranoid 模式白名单（最小可行集）
 PARANOID_WHITELIST = {

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import time as _time
 from typing import Any, Protocol
 
 
@@ -22,23 +23,80 @@ class CapabilityProvider(Protocol):
         ...
 
 
+class SignedProvider:
+    """双签能力提供者包装器."""
+    
+    def __init__(self, provider: CapabilityProvider, required_signers: list[str] = None):
+        self._wrapped = provider
+        self.required_signers = set(required_signers or ["lingclaude", "lingminopt"])
+        self.signed_by: set[str] = set()
+        self._approved = len(self.required_signers) == 0
+    
+    @property
+    def name(self) -> str:
+        return self._wrapped.name
+    
+    @property
+    def version(self) -> str:
+        return self._wrapped.version
+    
+    def sign(self, signer: str) -> bool:
+        """记录签名."""
+        if signer not in self.required_signers:
+            return False
+        self.signed_by.add(signer)
+        if self.signed_by >= self.required_signers:
+            self._approved = True
+        return True
+    
+    @property
+    def is_approved(self) -> bool:
+        return self._approved
+    
+    def execute(self, *args: Any, **kwargs: Any) -> Any:
+        """执行能力 (需双签)."""
+        if not self._approved:
+            raise PermissionError(
+                f"Provider {self.name} 未获双签: "
+                f"已签={[*self.signed_by]}, 待签={[*self.required_signers - self.signed_by]}"
+            )
+        return self._wrapped.execute(*args, **kwargs)
+    
+    def __eq__(self, other):
+        """相等性比较 (解包后比较)."""
+        if isinstance(other, SignedProvider):
+            return self._wrapped == other._wrapped
+        return self._wrapped == other
+    
+    def __repr__(self):
+        return f"SignedProvider({self._wrapped!r})"
+
+
 class CapabilitySeam:
-    """能力 seam — 声明式接口 + 可替换实现"""
+    """能力 seam — 声明式接口 + 可替换实现 + 安全审计."""
     
     def __init__(self, name: str, interface: dict[str, Any]):
         self.name = name
         self.interface = interface
         self._providers: dict[str, CapabilityProvider] = {}
         self._default: str | None = None
+        self._audit_log: list[dict] = []
     
     def register_provider(self, provider: CapabilityProvider, default: bool = False) -> None:
-        """注册能力提供者"""
-        self._providers[provider.name] = provider
+        """注册能力提供者 (默认加双签保护)."""
+        wrapped = SignedProvider(provider)
+        self._providers[provider.name] = wrapped
         if default or self._default is None:
             self._default = provider.name
+        self._audit_log.append({
+            "action": "register",
+            "seam": self.name,
+            "provider": provider.name,
+            "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
     
     def get_provider(self, name: str | None = None) -> CapabilityProvider:
-        """获取能力提供者（默认或指定）"""
+        """获取能力提供者（默认或指定）."""
         if name is None:
             name = self._default
         if name is None or name not in self._providers:
@@ -46,12 +104,27 @@ class CapabilitySeam:
         return self._providers[name]
     
     def replace_provider(self, name: str, provider: CapabilityProvider) -> None:
-        """替换能力提供者（热替换）"""
-        self._providers[name] = provider
+        """替换能力提供者 (热替换, 需双签保护)."""
+        if name not in self._providers:
+            raise ValueError(f"Provider {name} 不存在")
+        old = self._providers[name]
+        self._providers[name] = SignedProvider(provider)
+        self._audit_log.append({
+            "action": "replace",
+            "seam": self.name,
+            "provider": name,
+            "old_approved": getattr(old, '_approved', True),
+            "new_approved": False,
+            "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
     
     def list_providers(self) -> list[str]:
-        """列出所有提供者"""
+        """列出所有提供者."""
         return list(self._providers.keys())
+    
+    def get_audit_log(self) -> list[dict]:
+        """获取审计日志."""
+        return list(self._audit_log)
 
 
 # 预定义能力 seam
