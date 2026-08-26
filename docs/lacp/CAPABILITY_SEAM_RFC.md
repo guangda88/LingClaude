@@ -2,8 +2,28 @@
 
 **日期**: 2026-08-25
 **作者**: 灵克 (lingclaude)
-**状态**: RFC 草案
+**状态**: ✅ 已实施（2026-08-26 更新：5 个 seam 落地 + sandbox_seam 新增）
 **前置**: P1-1 LSP ✅ + P1-6 code intel ✅（已满足）
+
+---
+
+## 实施记录（2026-08-26）
+
+RFC 已按设计落地于 `lingclaude/lacp/capability_seam.py`，并超出原设计补充：
+
+| Seam | 能力 | 默认 Provider | 落地 |
+|---|---|---|---|
+| FS_SEAM | read/write/edit/glob/grep | FileOpsProvider | ✅ |
+| SHELL_SEAM | execute/sandbox | BashExecutorProvider | ✅ |
+| LLM_SEAM | complete/stream | （待注册） | ✅ |
+| SUBAGENT_SEAM | spawn/abort/status | （待注册） | ✅ |
+| **SANDBOX_SEAM**（新增） | wrap/available | Bwrap/Noop | ✅ 2026-08-26 |
+
+超出原设计的落地：
+- **双签**：`SignedProvider`（required_signers + sign + is_approved）——治理层对齐
+- **5 个 seam**：原设计 4 个（fs/shell/llm/subagent），新增 SANDBOX_SEAM
+- **sandbox 后端插片化**：`engine/sandbox_provider.py`（Protocol + Bwrap/Noop），bash.py 通过 `set_sandbox_provider` 解耦
+- **消费方**：webui_seam.py 使用 capability_seam 注册
 
 ---
 

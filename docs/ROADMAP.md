@@ -154,11 +154,14 @@
 
 ### P2-2：Session projection（会话投影）
 
-**现状**：session 以事件流存储，无投影机制
-**目标**：对标 DSH `session-projection`——将 session 事件流投影为不同视角（token 用量 / 工具调用频率 / 轮次统计）
-**前置条件**：需先决定 session store 是否 event-sourced
-**影响文件**：`core/session_projection.py`（新建）
-**依赖**：需先完成 session 事件化改造（P0-4 snapshot/rewind 是前置）
+**现状**：`core/session_projection.py`（188 行）已实现 Token/Tool/Round 3 种投影，消费方 api.py:223 `/sessions/{id}/projection` 已接线（死接线案 5 修复，62587fa）
+**目标**：对标 DSH `session-projection`——将 session 投影为不同视角（token 用量 / 工具调用频率 / 轮次统计）
+**决策（2026-08-26 T3-2）**：**不 event-sourced，保持 snapshot-based**。理由：
+- 3 种投影已通过 api.py 接线可用，纯函数可测
+- 全量事件化需改 SessionManager 持久化链路（save→append 事件流）+ projection 从事件流重建，影响全链路、收益边际
+- lingclaude 走"单体 + 治理层"路线，不追平 DSH 全插件化（P3 不吸收）
+- "模型可见 ⟺ 已记录"不变量已由 session log 保证，不依赖 event-sourced
+**状态**：✅ 已落地（snapshot-based projection + webui 端点）
 
 ### P2-3：Web UI（可选，非核心）
 
