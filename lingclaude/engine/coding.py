@@ -27,9 +27,25 @@ from lingclaude.engine.tool_pipeline import ToolPipeline
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
 from lingclaude.engine.todo import TodoStore, make_handlers as _make_todo_handlers
 from lingclaude.engine.lsp_provider import StdioLspProvider, _path_to_uri
+from lingclaude.engine.tool_handlers import (
+    BackgroundToolsMixin,
+    BashToolsMixin,
+    FileToolsMixin,
+    GitToolsMixin,
+    LspToolsMixin,
+    PlanToolsMixin,
+    SearchToolsMixin,
+    SubagentToolsMixin,
+    TodoToolsMixin,
+    WebToolsMixin,
+)
 
 
-class CodingRuntime:
+class CodingRuntime(
+    BashToolsMixin, FileToolsMixin, SearchToolsMixin, GitToolsMixin,
+    SubagentToolsMixin, BackgroundToolsMixin, WebToolsMixin,
+    PlanToolsMixin, TodoToolsMixin, LspToolsMixin,
+):
     def __init__(self, config: lingclaudeConfig | None = None, model_provider: Any | None = None) -> None:
         self.config = config or lingclaudeConfig()
         self._model_provider = model_provider
@@ -506,136 +522,6 @@ class CodingRuntime:
         # T0-2: 敏感路径门接入 pipeline — 覆盖全部带路径参数的工具（write/edit/ast_replace 等）
         self.tool_pipeline.add_guard(self._sensitive_path_guard)
 
-    def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
-        # T0-2: sensitive_path_gate 检查 bash 命令中的路径
-        from lingclaude.engine.sensitive_path_gate import check_sensitive_path
-        # P2-1 收紧：只提取路径形 token（~ / ./ ../ 前缀），且 / 前不是单词字符
-        # （否则 echo "abc/def" 会把 /def 误当路径；引号内真实路径 cat "/home/x" 仍会命中）
-        import re
-        paths_in_cmd = re.findall(r'(?:~|(?<![\w])/|\.\.?/)[\w./~-]+', command)
-        for p in paths_in_cmd:
-            if len(p) > 1:
-                is_sensitive, reason = check_sensitive_path(p)
-                if is_sensitive:
-                    return {"error": f"Path blocked by sensitive_path_gate in command: {p} ({reason})"}
-        result = self.bash.run(command)
-        return {
-            "exit_code": result.exit_code,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "duration": result.duration,
-        }
-
-    def _bash_lingxi_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
-        result = self.bash_lingxi.run(command)
-        return {
-            "exit_code": result.exit_code,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "duration": result.duration,
-        }
-
-    def _read_handler(
-        self,
-        path: str,
-        offset: int = 0,
-        limit: int | None = None,
-        line_numbers: bool = True,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        # T0-2: sensitive_path_gate 检查（带 T0-3 审批逃生门）
-        gated = self._gate_sensitive("read", path)
-        if gated:
-            return {"error": gated}
-        result = self.file_read.read(path, offset=offset, limit=limit, line_numbers=line_numbers)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
-
-    def _write_handler(
-        self, path: str, content: str, **_kwargs: Any
-    ) -> dict[str, Any]:
-        result = self.file_ops.write(path, content)
-        if result.is_error:
-            return {"error": result.error}
-        return {"path": result.data}
-
-    def _edit_handler(
-        self,
-        path: str,
-        old_text: str,
-        new_text: str,
-        replace_all: bool = False,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        result = self.file_edit.replace(path, old_text, new_text, replace_all)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
-
-    def _file_create_handler(
-        self, path: str, content: str, **_kwargs: Any
-    ) -> dict[str, Any]:
-        result = self.file_edit.create(path, content)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
-
-    def _file_insert_handler(
-        self, path: str, line: int, text: str, **_kwargs: Any
-    ) -> dict[str, Any]:
-        result = self.file_edit.insert(path, line, text)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
-
-    def _file_delete_lines_handler(
-        self, path: str, start_line: int, end_line: int, **_kwargs: Any
-    ) -> dict[str, Any]:
-        result = self.file_edit.delete_lines(path, start_line, end_line)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
-
-    def _file_undo_handler(self, path: str, **_kwargs: Any) -> dict[str, Any]:
-        result = self.file_edit.undo(path)
-        if result.is_error:
-            return {"error": result.error}
-        return {"result": result.data}
-
-    def _glob_handler(self, pattern: str, path: str | None = None, **_kwargs: Any) -> dict[str, Any]:
-        # T0-2: sensitive_path_gate 检查（带 T0-3 审批逃生门）
-        gated = self._gate_sensitive("glob", pattern, path)
-        if gated:
-            return {"error": gated}
-        result = self.file_ops.glob(pattern, path=path)
-        if result.is_error:
-            return {"error": result.error}
-        return {"files": result.data}
-
-    def _grep_handler(
-        self,
-        pattern: str,
-        path: str | None = None,
-        include: str | None = None,
-        literal: bool = False,
-        case_sensitive: bool = True,
-        before: int = 0,
-        after: int = 0,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        # T0-2: sensitive_path_gate 检查（带 T0-3 审批逃生门）
-        gated = self._gate_sensitive("grep", pattern, path, include)
-        if gated:
-            return {"error": gated}
-        result = self.grep_tool.search(
-            pattern, include=include, literal=literal, case_sensitive=case_sensitive,
-            path=path, before=before, after=after,
-        )
-        if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
-
     def _stt_handler(
         self,
         duration: int = 5,
@@ -657,50 +543,6 @@ class CodingRuntime:
             "duration": stt_result.duration,
             "language": stt_result.language,
         }
-
-    def _git_status_handler(self, path: str = ".", **_kwargs: Any) -> dict[str, Any]:
-        result = git_status(path)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data
-
-    def _git_diff_handler(
-        self,
-        path: str = ".",
-        target: str = "",
-        staged: bool = False,
-        stat: bool = False,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        result = git_diff(path, target=target, staged=staged, stat=stat)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data
-
-    def _git_log_handler(
-        self,
-        path: str = ".",
-        count: int = 10,
-        follow: str | None = None,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        result = git_log(path, count=count, follow=follow)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data
-
-    def _git_blame_handler(
-        self,
-        file_path: str,
-        cwd: str = ".",
-        start_line: int | None = None,
-        end_line: int | None = None,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        result = git_blame(file_path, cwd=cwd, start_line=start_line, end_line=end_line)
-        if result.is_error:
-            return {"error": result.error}
-        return result.data
 
     def _index_project_handler(
         self,
@@ -739,237 +581,6 @@ class CodingRuntime:
         if result.is_error:
             return {"error": result.error}
         return {"functions": result.data}
-
-    def _sub_agent_handler(
-        self,
-        task: str,
-        context: str = "",
-        max_rounds: int = 5,
-        provider: str | None = None,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        from lingclaude.engine.subagent import (
-            SubagentContext,
-            SubagentManager,
-            SubagentRequest,
-        )
-
-        ctx = SubagentContext(
-            runtime=self,
-            model_provider=self._model_provider,
-        )
-        request = SubagentRequest(
-            task=task,
-            context=context,
-            max_rounds=max_rounds,
-            provider=provider,
-        )
-        manager = getattr(self, "_subagent_manager", None)
-        if manager is None:
-            manager = SubagentManager()
-            self._subagent_manager = manager
-        result = manager.run(request, ctx)
-        return {
-            "agent_id": result.agent_id,
-            "output": result.output,
-            "tools_used": list(result.tools_used),
-            "success": result.success,
-            "error": result.error,
-            "rounds": result.rounds,
-            "provider": result.provider,
-        }
-
-    def _list_agents_handler(self, **_kwargs: Any) -> dict[str, Any]:
-        """T1-6: 列出所有子代理及其状态."""
-        manager = getattr(self, "_subagent_manager", None)
-        if manager is None:
-            return {"agents": [], "backends": []}
-        backends = manager.list_backends()
-        # 列出各后端的运行中 agent（通过 _running dict）
-        agents = []
-        for backend_name in backends:
-            backend = manager.get_backend(backend_name)
-            if hasattr(backend, '_running'):
-                for agent_id, info in backend._running.items():
-                    status = backend.status(agent_id)
-                    agents.append({
-                        "agent_id": agent_id,
-                        "backend": backend_name,
-                        "status": status.value,
-                        "task": info.get("result", {}).get("task", "") if isinstance(info.get("result"), dict) else "",
-                    })
-        return {"agents": agents, "backends": backends}
-
-    def _interrupt_agent_handler(self, agent_id: str, **_kwargs: Any) -> dict[str, Any]:
-        """T1-6: 中止指定子代理."""
-        manager = getattr(self, "_subagent_manager", None)
-        if manager is None:
-            return {"success": False, "error": "No subagent manager"}
-        # 尝试所有后端
-        for backend_name in manager.list_backends():
-            backend = manager.get_backend(backend_name)
-            if hasattr(backend, 'abort'):
-                if backend.abort(agent_id):
-                    return {"success": True, "agent_id": agent_id, "message": "Agent interrupted"}
-        return {"success": False, "agent_id": agent_id, "error": "Agent not found or backend doesn't support abort"}
-
-    def _get_background_manager(self):
-        """P0-1: 惰性初始化后台任务管理器。"""
-        manager = getattr(self, "_background_manager", None)
-        if manager is None:
-            from lingclaude.engine.background import BackgroundTaskManager
-            manager = BackgroundTaskManager()
-            self._background_manager = manager
-        return manager
-
-    def _run_in_background_handler(self, command: str, timeout: int = 300, **_kwargs: Any) -> dict[str, Any]:
-        """P0-1: 后台执行 bash 命令，立即返回 job_id。"""
-        if not command or not command.strip():
-            return {"error": "command is required"}
-        manager = self._get_background_manager()
-        job_id = manager.submit(command, timeout=float(timeout))
-        return {"job_id": job_id, "status": "pending", "message": f"Background job {job_id} started"}
-
-    def _list_jobs_handler(self, **_kwargs: Any) -> dict[str, Any]:
-        """P0-1: 列出所有后台任务。"""
-        manager = self._get_background_manager()
-        jobs = manager.list_jobs()
-        return {"jobs": jobs, "count": len(jobs)}
-
-    def _job_status_handler(self, job_id: str, **_kwargs: Any) -> dict[str, Any]:
-        """P0-1: 查询单个后台任务状态。"""
-        manager = self._get_background_manager()
-        job = manager.status(job_id)
-        if job is None:
-            return {"error": f"Job not found: {job_id}"}
-        return job
-
-    def _cancel_job_handler(self, job_id: str, **_kwargs: Any) -> dict[str, Any]:
-        """P0-1: 取消后台任务。"""
-        manager = self._get_background_manager()
-        cancelled = manager.cancel(job_id)
-        if not cancelled:
-            return {"success": False, "job_id": job_id, "error": "Job not found or already finished"}
-        return {"success": True, "job_id": job_id, "message": "Job cancelled"}
-
-    def _plan_mode_handler(self, action: str = "enter", **_kwargs: Any) -> dict[str, Any]:
-        if action == "enter":
-            self.plan_mode.enter()
-            self._plan_mode_active = True
-            return {"plan_mode": True, "message": "Plan mode activated. Tool execution disabled."}
-        elif action == "exit":
-            self.plan_mode.exit()
-            self._plan_mode_active = False
-            return {"plan_mode": False, "message": "Plan mode deactivated. Tool execution enabled."}
-        return {"error": f"Unknown action: {action}. Use 'enter' or 'exit'."}
-
-    def _web_fetch_handler(
-        self,
-        url: str,
-        timeout: int = 30,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        from lingclaude.engine.web_tools import WebFetcher
-        fetcher = WebFetcher(timeout=timeout)
-        result = fetcher.fetch(url)
-        if result.is_error:
-            return {"error": result.error}
-        return {"url": url, "content": result.data}
-
-    def _todo_handler(
-        self,
-        command: str,
-        id: str | None = None,
-        content: str | None = None,
-        priority: int = 0,
-        tags: list[str] | None = None,
-        status: str | None = None,
-        **_: Any,
-    ) -> dict[str, Any]:
-        """P0-1: Todo list tool dispatcher."""
-        h = self._todo_handlers
-        cmd = command.lower()
-        if cmd == "create":
-            return h["create"](content=content, priority=priority, tags=tags)
-        if cmd == "list":
-            return h["list"](status=status, tags=tags)
-        if cmd == "complete":
-            return h["complete"](id=id)
-        if cmd == "cancel":
-            return h["cancel"](id=id)
-        if cmd == "start":
-            return h["start"](id=id)
-        if cmd == "get":
-            return h["get"](id=id)
-        if cmd == "delete":
-            return h["delete"](id=id)
-        return {"ok": False, "error": f"unknown command: {command}"}
-
-    def _lsp_handler(
-        self,
-        command: str,
-        file_path: str,
-        line: int = 0,
-        character: int = 0,
-        **_: Any,
-    ) -> dict[str, Any]:
-        """P1-1: LSP dispatcher — routes to StdioLspProvider on first use."""
-        import asyncio
-        from pathlib import Path
-
-        cmd = command.lower()
-        if cmd not in ("goto_def", "find_refs", "hover", "goto_impl"):
-            return {"ok": False, "error": f"unknown LSP command: {command}"}
-
-        # Lazy-init LSP provider
-        if self._lsp_provider is None:
-            # lsp add: 从注册表读取语言 → server 命令（用户配置优先，内置回退）
-            from lingclaude.engine.lsp_registry import detect_lang, get_server
-
-            lang = detect_lang(file_path)
-            server_cfg = get_server(lang) if lang else None
-            # Auto-detect workspace root: find .git / pyproject.toml / Cargo.toml
-            cwd = Path(file_path).resolve().parent
-            for parent in [cwd, *cwd.parents]:
-                if (parent / "pyproject.toml").exists():
-                    self._lsp_workspace_root = parent
-                    break
-                if (parent / "Cargo.toml").exists():
-                    self._lsp_workspace_root = parent
-                    break
-            else:
-                self._lsp_workspace_root = cwd
-            command = server_cfg["command"] if server_cfg else "pylsp"
-            args = server_cfg.get("args", []) if server_cfg else []
-            server = StdioLspProvider([command, *args], workspace_root=self._lsp_workspace_root)
-            self._lsp_provider = server
-
-        provider = self._lsp_provider
-
-        async def run():
-            if not getattr(provider, "_initialized", False):
-                await provider.initialize(self._lsp_workspace_root)
-                provider._initialized = True
-            if cmd == "goto_def":
-                return await provider.go_to_definition(file_path, line, character)
-            if cmd == "find_refs":
-                return await provider.find_references(file_path, line, character)
-            if cmd == "hover":
-                return await provider.hover(file_path, line, character)
-            return await provider.go_to_implementation(file_path, line, character)
-
-        try:
-            result = asyncio.run(run())
-            return {
-                "ok": True,
-                "command": cmd,
-                "result": [
-                    {"uri": loc.uri, "line": loc.range.start.line, "col": loc.range.start.character}
-                    for loc in (result if isinstance(result, list) else [])
-                ],
-            }
-        except Exception as e:
-            return {"ok": False, "error": f"lsp error: {e}"}
 
     # P0-3: request_user_input tool — registered below after _setup_tools
     def _request_user_input_handler(
@@ -1028,19 +639,6 @@ class CodingRuntime:
             except ValueError:
                 pass  # 非数字，原样返回
         return {"ok": True, "answer": selected, "mode": mode}
-
-    def _web_search_handler(
-        self,
-        query: str,
-        max_results: int = 5,
-        **_kwargs: Any,
-    ) -> dict[str, Any]:
-        from lingclaude.engine.web_tools import WebSearcher
-        searcher = WebSearcher()
-        result = searcher.search(query, max_results=max_results)
-        if result.is_error:
-            return {"error": result.error}
-        return {"query": query, "results": result.data}
 
     def _tool_scope(self, name: str) -> str:
         """工具的 security_scope（plan_mode 判定用）。"""
