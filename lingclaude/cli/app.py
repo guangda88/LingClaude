@@ -85,6 +85,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
         from dataclasses import replace
         config = replace(config, engine=replace(config.engine, bash_executor_type=args.bash_executor))
 
+    # RFC v0.1 §3 A1-1: 启动后台 BusResponder 监听 LingBus 任务
+    # 族长 2026-08-27 决议:默认 = 1(生产开),pytest 环境通过 conftest.py 设为 0
+    # 优先级:LINGCLAUDE_BUS_LISTENER 显式 = 0 > 默认开 > 显式 = 1(冗余兼容)
+    import os as _os
+    if _os.environ.get("LINGCLAUDE_BUS_LISTENER") != "0":
+        _bus_responder_stop = _start_bus_responder_background()
+        import atexit
+        atexit.register(_bus_responder_stop.set)
+
     if args.prompt:
         if args.interactive:
             return _interactive_loop(engine, args.prompt)
@@ -134,6 +143,46 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
             behavior=bm,
         ))
     return 0
+
+
+def _start_bus_responder_background(interval: float = 30.0) -> threading.Event:
+    """RFC v0.1 §3 A1-1: 后台线程启动 BusResponder 监听 LingBus 任务。
+
+    设计原则:
+    - **不**用 BusResponder.run_loop()(它注册 SIGINT/SIGTERM,与主交互循环冲突)
+    - **自定义 stop_event**,主进程退出前 .set() 触发线程停止
+    - **catch 一切异常**,线程不能因为单次 poll 失败就退出
+    - 端口不可达/数据库锁 等临时性错误,记录后继续轮询
+    """
+    from lingclaude.coordination.bus_responder import BusResponder
+
+    stop_event = threading.Event()
+
+    def _background_loop() -> None:
+        try:
+            responder = BusResponder()
+        except Exception as e:  # noqa: BLE001 — 初始化失败不能阻塞主循环
+            _logger.error("BusResponder init failed, skip background polling: %s", e)
+            return
+
+        _logger.info("BusResponder background thread started (interval=%.0fs)", interval)
+        while not stop_event.is_set():
+            try:
+                responder.poll_and_respond()
+            except Exception as e:  # noqa: BLE001 — 单次失败不退出线程
+                _logger.error("BusResponder background poll error: %s", e)
+            # 周期 wait + 提前唤醒(可选)
+            if stop_event.wait(timeout=interval):
+                break
+        _logger.info("BusResponder background thread stopped")
+
+    thread = threading.Thread(
+        target=_background_loop,
+        name="lingclaude-bus-responder",
+        daemon=True,  # 主进程退出时强制终止,避免孤儿线程
+    )
+    thread.start()
+    return stop_event
 
 
 def _esc_pressed() -> bool:

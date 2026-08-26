@@ -15,3 +15,9 @@ def _isolate_git_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", empty_hooks)
+
+
+# RFC v0.1 §3 A1-1 修订:pytest 环境默认禁用 BusResponder 后台线程
+# 灵克 cli 默认 = 1(生产开),pytest 通过 conftest 设 = 0 防卡死
+# 用户主动 export LINGCLAUDE_BUS_LISTENER=1 可强制开(覆盖 conftest)
+os.environ["LINGCLAUDE_BUS_LISTENER"] = "0"

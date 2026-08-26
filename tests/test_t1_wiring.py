@@ -648,3 +648,57 @@ class TestMarketplaceRealAPI:
         trust = mp.get_trust_score("test-rate-plugin")
         assert rating == 5.0
         assert 0.0 <= trust <= 1.0
+
+
+# ── A1-1 验收:BusResponder 启动接线(灵信/灵安验收要求)─────────────────
+
+
+class TestA11BusResponderWiring:
+    """A2+A1-1 合并交付验收(LingBus 优化 RFC §3)。
+
+    族长 2026-08-27 决议 C:默认开,LINGCLAUDE_BUS_LISTENER=0 / conftest 关闭。
+    """
+
+    def test_app_py_references_bus_responder(self):
+        """灵安审查要求:app.py 必须真实引用 BusResponder(非死接线)。"""
+        import inspect
+        from lingclaude.cli import app
+        src = inspect.getsource(app)
+        assert "BusResponder" in src, "app.py 无 BusResponder 引用(A2 死接线复发)"
+        assert "_start_bus_responder_background" in src
+        assert callable(app._start_bus_responder_background)
+
+    def test_conftest_disables_listener_in_pytest(self):
+        """conftest.py 必须设 LINGCLAUDE_BUS_LISTENER=0(决议 C 核心机制)。"""
+        import os
+        assert os.environ.get("LINGCLAUDE_BUS_LISTENER") == "0", (
+            "conftest 应设 LINGCLAUDE_BUS_LISTENER=0,否则 pytest 会启动后台线程卡死"
+        )
+
+    def test_start_and_stop_background_thread(self):
+        """启动 + 停止:stop_event.set() 后线程应在 interval 内退出。"""
+        import threading
+        from lingclaude.cli.app import _start_bus_responder_background
+        stop = _start_bus_responder_background(interval=1.0)
+        assert isinstance(stop, threading.Event)
+        stop.set()
+        # 1 个 interval 内线程应退出(daemon 线程,不 join 等太久)
+        joined = threading.Event()
+        for t in threading.enumerate():
+            if t.name == "lingclaude-bus-responder":
+                t.join(timeout=3.0)
+                joined.set()
+                break
+        assert joined.is_set(), "lingclaude-bus-responder 线程未找到"
+
+    def test_default_on_semantics(self, monkeypatch):
+        """默认开语义:env=0 关闭,unset 默认开(族长决议 C)。"""
+        import os
+        # env=0 → 判定为"不启动"
+        monkeypatch.setenv("LINGCLAUDE_BUS_LISTENER", "0")
+        should_start = os.environ.get("LINGCLAUDE_BUS_LISTENER") != "0"
+        assert should_start is False
+        # unset → 判定为"默认启动"
+        monkeypatch.delenv("LINGCLAUDE_BUS_LISTENER", raising=False)
+        should_start = os.environ.get("LINGCLAUDE_BUS_LISTENER") != "0"
+        assert should_start is True
