@@ -1,0 +1,15 @@
+# LingClaude lefthook config — hooks 由 lefthook install 管理
+# lefthook 路径: /home/ai/deepseek-harness/node_modules/.pnpm/lefthook-linux-x64@2.1.9/node_modules/lefthook-linux-x64/bin/lefthook
+# 灵督规则: linggit/rules/review_rules.yaml (20 checks)
+
+pre-commit:
+  commands:
+    linggit-audit:
+      run: python3 linggit/hooks/pre_commit.py --rules-dir linggit/rules
+      stage_fixed: false
+
+pre-push:
+  commands:
+    pre-push-security:
+      run: bash .git/hooks/pre-push-security
+      priority: 10

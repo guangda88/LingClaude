@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lingclaude.core.message_builder import (
     MessageBuilder,
     assemble_system_prompt,
 )
+import lingclaude.self_optimizer.learner.knowledge as _kb_mod
+
+
+@pytest.fixture(autouse=True)
+def _isolate_kb(monkeypatch, tmp_path):
+    """KnowledgeBase 默认读 <repo>/.lingclaude/knowledge.db（真实经验库），
+    会污染阈值抑制类断言。重定向到 tmp 空库。"""
+    real_kb = _kb_mod.KnowledgeBase
+
+    def _patched(db_path=None):
+        return real_kb(str(tmp_path / "knowledge.db"))
+
+    monkeypatch.setattr(_kb_mod, "KnowledgeBase", _patched)
 
 
 class FakeBehavior:
