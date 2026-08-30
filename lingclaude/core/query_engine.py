@@ -545,15 +545,30 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         if not model_name or not model_name.strip():
             return Result.fail("model name is required", code="BAD_MODEL_NAME")
 
+        target = model_name.strip()
         base = self._model_config or ModelConfig()
-        new_cfg = ModelConfig(
-            model=model_name.strip(),
-            api_key=base.api_key,
-            base_url=base.base_url,
-            max_tokens=base.max_tokens,
-            temperature=base.temperature,
-            system_prompt=base.system_prompt,
-        )
+        # F12h:优先从 TaskRouter 按模型名反查 provider — 连 base_url/key 一起换。
+        # 旧行为只换模型名、沿用旧端点:用户 /model minimax-m3 后实际拿 minimax
+        # 名字请求 zhipu 端点,必 404(假切换)。
+        _pname, _pinfo = self._task_router.find_provider_by_model(target)
+        if _pinfo is not None:
+            new_cfg = ModelConfig(
+                model=target,
+                api_key=_pinfo.api_key,
+                base_url=_pinfo.base_url,
+                max_tokens=base.max_tokens,
+                temperature=base.temperature,
+                system_prompt=base.system_prompt,
+            )
+        else:
+            new_cfg = ModelConfig(
+                model=target,
+                api_key=base.api_key,
+                base_url=base.base_url,
+                max_tokens=base.max_tokens,
+                temperature=base.temperature,
+                system_prompt=base.system_prompt,
+            )
         provider_result = create_provider(config=new_cfg)
         if provider_result.is_error:
             return provider_result

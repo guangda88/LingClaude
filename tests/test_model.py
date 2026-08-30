@@ -232,6 +232,37 @@ class TestOpenAIProvider:
         assert result.is_error
         assert "API key" in result.error
 
+    def test_f12d_local_base_without_key_allowed(self) -> None:
+        """F12d:本地 base_url 无 key 放行 — 不再报「API key 未设置」。"""
+        provider = OpenAIProvider(ModelConfig(
+            api_key="", base_url="http://127.0.0.1:8775/v1", model="waterfall",
+        ))
+        mock_response_data = {
+            "choices": [{"message": {"content": "local ok"}, "finish_reason": "stop"}],
+            "model": "waterfall",
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps(mock_response_data).encode()
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            result = provider.complete(
+                (ModelMessage(role=MessageRole.USER, content="hi"),)
+            )
+        assert result.is_ok, f"本地无 key 应放行,实际: {result.error}"
+
+    def test_f12d_cloud_base_without_key_still_rejected(self) -> None:
+        """F12d 对照:云端 base_url 无 key 仍拒绝。"""
+        provider = OpenAIProvider(ModelConfig(
+            api_key="", base_url="https://integrate.api.nvidia.com/v1",
+        ))
+        result = provider.complete(
+            (ModelMessage(role=MessageRole.USER, content="hi"),)
+        )
+        assert result.is_error
+        assert "API key" in result.error
+
     def test_complete_mock_success(self) -> None:
         provider = OpenAIProvider(ModelConfig(api_key="sk-test"))
         mock_response_data = {

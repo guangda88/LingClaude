@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from lingclaude.model.types import ModelConfig
 from lingclaude.model.intelligent_router import TaskType
@@ -46,6 +48,47 @@ class _ProviderInfo:
     models: list[str]
     rpm: float
     burst: int
+
+
+def _is_local_base(base_url: str) -> bool:
+    """本地服务(localhost/127.0.0.1/内网 stub)不需要 api_key 也能通。
+
+    F12b:路由跳过判断用。实现收敛到 ModelConfig.is_local_base(F12d),
+    保证路由层与 provider 层语义单一来源。
+    """
+    from lingclaude.model.types import ModelConfig
+    return ModelConfig(base_url=base_url).is_local_base()
+
+
+# F12c:provider → 环境变量映射。lingcode/config.json 的 api_key 字段留空时,
+# 按此映射从环境变量兜底取 key。key 实际单点存放于 ~/.ling_keys.env
+# (proxy3 同源,gen_env.py 管理),不在 lingcode config 落明文。
+_PROVIDER_ENV_KEY_MAP: dict[str, str] = {
+    "nvidia": "NVIDIA_NIM_API_KEY",
+    "minimax": "MINIMAX_API_KEY",
+    "volcengine": "VOLC_CODING_API_KEY",
+    "hunyuan": "HUNYUAN_API_KEY",
+    "agnes": "AGNES_ENTERPRISE_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "siliconflow": "SILICONFLOW_API_KEY",
+    "siliconflow_disabled": "SILICONFLOW_API_KEY",
+    "kimi": "KIMI_API_KEY",
+    "zai": "ZAI_API_KEY",
+    "zhipu": "ZHIPU_API_KEY",
+    "glm": "ZHIPU_API_KEY",
+    "dashscope": "DASHSCOPE_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def _resolve_api_key(provider_name: str, config_key: str) -> str:
+    """F12c:config api_key 为空 → 按映射查环境变量兜底。"""
+    if config_key:
+        return config_key
+    env_name = _PROVIDER_ENV_KEY_MAP.get(provider_name)
+    if env_name:
+        return os.environ.get(env_name, "")
+    return ""
 
 
 @dataclass
@@ -85,10 +128,15 @@ class TaskRouter:
         self._default_provider = routing.get("default_target", "cheap")
 
         for name, pdef in routing.get("providers", {}).items():
+            # F12g:per-provider 开关 — 上游全挂的 provider(如 waterfall)可在
+            # lingcode config 加 "enabled": false 摘出路由池,无需删条目。
+            if pdef.get("enabled", True) is False:
+                logger.info("TaskRouter: provider '%s' disabled by config, skipped", name)
+                continue
             rate = pdef.get("rate_limit", {})
             self._providers[name] = _ProviderInfo(
                 type=pdef.get("type", "openai"),
-                api_key=pdef.get("api_key", ""),
+                api_key=_resolve_api_key(name, pdef.get("api_key", "")),
                 base_url=pdef.get("base_url", ""),
                 default_model=pdef.get("model", ""),
                 models=pdef.get("models", []),
@@ -146,6 +194,15 @@ class TaskRouter:
             if not pinfo:
                 continue
 
+            # F12b:云端 provider 缺 api_key → 跳过选下一候选,不让请求
+            # 炸在 provider.stream_complete 层。本地服务无 key 是正常形态,不跳过。
+            if not pinfo.api_key and not _is_local_base(pinfo.base_url):
+                logger.debug(
+                    "路由跳过 %s:云端 provider 无 api_key(候选 %d/%d)",
+                    ref.provider, i + 1, len(models),
+                )
+                continue
+
             slot = self._slots.get(ref.provider)
             if slot and not slot.is_available:
                 continue
@@ -195,6 +252,16 @@ class TaskRouter:
             if slot.consecutive_errors >= 3:
                 slot.cooldown_until = time.monotonic() + 30.0
                 slot.consecutive_errors = 0
+
+    def find_provider_by_model(self, model_name: str) -> tuple[str, _ProviderInfo] | tuple[None, None]:
+        """F12h:按模型名反查 provider — 供 /model <name> 切换时连带端点/key。"""
+        target = (model_name or "").strip()
+        if not target:
+            return None, None
+        for name, pinfo in self._providers.items():
+            if pinfo.default_model == target or target in pinfo.models:
+                return name, pinfo
+        return None, None
 
     def get_provider_name(self, api_key: str, base_url: str) -> str | None:
         for name, pinfo in self._providers.items():

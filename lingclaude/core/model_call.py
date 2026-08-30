@@ -213,24 +213,68 @@ class ModelCallMixin:
             round_tool_calls: list[ToolCall] = []
             stream_error: str | None = None
 
-            for event in self._provider.stream_complete(
-                tuple(messages), config=resolved_config, tools=tools,
-            ):
-                if event["type"] == "text_delta":
-                    round_text_parts.append(event["text"])
-                    yield {"type": "text_delta", "text": event["text"]}
-                elif event["type"] == "tool_call_complete":
-                    tc = ToolCall(
-                        id=event["id"],
-                        name=event["name"],
-                        arguments=event["arguments"],
+            # F12f:同回合失败换候选 — 最多尝试 2 个 provider。
+            # 首选失败且尚无任何文本输出时,重新 resolve(TaskRouter round-robin
+            # 前进即自动换下一候选)+ record_error,不让单点故障直接甩给用户。
+            for cfg_attempt in range(2):
+                round_text_parts.clear()
+                round_tool_calls.clear()
+                stream_error = None
+
+                for event in self._provider.stream_complete(
+                    tuple(messages), config=resolved_config, tools=tools,
+                ):
+                    if event["type"] == "text_delta":
+                        round_text_parts.append(event["text"])
+                        yield {"type": "text_delta", "text": event["text"]}
+                    elif event["type"] == "tool_call_complete":
+                        tc = ToolCall(
+                            id=event["id"],
+                            name=event["name"],
+                            arguments=event["arguments"],
+                        )
+                        round_tool_calls.append(tc)
+                    elif event["type"] == "finish":
+                        total_input += event.get("usage", ModelUsage()).input_tokens
+                        total_output += event.get("usage", ModelUsage()).output_tokens
+                    elif event["type"] == "error":
+                        stream_error = event["error"]
+
+                if stream_error is None:
+                    # F12f:成功也记 success(与 _call_model 对称)
+                    if resolved_config:
+                        pname = self._task_router.get_provider_name(
+                            resolved_config.api_key, resolved_config.base_url,
+                        )
+                        if pname:
+                            self._task_router.record_success(pname)
+                    break
+
+                # 失败:记录 provider 错误(熔断统计,与 _call_model 对称)
+                if resolved_config:
+                    pname = self._task_router.get_provider_name(
+                        resolved_config.api_key, resolved_config.base_url,
                     )
-                    round_tool_calls.append(tc)
-                elif event["type"] == "finish":
-                    total_input += event.get("usage", ModelUsage()).input_tokens
-                    total_output += event.get("usage", ModelUsage()).output_tokens
-                elif event["type"] == "error":
-                    stream_error = event["error"]
+                    if pname:
+                        self._task_router.record_error(pname)
+
+                # 尚无输出 → 换下一候选重试一次
+                if cfg_attempt == 0 and not round_text_parts:
+                    next_cfg, _ = self._resolve_model_config(prompt)
+                    if next_cfg and (
+                        (next_cfg.model, next_cfg.base_url)
+                        != (resolved_config.model, resolved_config.base_url)
+                    ):
+                        yield {
+                            "type": "status",
+                            "message": (
+                                f"[{pname or '首选模型'}] 失败，"
+                                f"切换备选 {next_cfg.model} 重试..."
+                            ),
+                        }
+                        resolved_config = next_cfg
+                        continue
+                break
 
             if stream_error is not None:
                 consecutive_failures += 1

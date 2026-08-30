@@ -104,6 +104,19 @@ class ModelConfig:
         "4. 用中文回答，代码保持原样。"
     )
 
+    def is_local_base(self) -> bool:
+        """本地推理服务(localhost/127.0.0.1)不需要 api_key。
+
+        F12d 语义统一:task_router 路由跳过判断(F12b)与 provider 层空 key
+        放行判断(F12d)必须同源,否则出现「路由认为本地无 key 合法、
+        provider 却拒发」的语义撕裂(实测 run -i 报 OpenAI API key 未设置)。
+        """
+        if not self.base_url:
+            return False
+        from urllib.parse import urlparse
+        host = urlparse(self.base_url).hostname or ""
+        return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> ModelConfig:
         return cls(

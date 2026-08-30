@@ -154,3 +154,116 @@ class TestTaskRouter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestF12EnvKeyFallback(unittest.TestCase):
+    """F12c/b:config 空 key → env 兜底;无 key 云端跳过;本地不跳过;显式 key 优先."""
+
+    def _make_config_no_key(self):
+        cfg = {
+            "routing": {
+                "default_target": "cheap",
+                "providers": {
+                    "nvidia": {
+                        "type": "openai", "api_key": "",
+                        "base_url": "https://integrate.api.nvidia.com/v1",
+                        "model": "z-ai/glm-5.1", "models": ["z-ai/glm-5.1"],
+                        "rate_limit": {"rpm": 10, "burst": 3},
+                    },
+                    "localstub": {
+                        "type": "openai", "api_key": "",
+                        "base_url": "http://127.0.0.1:9999/v1",
+                        "model": "stub", "models": ["stub"],
+                        "rate_limit": {"rpm": 10, "burst": 3},
+                    },
+                },
+                "task_routes": {
+                    "chinese_reasoning": {"description": "中文推理",
+                        "models": [{"provider": "nvidia", "model": "z-ai/glm-5.1"}]},
+                    "fast_response": {"description": "快速",
+                        "models": [{"provider": "localstub", "model": "stub"}]},
+                },
+            },
+        }
+        import tempfile as _tf
+        f = _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump(cfg, f); f.close()
+        return Path(f.name)
+
+    def test_env_key_fallback_resolves(self):
+        import os
+        from unittest.mock import patch
+        path = self._make_config_no_key()
+        with patch.dict(os.environ, {"NVIDIA_NIM_API_KEY": "fake-nvidia-key"}):
+            router = TaskRouter(config_path=path)
+            cfg, _ = router.resolve("分析", task_type=TaskType.ANALYSIS)
+            self.assertEqual(cfg.api_key, "fake-nvidia-key")
+        path.unlink()
+
+    def test_no_env_no_key_local_skips_cloud(self):
+        import os
+        from unittest.mock import patch
+        path = self._make_config_no_key()
+        env = {k: v for k, v in os.environ.items() if k != "NVIDIA_NIM_API_KEY"}
+        with patch.dict(os.environ, env, clear=True):
+            router = TaskRouter(config_path=path)
+            cfg, _ = router.resolve("分析", task_type=TaskType.ANALYSIS)
+            self.assertNotEqual(cfg.base_url, "https://integrate.api.nvidia.com/v1")
+        path.unlink()
+
+    def test_local_provider_without_key_not_skipped(self):
+        path = self._make_config_no_key()
+        router = TaskRouter(config_path=path)
+        cfg, route_key = router.resolve("快速", task_type=TaskType.SEARCH)
+        self.assertEqual(route_key, "fast_response")
+        self.assertEqual(cfg.base_url, "http://127.0.0.1:9999/v1")
+        path.unlink()
+
+    def test_config_key_takes_precedence(self):
+        import tempfile as _tf
+        import os
+        from unittest.mock import patch
+        f = _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"routing": {"providers": {"nvidia": {
+            "type": "openai", "api_key": "explicit-key",
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "model": "m", "models": ["m"], "rate_limit": {"rpm": 10, "burst": 3},
+        }}, "task_routes": {}}}, f)
+        f.close()
+        with patch.dict(os.environ, {"NVIDIA_NIM_API_KEY": "env-key"}):
+            router = TaskRouter(config_path=Path(f.name))
+            self.assertEqual(router._providers["nvidia"].api_key, "explicit-key")
+        Path(f.name).unlink()
+
+    def test_f12g_enabled_false_skips_provider(self):
+        import tempfile as _tf
+        f = _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"routing": {"providers": {"dead": {
+            "type": "openai", "api_key": "k", "base_url": "https://x.example/v1",
+            "model": "m", "models": ["m"], "rate_limit": {"rpm": 10, "burst": 3},
+            "enabled": False,
+        }}, "task_routes": {}}}, f)
+        f.close()
+        router = TaskRouter(config_path=Path(f.name))
+        self.assertNotIn("dead", router._providers)
+        Path(f.name).unlink()
+
+    def test_f12h_find_provider_by_model(self):
+        import tempfile as _tf
+        f = _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"routing": {"providers": {"glm": {
+            "type": "openai", "api_key": "k", "base_url": "https://zhipu/v4",
+            "model": "glm-5.1", "models": ["glm-5.1", "glm-4.7"],
+            "rate_limit": {"rpm": 10, "burst": 3},
+        }}, "task_routes": {}}}, f)
+        f.close()
+        router = TaskRouter(config_path=Path(f.name))
+        name, info = router.find_provider_by_model("glm-4.7")
+        self.assertEqual(name, "glm")
+        self.assertEqual(info.base_url, "https://zhipu/v4")
+        name2, _ = router.find_provider_by_model("nonexistent")
+        self.assertIsNone(name2)
+        Path(f.name).unlink()
+
+
+if __name__ == "__main__":
+    unittest.main()

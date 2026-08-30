@@ -47,7 +47,11 @@ class OpenAIProvider(ModelProvider):
         tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         cfg = config or self._config
-        if not cfg.api_key:
+        # F12d:本地推理服务(waterfall/deepseek proxy 等)无 key 合法,放行。
+        # 只对云端 base 拒发 — 与 task_router F12b 跳过语义同源(cfg.is_local_base)。
+        # ⚠️ 2026-08-29 实证:此检查若去掉,路由到本地 waterfall(无 key)时报
+        # 「OpenAI API key 未设置」——该 bug 由本检查回滚引入,勿再移除。
+        if not cfg.api_key and not cfg.is_local_base():
             return Result.fail("OpenAI API key 未设置。请在 config.yaml 中配置 model.api_key 或设置 OPENAI_API_KEY 环境变量")
         try:
             return self._call_with_retry(messages, cfg, tools)
@@ -61,7 +65,7 @@ class OpenAIProvider(ModelProvider):
         tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         cfg = config or self._config
-        if not cfg.api_key:
+        if not cfg.api_key and not cfg.is_local_base():
             return Result.fail("OpenAI API key 未设置")
         try:
             return await self._call_api_async(messages, cfg, tools)
@@ -82,7 +86,8 @@ class OpenAIProvider(ModelProvider):
         tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Generator[dict[str, Any], None, None]:
         cfg = config or self._config
-        if not cfg.api_key:
+        # F12d:本地服务无 key 合法 — 放行(与 complete/acomplete 同条件)。
+        if not cfg.api_key and not cfg.is_local_base():
             yield {"type": "error", "error": "OpenAI API key 未设置"}
             return
 
@@ -139,15 +144,19 @@ class OpenAIProvider(ModelProvider):
         body = self._build_request_body(messages, cfg, tools)
         body["stream"] = True
         headers = {
-            "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
         }
+        if cfg.api_key:  # F12d:本地无 key 时省略 Authorization,不发空 Bearer
+            headers["Authorization"] = f"Bearer {cfg.api_key}"
 
         content_parts: list[str] = []
         tool_call_accumulators: dict[int, dict[str, Any]] = {}
         finish_reason = "stop"
         usage = ModelUsage()
+
+        # F12i:流挂起可见性 — readline 最长阻塞 120s,期间零事件用户以为卡死。
+        yield {"type": "status", "message": f"连接 {host}:{port} 等待首 token..."}
 
         try:
             if parsed.scheme == "https":
