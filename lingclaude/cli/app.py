@@ -124,6 +124,11 @@ def _load_keys_env() -> None:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
+    # 审计#4 修复:--bash-executor 必须在 CodingRuntime 创建前生效
+    # （此前先建 runtime 再替换 config 且替换结果没人用 — 参数完全无效）。
+    if args.bash_executor:
+        from dataclasses import replace
+        config = replace(config, engine=replace(config.engine, bash_executor_type=args.bash_executor))
     engine_result = QueryEngine.from_config_file(args.config)
     if engine_result.is_error:
         print(f"错误: {engine_result.error}")
@@ -132,15 +137,21 @@ def _cmd_run(args: argparse.Namespace) -> int:
     runtime = CodingRuntime(config)
     engine.set_runtime(runtime)
 
-    if args.bash_executor:
-        from dataclasses import replace
-        config = replace(config, engine=replace(config.engine, bash_executor_type=args.bash_executor))
+    # 审计#12 修复:--model 此前注册后零使用 — 接线为默认模型切换（不等价于
+    # TaskRouter 的逐消息路由，只改默认 provider，见 /model 提示语）。
+    if getattr(args, "model", None):
+        result = engine.switch_model(args.model)
+        if result.is_ok:
+            print(f"[默认模型] {result.data}")
+        else:
+            print(f"[模型] 切换失败: {result.error}（继续用配置默认）")
 
     # RFC v0.1 §3 A1-1: 启动后台 BusResponder 监听 LingBus 任务
     # 族长 2026-08-27 决议:默认 = 1(生产开),pytest 环境通过 conftest.py 设为 0
     # 优先级:LINGCLAUDE_BUS_LISTENER 显式 = 0 > 默认开 > 显式 = 1(冗余兼容)
-    import os as _os
-    if _os.environ.get("LINGCLAUDE_BUS_LISTENER") != "0":
+    # 审计#13 修复:仅交互模式启动 — 单轮/横幅进程几秒即退，daemon 线程会在
+    # 任务执行中被硬杀，留下「已收到」却无结果的半截对话。
+    if args.interactive and os.environ.get("LINGCLAUDE_BUS_LISTENER") != "0":
         _bus_responder_stop = _start_bus_responder_background()
         import atexit
         atexit.register(_bus_responder_stop.set)
@@ -260,9 +271,15 @@ def _esc_pressed() -> bool:
         return False
 
 
-def _esc_listen_loop(session: PromptSessionInterface) -> None:
-    """Step 4: 后台线程监听 Esc → set interrupt_event（生成态 stdin 空闲）。"""
-    while not session.interrupt_event().is_set():
+def _esc_listen_loop(session: PromptSessionInterface, stop: threading.Event) -> None:
+    """Step 4: 后台线程监听 Esc → set interrupt_event（生成态 stdin 空闲）。
+
+    审计#6 修复:此前退出条件只有 interrupt_event — 流结束后上层立刻 clear()
+    把它"复活"，没按过 Esc 的线程永不退出 → 线程逐轮堆积且持续抢 stdin
+    （setraw/read 吞掉 prompt_toolkit 正在读的键入字符）。增加 per-turn
+    stop 事件，回合结束必退。
+    """
+    while not stop.is_set() and not session.interrupt_event().is_set():
         if _esc_pressed():
             session.interrupt_event().set()
             break
@@ -308,7 +325,7 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
 
 def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
     version = _get_version()
-    print(f"灵克 v{version} — 交互模式（输入 'exit' 或 'quit' 退出）")
+    print(f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，Ctrl+C 清行）")
     print(f"Provider: {_provider_status(engine)}")
     print()
 
@@ -352,6 +369,9 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
     def _read_input() -> str:
         try:
             text = session.prompt("灵克> ")
+            # 审计#11 修复:prompt_toolkit 的 PromptSession 已自动写 FileHistory,
+            # 这里再 push 一次导致 ~/.lingclaude/history 每条重复。
+            # push_to_history 语义改为「仅兜底实现需要手动记」→ 见 interface.py。
             if text.strip():
                 session.push_to_history(text)
             return text
@@ -360,15 +380,30 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             print("[输入编码错误，请检查终端编码设置]")
             return ""
 
+    quit_requested = False
+
     def _handle_slash_command(cmd: str) -> bool:
-        """T1-7: 斜杠命令 — /help /clear /compact /model。处理返回 True 表示已消费。"""
+        """T1-7: 斜杠命令。返回 True 表示已消费；/quit /exit 置 quit_requested。"""
+        nonlocal quit_requested
         parts = cmd.strip().split(maxsplit=1)
         if not parts or not parts[0].startswith("/"):
             return False
         name = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
+        # 审计#3 修复:/quit /exit 此前无 handler → 落成用户消息发给 LLM，
+        # 且补全列表还在引导用户输入（F2 删 /undo 时漏掉的同类问题）。
+        if name in ("/quit", "/exit"):
+            quit_requested = True
+            return True
         if name in ("/help", "/?"):
-            print("[斜杠命令] /help 帮助 | /clear 清空会话 | /compact 立即压缩 | /model 当前模型")
+            print("[斜杠命令]")
+            print("  /help                  本帮助")
+            print("  /clear                 清空会话上下文")
+            print("  /compact               手动压缩（未达阈值时明确提示）")
+            print("  /model [名称]          查看/切换默认模型")
+            print("  /schedule [表达式]      定时任务注册/列出/取消")
+            print("  /lsp add|remove [参数]  LSP 服务器注册/删除（不带参数列出）")
+            print("  /quit、/exit           退出")
             return True
         if name == "/clear":
             engine._messages.clear()
@@ -376,8 +411,20 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             print("[会话已清空]")
             return True
         if name == "/compact":
-            engine._compact_if_needed()
-            print("[已触发压缩]")
+            # 审计#9 修复:此前无论是否达阈值都谎报「已触发压缩」— 实际多数
+            # 时候 _compact_if_needed 内部条件不满足、什么都没做。
+            from lingclaude.core.tool_executor import _estimate_message_tokens
+
+            msgs = engine._messages
+            msg_limit = engine.config.compact_after_turns * 2
+            token_threshold = int(engine.config.max_budget_tokens * 0.8)
+            est_tokens = _estimate_message_tokens(msgs)
+            if len(msgs) > msg_limit or est_tokens > token_threshold:
+                engine._compact_if_needed()
+                print(f"[已压缩] {len(msgs)} 条消息（阈值 {msg_limit} 条 / {token_threshold} tok）")
+            else:
+                print(f"[未压缩] 未达阈值：{len(msgs)}/{msg_limit} 条消息，~{est_tokens}/{token_threshold} tokens")
+                print("[提示] 达到阈值后回合结束自动压缩；/compact 仅用于手动提前触发")
             return True
         if name == "/model":
             # P1-4: /model 显示当前；/model <name> 会话中途切换（保留上下文）
@@ -426,7 +473,8 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 # 注册任务：/schedule @daily "查询内容"
                 parts = arg.split(maxsplit=1)
                 if len(parts) < 2:
-                    print("[用法] /schedule @daily|@hourly|@weekly|interval:N \"任务内容\"")
+                    # 审计#10 修复:补上 scheduler 实际支持的 after:N / at:HH:MM
+                    print('[用法] /schedule @daily|@hourly|@weekly|interval:N|after:N|at:HH:MM "任务内容"')
                     print("       /schedule cancel <task_id>")
                     print("       /schedule  (列出任务)")
                 else:
@@ -449,31 +497,43 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 print("用法: /lsp add <lang> --command <cmd> [--args 'a b'] | /lsp remove <lang>")
             elif arg.startswith("add "):
                 rest = arg[4:].strip()
-                parts = rest.split(maxsplit=1)
-                if len(parts) < 1:
-                    print("[用法] /lsp add <lang> --command <cmd>")
-                else:
-                    lang = parts[0].strip()
-                    cmd_part = parts[1] if len(parts) > 1 else ""
-                    command = ""
-                    args: list[str] = []
-                    if "--command" in cmd_part:
-                        after = cmd_part.split("--command", 1)[1].strip()
-                        if "--args" in after:
-                            cmd_str, args_str = after.split("--args", 1)
-                            command = cmd_str.strip().split()[0] if cmd_str.strip() else ""
-                            args = args_str.strip().split()
-                        else:
-                            command = after.strip().split()[0] if after.strip() else ""
-                            args = after.strip().split()[1:]
-                    if not command:
-                        print("[用法] /lsp add <lang> --command <cmd> [--args 'a b']")
+                # 审计#8 修复:手册示例用 Crush 风格 `/lsp add rust rust-analyzer`，
+                # 旧实现只认 --command 语法 → 示例全部失效。两种语法都支持；
+                # --args 引号改用 shlex 解析（此前 .split() 会留下残引号）。
+                command = ""
+                args: list[str] = []
+                if "--command" in rest:
+                    import shlex
+
+                    lang_part, _, after = rest.partition("--command")
+                    lang = lang_part.strip()
+                    after = after.strip()
+                    if "--args" in after:
+                        cmd_str, _, args_str = after.partition("--args")
+                        cmd_tokens = shlex.split(cmd_str.strip())
+                        command = cmd_tokens[0] if cmd_tokens else ""
+                        args = shlex.split(args_str.strip())
                     else:
-                        try:
-                            reg = register(lang, command, args)
-                            print(f"[已注册] {reg['lang']} → {reg['command']} {' '.join(reg['args'])}")
-                        except ValueError as e:
-                            print(f"[错误] {e}")
+                        cmd_tokens = shlex.split(after)
+                        if cmd_tokens:
+                            command, args = cmd_tokens[0], cmd_tokens[1:]
+                else:
+                    import shlex
+
+                    tokens = shlex.split(rest)
+                    if len(tokens) >= 2:
+                        lang, command, args = tokens[0], tokens[1], tokens[2:]
+                    else:
+                        lang = tokens[0] if tokens else ""
+                if not command or not lang:
+                    print('[用法] /lsp add <lang> <command> [args...]（Crush 风格）')
+                    print("       /lsp add <lang> --command <cmd> [--args 'a b']")
+                else:
+                    try:
+                        reg = register(lang, command, args)
+                        print(f"[已注册] {reg['lang']} → {reg['command']} {' '.join(reg['args'])}")
+                    except ValueError as e:
+                        print(f"[错误] {e}")
             elif arg.startswith("remove "):
                 lang = arg[7:].strip()
                 if remove(lang):
@@ -500,6 +560,9 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             continue
         # T1-7: 斜杠命令优先消费
         if _handle_slash_command(prompt):
+            if quit_requested:
+                print("再见！")
+                break
             prompt = ""
             continue
 
@@ -508,11 +571,14 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             response_content = ""
             got_first_token = False
             interrupted = False
-            # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成
-            _esc_thread = threading.Thread(
-                target=_esc_listen_loop, args=(session,), daemon=True,
-            )
-            _esc_thread.start()
+            # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成；
+            # 仅 TTY 启动，且用 _esc_stop 保证回合结束线程必退（审计#6）
+            _esc_stop = threading.Event()
+            if sys.stdin.isatty():
+                _esc_thread = threading.Thread(
+                    target=_esc_listen_loop, args=(session, _esc_stop), daemon=True,
+                )
+                _esc_thread.start()
             for event in engine.stream_call_model(prompt):
                 if session.interrupt_event().is_set():
                     interrupted = True
@@ -527,6 +593,8 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                     response_content += event.get("text", "")
                 elif event.get("type") == "done":
                     response_content = event.get("content", response_content)
+            # 审计#6:先停线程再清 interrupt — 顺序反了会把线程"复活"成永生线程
+            _esc_stop.set()
             session.interrupt_event().clear()
             if response_content and not interrupted:
                 engine._messages.append(prompt)
@@ -967,6 +1035,10 @@ def _cmd_webui(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    # 审计#5 修复:F12c 的 key 单点文件此前定义了但零调用 — 整条 key 兜底链
+    # （task_router 注释明言「key 实际单点存放于 ~/.ling_keys.env」）建立在该
+    # 文件已加载的假设上。在任何子命令分派前注入，不覆盖 shell 已 export 的值。
+    _load_keys_env()
     parser = argparse.ArgumentParser(
         prog="lingclaude",
         description="lingclaude — Self-optimizing AI runtime",
@@ -1060,6 +1132,10 @@ def main() -> int:
     _unknowns_p_resolve = _unknowns_sub.add_parser("resolve", help="Mark a known unknown as resolved")
     _unknowns_p_resolve.add_argument("--plugin", required=True)
     _unknowns_p_resolve.add_argument("--claim-substring", required=True)
+    _unknowns_p_resolve.add_argument(
+        "--manifest-dir", type=Path, default=Path(".lacp/plugins"),
+        help="directory to scan (default: .lacp/plugins)",
+    )
 
     args = parser.parse_args()
 
@@ -1105,7 +1181,8 @@ def main() -> int:
                         "--owner", args.owner]
         elif args.unknowns_command == "resolve":
             sub_argv = ["resolve", "--plugin", args.plugin,
-                        "--claim-substring", args.claim_substring]
+                        "--claim-substring", args.claim_substring,
+                        "--manifest-dir", str(args.manifest_dir)]
         else:
             unknowns_parser.print_help()
             return 0

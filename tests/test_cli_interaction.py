@@ -98,12 +98,31 @@ class TestInterruptEvent:
 class TestEscListenLoop:
     def test_non_tty_no_false_trigger(self):
         """非 TTY 下 _esc_listen_loop 不误触发打断。"""
+        import threading as _t
         from lingclaude.cli.app import _esc_listen_loop
 
         sess = FallbackSession()
-        t = threading.Thread(target=_esc_listen_loop, args=(sess,), daemon=True)
+        stop = _t.Event()
+        t = threading.Thread(target=_esc_listen_loop, args=(sess, stop), daemon=True)
         t.start()
         t.join(timeout=0.2)
+        assert not sess.interrupt_event().is_set()
+        stop.set()
+        t.join(timeout=0.2)
+        assert not t.is_alive(), "stop 置位后线程必须退出（审计#6：防永生线程堆积）"
+
+    def test_stop_event_exits_loop(self):
+        """stop 事件置位 → 线程立即退出，即使 interrupt_event 未 set。"""
+        import threading as _t
+        from lingclaude.cli.app import _esc_listen_loop
+
+        sess = FallbackSession()
+        stop = _t.Event()
+        stop.set()
+        t = threading.Thread(target=_esc_listen_loop, args=(sess, stop), daemon=True)
+        t.start()
+        t.join(timeout=0.5)
+        assert not t.is_alive()
         assert not sess.interrupt_event().is_set()
 
     def test_esc_pressed_non_tty_false(self):

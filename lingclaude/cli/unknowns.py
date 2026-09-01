@@ -93,6 +93,38 @@ def find_unknown(
 # ─────────────────────────────────────────────────────────────
 
 
+def _parse_unknowns_block(block: str) -> list[Unknown]:
+    """从 known_unknowns: 块文本解析条目（轻量级，非完整 YAML）。
+
+    每条以 `- ` 开头；claim 必填，severity/owner/category 可选。
+    """
+    import re
+
+    unknowns: list[Unknown] = []
+    entries = re.split(r"^\s*-\s+", block, flags=re.MULTILINE)[1:]
+    for entry in entries:
+        claim_m = re.search(r"^\s*claim:\s*(.+?)\s*$", entry, re.MULTILINE)
+        if not claim_m:
+            continue
+
+        def field(name: str, entry: str = entry) -> str:
+            fm = re.search(rf"^\s*{name}:\s*(.+?)\s*$", entry, re.MULTILINE)
+            return fm.group(1).strip().strip("'\"") if fm else ""
+
+        severity = field("severity") or "info"
+        if severity not in ("info", "warn", "block"):
+            severity = "info"
+        unknowns.append(
+            Unknown(
+                claim=claim_m.group(1).strip().strip("'\""),
+                category=field("category") or "general",
+                owner=field("owner"),
+                severity=severity,
+            )
+        )
+    return unknowns
+
+
 def load_plugins_from_dir(manifest_dir: Path) -> list[Plugin]:
     """Load all plugin manifests from a directory.
 
@@ -106,26 +138,24 @@ def load_plugins_from_dir(manifest_dir: Path) -> list[Plugin]:
     if not manifest_dir.exists():
         return plugins
 
-    yaml_block_re = re.compile(r"^known_unknowns:\s*$", re.MULTILINE)
-    item_re = re.compile(
-        r"^\s*-\s+claim:\s*['\"]?(?P<claim>[^'\"]+?)['\"]?\s*$",
-        re.MULTILINE,
+    # 审计#15 修复:① 条目扫描限定在 known_unknowns: 块内（此前全文 findall，
+    # 会把 manifest 其他位置的 `- claim:` 行误收）；② severity/owner/category
+    # 逐条解析（此前一律硬编码 info/""/--severity 过滤对文件加载永远失效）；
+    # ③ glob 补 .yml。
+    block_re = re.compile(
+        r"^known_unknowns:\s*$(?P<block>.*?)(?=^\S|\Z)",
+        re.MULTILINE | re.DOTALL,
     )
 
-    for path in sorted(manifest_dir.glob("*.yaml")):
+    for path in sorted([*manifest_dir.glob("*.yaml"), *manifest_dir.glob("*.yml")]):
         text = path.read_text(encoding="utf-8")
-        if not yaml_block_re.search(text):
+        m = block_re.search(text)
+        if not m:
             continue
-        # Crude parse — extract a list of claims. Other fields (severity
-        # / owner) require a real YAML parser; deferred to a later phase.
         plugin_name = path.stem
-        claims = item_re.findall(text)
-        if not claims:
+        unknowns = tuple(_parse_unknowns_block(m.group("block")))
+        if not unknowns:
             continue
-        unknowns = tuple(
-            Unknown(claim=c.strip(), category="general", owner="", severity="info")
-            for c in claims
-        )
         # Construct a minimal Plugin shim (not the full LACP validation)
         from lingclaude.lacp.manifest import (
             Interface, Transport, OutputRecipient, Replaceable, SCHEMA_VERSION,
@@ -183,6 +213,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_resolve = sub.add_parser("resolve", help="Mark a known unknown as resolved")
     p_resolve.add_argument("--plugin", required=True)
     p_resolve.add_argument("--claim-substring", required=True)
+    # 审计#15 修复:此前 resolve 硬编码 Path(".lacp/plugins")（相对 cwd），
+    # 换目录执行必找不到 — 与 list 对齐支持 --manifest-dir。
+    p_resolve.add_argument(
+        "--manifest-dir",
+        type=Path,
+        default=Path(".lacp/plugins"),
+        help="directory to scan for manifests (default: .lacp/plugins)",
+    )
 
     return p
 
@@ -225,7 +263,7 @@ def cmd_add(args: argparse.Namespace) -> int:
 
 def cmd_resolve(args: argparse.Namespace) -> int:
     """Print which unknown would be removed. Phase 4 trimmed version."""
-    plugins = load_plugins_from_dir(Path(".lacp/plugins"))
+    plugins = load_plugins_from_dir(args.manifest_dir)
     items = collect_unknowns(plugins)
     target = find_unknown(items, args.plugin, args.claim_substring)
     if target is None:

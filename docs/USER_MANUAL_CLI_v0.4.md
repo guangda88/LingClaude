@@ -42,14 +42,18 @@
 ### 2.2 启动方式
 
 ```bash
-# 方式 1：WebUI + 引擎（推荐）
-python -m lingclaude.api           # 引擎 :8700
-python -m lingclaude.cli           # CLI 客户端
+# 方式 1：WebUI（一键编排引擎 :8700 + webui-server，自动开浏览器）
+lingclaude webui
 
-# 方式 2：直接进 CLI
-python -m lingclaude.cli
-# 输入提示符：灵克>
+# 方式 2：交互 CLI（引擎在进程内运行，无需另起 api 服务）
+lingclaude run -i
+# 或等价写法
+python -m lingclaude.cli run -i
+# 输入提示符：灵克>（'exit'/'quit'/Ctrl+D 退出）
 ```
+
+> 注意：`python -m lingclaude.cli` 不带子命令只打印 argparse 帮助，不进入交互；
+> CLI 与引擎是同进程关系，不是 WebUI 的客户端。
 
 ### 2.3 环境变量
 
@@ -334,8 +338,8 @@ from lingclaude.core.scheduler import ScheduleManager, get_schedule_manager
 
 mgr = get_schedule_manager()
 task_id = mgr.register("@daily", "每日备份")
-# 挂回会话
-mgr.register("@daily", "任务内容", on_complete="inject_to_session")
+# register 签名：register(cron, query, priority=TaskPriority.MEDIUM) -> task_id
+# （无 on_complete= 参数；「完成后挂回会话」尚未实现，勿照旧文档示例调用）
 ```
 
 ---

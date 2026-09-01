@@ -76,15 +76,17 @@ class PromptToolkitSession:
         except KeyboardInterrupt:
             # Ctrl+C 软中断：清空当前输入，返回空串让上层继续
             return ""
-        except EOFError:
-            # AC#1 修复:env LINGCLAUDE_RAISE_EOF=1 → 重抛,让 _interactive_loop 退出
-            if os.environ.get("LINGCLAUDE_RAISE_EOF") == "1":
-                raise
-            return ""
+        # 审计#1/#7 修复:EOF（Ctrl+D / stdin 耗尽）直接传播让上层退出。
+        # 此前默认吞成 ""，`lingclaude run -i < /dev/null` 会「空输入→continue→
+        # 再读→再 EOF」死循环 100% CPU；exit 途径只剩输入 exit/quit。
+        # （旧 LINGCLAUDE_RAISE_EOF=1 测试逃生门已无必要 — 默认即重抛，env 失效。）
+        # 注意：不要在此捕获 EOFError 返回 ""。
 
     def push_to_history(self, text: str) -> None:
-        if text.strip():
-            self._history.append_string(text)
+        # 审计#11 修复:PromptSession(prompt_toolkit) 在 prompt() 返回时已自动
+        # 写入 FileHistory — 这里再 append_string 会让每条输入在历史文件里
+        # 出现两遍。保留接口（Protocol 一致性），实现为 no-op。
+        _ = text
 
     def stream_print(self, renderable: Any) -> None:
         # 流式输出：直接写 stdout（Rich Live 在调用方管理刷新）
@@ -111,10 +113,9 @@ class FallbackSession:
         try:
             return input(message)
         except EOFError:
-            # AC#1 修复:env LINGCLAUDE_RAISE_EOF=1 → 重抛(默认吞 EOF 防误 Ctrl+D)
-            if os.environ.get("LINGCLAUDE_RAISE_EOF") == "1":
-                raise
-            return ""
+            # 审计#1 修复:EOF 传播（同 PromptToolkitSession）— 默认吞掉会造成
+            # 非 TTY 场景「空输入→continue」死循环挂死。
+            raise
         except KeyboardInterrupt:
             return ""
 
