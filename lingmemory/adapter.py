@@ -30,6 +30,7 @@ VALID_MEMBERS = [
     "lingclaude", "lingresearch", "lingminopt", "lingxi", "zhibridge",
     "lingzhi", "lingweb", "lingmessage", "lingflow", "lingflow_plus",
     "lingtongask", "lingyang", "lingcreate", "lingan", "atomcode", "system",
+    "yitang",
 ]
 
 

@@ -10,6 +10,7 @@ import logging  # noqa: E402
 import os  # noqa: E402
 import subprocess  # noqa: E402
 from pathlib import Path  # noqa: E402
+from typing import Any  # noqa: E402
 
 from fastapi import FastAPI, HTTPException, Security  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
@@ -63,9 +64,20 @@ _WORKING_DIR = Path(os.getcwd())
 app = FastAPI(title="灵克 API", version="0.2.2", description="灵字辈编程助手API")
 
 # 限制 CORS 配置
+# F4 修复:webui 默认端口 13458 必须放行。env LINGCLAUDE_CORS_ORIGINS 可覆盖。
+# F8 决策锁定(2026-08-29):api.py 全部端点只用 GET/POST,allow_methods 不含
+# PUT/PATCH;e2e test_cors_methods_cover_all_routes 防回归。
+_default_cors_origins = (
+    "http://localhost:3000,"  # npm dev server
+    "http://localhost:13458,"  # webui default
+    "http://127.0.0.1:13458,"  # webui default loopback
+    "http://localhost:8700"  # engine self-loopback
+)
+_cors_env = os.environ.get("LINGCLAUDE_CORS_ORIGINS", _default_cors_origins)
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key"],
@@ -186,7 +198,7 @@ async def get_session(session_id: str, project_path: str = "", api_key: str = Se
 
     mgr = SessionManager()
     result = mgr.load(session_id, project_path)
-    if result.is_err:
+    if result.is_error:
         raise HTTPException(404, f"Session not found: {result.error}")
     return result.data.to_dict_redacted()
 
@@ -199,10 +211,10 @@ async def create_snapshot(req: SessionSnapshotRequest, api_key: str = Security(v
     mgr = SessionManager()
     # 先加载 session
     load_result = mgr.load(req.session_id, req.project_path)
-    if load_result.is_err:
+    if load_result.is_error:
         raise HTTPException(404, f"Session not found: {req.session_id}")
     snap_result = mgr.snapshot(load_result.data)
-    if snap_result.is_err:
+    if snap_result.is_error:
         raise HTTPException(500, f"Snapshot failed: {snap_result.error}")
     return {"path": str(snap_result.data), "session_id": req.session_id}
 
@@ -326,7 +338,7 @@ async def ask_stream(req: AskRequest, api_key: str = Security(verify_api_key)):
     from lingclaude.core.query_engine import QueryEngine
 
     engine_result = QueryEngine.from_config_file()
-    if engine_result.is_err:
+    if engine_result.is_error:
         raise HTTPException(500, f"QueryEngine 初始化失败: {engine_result.error}")
 
     engine = engine_result.data
@@ -499,19 +511,31 @@ async def write_file(req: WriteFileRequest, api_key: str = Security(verify_api_k
         raise HTTPException(500, str(e))
 
 
+class LingMessageNotifyRequest(BaseModel):
+    """F7:灵信通知端点 Pydantic 模型 — 替代 payload: dict。
+
+    ⚠️ 必须在 @app.post 之前定义,否则 FastAPI 把 req 当 query param(422)。
+    """
+    event: str | None = None
+    sender: str | None = None
+    topic: str = ""
+    thread_id: str | None = None
+    data: dict[str, Any] = {}
+
+
 @app.post("/api/lingmessage/notify")
-async def lingmessage_notify(payload: dict, api_key: str = Security(verify_api_key)):
+async def lingmessage_notify(req: LingMessageNotifyRequest, api_key: str = Security(verify_api_key)):
     """灵信通知端点 — 记录通知，不自动回复。
 
     auto_reply 于 2026-04-21 物理删除（不是注释禁用，是删除函数）。
     灵克在治理线程中的发言应由 Crush 会话（真实人类/AI 交互）产生。
     如果需要恢复 auto_reply，必须通过灵委会提案 + 代码审查。
     """
-    event = payload.get("event") or payload.get("type")
-    from_member = payload.get("from") or payload.get("sender")
-    payload.get("discussion_id")
-    topic = payload.get("topic", "")
-    thread_id = payload.get("thread_id")
+    # F7:req 是 LingMessageNotifyRequest
+    event = req.event
+    from_member = req.sender
+    topic = req.topic
+    thread_id = req.thread_id
 
     logger.info(f"灵信通知: event={event}, from={from_member}, thread={thread_id}, topic={topic[:40]}")
 

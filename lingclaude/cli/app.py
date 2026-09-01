@@ -71,6 +71,57 @@ def _get_version() -> str:
     return "0.2.1"
 
 
+def _is_local_base(base_url: str) -> bool:
+    """本地服务不需要 api_key — 与 task_router._is_local_base 同语义(F12a)。"""
+    if not base_url:
+        return False
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(base_url).hostname or ""
+        return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+    except Exception:  # noqa: BLE001 — 解析失败按非本地处理
+        return False
+
+
+def _provider_status(engine: QueryEngine) -> str:
+    """F12a:启动横幅诚实化 — 不再对缺 key 的云端 provider 谎报「已连接」。"""
+    if engine._provider is None:
+        return "未配置（回退模式）"
+    cfg = getattr(engine._provider, "_config", None)
+    api_key = str(getattr(cfg, "api_key", "") or "")
+    base = str(getattr(cfg, "base_url", "") or "")
+    if not api_key and not _is_local_base(base):
+        return "已配置但缺 API key（云端调用将失败，请检查 config.yaml model.api_key）"
+    return "已连接"
+
+
+def _load_keys_env() -> None:
+    """F12c:加载 ~/.ling_keys.env — proxy3 同源的 key 单点存放处。
+
+    只在变量未设时注入,不覆盖用户 shell 已 export 的值。
+    """
+    path = Path.home() / ".ling_keys.env"
+    if not path.exists():
+        return
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        name, sep, value = line.partition("=")
+        if not sep:
+            continue
+        name = name.strip()
+        value = value.strip().strip('"').strip("'")
+        if name and value and name not in os.environ:
+            os.environ[name] = value
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     engine_result = QueryEngine.from_config_file(args.config)
@@ -102,7 +153,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         return _interactive_loop(engine, None)
     else:
         version = _get_version()
-        provider_status = "已连接" if engine._provider else "未配置（回退模式）"
+        provider_status = _provider_status(engine)
         print_welcome(version, provider_status, f"{config.model.provider}/{config.model.model}", len(runtime.registry.list_tools()))
     return 0
 
@@ -117,7 +168,7 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         for event in engine.stream_call_model(prompt):
             if not got_first_token and event.get("type") in ("text_delta", "error"):
                 got_first_token = True
-                sys.stdout.write("            \r")
+                sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
                 sys.stdout.flush()
             _handle_stream_event(event)
             if event.get("type") == "text_delta":
@@ -249,16 +300,39 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         sys.stdout.write("\n\n")
         sys.stdout.flush()
     elif etype == "error":
-        sys.stdout.write(f"\n[错误] {event.get('error', '')}\n")
-        sys.stdout.write("提示: 请检查网络连接，或在 config.yaml 中确认 model.api_key 已设置\n")
+        # UI 对齐修复:前后各留空行,与 rich stderr 日志/下一提示符隔离。
+        sys.stdout.write(f"\n\n[错误] {event.get('error', '')}\n")
+        sys.stdout.write("提示: 请检查网络连接，或在 config.yaml 中确认 model.api_key 已设置\n\n")
         sys.stdout.flush()
 
 
 def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
     version = _get_version()
     print(f"灵克 v{version} — 交互模式（输入 'exit' 或 'quit' 退出）")
-    print(f"Provider: {'已连接' if engine._provider else '未配置（回退模式）'}")
+    print(f"Provider: {_provider_status(engine)}")
     print()
+
+    # F12e:TTY 终端状态保护 — 进入时保存 termios,退出时恢复。
+    # 现场症状:prompt_toolkit 在不支持 CPR 的终端上退出后 termios/VT 状态残留
+    # → Ctrl+C 被回显为 ^C 字符且输出错位。退出路径显式恢复兜底。
+    _saved_termios: Any = None
+    if sys.stdin.isatty():
+        try:
+            import termios
+            _saved_termios = termios.tcgetattr(sys.stdin.fileno())
+        except Exception:  # noqa: BLE001 — 无 termios 平台静默跳过
+            _saved_termios = None
+
+    def _restore_tty() -> None:
+        if _saved_termios is None:
+            return
+        try:
+            import termios
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _saved_termios)
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:  # noqa: BLE001 — fd 已关等场景静默
+            pass
 
     # RFC §3.3: I/O 抽象层 — LINGCLAUDE_CLI_MODE=plain 或非 TTY → FallbackSession
     # Step 3: Tab 补全 7 斜杠命令（prompt_toolkit WordCompleter）
@@ -267,7 +341,8 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
         from prompt_toolkit.completion import WordCompleter
 
         _completer = WordCompleter(
-            ["/help", "/clear", "/compact", "/model", "/schedule", "/quit", "/undo"],
+            # F2 修复:删 /undo 出补全 — handler 缺失,留 completer 会让用户以为已实现。
+            ["/help", "/clear", "/compact", "/model", "/schedule", "/quit"],
             ignore_case=True,
         )
     except ImportError:
@@ -309,11 +384,22 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             if arg:
                 result = engine.switch_model(arg.strip())
                 if result.is_ok:
-                    print(f"[模型已切换] {result.data}")
+                    # F12h:切换后显示端点 — 暴露「模型名换了但端点没换」的假切换
+                    prov_cfg = getattr(engine._provider, "_config", None) if engine._provider else None
+                    base = getattr(prov_cfg, "base_url", "?") or "?"
+                    print(f"[模型已切换] {result.data} @ {base}")
+                    print("[提示] 默认模型已切换；实际每条消息仍按任务动态路由(TaskRouter)")
                 else:
                     print(f"[切换失败] {result.error}")
             else:
-                print(f"[当前模型] {getattr(engine.config, 'model', 'unknown')}")
+                # /model 显示修复:engine.config 是 QueryEngineConfig(无 .model 字段,
+                # 此前恒显示 unknown)。真实默认模型在 provider._config。
+                prov_cfg = getattr(engine._provider, "_config", None) if engine._provider else None
+                model_name = getattr(prov_cfg, "model", "") or "?"
+                base = getattr(prov_cfg, "base_url", "") or "?"
+                print(f"[当前默认模型] {model_name} @ {base}")
+                print("[提示] 实际模型按任务动态路由(TaskRouter)，每条消息可能不同；"
+                      "/model <name> 切换默认模型")
             return True
         # T2-2/案 4: /schedule 命令 — 定时任务注册/列出/取消
         if name == "/schedule":
@@ -434,7 +520,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                     break
                 if not got_first_token and event.get("type") in ("text_delta", "error"):
                     got_first_token = True
-                    sys.stdout.write("            \r")
+                    sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
                     sys.stdout.flush()
                 _handle_stream_event(event)
                 if event.get("type") == "text_delta":
@@ -462,6 +548,9 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             break
 
     stats = engine.get_stats()
+    # F12e:先恢复终端状态,再打统计 — 统计输出落在干净的行首。
+    _restore_tty()
+    print()
     print_session_summary(SessionSummary(
         turns=stats["turns"],
         session_id=stats["session_id"],
@@ -697,7 +786,24 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
 def _cmd_governance_audit(args: argparse.Namespace) -> int:
     from lingclaude.core.governance_verifier import GovernanceVerifier
 
-    proposals_path = Path(args.proposals_file or "/home/ai/lingflow/discussion_hall/proposals.json")
+    # F3 修复:优先级 --proposals-file > LINGCLAUDE_PROPOSALS_FILE > config 同目录 > 旧默认
+    candidates: list[Path] = []
+    if args.proposals_file:
+        candidates.append(Path(args.proposals_file))
+    env_path = os.environ.get("LINGCLAUDE_PROPOSALS_FILE")
+    if env_path:
+        candidates.append(Path(env_path))
+    try:
+        from lingclaude.core.config import find_config_path
+        cfg = find_config_path()
+        if cfg:
+            candidates.append(cfg.parent / "proposals.json")
+    except Exception:
+        pass
+    proposals_path = next((c for c in candidates if c.exists()), None)
+    if proposals_path is None:
+        proposals_path = candidates[0] if candidates else Path("/home/ai/lingflow/discussion_hall/proposals.json")
+
     verifier = GovernanceVerifier()
     result = verifier.audit_proposals_file(proposals_path)
 
@@ -929,6 +1035,32 @@ def main() -> int:
     webui_parser.add_argument("--no-open", action="store_true", help="Do not open the browser")
     webui_parser.add_argument("--open", action="store_true", help="Open browser (also default when TTY)")
 
+    # F1 修复:注册 unknowns 子命令(Wieman C13,详见 docs/audit/CLI_WEBUI_AUDIT_REPORT.md)
+    from lingclaude.cli import unknowns as _unknowns
+    unknowns_parser = subparsers.add_parser(
+        "unknowns",
+        help="List / add / resolve known unknowns in LACP plugin manifests",
+    )
+    _unknowns_sub = unknowns_parser.add_subparsers(dest="unknowns_command")
+    _unknowns_p_list = _unknowns_sub.add_parser("list", help="List known unknowns")
+    _unknowns_p_list.add_argument("--plugin", help="filter to a single plugin")
+    _unknowns_p_list.add_argument("--severity", choices=["info", "warn", "block"])
+    _unknowns_p_list.add_argument("--category", help="filter by category")
+    _unknowns_p_list.add_argument("--json", action="store_true", help="output as JSON")
+    _unknowns_p_list.add_argument(
+        "--manifest-dir", type=Path, default=Path(".lacp/plugins"),
+        help="directory to scan (default: .lacp/plugins)",
+    )
+    _unknowns_p_add = _unknowns_sub.add_parser("add", help="Add a known unknown (interactive)")
+    _unknowns_p_add.add_argument("--plugin", required=True)
+    _unknowns_p_add.add_argument("--claim", required=True)
+    _unknowns_p_add.add_argument("--severity", choices=["info", "warn", "block"], default="info")
+    _unknowns_p_add.add_argument("--category", default="general")
+    _unknowns_p_add.add_argument("--owner", default="")
+    _unknowns_p_resolve = _unknowns_sub.add_parser("resolve", help="Mark a known unknown as resolved")
+    _unknowns_p_resolve.add_argument("--plugin", required=True)
+    _unknowns_p_resolve.add_argument("--claim-substring", required=True)
+
     args = parser.parse_args()
 
     if args.command == "run":
@@ -949,6 +1081,35 @@ def main() -> int:
         return _cmd_governance_audit(args)
     elif args.command == "webui":
         return _cmd_webui(args)
+    elif args.command == "unknowns":
+        if not getattr(args, "unknowns_command", None):
+            unknowns_parser.print_help()
+            return 0
+        if args.unknowns_command == "list":
+            sub_argv = ["list"]
+            for opt, val in (
+                ("--plugin", args.plugin),
+                ("--severity", args.severity),
+                ("--category", args.category),
+                ("--json", args.json),
+                ("--manifest-dir", str(args.manifest_dir)),
+            ):
+                if val is not None and val is not False:
+                    if isinstance(val, bool):
+                        sub_argv.append(opt)
+                    else:
+                        sub_argv.extend([opt, str(val)])
+        elif args.unknowns_command == "add":
+            sub_argv = ["add", "--plugin", args.plugin, "--claim", args.claim,
+                        "--severity", args.severity, "--category", args.category,
+                        "--owner", args.owner]
+        elif args.unknowns_command == "resolve":
+            sub_argv = ["resolve", "--plugin", args.plugin,
+                        "--claim-substring", args.claim_substring]
+        else:
+            unknowns_parser.print_help()
+            return 0
+        return _unknowns.main(sub_argv)
     else:
         parser.print_help()
         return 0

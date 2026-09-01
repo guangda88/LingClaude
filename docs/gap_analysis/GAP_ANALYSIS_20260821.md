@@ -13,7 +13,7 @@
 |---|---|---|---|
 | **语言/架构** | Python, monorepo 单进程 | Rust 1.88+, Cargo workspace, 14 crates | TypeScript, Cordis 插件架构, ~50 packages |
 | **定位** | 灵族工程执行者（自省/治理/协作） | 终端 AI coding agent（对标 Claude Code/Cursor） | DeepSeek 官方 harness，一切皆插件 |
-| **核心理念** | 自知→自觉→自决→进化；元认知守卫 H1-H14；LACP 治理 | 100% AI 生成，人类仅决策；Multi-provider OpenAI 兼容 | 时空可组合编程范式；capability seam；一切皆可选 |
+| **核心理念** | 自知→自觉→自决→进化；元认知守卫 H1-H16；LACP 治理 | 100% AI 生成，人类仅决策；Multi-provider OpenAI 兼容 | 时空可组合编程范式；capability seam；一切皆可选 |
 | **成熟度** | v0.3.0, 1508 tests | v5.0.3 | developer preview |
 | **独特优势** | 灵族成员协作 + LingBus 消息总线 + 自优化闭环 | 性能（Rust）、codeintel 调用链、cli approval gate | 插件生态、subagent 多后端、session 投影/快照 |
 
@@ -155,7 +155,7 @@
 
 | 能力 | lingclaude | AtomCode | DSH |
 |---|---|---|---|
-| 元认知守卫 H1-H14 | ✅ `.lingclaude/metacognitive_guards.md` | ❌ | ❌ |
+| 元认知守卫 H1-H16 | ✅ `.lingclaude/metacognitive_guards.md` | ❌ | ❌ |
 | 认知节奏监测 | ✅ `cognitive_rhythm.py` | ❌ | ❌ |
 | 盲点检测 | ✅ `meta_cognition.py` (BlindSpotDetector) | ❌ | ❌ |
 | 置信度校准 | ✅ `ConfidenceCalibrator` | ❌ | ❌ |

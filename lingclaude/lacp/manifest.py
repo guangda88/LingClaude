@@ -128,6 +128,19 @@ class Dependency:
 
 
 @dataclass
+class Unknown:
+    """Wieman C13: known unknowns — 插件作者显式声明的认知盲区。
+
+    severity: info / warn / block(block = 未知足够大,插件能力存疑)。
+    供 `lingclaude unknowns` CLI 查询/跟踪。
+    """
+    claim: str
+    category: str = "general"
+    owner: str = ""
+    severity: str = "info"
+
+
+@dataclass
 class Plugin:
     """LACP v0.5.0 plugin manifest."""
 
@@ -148,6 +161,8 @@ class Plugin:
     # mcp_url: http 传输的端点（streamable HTTP）
     mcp_command: list[str] = field(default_factory=list)
     mcp_url: str | None = None
+    # Wieman C13: 显式声明的已知未知(默认空,向后兼容旧 manifest)
+    known_unknowns: tuple = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
         # name: kebab-case

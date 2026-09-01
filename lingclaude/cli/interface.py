@@ -76,6 +76,11 @@ class PromptToolkitSession:
         except KeyboardInterrupt:
             # Ctrl+C 软中断：清空当前输入，返回空串让上层继续
             return ""
+        except EOFError:
+            # AC#1 修复:env LINGCLAUDE_RAISE_EOF=1 → 重抛,让 _interactive_loop 退出
+            if os.environ.get("LINGCLAUDE_RAISE_EOF") == "1":
+                raise
+            return ""
 
     def push_to_history(self, text: str) -> None:
         if text.strip():
@@ -105,7 +110,12 @@ class FallbackSession:
         self._interrupt.clear()
         try:
             return input(message)
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
+            # AC#1 修复:env LINGCLAUDE_RAISE_EOF=1 → 重抛(默认吞 EOF 防误 Ctrl+D)
+            if os.environ.get("LINGCLAUDE_RAISE_EOF") == "1":
+                raise
+            return ""
+        except KeyboardInterrupt:
             return ""
 
     def push_to_history(self, text: str) -> None:
