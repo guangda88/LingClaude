@@ -65,7 +65,7 @@ impl AuditLogger {
             "ts": chrono::Utc::now().timestamp_millis(),
             "event": event_type,
             "session_id": session_id.unwrap_or(""),
-            "data_preview": &data[..data.char_indices().take(200).count()],
+            "data_preview": data.chars().take(200).collect::<String>(),
         });
         let mut f = self.handle.lock().unwrap();
         let _ = writeln!(f, "{}", entry);

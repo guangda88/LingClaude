@@ -17,6 +17,9 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], defau
 async-stream = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+
 [[bin]]
 name = "lingclaude-webui"
 path = "src/main.rs"
