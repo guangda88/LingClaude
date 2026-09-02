@@ -532,7 +532,32 @@ def main() -> int:
         return 1
     if args.strict and has_warnings:
         return 1
+
+    _refresh_guard_decay_records()
     return 0
+
+
+def _refresh_guard_decay_records() -> None:
+    """R3 留尾接线：本检查成功 = 守卫表经过了一次跨文档一致性校验（守卫计数
+    与文档同步），据此刷新 rule_registry 中 guard:* 的 last_verified。
+    best-effort：任何失败静默，绝不影响本检查的退出码。
+    证据语义是「守卫表完整性已校验」，不是「守卫行为被人工复核」— 后者走
+    rule_decay_review.py 的 review 队列。"""
+    import subprocess
+    import sys as _sys
+    from pathlib import Path as _P
+
+    script = _P(__file__).resolve().parent / "rule_decay_review.py"
+    if not script.exists():
+        return
+    try:
+        subprocess.run(
+            [_sys.executable, str(script), "refresh", "guard",
+             "--evidence", "doc_consistency: 守卫表跨文档一致性校验通过"],
+            capture_output=True, timeout=15,
+        )
+    except Exception:  # noqa: BLE001 — 接线绝不反噬主检查
+        pass
 
 
 if __name__ == "__main__":

@@ -605,7 +605,12 @@ def _load_env_keys() -> dict[str, str]:
     return keys
 
 
-_PROXY_URL = "http://127.0.0.1:8765/v1/chat/completions"
+# R5（蜂群单点评估）：proxy3(8765) 是模型面单点——宕机时 cloud provider 全断，
+# 但本地 provider(task_router._is_local_base 放行)与 LingBus 不受影响。
+# 端点改为 env 可覆盖，给降级路径留门（此前连覆盖都没有）。
+_PROXY_URL = os.environ.get(
+    "LINGCLAUDE_PROXY_URL", "http://127.0.0.1:8765/v1/chat/completions"
+)
 _PROXY_API_KEY = os.environ.get("PROXY_API_KEY", "")
 
 

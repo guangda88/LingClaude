@@ -7,6 +7,12 @@ pre-commit:
     linggit-audit:
       run: python3 linggit/hooks/pre_commit.py --rules-dir linggit/rules
       stage_fixed: false
+    # R6（工作区并发纪律）：提交前留工作区快照基线，下一次 check 才能检测
+    # 「HEAD 未动而工作区被并发扫动」。advisory：命令恒 exit 0，不阻断。
+    # 注：不接 post-commit —— .git/hooks/post-commit 已被灵字辈钩子 v3.0
+    # （提交后审计签名验证）占用，且其源不在本仓库，lefthook 接管会覆盖它。
+    workspace-snapshot:
+      run: python3 scripts/prechange_snapshot.py record --label "pre-commit"
 
 pre-push:
   commands:

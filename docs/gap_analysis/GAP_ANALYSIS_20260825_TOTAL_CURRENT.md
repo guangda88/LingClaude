@@ -23,7 +23,7 @@
 | 成熟度 | 商业产品 | 5318 commits / 4411 tests | dev preview / per-file 100% 覆盖率门禁 | v0.90.0 | **2205 passed / 3 failed / 81 skipped**（修复后基线） |
 | 架构 | 单体 | 14 crates | **一切皆插件** | 单体 | 单体 + Mixin |
 | 核心理念 | 模型能力最大化 + 工程护栏 | 100% AI 生成 | 时空可组合编程范式 | 工具/代码/工作流接入 LLM | 自知→自觉→自决→进化；元认知 + 族内治理 |
-| 治理深度 | 商业门禁 | 工程护栏 | **plugin 级策略** | 简单 allowlist | **三档 permission modes + 敏感路径门 + bwrap fail-closed + MV-1 审计 + 元认知守卫 H1-H16 + LingBus 族内总线** |
+| 治理深度 | 商业门禁 | 工程护栏 | **plugin 级策略** | 简单 allowlist | **三档 permission modes + 敏感路径门 + bwrap fail-closed + MV-1 审计 + 元认知守卫 H1-H17 + LingBus 族内总线** |
 
 ---
 
@@ -177,7 +177,7 @@
 
 | 能力 | CC | AtomCode | DSH | Crush | lingclaude |
 |---|---|---|---|---|---|
-| 元认知守卫 H1-H16 | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 元认知守卫 H1-H17 | ❌ | ❌ | ❌ | ❌ | ✅ |
 | 认知节奏 / 痴呆检测 | ❌ | ❌ | ❌ | ❌ | ✅ |
 | 盲点检测 + 置信度校准 | ❌ | ❌ | ❌ | ❌ | ✅ |
 | 分层记忆（艾宾浩斯 + Experience Store）| ❌ | ❌ | ❌ | ❌ | ✅ |
@@ -281,7 +281,7 @@
 |---|---|---|
 | **工程成熟度** | 中等偏下（36K 行,2205 tests,16 commits）| 远不及 CC/CRUSH 商业化，但持续推进 |
 | **日常可用性** | **差距最大** | T1-7 终端骨架裸 input，P0-1 是最该做的 |
-| **治理深度** | **领先** | 三档 modes + 敏感路径门 + bwrap fail-closed + MV-1 + 元认知 H1-H16 + LingBus，独家 |
+| **治理深度** | **领先** | 三档 modes + 敏感路径门 + bwrap fail-closed + MV-1 + 元认知 H1-H17 + LingBus，独家 |
 | **协议完整度** | 中等 | MCP client 主体接好（stdio/http+schema）但缺 OAuth/SSE |
 | **架构可组合性** | 弱（单体） | 这是 DSH 路线领先点；lingclaude 走"治理深化"路线替代 |
 | **范式差异化** | **强** | 元认知 + LingBus + 治理 + 提案生命周期，4 家独有 |
@@ -291,7 +291,7 @@
 1. **不追平广度**（CC 的 NotebookEdit/IDE/移动端，AtomCode 走 273K 行才追得上）
 2. **聚焦三条主线**：T1-7 终端补全 + T1-2 权限深化 + T1-1 上下文工程（已完成 70%）
 3. **吸收 DSH 子系统**：D 级工作（1 周内 P0-3/4/6）可立即开干
-4. **保持治理差异化**：H1-H16 元认知守卫 + LingBus 族内协作 + 提案治理（独家）
+4. **保持治理差异化**：H1-H17 元认知守卫 + LingBus 族内协作 + 提案治理（独家）
 5. **session event-sourced 决策**——这是 P1-7，**不做决策就继续累积技术债**
 
 ### 与 0825-CC_DIMENSION 报告的对比

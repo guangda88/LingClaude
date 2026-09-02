@@ -384,7 +384,7 @@ GET /marketplace/reputation/my-plugin
 
 ## 十三、治理/自省（独有）
 
-- **元认知守卫** H1-H16（`.lingclaude/metacognitive_guards.md`）
+- **元认知守卫** H1-H17（`.lingclaude/metacognitive_guards.md`）
 - **认知节奏监测 / 痴呆检测 / 盲点校准**（`meta_cognition.py`）
 - **分层记忆** + 艾宾浩斯衰减 + SQLite ExperienceStore
 - **自我优化闭环** + 7 类触发 + AST 评估 + daemon

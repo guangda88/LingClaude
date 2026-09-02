@@ -40,10 +40,46 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)
 _logger = logging.getLogger(__name__)
 
 
+_behavior_daemon: OptimizationDaemon | None = None
+
+
+def _maybe_run_daemon_cycle() -> None:
+    """R2（系统论融入）：给断路 5 个月的自优化回路合闸。
+
+    交互会话结束时触发一次 daemon 循环，24h 节流（should_run_cycle）；
+    默认 report-only（_apply_params 不设 LINGCLAUDE_DAEMON_APPLY=1 不动
+    config.yaml）。LINGCLAUDE_DAEMON_CYCLE=0 关闭（CI/测试用）。
+    """
+    if os.environ.get("LINGCLAUDE_DAEMON_CYCLE") == "0":
+        return
+    global _behavior_daemon
+    try:
+        daemon = _behavior_daemon
+        if daemon is None:
+            daemon = OptimizationDaemon(target=".", config=load_config(None))
+            _behavior_daemon = daemon
+        min_hours = float(os.environ.get("LINGCLAUDE_DAEMON_MIN_INTERVAL_HOURS", "24"))
+        if not daemon.should_run_cycle(min_interval_hours=min_hours):
+            return
+        result = daemon.run_once()
+        if result.is_ok and result.data is not None:
+            report = getattr(result.data, "report_path", "")
+            print(f"[自优化] 循环完成（report-only），报告: {report}")
+        elif result.is_error:
+            _logger.warning("自优化循环失败: %s", result.error)
+    except Exception:
+        _logger.warning("自优化循环执行异常", exc_info=True)
+
+
 def _feed_behavior_to_daemon(engine: QueryEngine, config: lingclaudeConfig | None) -> None:
+    # 审计#17 修复:此前每回合新建 OptimizationDaemon（构造含 SessionManager
+    # 初始化/快照恢复扫描）——进程内缓存，消掉每轮固定 I/O 开销。
+    global _behavior_daemon
     try:
         cfg = config or load_config(None)
-        daemon = OptimizationDaemon(target=".", config=cfg)
+        if _behavior_daemon is None:
+            _behavior_daemon = OptimizationDaemon(target=".", config=cfg)
+        daemon = _behavior_daemon
         metrics = engine.behavior_metrics
         daemon.update_behavior(metrics.to_dict())
         daemon.save_behavior_history({
@@ -625,6 +661,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
         usage=stats["usage"],
         behavior={},
     ))
+    _maybe_run_daemon_cycle()
     return 0
 
 

@@ -108,9 +108,17 @@ waterfall(tool 链→minimax@cloud) 实测恢复健康后已回池。
 
 ## 四、验证
 
-```
-pytest tests/e2e/ + test_task_router + test_model: 全绿（见当日运行记录）
-cargo test（webui-server）: 4 passed
-doc_consistency_check: ✓ pass
-E2E 实跑: lingclaude run 真实模型回复 ✓
-```
+<!-- AUTO-VERIFY:START（脚本生成，禁手改 — H17 闭环申报） -->
+
+> 由 `scripts/update_audit_ledger.py` 于 2026-09-02 10:19 生成。手写 ✅ 已废除（H17）：账目与仪表盘冲突时，以仪表盘为准。
+
+| 检查 | 命令 | 退出码 | 结果摘要 | 耗时 |
+|---|---|---|---|---|
+| ✅ doc_consistency | `/usr/bin/python scripts/doc_consistency_check.py` | 0 | ✓ All consistency checks passed. | 1.7s |
+
+<!-- AUTO-VERIFY:END -->
+
+
+
+
+

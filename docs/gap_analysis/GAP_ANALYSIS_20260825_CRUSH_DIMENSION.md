@@ -74,7 +74,7 @@
 
 | 能力 | 说明 |
 |---|---|
-| 元认知守卫 H1-H16 | 认知节奏/痴呆检测/盲点校准 |
+| 元认知守卫 H1-H17 | 认知节奏/痴呆检测/盲点校准 |
 | 分层记忆 | 艾宾浩斯衰减 + SQLite ExperienceStore |
 | 自我优化闭环 | 7 类触发 + AST 评估 + daemon |
 | 提案治理 | governance_v2 / proposal_lifecycle |

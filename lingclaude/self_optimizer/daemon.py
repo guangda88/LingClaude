@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_DIR = Path(".lingclaude")
 
+# 行为快照滚动窗口上限 — 见 save_behavior_history 内注释（存量/流量修正）
+_BEHAVIOR_SNAPSHOT_CAP = 200
+
 
 @dataclass(frozen=True)
 class OptimizationCycle:
@@ -254,6 +257,26 @@ class OptimizationDaemon:
         return cycle_result
 
     def _apply_params(self, params: dict[str, Any]) -> None:
+        """把优化参数写入 config.yaml — 执行器限幅版（R2，系统论融入）。
+
+        三重护栏：
+        1. **默认 report-only**：不设 LINGCLAUDE_DAEMON_APPLY=1 时只记日志不动配置
+           （钱学森增益纪律：纠错执行器必须有外部许可才能作用到被控对象）。
+        2. **单参数限幅**：开启应用后每周期最多写 1 个参数（纠错幅度×对象敏感度>1
+           即发散——一次调多参出问题时无法归因，也没有复测窗口）。
+        3. 失败只告警不抛出（本函数在优化循环尾部调用，不应炸掉整个循环）。
+        """
+        import os
+
+        if not params:
+            return
+        if os.environ.get("LINGCLAUDE_DAEMON_APPLY") != "1":
+            logger.info(
+                "[report-only] 建议参数（未应用；设 LINGCLAUDE_DAEMON_APPLY=1 开启）: %s",
+                params,
+            )
+            return
+
         config_path = Path("config.yaml")
         if not config_path.exists():
             logger.debug("无 config.yaml，跳过参数应用")
@@ -281,26 +304,44 @@ class OptimizationDaemon:
                 "coupling_limit": ("optimization", "coupling_limit"),
             }
 
-            changed = False
-            for param_key, (section, yaml_key) in param_map.items():
-                if param_key in params:
-                    target_section = (
-                        trigger_section if section == "triggers" else opt_section
-                    )
-                    if isinstance(params[param_key], float):
-                        target_section[yaml_key] = round(params[param_key], 2)
-                    else:
-                        target_section[yaml_key] = params[param_key]
-                    changed = True
+            # 单参数限幅：按 param_map 顺序取第一个可应用项，其余记为待复测建议
+            pending = [
+                (k, v) for k, v in param_map.items() if k in params
+            ]
+            if not pending:
+                return
+            param_key, (section, yaml_key) = pending[0]
+            deferred = {k: params[k] for k, _ in pending[1:]}
 
-            if changed:
-                config_path.write_text(
-                    yaml.dump(raw, default_flow_style=False, allow_unicode=True),
-                    encoding="utf-8",
-                )
-                logger.info("已应用优化参数到 config.yaml")
+            target_section = trigger_section if section == "triggers" else opt_section
+            value = params[param_key]
+            target_section[yaml_key] = round(value, 2) if isinstance(value, float) else value
+            config_path.write_text(
+                yaml.dump(raw, default_flow_style=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            logger.info(
+                "已应用优化参数 1/%d 到 config.yaml: %s=%s（复测通过前不再应用其余参数）",
+                len(pending), param_key, value,
+            )
+            if deferred:
+                logger.info("[待复测] 暂缓参数建议: %s", deferred)
         except Exception:
             logger.warning("应用参数失败", exc_info=True)
+
+    def should_run_cycle(self, min_interval_hours: float = 24.0) -> bool:
+        """节流判断：距上次优化循环是否超过 min_interval_hours。
+
+        last_optimization_time 缺失/不可解析 → True（从未跑过就该跑，诚实优先）。
+        """
+        raw = getattr(self.state, "last_optimization_time", None)
+        if not raw:
+            return True
+        try:
+            last = datetime.fromisoformat(str(raw))
+        except ValueError:
+            return True
+        return (datetime.now() - last).total_seconds() >= min_interval_hours * 3600
 
     def _record_cycle(self, cycle: OptimizationCycle) -> None:
         self.state.last_optimization_time = cycle.triggered_at
@@ -366,23 +407,65 @@ class OptimizationDaemon:
                 return Result.ok(json.loads(behavior_path.read_text(encoding="utf-8")))
             except (json.JSONDecodeError, KeyError):
                 pass
-        return Result.ok({"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0})
+        return Result.ok(
+            {
+                "total_turns": 0,
+                "total_frustration": 0,
+                "total_corrections": 0,
+                "total_tool_errors": 0,
+                "snapshots": [],
+            }
+        )
 
     def save_behavior_history(self, behavior: dict[str, Any]) -> Result[None]:
         try:
             history_result = self.load_behavior_history()
-            history = history_result.data if history_result.is_ok else {"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0}
+            history = history_result.data if history_result.is_ok else {"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0, "snapshots": []}
             history["total_turns"] = history.get("total_turns", 0) + behavior.get("total_turns", 0)
             history["total_frustration"] = history.get("total_frustration", 0) + behavior.get("frustration_count", 0)
             history["total_corrections"] = history.get("total_corrections", 0) + behavior.get("corrections_received", 0)
             history["total_tool_errors"] = history.get("total_tool_errors", 0) + behavior.get("tool_error_count", 0)
             history["last_updated"] = datetime.now().isoformat()
+            # 系统论修正（存量/流量，Meadows）：此前只累计 total_* 存量，没有
+            # 变化率序列，无法回答「行为是否在变好」。滚动快照提供流量时间线，
+            # 供回路计算趋势/基线；上限 200 条防止无限膨胀。
+            snapshots: list[dict[str, Any]] = history.setdefault("snapshots", [])
+            snapshots.append(
+                {
+                    "ts": history["last_updated"],
+                    "turns": behavior.get("total_turns", 0),
+                    "frustration": behavior.get("frustration_count", 0),
+                    "corrections": behavior.get("corrections_received", 0),
+                    "tool_errors": behavior.get("tool_error_count", 0),
+                }
+            )
+            history["snapshots"] = snapshots[-_BEHAVIOR_SNAPSHOT_CAP:]
             behavior_path = self.state_dir / "behavior_history.json"
             behavior_path.parent.mkdir(parents=True, exist_ok=True)
             behavior_path.write_text(json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
             return Result.ok(None)
         except Exception as e:
             return Result.fail(f"Failed to save behavior history: {e}", code="IO_ERROR")
+
+    def behavior_trend(self, window: int = 20) -> Result[dict[str, float]]:
+        """计算最近 window 条快照的每回合摩擦率趋势。
+
+        返回 frustration/corrections/tool_errors 的「次/回合」比率（窗口内合计
+        ÷ 窗口内回合合计），配合更早窗口的同类值即可回答「是否在变好」。
+        快照不足（<2 条或 0 回合）时返回空 dict — 不伪造趋势。
+        """
+        history_result = self.load_behavior_history()
+        if history_result.is_error:
+            return Result.fail(history_result.error)
+        snapshots = history_result.data.get("snapshots", [])[-window:]
+        total_turns = sum(s.get("turns", 0) for s in snapshots)
+        if len(snapshots) < 2 or total_turns <= 0:
+            return Result.ok({})
+        rates = {
+            key: round(sum(s.get(key, 0) for s in snapshots) / total_turns, 4)
+            for key in ("frustration", "corrections", "tool_errors")
+        }
+        return Result.ok(rates)
 
     def _record_quality_to_metrics(self, cycle: OptimizationCycle) -> None:
         try:

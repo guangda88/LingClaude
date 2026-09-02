@@ -43,6 +43,22 @@ def get_staged_diff():
     return result.stdout
 
 
+def _refresh_rule_decay():
+    """R3 接线：本次审查真实执行了 rules.checks → 刷新规则登记册
+    last_verified（linggit:* 前缀）。best-effort，任何失败静默——
+    绝不影响提交流程。证据语义 = 「灵督审查管线已跑」，非人工复核。"""
+    try:
+        subprocess.run(
+            [sys.executable,
+             "/home/ai/lingclaude/scripts/rule_decay_review.py",
+             "refresh", "linggit",
+             "--evidence", "linggit pre-commit: 审查管线执行"],
+            capture_output=True, timeout=15,
+        )
+    except Exception:
+        pass
+
+
 def main():
     # 只审查 Python 文件
     staged = get_staged_files()
@@ -89,6 +105,10 @@ def main():
         os.unlink(DB_PATH)
     except Exception:
         pass
+
+    # R3 留尾接线：灵督审查管线真实执行过 rules.checks → 刷新规则登记册的
+    # last_verified（rule decay）。best-effort：失败静默，绝不影响提交。
+    _refresh_rule_decay()
 
     if not issues:
         print(f"[灵督] {len(py_files)} Python 文件审查通过, 0 issues")

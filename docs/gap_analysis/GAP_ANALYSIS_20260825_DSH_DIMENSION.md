@@ -166,7 +166,7 @@ DSH 是平台，不带 agent 个性——它的"agent 风格"全靠插件组合�
 
 | 能力 | 位置 |
 |---|---|
-| 元认知守卫 H1-H16 | `.lingclaude/metacognitive_guards.md` |
+| 元认知守卫 H1-H17 | `.lingclaude/metacognitive_guards.md` |
 | 认知节奏监测 / 痴呆检测 | `cognitive_rhythm.py` / `dementia_detector.py` |
 | 盲点检测 + 置信度校准 | `meta_cognition.py` |
 | 分层记忆（艾宾浩斯衰减 + Experience Store） | `layered_memory.py` |
