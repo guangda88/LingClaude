@@ -91,6 +91,8 @@ def cli_runner(tmp_path: Path):
             self.env["HOME"] = real_home
             self.env["LINGCLAUDE_CLI_MODE"] = "plain"
             self.env["LINGCLAUDE_BUS_LISTENER"] = "0"
+            # R2:会话结束的自优化循环默认关（测试要快且不能动真实 .lingclaude 状态）
+            self.env["LINGCLAUDE_DAEMON_CYCLE"] = "0"
             self.env["XDG_CONFIG_HOME"] = str(tmp_path / ".config")
             self.env["PYTHONPATH"] = str(REPO_ROOT)
             self.env.pop("LINGCLAUDE_API_KEYS", None)

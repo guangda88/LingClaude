@@ -104,6 +104,75 @@ class TestBehaviorHistory:
             assert ctx["cumulative_frustration"] == 4
             assert ctx["cumulative_corrections"] == 2
 
+    def test_snapshots_append_as_time_series(self, tmp_path):
+        """行为快照时序化（系统论修正）：除累计存量外必须留流量时间线。"""
+        with patch.object(OptimizationDaemon, "__init__", lambda self, *a, **kw: None):
+            daemon = OptimizationDaemon.__new__(OptimizationDaemon)
+            daemon.state_dir = tmp_path
+            daemon.save_behavior_history({
+                "total_turns": 5, "frustration_count": 1,
+                "corrections_received": 0, "tool_error_count": 2,
+            })
+            daemon.save_behavior_history({
+                "total_turns": 3, "frustration_count": 0,
+                "corrections_received": 1, "tool_error_count": 0,
+            })
+            history = daemon.load_behavior_history().data
+            assert history["total_turns"] == 8  # 存量行为不变（向后兼容）
+            snaps = history["snapshots"]
+            assert len(snaps) == 2
+            assert snaps[0]["turns"] == 5 and snaps[0]["frustration"] == 1
+            assert snaps[1]["turns"] == 3 and snaps[1]["corrections"] == 1
+            assert snaps[0]["ts"] <= snaps[1]["ts"]
+
+    def test_snapshots_capped(self, tmp_path):
+        with patch.object(OptimizationDaemon, "__init__", lambda self, *a, **kw: None):
+            daemon = OptimizationDaemon.__new__(OptimizationDaemon)
+            daemon.state_dir = tmp_path
+            for _ in range(230):
+                daemon.save_behavior_history({
+                    "total_turns": 1, "frustration_count": 0,
+                    "corrections_received": 0, "tool_error_count": 0,
+                })
+            history = daemon.load_behavior_history().data
+            assert len(history["snapshots"]) == 200
+
+    def test_behavior_trend_rates(self, tmp_path):
+        """趋势 = 窗口内摩擦合计 ÷ 回合合计；快照不足时诚实返回空。"""
+        with patch.object(OptimizationDaemon, "__init__", lambda self, *a, **kw: None):
+            daemon = OptimizationDaemon.__new__(OptimizationDaemon)
+            daemon.state_dir = tmp_path
+
+            # 不足 2 条快照 → 不伪造趋势
+            daemon.save_behavior_history({
+                "total_turns": 10, "frustration_count": 1,
+                "corrections_received": 0, "tool_error_count": 0,
+            })
+            assert daemon.behavior_trend().data == {}
+
+            daemon.save_behavior_history({
+                "total_turns": 10, "frustration_count": 3,
+                "corrections_received": 1, "tool_error_count": 2,
+            })
+            trend = daemon.behavior_trend().data
+            assert trend["frustration"] == round(4 / 20, 4)
+            assert trend["tool_errors"] == round(2 / 20, 4)
+
+    def test_load_old_format_without_snapshots(self, tmp_path):
+        """旧格式（无 snapshots 字段）文件必须能加载且不炸。"""
+        import json as _json
+        (tmp_path / "behavior_history.json").write_text(
+            _json.dumps({"total_turns": 7, "total_frustration": 2,
+                         "total_corrections": 1, "total_tool_errors": 0}),
+            encoding="utf-8",
+        )
+        with patch.object(OptimizationDaemon, "__init__", lambda self, *a, **kw: None):
+            daemon = OptimizationDaemon.__new__(OptimizationDaemon)
+            daemon.state_dir = tmp_path
+            history = daemon.load_behavior_history().data
+            assert history["total_turns"] == 7
+            assert history.get("snapshots") in (None, [])
+
 
 class TestUsageTracking:
     def test_add_usage_accumulates(self):

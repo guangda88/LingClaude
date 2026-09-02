@@ -158,12 +158,72 @@ class TestOptimizationDaemon:
         try:
             import os
             os.chdir(tmp_path)
+            # R2:写 config.yaml 是受控执行器，须显式授权
+            os.environ["LINGCLAUDE_DAEMON_APPLY"] = "1"
             daemon._apply_params({"max_complexity": 20})
             import yaml
             raw = yaml.safe_load(config_path.read_text())
             assert raw["self_optimizer"]["triggers"]["max_complexity"] == 20
         finally:
             os.chdir(original_cwd)
+            os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+
+    def test_apply_params_report_only_by_default(self, tmp_path):
+        """R2:不设 LINGCLAUDE_DAEMON_APPLY 时绝不写 config.yaml（执行器限幅）。"""
+        config_path = tmp_path / "config.yaml"
+        original = "model:\n  provider: openai\n"
+        config_path.write_text(original)
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        original_cwd = Path.cwd()
+        try:
+            import os
+            os.chdir(tmp_path)
+            os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+            daemon._apply_params({"max_complexity": 99})
+            assert config_path.read_text() == original, "report-only 模式不得改写配置"
+        finally:
+            os.chdir(original_cwd)
+
+    def test_apply_params_single_param_cap(self, tmp_path):
+        """R2:开启应用后每周期最多写 1 个参数（纠错幅度限幅，保归因与复测窗口）。"""
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text("model:\n  provider: openai\n")
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        original_cwd = Path.cwd()
+        try:
+            import os
+            os.chdir(tmp_path)
+            os.environ["LINGCLAUDE_DAEMON_APPLY"] = "1"
+            daemon._apply_params({"max_complexity": 20, "coupling_limit": 7, "max_nesting_depth": 9})
+            import yaml
+            raw = yaml.safe_load(config_path.read_text())
+            opt = raw["self_optimizer"]["optimization"]
+            trg = raw["self_optimizer"]["triggers"]
+            applied = [k for k, v in {**trg, **opt}.items()
+                       if (k, v) in [("max_complexity", 20), ("coupling_limit", 7), ("max_nesting_depth", 9)]]
+            assert len(applied) == 1, f"限幅失败，应用了 {len(applied)} 个参数"
+        finally:
+            os.chdir(original_cwd)
+            os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+
+    def test_should_run_cycle_throttle(self, tmp_path):
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        # 从未跑过 → 该跑（诚实优先）
+        assert daemon.should_run_cycle() is True
+        # 2 小时前跑过 → 24h 节流内不跑
+        from datetime import datetime, timedelta
+        daemon.state.last_optimization_time = (
+            datetime.now() - timedelta(hours=2)
+        ).isoformat()
+        assert daemon.should_run_cycle(min_interval_hours=24) is False
+        # 48 小时前跑过 → 超过节流窗口
+        daemon.state.last_optimization_time = (
+            datetime.now() - timedelta(hours=48)
+        ).isoformat()
+        assert daemon.should_run_cycle(min_interval_hours=24) is True
+        # 不可解析的时间戳 → 该跑（不因脏数据永久停摆）
+        daemon.state.last_optimization_time = "not-a-date"
+        assert daemon.should_run_cycle() is True
 
     def test_optimization_cycle_frozen(self):
         cycle = OptimizationCycle(
