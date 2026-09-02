@@ -268,3 +268,53 @@ T3 启动前必须清账。
 | v0.1 | 2026-08-20 | 初稿，基于 DSH packages/ 能力地图 |
 | v0.2 | 2026-08-21 | 按 gap_analysis/GAP_ANALYSIS_20260821.md 修正：P0 重新定义（todo/pruning/input/snapshot/LSP RFC），llm Provider 抽象降为 P3 不吸收，补充 spill/schedule/codeintel 等遗漏项 |
 | v0.3 | 2026-08-21 | P0-4 snapshot/rewind 落地（核心 audit 修复），daemon 快照恢复目录/glob 三处不一致修复 |
+| v0.4 | 2026-09-02 | **自优化实战**+**三书融入**（`docs/SYSTEMS_THEORY_SYNTHESIS.md`）+ webUI 模块化与鉴权接线（超出 P2-3 原计划）+ BusResponder 真执行链。详见 CHARTER v0.4.0 子项 |
+
+---
+
+## 0.4.0 实际落地清单（vs 原 ROADMAP）
+
+> 原 ROADMAP P0/P1/P2 框架基于 DSH 能力地图。本节记录 0.4.0（2026-09-02）的实际路径——
+> 与原路线图有**差异**：webUI 走深（超出 P2-3「可选非核心」定性）、新增 webUI 与
+> BusResponder 子项目、删去未做的 Todo tool / request_user_input（这些将随
+> 0.5.0 重排）。
+
+### 已完成（0.4.0）— 7 大子项目
+
+1. **自优化回路合闸**：`daemon` 周期化（会话结束触发 + 24h 节流），执行器默认 report-only + 单参数限幅
+2. **规则衰减机制**：登记册 + 双触发刷新（linggit pre-commit、doc_consistency）+ 复核队列
+3. **审计总账机械化**：`scripts/update_audit_ledger.py` 接管验证节生成（禁手写 ✅）
+4. **三书融入合成**：`docs/SYSTEMS_THEORY_SYNTHESIS.md` v1，钱学森/Meadows/Kelly 框架→lingclaude 映射+杠杆点排序
+6. **webUI 鉴权接线**：Rust 模块化拆分（651→6 模块）+ 中间件统一鉴权 + 401 JSON/HTML + SSE serde 化
+7. **BusResponder 真执行链**：走 `engine._execute_tool`（native→MCP）+ bash fail-closed + 非 mock e2e 烟囱
+
+### 未做（0.4.0）— 进入 0.5.0 重排
+
+- 原 P0-1 Todo list tool — **未做**（0.5 重排）
+- 原 P0-2 Tool result pruning — **部分做**（`_prune_output` 已在 tool_executor，但未注册 spill）
+- 原 P0-3 request_user_input tool — **未做**（0.5 重排）
+- 原 P0-5 / P1-1 LSP RFC + 实现 — **RFC 未做**（实际 gap_analysis 后未排期）
+- 原 P1-2 Subagent 多后端 — **架构到位**（inprocess/ACP 双后端 + 4 flag），细节成熟中
+- 原 P1-3 Spill storage — **未做**
+- 原 P1-4 Sandbox 三态 — **部分做**（4 档 permissive/restricted/strict/paranoid）
+- 原 P1-5 Schedule/Jobs — **机制就绪 + CLI `/schedule` 接线**，但 LingBus 唤醒仍未做
+- 原 P1-6 Code intelligence — **4 件套落地**（trace_callers/callees/find_references/blast_radius）
+- 原 P2-1 capability seam — **未做**（RFC 阶段）
+- 原 P2-2 session projection — **已做（snapshot-based）**，明确不做 event-sourced（详见 §P2-2）
+- 原 P2-3 webui — **超 P2 完成**（见上）
+
+### 0.5.0 候选优先级（基于已完成情况重排）
+
+1. **本地模型直连**（Ollama/llama.cpp 越过 OpenAI 兼容层 — 原计划）
+2. **Todo list tool / request_user_input tool**（原 P0，缺失感知）
+3. **Spill storage**（依赖 P0-2 pruner 阈值判断，承接超阈输出）
+4. **Schedule LingBus 唤醒**（让定时任务真正"挂回会话"）
+5. **BusResponder bash 审批提案**（`proposals/2026-09-02_BUS_TASK_BASH_APPROVAL_PROPOSAL.md`，OPEN）
+
+---
+
+## 修正说明
+
+本节修正原 ROADMAP 的一个**认知错位**：原 P2-3 把 webUI 标为「可选非核心」，但
+0.4.0 实测发现 webUI 鉴权漏洞+桥接层断裂是真实 P0 安全风险（详见审计总账 W1-W13）。
+凡涉及「模型面之外的暴露面」，其安全等级应等同核心代码，不能因「可选」降级。

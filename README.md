@@ -2,7 +2,7 @@
 
 > 开源 AI 编程助手，对标 Claude Code，内置自优化能力——越用越懂你。
 
-**Version**: 0.2.1 | **Python**: >=3.10 | **License**: MIT
+**Version**: 0.5.0 | **Python**: >=3.10 | **License**: MIT
 
 ## 为什么做灵克？
 
@@ -366,13 +366,16 @@ python3 -c "from lingclaude.model import create_provider; print('OK')"
 
 ## 路线图
 
-完整路线图见 [CHARTER.md](CHARTER.md#路线图)。
+完整路线图见 [CHARTER.md](CHARTER.md#路线图) 与 [docs/ROADMAP.md](docs/ROADMAP.md)。
+最近里程碑：v0.5.0 自优化回路合闸 + 三书融入（2026-09-02，详见 [CHANGELOG.md](CHANGELOG.md)）。
 
 - [x] v0.1.0 — 核心框架：查询引擎、会话、权限、工具执行、自优化、自学习
 - [x] v0.1.1 — **安全审计**：bash 沙箱加固、文件操作路径包含检查、敏感路径保护
 - [x] v0.1.2 — **开源准备**：贡献指南、Issue/PR 模板
 - [x] v0.2.0 — **模型对接 + 行为感知 + 自适应引擎**：OpenAI/Anthropic API、行为感知系统、自适应查询引擎、Agent Loop
 - [x] v0.2.1 — **情报系统 + HTTP API + 安全审计**：情报收集、日报生成、情报中继、会话历史输出；FastAPI HTTP服务；安全漏洞修复（认证绕过、路径遍历、会话管理）
+- [x] v0.3.0 — **项目感知**：代码库索引、跨文件代码智能、上下文窗口管理
+- [x] v0.5.0 — **自优化实战 + 三书融入**：元认知守卫 H17、daemon 回路合闸、规则衰减、审计机械化、webUI 鉴权接线、BusResponder 真执行链（详见 CHANGELOG 与合成文档 `docs/SYSTEMS_THEORY_SYNTHESIS.md`）
 - [ ] v1.0.0 — 完整的 AI 编程助手
 
 ## License

@@ -59,12 +59,49 @@ AI 编程助手能执行命令、编辑文件，安全是信任的基础。权�
 
 - [x] v0.2.0 — **模型对接 + 行为感知 + 自适应引擎**：统一模型接口 (`ModelProvider` 抽象层)，支持 OpenAI / Anthropic；行为感知系统（幻觉检测、情绪识别、意图分析）；自适应查询引擎（模型路由、自适应提示词、工具重试、对话压缩、项目索引）；Agent Loop（多轮工具调用）
 - [x] v0.2.1 — **情报系统 + HTTP API + 安全审计**：情报收集 (IntelCollector)、日报生成 (DailyDigest)、情报中继 (IntelRelay)、会话历史输出 (session_history.json)；FastAPI HTTP服务（RESTful API、认证、文件操作端点）；安全审计修复（API认证绕过、路径遍历防护、Session ID加密、会话超时、无限递归保护）
-- [ ] v0.3.0 — **项目感知**：代码库索引、跨文件编辑、上下文窗口管理、项目级知识积累
 
-### 自优化实战
+### 项目感知
 
-- [ ] v0.4.0 — **自优化实战**：从日常使用中积累规则、社区反馈学习、优化效果可度量
-- [ ] v0.5.0 — **模型无关**：支持本地模型 (Ollama/llama.cpp)、多模型切换、模型能力自适应
+- [x] v0.3.0 — **项目感知**：代码库索引（`core/indexer.py`）、跨文件代码智能（`codeintel` 4 件套）、上下文窗口管理（`compaction` + 4 档 pruner）、项目级知识积累（`layered_memory` + ExperienceStore）、bus 治理（lingbus responder）
+
+### 自优化实战（v0.4.0 进行中）
+
+- [x] 元认知守卫扩到 H17（闭环申报：声明完成须附验证证据）
+- [x] 行为快照时序化（存量+流量，`behavior_trend()` 趋势查询）
+- [x] 自优化 daemon 回路合闸（会话结束触发 + 24h 节流，**断路 5 个月首次转动**）
+- [x] 报告-only 默认 + 单参数限幅（执行器增益纪律，钱学森）
+- [x] 规则衰减复核（43 条入册 + 双触发刷新接线，linggit+doc_consistency）
+- [x] 审计总账验证节机械化（`scripts/update_audit_ledger.py` 禁手写 ✅）
+- [ ] v0.4.0 完成度：建议机制在更多场景的并发扫动检测率、人工复核节奏（每月 review 队列清零）两项继续观察
+
+### 三书融入（v0.4.0 子项目）
+
+- [x] 钱学森《工程控制论》→ 执行器限幅、闭环纠错、镇定回路与随动回路分离
+- [x] Meadows《系统之美》→ 杠杆点 6（信息位置=H17）、L7（增强回路衰减=R3）、L8（调节回路合闸=R2）
+- [x] Kelly《失控》→ 钟表域（PRINC §九）、世界即通信总线（prechange_snapshot）
+- [x] 合成文档 `docs/SYSTEMS_THEORY_SYNTHESIS.md`（v1，2026-09-01）
+
+### 模型无关（v0.5.0 部分完成）
+
+- [x] 本地 provider 放行（F12b/d，`_is_local_base` 单一实现 + 三入口放行）
+- [x] multi-provider task_router + waterfall（comm 链+minimax@cloud 实测恢复）
+- [x] 13457 本地引擎端到端真实回复成功
+- [ ] Ollama / llama.cpp 直接接入（当前通过 OpenAI 兼容层）
+
+### webUI（v0.4.0 子项目，超出 P2-3 原计划）
+
+- [x] webui-server Rust 模块化拆分（651 行单文件 → 6 模块）
+- [x] 鉴权接线（cookie 中间件 + handoff 单点收口 + 401 JSON/HTML 区分）
+- [x] SSE 事件 serde 化（前端 JSON.parse 不再静默吞错）
+- [x] reqwest 连接/读超时（协议承诺 504 落地）
+- [x] 协议文档 v0.1.1（逐条标注已实现/未实现/语义变更）
+
+### BusResponder（v0.4.0 子项目）
+
+- [x] 真执行链（走 `engine._execute_tool`，native 管线→MCP fallback）
+- [x] bash 默认拒绝（fail-closed）+ 显式授权开关
+- [x] 非 mock 烟囱 e2e（真 grep 真文件、真 bash 真输出、默认拒绝）
+- [ ] 治理提案 `proposals/2026-09-02_BUS_TASK_BASH_APPROVAL_PROPOSAL.md`（OPEN，需族内评审）
 
 ### 1.0 里程碑
 
