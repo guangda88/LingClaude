@@ -47,6 +47,7 @@ class OptimizationCycle:
 class DaemonState:
     last_optimization_time: str | None = None
     last_metrics: dict[str, Any] = field(default_factory=dict)
+    last_trigger_info: dict[str, Any] | None = None  # P1-1: 完整触发上下文,不再只留 type/reason 字符串
     total_cycles: int = 0
     total_improvements: int = 0
     cycles: list[dict[str, Any]] = field(default_factory=list)
@@ -155,6 +156,11 @@ class OptimizationDaemon:
         if not should_trigger:
             logger.info("无触发条件，跳过本轮")
             return Result.ok(None)
+
+        # P1-1: TriggerInfo 全量保留（含 metrics/current_value/threshold），
+        # 随 DaemonState 持久化——此前只落 type/reason/priority 三个字符串。
+        if trigger_info is not None:
+            self.state.last_trigger_info = asdict(trigger_info)
 
         logger.info(
             "触发优化: type=%s reason=%s priority=%s",
@@ -277,6 +283,28 @@ class OptimizationDaemon:
             )
             return
 
+        # P0-1 审批闸门：写 config.yaml 前必过 guard（第四重护栏）。
+        # 2026-09-05 事故（会话执行 rm -rf .lingclaude）证明缺少此闸的风险。
+        # 2026-09-06 fix：消除上游混合缩进造成的 SyntaxError，确保 daemon 可启动。
+        from lingclaude.core.guard import ApprovalGuard, load_approval_mode
+
+        guard_mode = load_approval_mode(Path("config.yaml"))
+        guard = ApprovalGuard(mode=guard_mode)
+        allowed, reason = guard.check(
+            "optimize_write",
+            params={"proposed": params, "deferred_hint": "见 daemon 日志"},
+        )
+        if not allowed:
+            if guard.mode == "strict":
+                raise PermissionError(
+                    f"ApprovalGuard(strict): 写配置被拒绝（{reason}）— 动作 optimize_write"
+                )
+            logger.warning(
+                "[guard] 写配置待审批（mode=%s, reason=%s），本轮参数未应用: %s",
+                guard.mode, reason, params,
+            )
+            return
+
         config_path = Path("config.yaml")
         if not config_path.exists():
             logger.debug("无 config.yaml，跳过参数应用")
@@ -315,6 +343,37 @@ class OptimizationDaemon:
 
             target_section = trigger_section if section == "triggers" else opt_section
             value = params[param_key]
+            old_value = target_section.get(yaml_key)
+
+            # P1-3: 写前留档（回滚保障）
+            from lingclaude.core.file_history import record_change
+
+            record_change(config_path, source="self_optimizer")
+
+            # P1-2: patch 审计记录 — 每次变更先落 patch,写配置只是应用 patch
+            from datetime import datetime, timezone
+
+            patches_dir = Path(".lingclaude") / "patches"
+            patches_dir.mkdir(parents=True, exist_ok=True)
+            patch_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            patch = {
+                "patch_id": patch_id,
+                "ts": patch_id,
+                "source": "self_optimizer",
+                "applied": True,
+                "changes": [{
+                    "file": str(config_path),
+                    "section": section,
+                    "key": yaml_key,
+                    "old": old_value,
+                    "new": round(value, 2) if isinstance(value, float) else value,
+                }],
+                "deferred": deferred,
+            }
+            (patches_dir / f"patch_{patch_id}.json").write_text(
+                json.dumps(patch, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+
             target_section[yaml_key] = round(value, 2) if isinstance(value, float) else value
             config_path.write_text(
                 yaml.dump(raw, default_flow_style=False, allow_unicode=True),

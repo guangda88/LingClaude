@@ -327,8 +327,8 @@ def check_links(files: Iterable[Path]) -> list[Finding]:
 
 
 KNOWN_SLASH_COMMANDS = {
-    "/help", "/?", "/clear", "/compact",
-    "/model", "/schedule", "/lsp", "/quit", "/exit",
+    "/help", "/?", "/clear", "/compact", "/model", "/schedule", "/lsp",
+    "/resume", "/continue", "/quit", "/exit",
 }
 
 
