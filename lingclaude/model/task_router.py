@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import threading
 from dataclasses import dataclass
@@ -58,6 +59,11 @@ def _is_local_base(base_url: str) -> bool:
     """
     from lingclaude.model.types import ModelConfig
     return ModelConfig(base_url=base_url).is_local_base()
+
+
+# F12j:硬错误立即熔断 — 4xx 配置/账户级错误重试无意义（会话级冷却，重启即清）
+_HARD_ERROR_RE = re.compile(r"\b(401|403|404|410)\b")
+_HARD_ERROR_COOLDOWN = 1800.0  # 30min
 
 
 # F12c:provider → 环境变量映射。lingcode/config.json 的 api_key 字段留空时,
@@ -243,15 +249,31 @@ class TaskRouter:
         if slot:
             slot.consecutive_errors = 0
 
-    def record_error(self, provider_name: str) -> None:
+    def record_error(self, provider_name: str, error_detail: str = "") -> None:
+        """记录 provider 错误（F12j：硬错误立即熔断）。
+
+        - 瞬态错误（超时/5xx/连接失败）：3 连击才冷却 30s —— 容忍抖动
+        - 硬错误（HTTP 401/403/404/410 —— key 失效/部署下线/账户问题）：
+          立即冷却 30min。这类错误重试无意义，3 击阈值只会让每条消息
+          都把路由池里的模型撞一遍（现场实证：nvidia 410 下主备双 404）
+        冷却是会话级的，不写 config —— 重启即恢复，供 key 修复后回归。
+        """
         slot = self._slots.get(provider_name)
-        if slot:
-            slot.consecutive_errors += 1
-            slot.total_errors += 1
-            slot.last_error_time = time.monotonic()
-            if slot.consecutive_errors >= 3:
-                slot.cooldown_until = time.monotonic() + 30.0
-                slot.consecutive_errors = 0
+        if not slot:
+            return
+        slot.consecutive_errors += 1
+        slot.total_errors += 1
+        slot.last_error_time = time.monotonic()
+        if _HARD_ERROR_RE.search(error_detail or ""):
+            slot.cooldown_until = time.monotonic() + _HARD_ERROR_COOLDOWN
+            slot.consecutive_errors = 0
+            logger.warning(
+                "provider %s 熔断 %ds（硬错误: %s）— 本会话内路由跳过，重启或冷却后恢复",
+                provider_name, int(_HARD_ERROR_COOLDOWN), error_detail[:120],
+            )
+        elif slot.consecutive_errors >= 3:
+            slot.cooldown_until = time.monotonic() + 30.0
+            slot.consecutive_errors = 0
 
     def find_provider_by_model(self, model_name: str) -> tuple[str, _ProviderInfo] | tuple[None, None]:
         """F12h:按模型名反查 provider — 供 /model <name> 切换时连带端点/key。"""

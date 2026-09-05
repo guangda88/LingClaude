@@ -48,7 +48,7 @@ class ModelCallMixin:
                 if resolved_config:
                     pname = self._task_router.get_provider_name(resolved_config.api_key, resolved_config.base_url)
                     if pname:
-                        self._task_router.record_error(pname)
+                        self._task_router.record_error(pname, result.error)
                 if consecutive_failures >= self.config.consecutive_failure_limit:
                     logger.warning(
                         "硬中断触发: 连续模型调用失败 %d 次，强制停止",
@@ -250,13 +250,13 @@ class ModelCallMixin:
                             self._task_router.record_success(pname)
                     break
 
-                # 失败:记录 provider 错误(熔断统计,与 _call_model 对称)
+                # 失败:记录 provider 错误(熔断统计,与 _call_model 对称;F12j 硬错误立即熔断)
                 if resolved_config:
                     pname = self._task_router.get_provider_name(
                         resolved_config.api_key, resolved_config.base_url,
                     )
                     if pname:
-                        self._task_router.record_error(pname)
+                        self._task_router.record_error(pname, stream_error)
 
                 # 尚无输出 → 换下一候选重试一次
                 if cfg_attempt == 0 and not round_text_parts:

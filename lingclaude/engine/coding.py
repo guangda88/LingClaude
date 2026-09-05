@@ -736,16 +736,18 @@ class CodingRuntime(
         active_mode = get_permission_mode()
 
         def _blocks(tool_name: str) -> bool:
-            if store.blocks(tool_name):
+            # 注意（harness fix 2026-09-02）：原 `store.blocks(tool_name)` 在
+            # 单例 store 与 runtime ctx 分离时会被模式污染或审批回灌吞掉。
+            # 改用「runtime 静态配置 ∪ store 运行时 ctx」并集作为唯一真源；
+            # 显式放行 (always_allow) 优先于 deny 翻转（业务约定）。
+            effective_deny = self.permissions.deny_names | store.context.deny_names
+            allowed = store.explicitly_allowed(tool_name)
+            if tool_name.lower() in effective_deny and not allowed:
                 return True
-            if active_mode == "auto" and not store.blocks(tool_name):
-                # auto 模式：非 deny 全部放行（写工具也放行）
+            if active_mode == "auto":
                 return False
-            if self.permissions.blocks(tool_name) and not store.explicitly_allowed(tool_name):
-                return True
             if active_mode == "strict" and tool_name not in READ_ONLY_TOOLS:
-                # strict 模式：非只读工具一律拦截（除非显式放行）
-                return not store.explicitly_allowed(tool_name)
+                return not allowed
             return False
 
         return self.tool_pipeline.execute(

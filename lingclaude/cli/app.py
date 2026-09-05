@@ -98,13 +98,19 @@ def _feed_behavior_to_daemon(engine: QueryEngine, config: lingclaudeConfig | Non
 
 
 def _get_version() -> str:
-    try:
-        version_file = Path(__file__).resolve().parent.parent / "VERSION"
-        if version_file.exists():
-            return version_file.read_text().strip()
-    except Exception as e:
-        _logger.debug("version file read failed: %s", e)
-    return "0.2.1"
+    # 修复(2026-09-05):此前只查包目录 VERSION(不存在)→ 恒显示硬编码 0.2.1,
+    # 仓库根 VERSION 已升 0.5.0 却不生效。现两级查找:包目录 → 仓库根。
+    candidates = (
+        Path(__file__).resolve().parent.parent / "VERSION",
+        Path(__file__).resolve().parents[2] / "VERSION",
+    )
+    for version_file in candidates:
+        try:
+            if version_file.exists():
+                return version_file.read_text().strip()
+        except OSError as e:
+            _logger.debug("version file read failed: %s", e)
+    return "0.5.0"
 
 
 def _is_local_base(base_url: str) -> bool:

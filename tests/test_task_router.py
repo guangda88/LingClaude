@@ -109,6 +109,52 @@ class TestTaskRouter(unittest.TestCase):
             self.assertGreater(slot.cooldown_until, 0)
         path.unlink()
 
+    def test_f12j_hard_error_immediate_cooldown(self):
+        """F12j:404/410 等硬错误一次即熔断 30min——重试无意义，3 击阈值
+        只会让每条消息撞遍死 provider（nvidia 410 现场实证）。"""
+        import time as _t
+
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        router.record_error("glm", "HTTP 410: Gone")
+        slot = router._slots.get("glm")
+        self.assertIsNotNone(slot)
+        self.assertFalse(slot.is_available, "硬错误后必须立即不可用")
+        self.assertGreaterEqual(slot.cooldown_until - _t.monotonic(), 1790.0)
+        # 401/403/404 同样触发
+        for code in ("HTTP 401", "HTTP 403", "HTTP 404"):
+            r2 = TaskRouter(config_path=path)
+            r2.record_error("glm", f"{code}: whatever")
+            self.assertFalse(r2._slots.get("glm").is_available, code)
+        path.unlink()
+
+    def test_f12j_soft_error_still_three_strikes(self):
+        """F12j:瞬态错误保持 3 击语义，一两此失败不熔断。"""
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        router.record_error("glm", "connection timeout")
+        router.record_error("glm", "read interrupted")
+        slot = router._slots.get("glm")
+        self.assertTrue(slot.is_available, "瞬态错误 2 次不得熔断")
+        router.record_error("glm", "connection reset")
+        self.assertFalse(slot.is_available, "瞬态错误 3 次应触发 30s 冷却")
+        path.unlink()
+
+    def test_f12j_hard_error_reroutes_to_next_provider(self):
+        """F12j:glm 硬错误熔断后，coding 路由必须落到 cheap provider（跨
+        provider 换候选），而不是同 provider 内换模型再撞一次。"""
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        route = router._task_routes.get("coding")
+        self.assertIsNotNone(route)
+        router.record_error("glm", "HTTP 410: Gone")
+        cfg = router._pick_from_route("coding", route, max_tokens=32, temperature=0.2)
+        self.assertIsNotNone(cfg, "glm 熔断后必须仍有可用候选")
+        self.assertEqual(cfg.base_url, "http://localhost:8900/v1")
+        self.assertEqual(cfg.model, "glm-4.7-flash")  # cheap provider 的模型
+        self.assertNotEqual(cfg.api_key, "test-key")  # 不是 glm 的 key
+        path.unlink()
+
     def test_get_provider_name(self):
         path = self._make_config()
         router = TaskRouter(config_path=path)

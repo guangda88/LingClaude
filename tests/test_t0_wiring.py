@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -217,6 +218,14 @@ class TestGrepGlobParams:
 
 
 class TestWebSearchBackend:
+    # 2026-09-02 harness fix: 依赖外部网络/上游搜索引擎可达性的 live 测试，
+    # 默认 skip 以免在 pre-commit 阻塞提交。手动验证：
+    #   LINGCLAUDE_RUN_LIVE=1 python -m pytest tests/test_t0_wiring.py::TestWebSearchBackend::test_searxng_live -v
+    # 此前它在 baidu 引擎 CAPTCHA、返回空结果时让 pre-commit 整批 pytest 红。
+    @pytest.mark.skipif(
+        os.environ.get("LINGCLAUDE_RUN_LIVE") != "1",
+        reason="live 网络测试，默认跳过（依赖外部搜索引擎可达性）",
+    )
     def test_searxng_live(self):
         """本地 SearXNG JSON API（修好 formats 配置后应可用）。"""
         from lingclaude.engine.web_tools import WebSearcher
