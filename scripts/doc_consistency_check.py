@@ -61,7 +61,7 @@ GUARD_COUNT_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 # Actual count per .lingclaude/metacognitive_guards.md (recomputed at runtime below)
 def get_actual_guard_count() -> int:
-    md = REPO_ROOT / ".lingclaude" / "metacognitive_guards.md"
+    md = REPO_ROOT / "docs" / "agent-knowledge" / "guards.md"
     if not md.exists():
         return 0
     text = md.read_text(encoding="utf-8")
@@ -121,7 +121,7 @@ def check_guard_count(files: Iterable[Path]) -> list[Finding]:
 
 def _get_actual_max_guard_id() -> int:
     """Return the highest numeric H-id in the guard file."""
-    md = REPO_ROOT / ".lingclaude" / "metacognitive_guards.md"
+    md = REPO_ROOT / "docs" / "agent-knowledge" / "guards.md"
     if not md.exists():
         return 0
     max_id = 0

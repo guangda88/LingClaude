@@ -32,7 +32,7 @@ REGISTRY_PATH = REPO_ROOT / ".lingclaude" / "rule_registry.json"
 # 规则来源（id 前缀 → 扫描方式）
 SOURCES = {
     "linggit": REPO_ROOT / "linggit" / "rules" / "review_rules.yaml",
-    "guards": REPO_ROOT / ".lingclaude" / "metacognitive_guards.md",
+    "guards": REPO_ROOT / "docs" / "agent-knowledge" / "guards.md",
     "coding_rules": REPO_ROOT / ".lingclaude" / "coding_rules.md",
     "security_rules": REPO_ROOT / ".lingclaude" / "security_rules.md",
     "task_protection_rules": REPO_ROOT / ".lingclaude" / "task_protection_rules.md",
