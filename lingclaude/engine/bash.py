@@ -34,8 +34,11 @@ def _bwrap_probe(bwrap: str) -> bool:
     if _BWARP_PROBE_RESULT is not None:
         return _BWARP_PROBE_RESULT
     try:
+        # 修复:原探测命令在 merged-usr 系统(/bin -> usr/bin 符号链接)上自毁——
+        # 先绑 /usr 再绑 /bin 会用符号链接目标覆盖 /usr 内路径,execvp /bin/true
+        # 必然 ENOENT,导致沙箱被永远误判不可用。改为整根只读绑定。
         r = subprocess.run(
-            [bwrap, "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--", "/bin/true"],
+            [bwrap, "--ro-bind", "/", "/", "--", "/bin/true"],
             capture_output=True,
             timeout=5,
         )
@@ -61,6 +64,14 @@ class BashResult:
 
 _ALWAYS_BLOCKED = frozenset({
     "rm -rf /", "rm -rf /*",
+    # 2026-09-05 事故加固:lingclaude 会话曾执行 rm -rf .lingclaude,
+    # 导致运行时数据(行为/知识/会话库)丢失。关键目录一律禁止 rm。
+    "rm -rf .lingclaude", "rm -rf .lingclaude/",
+    "rm -rf .git", "rm -rf .git/",
+    "rm -rf docs", "rm -rf knowledge",
+    "rm -rf lingclaude", "rm -rf src",
+    "rm -rf ~", "rm -rf ~/",
+    "rm -rf .crush", "rm -rf data",
     "sudo", "su",
     "mkfs", "dd if=",
     ":(){ :|:& };:", "fork bomb",
@@ -293,6 +304,26 @@ class BashExecutor:
                 return True
         return False
 
+    @classmethod
+    def _rule_matches(cls, text: str, needle: str) -> bool:
+        """黑名单规则匹配（harness fix 2026-09-06：防子串误伤）。
+
+        此前裸词规则（apt / ssh / sudo 等）走 `needle in haystack` 子串匹配，
+        误伤合法参数含同名子串的命令（实测：`pytest --capture` 因含
+        `apt` 被拦 → cat VERSION 同样连坐 "at "）。规则规避（Goodhart 反向）：
+        安全规则越严，正常用例越绕，token 消耗越高。
+
+        现统一语义：
+        - 含 glob 通配符（* ?）→ glob 子串语义（保留旧行为，给运维细粒度控制）
+        - 纯词/短语 → 词边界匹配（(?<![\w-])...\\b），与既有 "at " 处理一致
+        """
+        import re
+
+        if any(c in needle for c in "*?"):
+            return cls._glob_aware_contains(text, needle)
+        needle_clean = needle.rstrip()
+        return bool(re.search(r"(?<![\w-])" + re.escape(needle_clean) + r"\b", text))
+
     @staticmethod
     def _split_chain(command: str) -> list[str]:
         """将命令链（&&, ||, ;, |, $(), ``）拆分为子命令逐个检测。"""
@@ -316,7 +347,7 @@ class BashExecutor:
 
         for blocked in self.blocked_commands:
             bl = blocked.lower()
-            if self._glob_aware_contains(cmd_normalized, bl):
+            if self._rule_matches(cmd_lower, bl):
                 return f"匹配黑名单规则 '{blocked}'"
 
         sub_commands = self._split_chain(cmd_stripped)
@@ -324,7 +355,7 @@ class BashExecutor:
             sub_norm = self._normalize_command(sub)
             for blocked in self.blocked_commands:
                 bl = blocked.lower()
-                if self._glob_aware_contains(sub_norm, bl):
+                if self._rule_matches(sub_norm.lower(), bl):
                     return f"匹配黑名单规则 '{blocked}'（命令链中检测到）"
 
             tokens = sub_norm.split()
