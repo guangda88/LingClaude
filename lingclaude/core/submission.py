@@ -12,7 +12,7 @@ from lingclaude.core.hooks import HookType, HookContext
 from lingclaude.core.models import PermissionDenial
 from lingclaude.core.types import Result, StopReason
 from lingclaude.core.cognitive_rhythm import ImbalanceType
-from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS
+from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS, _resolve_max_tool_rounds
 
 logger = logging.getLogger(__name__)
 
@@ -302,7 +302,7 @@ class SubmissionMixin:
         resolved_config, _ = self._resolve_model_config(prompt)
         response = None
 
-        for ri in range(round_idx + 1, AGENT_MAX_TOOL_ROUNDS):
+        for ri in range(round_idx + 1, _resolve_max_tool_rounds(self)):
             result = self._provider.complete(
                 tuple(messages), config=resolved_config, tools=tools,
             )

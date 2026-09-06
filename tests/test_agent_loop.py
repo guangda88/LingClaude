@@ -241,7 +241,8 @@ class TestAgentLoopEdgeCases:
         engine = QueryEngine(model_provider=provider)
         engine.set_runtime(runtime)
         result = engine.submit("无限循环测试")
-        assert "最大工具调用轮次" in result.output
+        # 打转检测（2026-09-06）: 重复相同调用现于第 2 轮即熔断，文案为循环检测
+        assert "原地打转" in result.output and "熔断" in result.output
 
     def test_provider_error_returned(self) -> None:
         provider = FakeProvider([])

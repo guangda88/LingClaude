@@ -306,23 +306,29 @@ class BashExecutor:
 
     @classmethod
     def _rule_matches(cls, text: str, needle: str) -> bool:
-        """黑名单规则匹配（harness fix 2026-09-06：防子串误伤）。
+        r"""黑名单规则匹配（harness fix 2026-09-06：防子串误伤）。
 
         此前裸词规则（apt / ssh / sudo 等）走 `needle in haystack` 子串匹配，
         误伤合法参数含同名子串的命令（实测：`pytest --capture` 因含
         `apt` 被拦 → cat VERSION 同样连坐 "at "）。规则规避（Goodhart 反向）：
         安全规则越严，正常用例越绕，token 消耗越高。
 
-        现统一语义：
-        - 含 glob 通配符（* ?）→ glob 子串语义（保留旧行为，给运维细粒度控制）
-        - 纯词/短语 → 词边界匹配（(?<![\w-])...\\b），与既有 "at " 处理一致
+        现统一语义（2026-09-06 二次修订，合并两版优点）：
+        1. 词边界精确匹配（修误伤）：apt 不再命中 --capture、su 不再命中 resume、
+           "at " 不再命中 cat/stat——此前裸子串匹配连坐合法参数
+        2. 保留 '?' 单字符变体检测（EXP-S2 混淆防御）：文本里 "s?do" 仍命中
+           "sudo" 规则；rm -rf / 等非词尾规则不再被错误的 \\b 追加破坏
         """
         import re
 
-        if any(c in needle for c in "*?"):
-            return cls._glob_aware_contains(text, needle)
-        needle_clean = needle.rstrip()
-        return bool(re.search(r"(?<![\w-])" + re.escape(needle_clean) + r"\b", text))
+        # 词边界精确匹配（防误伤）：apt 不再命中 --capture、su 不再命中
+        # resume/stat、at 不再命中 cat。
+        # （EXP-S2 的文本 '?' 混淆检测移至 _check_blocked 的 token 级处理——
+        #   在整段文本上做规则变体正则会让 "s." 匹配一切 s 开头词，本轮实测教训）
+        pattern = r"(?<![\w-])" + re.escape(needle)
+        if needle and (needle[-1].isalnum() or needle[-1] == "_"):
+            pattern += r"\b"
+        return re.search(pattern, text) is not None
 
     @staticmethod
     def _split_chain(command: str) -> list[str]:
@@ -365,6 +371,18 @@ class BashExecutor:
                 base_cmd_name = Path(token.split("=")[-1]).name
                 if base_cmd_name in _BLOCKED_BASE_COMMANDS:
                     return f"基础命令 '{base_cmd_name}' 被禁止"
+                # EXP-S2 '?'-混淆防御（token 级）：shell 里 "s?do" 会被 glob
+                # 展开为真实命令。规则与 token 等长、非 '?' 字符全等 → 拦截。
+                # token 级比较不会误伤（"stat" len4 ≠ "su" len2）。
+                for blocked in self.blocked_commands:
+                    bl = blocked.strip()
+                    if not bl or " " in bl or any(c in bl for c in "*?"):
+                        continue
+                    if len(base_cmd_name) == len(bl) and all(
+                        tc == "?" or tc == bc
+                        for tc, bc in zip(base_cmd_name.lower(), bl)
+                    ):
+                        return f"匹配黑名单规则 '{blocked}'（'?' 混淆变体）"
 
         base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
         base_cmd_name = Path(base_cmd).name

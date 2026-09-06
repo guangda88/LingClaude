@@ -173,16 +173,20 @@ class OpenAIProvider(ModelProvider):
                 yield {"type": "error", "error": f"HTTP {resp.status}: {error_body}"}
                 return
 
+            # 修复:此前从流开始计总时长,长思考模型(glm-5.3-flash 带推理)
+            # 正常输出超 120s 即被误杀。改为"静默超时"——每收到一个 chunk
+            # 重置计时,只有持续无数据才判定连接死亡。
             stream_start = time.monotonic()
-            STREAM_MAX_SECONDS = 120
+            STREAM_IDLE_SECONDS = 180
             while True:
-                if time.monotonic() - stream_start > STREAM_MAX_SECONDS:
-                    yield {"type": "error", "error": "流式响应超时（120秒），请重试或检查网络连接"}
+                if time.monotonic() - stream_start > STREAM_IDLE_SECONDS:
+                    yield {"type": "error", "error": "流式响应静默超时（180秒无数据），请重试或检查网络连接"}
                     conn.close()
                     return
                 line = resp.readline()
                 if not line:
                     break
+                stream_start = time.monotonic()  # 有数据到达 → 重置静默计时
                 line = line.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue

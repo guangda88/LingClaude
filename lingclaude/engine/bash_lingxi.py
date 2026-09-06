@@ -143,7 +143,11 @@ class BashlingxiExecutor:
             )
 
     def _check_blocked(self, command: str) -> str | None:
-        """Check if command is blocked
+        """Check if command is blocked (词边界匹配, 对齐 bash.py 2026-09-06 修复).
+
+        此前此处走 `needle in haystack` 裸子串匹配, 误伤合法参数含同名
+        子串的命令 (实测: `pytest --capture` 因含 `apt` 被拦 → 换通道
+        才跑通, 白白消耗 token)。
 
         Args:
             command: Command string
@@ -151,12 +155,21 @@ class BashlingxiExecutor:
         Returns:
             Reason if blocked, None otherwise
         """
+        import re
+
         cmd_stripped = command.strip()
         cmd_lower = cmd_stripped.lower()
 
-        # Check custom blocked commands
+        # Check custom blocked commands (词边界匹配, 防 --capture 类误伤)
         for blocked in self.blocked_commands:
-            if blocked.lower() in cmd_lower:
+            bl = (blocked or "").lower()
+            if not bl:
+                continue
+            # 词边界精确匹配: apt 不再命中 --capture, su 不再命中 resume
+            pattern = r"(?<![\w-])" + re.escape(bl)
+            if bl[-1].isalnum() or bl[-1] == "_":
+                pattern += r"\b"
+            if re.search(pattern, cmd_lower):
                 return f"匹配黑名单规则 '{blocked}'"
 
         # If allowed commands specified, check against them

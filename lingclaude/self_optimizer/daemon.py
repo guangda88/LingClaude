@@ -288,6 +288,7 @@ class OptimizationDaemon:
         # 2026-09-06 fix：消除上游混合缩进造成的 SyntaxError，确保 daemon 可启动。
         from lingclaude.core.guard import ApprovalGuard, load_approval_mode
 
+        lock_cm = None  # 提前 return 路径（未持锁）时 finally 需判空
         guard_mode = load_approval_mode(Path("config.yaml"))
         guard = ApprovalGuard(mode=guard_mode)
         allowed, reason = guard.check(
@@ -310,7 +311,13 @@ class OptimizationDaemon:
             logger.debug("无 config.yaml，跳过参数应用")
             return
 
+        # 多 agent 并行编辑锁（P3 补强）：config.yaml 读-改-写全程持锁，
+        # 防止 lingclaude 会话/Claude Code/监督者三方顺序踩踏（2026-09-06 事故）。
+        from lingclaude.core.file_lock import file_edit_lock
+
         try:
+            lock_ctx = file_edit_lock(config_path, owner="self_optimizer")
+            lock_ctx.__enter__()
             import yaml
 
             raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -387,6 +394,10 @@ class OptimizationDaemon:
                 logger.info("[待复测] 暂缓参数建议: %s", deferred)
         except Exception:
             logger.warning("应用参数失败", exc_info=True)
+        finally:
+            # 读-改-写结束（含提前 return），释放编辑锁
+            if lock_cm is not None:
+                lock_cm.__exit__(None, None, None)
 
     def should_run_cycle(self, min_interval_hours: float = 24.0) -> bool:
         """节流判断：距上次优化循环是否超过 min_interval_hours。

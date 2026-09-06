@@ -32,15 +32,23 @@ def _bwrap_probe(bwrap: str) -> bool:
         return _bwrap_probe_cache
     import subprocess
 
-    try:
+    # 韧性:探测失败重试一次(会话启动期 MCP/后台线程抢资源,超时可能是瞬时的)。
+    # 只有连续两次失败才缓存 False,避免单次抖动让整个会话永久降级非沙箱。
+    for _attempt in range(2):
+      try:
+        # 修复:原探测命令在 merged-usr 系统(/bin -> usr/bin 符号链接)上自毁——
+        # 先绑 /usr 再绑 /bin 会用符号链接目标覆盖 /usr 内路径,execvp /bin/true
+        # 必然 ENOENT,导致沙箱被永远误判不可用。改为整根只读绑定。
         proc = subprocess.run(  # nosec B603 — 探测固定白名单命令
-            [bwrap, "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin", "--", "/bin/true"],
+            [bwrap, "--ro-bind", "/", "/", "--", "/bin/true"],
             capture_output=True,
-            timeout=5,
+            timeout=15,
         )
         _bwrap_probe_cache = proc.returncode == 0
-    except Exception:  # noqa: BLE001 — 探测失败视为不可用
-        _bwrap_probe_cache = False
+        if _bwrap_probe_cache:
+            break
+      except Exception:  # noqa: BLE001 — 探测失败视为不可用
+          _bwrap_probe_cache = False
     return _bwrap_probe_cache
 
 
@@ -84,11 +92,9 @@ class BwrapSandboxProvider:
         parts = [
             self._bwrap,
             "--unshare-net",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/etc", "/etc",
-            "--ro-bind", "/bin", "/bin",
-            "--ro-bind", "/sbin", "/sbin",
+            # merged-usr 安全绑定:整根只读(/bin 是 usr/bin 的符号链接,
+            # 逐目录绑定会自毁路径),再按需放开工作目录与 /tmp。
+            "--ro-bind", "/", "/",
             "--bind", wd, wd,
             "--bind", "/tmp", "/tmp",
             "--die-with-parent",

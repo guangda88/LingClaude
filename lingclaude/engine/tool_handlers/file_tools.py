@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 
@@ -10,6 +11,29 @@ class FileToolsMixin:
 
     依赖 self.file_read / self.file_ops / self.file_edit / self._gate_sensitive。
     """
+
+    # P2-2: 写路径白名单 — verification.allowed_write_roots 非空时强制。
+    # 空列表 = 不限制(向后兼容)。fail-closed:路径解析失败一律拒绝。
+    def _write_allowed(self, path: str) -> str | None:
+        config = getattr(self, "config", None)
+        roots = tuple(getattr(getattr(config, "verification", None), "allowed_write_roots", ()) or ())
+        if not roots:
+            return None
+        try:
+            resolved = Path(path).resolve()
+        except OSError:
+            return f"路径无法解析: {path}"
+        cwd = Path.cwd()
+        for root in roots:
+            root_path = Path(root)
+            if not root_path.is_absolute():
+                root_path = cwd / root_path
+            try:
+                if resolved.is_relative_to(root_path.resolve()):
+                    return None
+            except (OSError, ValueError):
+                continue
+        return f"路径不在 allowed_write_roots 白名单内: {resolved}（允许: {list(roots)}）"
 
     def _read_handler(
         self,
@@ -31,6 +55,9 @@ class FileToolsMixin:
     def _write_handler(
         self, path: str, content: str, **_kwargs: Any
     ) -> dict[str, Any]:
+        denied = self._write_allowed(path)
+        if denied:
+            return {"error": denied}
         result = self.file_ops.write(path, content)
         if result.is_error:
             return {"error": result.error}
@@ -44,6 +71,9 @@ class FileToolsMixin:
         replace_all: bool = False,
         **_kwargs: Any,
     ) -> dict[str, Any]:
+        denied = self._write_allowed(path)
+        if denied:
+            return {"error": denied}
         result = self.file_edit.replace(path, old_text, new_text, replace_all)
         if result.is_error:
             return {"error": result.error}
@@ -52,6 +82,9 @@ class FileToolsMixin:
     def _file_create_handler(
         self, path: str, content: str, **_kwargs: Any
     ) -> dict[str, Any]:
+        denied = self._write_allowed(path)
+        if denied:
+            return {"error": denied}
         result = self.file_edit.create(path, content)
         if result.is_error:
             return {"error": result.error}
@@ -60,6 +93,9 @@ class FileToolsMixin:
     def _file_insert_handler(
         self, path: str, line: int, text: str, **_kwargs: Any
     ) -> dict[str, Any]:
+        denied = self._write_allowed(path)
+        if denied:
+            return {"error": denied}
         result = self.file_edit.insert(path, line, text)
         if result.is_error:
             return {"error": result.error}
@@ -68,6 +104,9 @@ class FileToolsMixin:
     def _file_delete_lines_handler(
         self, path: str, start_line: int, end_line: int, **_kwargs: Any
     ) -> dict[str, Any]:
+        denied = self._write_allowed(path)
+        if denied:
+            return {"error": denied}
         result = self.file_edit.delete_lines(path, start_line, end_line)
         if result.is_error:
             return {"error": result.error}

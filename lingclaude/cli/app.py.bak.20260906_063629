@@ -499,9 +499,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
 
         _completer = WordCompleter(
             # F2 修复:删 /undo 出补全 — handler 缺失,留 completer 会让用户以为已实现。
-            # 会话恢复:新增 /resume /continue（交互中途恢复历史会话）；
-            # 顺手补上帮助文本里有、补全里却漏掉的 /lsp。
-            ["/help", "/clear", "/compact", "/model", "/schedule", "/lsp", "/resume", "/continue", "/quit"],
+            ["/help", "/clear", "/compact", "/model", "/schedule", "/quit"],
             ignore_case=True,
         )
     except ImportError:
@@ -545,8 +543,6 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             print("  /model [名称]          查看/切换默认模型")
             print("  /schedule [表达式]      定时任务注册/列出/取消")
             print("  /lsp add|remove [参数]  LSP 服务器注册/删除（不带参数列出）")
-            print("  /resume [ID]           恢复指定会话（不带 ID 列出全部；ID 支持短前缀）")
-            print("  /continue              恢复最近一次会话（等价启动参数 --continue）")
             print("  /quit、/exit           退出")
             return True
         if name == "/clear":
@@ -687,44 +683,6 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             else:
                 print("[用法] /lsp add <lang> --command <cmd> | /lsp remove <lang> | /lsp 列出")
             return True
-        # 会话恢复:/resume [ID] 恢复指定会话、/continue 恢复最近一次。
-        # 复用启动参数 --resume/--continue 的同一套持久化接口（load_session），
-        # 语义与启动时一致：恢复 = 替换当前上下文。
-        if name in ("/resume", "/continue"):
-            sessions = engine.session_manager.list_sessions()
-            if name == "/continue":
-                # /continue = 无参恢复最近一次（对齐启动参数 --continue）
-                if not sessions:
-                    print("[恢复失败] 没有可恢复的历史会话")
-                    return True
-                latest = max(sessions, key=lambda s: s.get("created_at", ""))
-                target_id = str(latest.get("session_id", ""))
-                print(f"[目标] 最近会话: {target_id}")
-            elif not arg:
-                # /resume 无参 = 列出全部（对齐帮助文本承诺；这是会话 ID 的发现入口）
-                if not sessions:
-                    print("[会话列表] 无历史会话")
-                    return True
-                print(f"[会话列表] 共 {len(sessions)} 个（最近 10 个）：")
-                for s in sorted(sessions, key=lambda x: x.get("created_at", ""), reverse=True)[:10]:
-                    print(f"  - {s.get('session_id')} | {s.get('created_at', '')}")
-                return True
-            else:
-                target_id = arg.strip()
-                # 短前缀匹配（对齐 /schedule cancel 用 8 位短 ID 的习惯）
-                matches = [s for s in sessions if str(s.get("session_id", "")).startswith(target_id)]
-                if len(matches) == 1:
-                    target_id = str(matches[0]["session_id"])
-                elif len(matches) > 1:
-                    print(f"[歧义] 有 {len(matches)} 个会话以 {target_id} 开头，请用更长的 ID：")
-                    for s in matches[:5]:
-                        print(f"  - {s.get('session_id')} | {s.get('created_at', '')}")
-                    return True
-            if engine._session_persister.load_session(target_id):
-                print(f"[会话已恢复] {target_id}（{len(engine._conversation)} 轮对话；当前上下文已被替换）")
-            else:
-                print(f"[会话恢复失败] {target_id} 不存在或已损坏（当前上下文未受影响）")
-            return True
         return False
 
     prompt = first_prompt or ""
@@ -784,11 +742,6 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 engine._messages.append(response_content)
                 engine._compact_if_needed()
                 engine._append_to_session_history(prompt, response_content)
-                # P0-2+: 逐轮落盘（crush 式增量持久化）— 中途被杀不再丢会话。
-                # 此前仅退出时 persist，57109 被 kill 即全丢（2026-09-06 事故）。
-                persist_result = engine._session_persister.persist_session()
-                if persist_result.is_error and _OUTPUT_FORMAT == "plain":
-                    print(f"[警告] 会话逐轮落盘失败: {persist_result.error}")
         else:
             result = engine.submit(prompt)
             print(f"\n{result.output}\n")

@@ -196,11 +196,14 @@ class TestModelRouting:
         )
         engine.submit("写一个快速排序函数")
         assert provider.last_config is not None
+        # 用引擎重写前的路由结果判定分支——last_config 的 key/base 已被引擎
+        # 覆写为 engine 默认值,事后反查必然 miss(原实现的环境依赖缺陷)。
+        routed_cfg, _ = engine._task_router.resolve("写一个快速排序函数")
         routed_provider = engine._task_router.get_provider_name(
-            provider.last_config.api_key, provider.last_config.base_url
+            routed_cfg.api_key, routed_cfg.base_url
         )
         default_provider = engine._task_router.get_default_provider_name()
-        if routed_provider == default_provider:
+        if routed_provider is None or routed_provider == default_provider:
             assert provider.last_config.model == "coder-model"
         else:
             assert provider.last_config.model != "coder-model"

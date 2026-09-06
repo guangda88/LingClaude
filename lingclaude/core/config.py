@@ -151,6 +151,8 @@ class lingclaudeConfig:
             permissions=PermissionConfig(
                 deny_tools=perm_raw.get("deny_tools", []),
                 deny_prefixes=perm_raw.get("deny_prefixes", []),
+                # P0-2: 修复 mode 死接线 — 字段存在但 loader 从不读取
+                mode=perm_raw.get("mode", "ask"),
             ),
             triggers=TriggerConfig(
                 enabled=trig_raw.get("enabled", True),

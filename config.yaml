@@ -1,8 +1,10 @@
 engine:
-  compact_after_turns: 12
+  compact_after_turns: 20
   max_budget_tokens: 200000
-  max_turns: 8
+  max_turns: 16
   structured_output: false
+guard:
+  approval_mode: auto
 intel:
   auto_collect_behavior: true
   auto_relay: true

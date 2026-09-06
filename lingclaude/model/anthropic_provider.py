@@ -289,10 +289,12 @@ class AnthropicProvider(ModelProvider):
                 return
 
             stream_start = time.monotonic()
-            STREAM_MAX_SECONDS = 120
+            # 修复:同 openai_provider — 改为静默超时,每收到 chunk 重置,
+            # 长思考模型的正常长输出不再被总时长误杀。
+            STREAM_IDLE_SECONDS = 180
             while True:
-                if time.monotonic() - stream_start > STREAM_MAX_SECONDS:
-                    yield {"type": "error", "error": "流式响应超时（120秒）"}
+                if time.monotonic() - stream_start > STREAM_IDLE_SECONDS:
+                    yield {"type": "error", "error": "流式响应静默超时（180秒无数据）"}
                     conn.close()
                     return
                 try:
@@ -301,6 +303,7 @@ class AnthropicProvider(ModelProvider):
                     break
                 if not line:
                     break
+                stream_start = time.monotonic()  # 有数据到达 → 重置静默计时
                 line = line.decode("utf-8", errors="replace").strip()
                 if not line:
                     continue

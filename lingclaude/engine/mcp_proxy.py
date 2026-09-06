@@ -402,12 +402,22 @@ def init_from_lingflow_registry() -> int:
 
     count = 0
     for key, cfg in REGISTRY.items():
+        # 修复:此前丢弃 transport/command/args/url — stdio 型 server(如
+        # lingclaude-mcp 的 check_and_optimize)注册后 transport 恒为默认
+        # "module" 且无 module_path/working_dir,永远无法加载,静默变死条目。
+        transport = cfg.transport.value if hasattr(cfg.transport, "value") else str(cfg.transport)
+        command: list[str] = []
+        if cfg.command:
+            command = [cfg.command, *cfg.args]
         register_server(
             key=key,
             name=cfg.name,
             agent_id=cfg.agent_id,
             tools=cfg.tools,
             working_dir=cfg.working_dir,
+            transport=transport,
+            command=command,
+            url=cfg.url,
         )
         count += 1
     logger.info("MCP Proxy: initialized %d servers from lingflow_plus registry", count)

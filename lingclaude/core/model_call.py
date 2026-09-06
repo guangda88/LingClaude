@@ -9,11 +9,67 @@ import logging
 from typing import Any, Generator
 
 from lingclaude.core.behavior import detect_intent, is_tool_intent
+from lingclaude.model.types import MessageRole, ModelMessage
 
 logger = logging.getLogger(__name__)
 
 # 模型调用最大工具轮次（query_engine 模块级常量迁移至此，避免循环导入）
+# 注意：这只是"未配置时的兜底值"。运行时上限由 _resolve_max_tool_rounds()
+# 从实例 config.max_turns（config.yaml → agent.max_turns）读取。
 AGENT_MAX_TOOL_ROUNDS = 10
+
+
+def _resolve_max_tool_rounds(engine: Any) -> int:
+    """解析本轮 agent 循环的轮次上限。
+
+    优先级：实例 config.max_turns（config.yaml agent.max_turns）> 模块常量兜底。
+    防御式读取：任何属性缺失/类型不对都回落到常量，绝不抛异常。
+    """
+    for attr in ("config", "engine_config", "_config", "cfg"):
+        cfg = getattr(engine, attr, None)
+        val = getattr(cfg, "max_turns", None) if cfg is not None else None
+        if isinstance(val, int) and val > 0:
+            return val
+    return AGENT_MAX_TOOL_ROUNDS
+
+_LOOP_WARN_HINT = (
+    "[系统提示] 检测到与历史完全相同的工具调用（原地打转）。"
+    "请改变方法/参数，或直接基于已有信息作答，不要重复同一调用。"
+)
+_LOOP_ABORT_MSG = (
+    "[循环检测] 连续两轮重复完全相同的工具调用（原地打转），任务已熔断停止。"
+    "已完成的部分结果如上；请换个思路重新提问。"
+)
+
+
+class _ToolLoopDetector:
+    """区分"原地打转"（重复相同调用）与"正常推进"（每轮有新产出）。
+
+    判定：一轮工具调用的签名 (name, arguments) 全部在历史中出现过 = 打转轮。
+    - 连续第 1 次打转 → warn（把纠偏提示注入下一轮消息，给模型改错机会）
+    - 连续第 2 次打转 → abort（熔断）
+    - 有任何新调用   → 正常推进，streak 清零
+    纯文本轮（无工具调用）不参与判定（那是回答，不是循环）。
+    """
+
+    def __init__(self) -> None:
+        self._seen: set[tuple[str, str]] = set()
+        self._streak = 0
+
+    def observe_round(self, calls: list[tuple[str, str]]) -> str | None:
+        """观察一轮调用，返回 'warn' / 'abort' / None。"""
+        if not calls:
+            return None
+        sig = set(calls)
+        has_new = any(c not in self._seen for c in sig)
+        self._seen.update(sig)
+        if has_new:
+            self._streak = 0
+            return None
+        self._streak += 1
+        if self._streak >= 2:
+            return "abort"
+        return "warn"
 
 
 class ModelCallMixin:
@@ -36,7 +92,8 @@ class ModelCallMixin:
         total_output = 0
         consecutive_failures = 0
 
-        for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
+        loop_detector = _ToolLoopDetector()
+        for round_idx in range(_resolve_max_tool_rounds(self)):
             result = self._provider.complete(
                 tuple(messages), config=resolved_config, tools=tools,
             )
@@ -81,6 +138,20 @@ class ModelCallMixin:
                 1 for tc in response.tool_calls
                 if '"error"' in self._get_last_tool_output(messages, tc.id)
             )
+            # 打转检测：全旧调用轮先警告注入、连续两次才熔断（区分原地打转与正常推进）。
+            # 全错误轮不参与打转计数——那是连续失败熔断（硬中断）的辖域，语义优先。
+            if round_error_count == 0:
+                verdict = loop_detector.observe_round(
+                    [(tc.name, tc.arguments) for tc in response.tool_calls]
+                )
+                if verdict == "warn":
+                    messages.append(ModelMessage(role=MessageRole.USER, content=_LOOP_WARN_HINT))
+                elif verdict == "abort":
+                    return self._finalize_turn(
+                        prompt,
+                        (response.content or "") + _LOOP_ABORT_MSG,
+                        used_tools, total_input, total_output, resolved_config,
+                    )
             if round_error_count == len(response.tool_calls) and round_error_count > 0:
                 consecutive_failures += 1
                 if consecutive_failures >= self.config.consecutive_failure_limit:
@@ -208,7 +279,8 @@ class ModelCallMixin:
         total_output = 0
         consecutive_failures = 0
 
-        for round_idx in range(AGENT_MAX_TOOL_ROUNDS):
+        loop_detector = _ToolLoopDetector()
+        for round_idx in range(_resolve_max_tool_rounds(self)):
             round_text_parts: list[str] = []
             round_tool_calls: list[ToolCall] = []
             stream_error: str | None = None
@@ -359,6 +431,19 @@ class ModelCallMixin:
                     return
             else:
                 consecutive_failures = 0
+
+            # 打转检测（stream 版）：与 call_model 同策略——先警告注入，再熔断。
+            # 全错误轮不参与打转计数（那是连续失败熔断的辖域，语义优先）。
+            if round_error_count == 0:
+                verdict = loop_detector.observe_round(
+                    [(tc.name, tc.arguments) for tc in round_tool_calls]
+                )
+                if verdict == "warn":
+                    messages.append(ModelMessage(role=MessageRole.USER, content=_LOOP_WARN_HINT))
+                elif verdict == "abort":
+                    yield {"type": "text_delta", "text": _LOOP_ABORT_MSG}
+                    yield {"type": "done", "content": response_content + _LOOP_ABORT_MSG}
+                    return
 
         content = response_content or "[达到最大工具调用轮次]"
         final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)

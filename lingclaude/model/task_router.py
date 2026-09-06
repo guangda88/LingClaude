@@ -190,11 +190,11 @@ class TaskRouter:
         if not models:
             return None
 
-        with self._lock:
-            idx = self._round_robin_idx.get(route_key, 0)
-
-        for i in range(len(models)):
-            pos = (idx + i) % len(models)
+        # 严格优先级模式:始终从配置表首位开始扫描,健康候选即选中。
+        # 此前 round-robin 会让首位候选与兜底 50/50 交替,违背
+        # "glm-5.3-flash 优先、waterfall 兜底"的配置语义。
+        # 故障切换由 F12b(无 key 跳过)+ slot.is_available(熔断/限流)承担。
+        for pos in range(len(models)):
             ref = models[pos]
             pinfo = self._providers.get(ref.provider)
             if not pinfo:
@@ -205,16 +205,13 @@ class TaskRouter:
             if not pinfo.api_key and not _is_local_base(pinfo.base_url):
                 logger.debug(
                     "路由跳过 %s:云端 provider 无 api_key(候选 %d/%d)",
-                    ref.provider, i + 1, len(models),
+                    ref.provider, pos + 1, len(models),
                 )
                 continue
 
             slot = self._slots.get(ref.provider)
             if slot and not slot.is_available:
                 continue
-
-            with self._lock:
-                self._round_robin_idx[route_key] = (pos + 1) % len(models)
 
             slot = self._slots.get(ref.provider)
             if slot:
