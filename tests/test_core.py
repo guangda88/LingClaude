@@ -618,3 +618,41 @@ class TestBashSecurity:
         result = executor.run("mkfs /dev/sda1")
         assert result.exit_code == 126
         assert "黑名单" in result.stderr or "基础命令" in result.stderr
+
+    def test_substring_false_positive_apt(self) -> None:
+        """harness fix 2026-09-06：'apt' 裸词规则此前做子串匹配，连坐合法
+        参数含同名子串的命令（pytest --capture、cat VERSION 等）。现统一
+        词边界匹配（与 'at ' 同处理），合法命令应放行。
+        """
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor()
+        # 这些都不该被拦（合法命令）
+        for cmd in [
+            "pytest --capture=fd -x",
+            "cat VERSION",
+            "catastrophic-backup --help",  # 历史上有人用过的合法命名
+            "stat /etc/passwd",
+            "whatis pytest",
+        ]:
+            r = executor.run(cmd)
+            assert r.exit_code != 126, f"合法命令被误拦: {cmd!r} -> {r.stderr!r}"
+
+    def test_blocked_substring_still_triggers(self) -> None:
+        """防回归：词边界匹配仍要拦住裸词命令（如直接运行 'apt'）。"""
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor()
+        for cmd in ["apt update", "apt-get install", "sudo ls", "ssh foo@bar", "iptables -L"]:
+            r = executor.run(cmd)
+            assert r.exit_code == 126, f"恶意命令没拦住: {cmd!r}"
+
+    def test_blocked_glob_pattern_still_works(self) -> None:
+        """含通配符的规则保持 glob 子串语义（运维细粒度控制）。"""
+        from lingclaude.engine.bash import BashExecutor
+
+        executor = BashExecutor(blocked_commands=["wget*"])
+        # wget 前缀应拦
+        assert executor.run("wget http://x").exit_code == 126
+        # 含 glob 字符的 needle → 走 glob 路径，与词边界逻辑并存
+
