@@ -1,4 +1,4 @@
-"""CLI I/O 抽象层 — RFC §3.3（CLI_INTERACTION_RFC v1.1）。
+"""
 
 PromptSessionInterface Protocol + 两个实现：
 - PromptToolkitSession: L1 实现，包 prompt_toolkit.PromptSession + rich.live.Live
@@ -43,6 +43,10 @@ class PromptSessionInterface(Protocol):
 
     def stream_print(self, renderable: Any) -> None:
         """生成中流式输出（prompt_toolkit 用 patch_stdout；Fallback 用 sys.stdout.write）。"""
+        ...
+
+    def install_bottom_toolbar(self, get_fragments: Any) -> None:
+        """P1: 挂载状态栏回调（仅 PT 实现有效；Fallback 为 no-op）。"""
         ...
 
     def interrupt_event(self) -> threading.Event:
@@ -92,6 +96,18 @@ class PromptToolkitSession:
         # 流式输出：直接写 stdout（Rich Live 在调用方管理刷新）
         print(renderable, end="", flush=True)
 
+    def install_bottom_toolbar(self, get_fragments: Any) -> None:
+        """P1: 挂载状态栏回调。prompt() 渲染时自动调用 get_fragments() 取片段。
+
+        prompt_toolkit 原生管理该行（不碰光标位置，规避审计#6 的 termios 病灶）。
+        已知边界：toolbar 仅在 prompt() 渲染期间可见 — 生成期屏幕上没有提示符，
+        常驻可见性由 P2 全屏 TUI 解决；生成期反馈由挂起行回显提供。
+        """
+        try:
+            self._session.bottom_toolbar = get_fragments
+        except Exception:  # noqa: BLE001 — PT 版本差异时静默降级为无状态栏
+            pass
+
     def interrupt_event(self) -> threading.Event:
         return self._interrupt
 
@@ -128,6 +144,10 @@ class FallbackSession:
         sys.stdout.write(str(renderable))
         sys.stdout.flush()
 
+    def install_bottom_toolbar(self, get_fragments: Any) -> None:
+        # 兜底实现无状态栏能力 — no-op 保持接口一致
+        _ = get_fragments
+
     def interrupt_event(self) -> threading.Event:
         return self._interrupt
 
@@ -149,8 +169,18 @@ class FallbackSession:
 
 
 def create_session(completer: Any | None = None) -> PromptSessionInterface:
-    """入口选择：plain 或非 TTY → Fallback；否则 PromptToolkit（未装则 Fallback）。"""
-    if os.environ.get("LINGCLAUDE_CLI_MODE") == "plain":
+    """入口选择（优先级从高到低，设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md §九）：
+
+    1. LINGCLAUDE_TUI=0   → 强制 Fallback（CI/headless 关 TUI）
+    2. LINGCLAUDE_TUI=1   → TTY+PT 可用时强制启用（覆盖 CLI_MODE=plain）
+    3. LINGCLAUDE_CLI_MODE=plain → Fallback（原有开关）
+    4. 非 TTY / PT 未安装 / PT 构造失败 → Fallback
+    """
+    tui_env = os.environ.get("LINGCLAUDE_TUI")
+    if tui_env == "0":
+        return FallbackSession()
+    if tui_env != "1" and os.environ.get("LINGCLAUDE_CLI_MODE") == "plain":
+        # 未设置 TUI 开关时维持原有 plain 语义；=1 时 plain 被覆盖
         return FallbackSession()
     if not sys.stdin.isatty():
         return FallbackSession()

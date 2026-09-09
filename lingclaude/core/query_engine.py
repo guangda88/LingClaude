@@ -163,6 +163,7 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         self._behavior = BehaviorMetrics()
         self._project_index: dict[str, Any] = {}
         self._model_config: Any = None
+        self._journal_dir: Any = None  # R5: journal dir override (tests use tmp_path)
         self._model_router: Any = None
         self._intel_collector = IntelCollector()
         self._intel_relay: IntelRelay | None = None
@@ -199,6 +200,9 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         self._role_checker = create_lingclaude_role_separation()
         self._l5_loop = L5ConversationLoop(l5_session_id=self.session_id)
         self._l5_orchestrator: Any = None  # lazy init
+        # Pinned model (bypasses TaskRouter)
+        self._pinned_model_config: Any = None
+        self._pinned_model_expires: float = 0.0
         # LINGKERNEL_v1 D3: 拆包模块注入 (dsh spine 对位)
         from lingclaude.core.session_store import SessionStore
         from lingclaude.core.model_adapter import ModelAdapter
@@ -301,6 +305,9 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
                 # T1-1: 此前构造点不透传 → from_config 主路径下两开关均不可达（死接线）
                 use_llm_summary=cfg.engine.use_llm_summary,
                 context_window_tokens=cfg.engine.context_window_tokens,
+                # T1-2: verification.max_tool_calls_per_session 此前漏透传
+                # → yaml 配置静默失效，引擎恒用默认值 500（死接线）
+                max_tool_calls_per_session=cfg.verification.max_tool_calls_per_session,
             )
 
             provider = None
@@ -585,6 +592,82 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         logger.info("Switched model to %s", new_cfg.model)
         return Result.ok(new_cfg.model)
 
+    def pin_model(self, model_name: str, ttl_seconds: int = 0) -> Result[str]:
+        """Pin a model to bypass TaskRouter for subsequent requests.
+
+        Args:
+            model_name: 目标模型名（如 deepseek-v4-flash / ark-code-latest）
+            ttl_seconds: 存活秒数，0 或负数表示会话级永久钉住
+
+        Returns:
+            Result.ok(钉住的模型名)；失败返回错误。
+        """
+        import time
+        from lingclaude.model.factory import create_provider
+        from lingclaude.model.types import ModelConfig
+
+        if not model_name or not model_name.strip():
+            return Result.fail("model name is required", code="BAD_MODEL_NAME")
+
+        target = model_name.strip()
+        base = self._model_config or ModelConfig()
+        _pname, _pinfo = self._task_router.find_provider_by_model(target)
+        if _pinfo is not None:
+            pinned_cfg = ModelConfig(
+                model=target,
+                api_key=_pinfo.api_key,
+                base_url=_pinfo.base_url,
+                max_tokens=base.max_tokens,
+                temperature=base.temperature,
+                system_prompt=base.system_prompt,
+            )
+        else:
+            # 允许钉住未知模型（直接用当前配置的 key/url），由后续调用验证
+            pinned_cfg = ModelConfig(
+                model=target,
+                api_key=base.api_key,
+                base_url=base.base_url,
+                max_tokens=base.max_tokens,
+                temperature=base.temperature,
+                system_prompt=base.system_prompt,
+            )
+
+        # 验证 provider 可用性
+        provider_result = create_provider(config=pinned_cfg)
+        if provider_result.is_error:
+            return Result.fail(f"provider creation failed: {provider_result.error}", code="PROVIDER_CREATE_FAILED")
+
+        self._pinned_model_config = pinned_cfg
+        self._pinned_model_expires = time.time() + ttl_seconds if ttl_seconds > 0 else float('inf')
+        logger.info("Pinned model to %s (ttl=%ss)", pinned_cfg.model, ttl_seconds if ttl_seconds > 0 else "session")
+        return Result.ok(pinned_cfg.model)
+
+    def unpin_model(self) -> Result[str]:
+        """Remove pinned model, restore TaskRouter-based resolution."""
+        if self._pinned_model_config is None:
+            return Result.fail("no model pinned", code="NOT_PINNED")
+        old = self._pinned_model_config.model
+        self._pinned_model_config = None
+        self._pinned_model_expires = 0.0
+        logger.info("Unpinned model (was %s)", old)
+        return Result.ok(old)
+
+    def is_model_pinned(self) -> bool:
+        import time
+        if self._pinned_model_config is None:
+            return False
+        if time.time() > self._pinned_model_expires:
+            # TTL 过期自动解除
+            self._pinned_model_config = None
+            self._pinned_model_expires = 0.0
+            return False
+        return True
+
+    def get_pinned_model_name(self) -> str | None:
+        if self.is_model_pinned():
+            return self._pinned_model_config.model
+        return None
+
     def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
         return self._tool_executor._resolve_model_config(prompt)
 
@@ -598,6 +681,7 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
             session_cache_hits=self._session_cache_hits,
             dementia_detector=self._dementia_detector,
             project_index=self._project_index,
+            tool_call_count=self._tool_call_count,  # R8: 触发 sub_agent 推荐提示
         )
 
     def _execute_tool_with_retry(self, name: str, arguments_json: str) -> str:

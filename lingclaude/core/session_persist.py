@@ -18,6 +18,10 @@ class SessionPersister:
 
     def persist_session(self) -> Result[str]:
         engine = self._engine
+        # 空会话防误写：load_session 后未对话即退出（或 /clear 后退出）时，
+        # 空消息列表会把既有存档覆盖成空壳（2026-09-06 7c643abc 0 字节事故）。
+        if not engine._messages:
+            return Result.fail("当前会话无消息，跳过保存（保护既有存档）", code="EMPTY_SESSION")
         session = Session(
             session_id=engine.session_id,
             messages=tuple(engine._messages),

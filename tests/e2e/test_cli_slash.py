@@ -5,6 +5,7 @@ import os
 import pwd as _pwd
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -71,3 +72,13 @@ class TestF1UnknownsTopLevel:
         assert r.returncode == 0
         for word in ("list", "add", "resolve"):
             assert word in r.stdout
+
+
+class TestRecoverWiring:
+    """R5 checkpoint 核心能力必须有 CLI 入口；否则误杀后用户无法恢复工具轮。"""
+
+    def test_recover_has_completer_and_handler(self):
+        app_py = Path("/home/ai/lingclaude/lingclaude/cli/app.py").read_text(encoding="utf-8")
+        assert '"/recover"' in app_py
+        assert 'name == "/recover"' in app_py
+        assert "resume_interrupted()" in app_py

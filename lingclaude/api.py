@@ -34,7 +34,15 @@ if _api_keys_env:
     _VALID_API_KEYS.update(key.strip() for key in _api_keys_env.split(","))
 
 async def verify_api_key(api_key: str = Security(API_KEY_HEADER)):
-    """验证 API Key"""
+    """验证 API Key。
+
+    请求时惰性读取环境变量（而非仅导入时快照）：修复非标准测试收集顺序下
+    api 模块早于 fixture 设置 LINGCLAUDE_API_KEYS 被导入 → 密钥集缓存为空 →
+    全端点 401 的测试污染。生产首次请求代价一次 env 读取，可忽略。
+    """
+    env = os.environ.get("LINGCLAUDE_API_KEYS", "")
+    if env:
+        _VALID_API_KEYS.update(k.strip() for k in env.split(",") if k.strip())
     if api_key and api_key in _VALID_API_KEYS:
         return api_key
     raise HTTPException(

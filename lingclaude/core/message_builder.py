@@ -76,6 +76,7 @@ class MessageBuilder:
         messages: list[str],
         session_cache_hits: int = 0,
         project_index: dict[str, list[str]] | None = None,
+        tool_call_count: int = 0,  # R8：触发 sub_agent 推荐提示
     ) -> str:
         """dsh system-prompt/assemble 等价: 装配各 section, 返回最终 system prompt。"""
         bm = self._behavior
@@ -190,6 +191,19 @@ class MessageBuilder:
             )
             if pkg_summary:
                 extras.append("\n📁 当前项目结构:\n" + pkg_summary)
+
+        # R8: 大任务优先 sub_agent 推荐提示（治本：SYSTEMS_THEORY §一.4 token 战）
+        try:
+            threshold = int(getattr(bm, "auto_sub_agent_threshold", 5))
+            if tool_call_count >= threshold:
+                extras.append(
+                    f"\n\n💡 R8 提示:当前会话已执行 {tool_call_count} 次工具调用"
+                    f"(阈值 {threshold})。**大型探索/搜索/审查任务**建议拆给 sub_agent:"
+                    f"\n  sub_agent(task=\"<具体子目标>\", max_rounds=10, provider=\"inprocess\")"
+                    f"\n 拆完后主会话继续,主代理轮次不被探索工作占用。"
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
         return self.BASE_PROMPT + "".join(extras)
 

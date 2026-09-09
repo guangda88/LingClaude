@@ -82,7 +82,20 @@ _ALWAYS_BLOCKED = frozenset({
     "iptables", "ufw", "firewall-cmd",
     "systemctl", "service",
     "apt", "apt-get", "yum", "dnf", "pacman", "pip install",
-    "crontab", "at ",
+    "crontab",
+    # 注：定时任务命令 "at" 不入全文本规则。它是极常见英文子串
+    # （cat/stat 含 "at"；grep "at "、echo "at home" 含独立 "at" token），
+    # 全文本/全 token 匹配必然误伤（2026-09-08 事故：grep 检索 'at '
+    # 字面量被拦，stat 连坐）。改由 _BLOCKED_LEADING_COMMANDS 在「命令名
+    # 位置」精确拦截，不连坐参数。
+})
+
+# 仅在「命令名位置」（整条命令首 token / 链式子命令首 token）拦截的命令。
+# 与 _BLOCKED_BASE_COMMANDS 的区别：后者在子命令中遍历 *所有* token（保守
+# 连坐参数，适用于 sudo/su 等危险词）；本集合只匹配命令名本身、不连坐参数
+# ——专为 "at" 这类短词/常见英文词命令设计，避免 grep "at" / echo at 误拦。
+_BLOCKED_LEADING_COMMANDS = frozenset({
+    "at",  # at(1) 定时任务调度，与 crontab 同类
 })
 
 _BLOCKED_BASE_COMMANDS = frozenset({
@@ -367,6 +380,11 @@ class BashExecutor:
             tokens = sub_norm.split()
             if not tokens:
                 continue
+            # LEADING 集合只拦「命令名位置」（子命令首 token），不连坐参数：
+            # 专为 at 这类常见英文短词设计，grep "at" / stat 不误伤。
+            lead_name = Path(tokens[0].split("=")[-1]).name
+            if lead_name.lower() in _BLOCKED_LEADING_COMMANDS:
+                return f"基础命令 '{lead_name}' 被禁止（命令名位置拦截）"
             for token in tokens:
                 base_cmd_name = Path(token.split("=")[-1]).name
                 if base_cmd_name in _BLOCKED_BASE_COMMANDS:

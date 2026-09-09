@@ -12,13 +12,35 @@ from lingclaude.core.hooks import HookType, HookContext
 from lingclaude.core.models import PermissionDenial
 from lingclaude.core.types import Result, StopReason
 from lingclaude.core.cognitive_rhythm import ImbalanceType
-from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS, _resolve_max_tool_rounds
+from lingclaude.core.model_call import _resolve_max_tool_rounds
 
 logger = logging.getLogger(__name__)
 
 
 class SubmissionMixin:
     """提交主循环 + 流式提交 + 中断恢复。"""
+
+    def _log_denial(self, denial: Any) -> None:
+        """R2: denial 结构化日志 → flywheel + journal（best-effort 不阻塞）。"""
+        try:
+            self._log_to_flywheel(
+                pattern_type="permission_denial",
+                error_message=f"tool={denial.tool_name} reason={denial.reason}",
+                tool_name=denial.tool_name,
+                context=str(denial.reason)[:200],
+            )
+        except Exception:
+            pass
+        try:
+            from lingclaude.core.session_journal import SessionJournal
+            SessionJournal(
+                self.session_id, journal_dir=getattr(self, "_journal_dir", None),
+            ).append("permission_denial", {
+                "tool_name": denial.tool_name,
+                "reason": str(denial.reason)[:200],
+            })
+        except Exception:
+            pass
 
     def submit(
         self,
@@ -100,6 +122,9 @@ class SubmissionMixin:
         self._messages.append(output)
         self._transcript.append(output)
         self._denials.extend(denied_tools)
+        # R2: 逐条记录 denial 到 flywheel + journal
+        for d in denied_tools:
+            self._log_denial(d)
         self._usage = projected
         self._compact_if_needed()
         self._total_messages_sent += 1
@@ -190,6 +215,9 @@ class SubmissionMixin:
             yield {"type": "tool_match", "tools": matched_tools}
         if denied_tools:
             yield {"type": "permission_denial", "denials": [d.tool_name for d in denied_tools]}
+            # R2: 逐条记录 denial 到 flywheel + journal
+            for d in denied_tools:
+                self._log_denial(d)
         if self._provider is None:
             result = self.submit(prompt, matched_commands, matched_tools, denied_tools)
             yield {"type": "message_delta", "text": result.output}
@@ -265,6 +293,26 @@ class SubmissionMixin:
         if data is None:
             return Result.fail("No checkpoint found for this session", code="NO_CHECKPOINT")
 
+        # R5 阶段1 副作用幂等: 读取 journal 获取已执行的工具签名。
+        # resume 后模型可能重复调用同一工具（name+arguments 相同），
+        # 注入提示让模型知道哪些已执行，避免重复写/重复执行副作用。
+        journal = self._get_journal()
+        executed_sigs = journal.tool_signatures()
+        if executed_sigs:
+            sig_list = "\n".join(f"  - {name}({args[:80]})" for name, args in sorted(executed_sigs)[:10])
+            resume_note = (
+                f"[系统] 以下工具调用在中断前已执行（journal 记录），"
+                f"如需重复请确认必要性：\n{sig_list}"
+            )
+            logger.info("resume_interrupted: %d tool signatures from journal", len(executed_sigs))
+        else:
+            resume_note = ""
+
+        # R5 阶段2: 副作用待确认清单（写/编辑/bash/rm/curl 等非只读工具）。
+        # 让 cli 层在重放前做用户确认,避免重复写文件/重复执行副作用。
+        from lingclaude.core.permissions import SIDE_EFFECT_TOOLS
+        pending_effects = journal.pending_side_effects(SIDE_EFFECT_TOOLS)
+
         prompt = data["prompt"]
         round_idx = data["round_idx"]
         used_tools = data["used_tools"]
@@ -300,6 +348,27 @@ class SubmissionMixin:
 
         tools = self._build_openai_tools()
         resolved_config, _ = self._resolve_model_config(prompt)
+
+        # R5 副作用幂等: 注入已执行工具列表作为 system note
+        if resume_note:
+            messages.append(ModelMessage(role=MessageRole.USER, content=resume_note))
+
+        # R5 阶段2: 副作用待确认清单（写/编辑/bash/rm/curl 等非只读工具）。
+        # 在 messages 头部注入"待确认"提示,让模型下一轮询问用户
+        # 而不是盲目重放（防 57109 类误杀后副作用被执行两次）。
+        if pending_effects:
+            eff_list = "\n".join(
+                f"  - {p['name']}({str(p['arguments'])[:80]})  [id={p['tool_call_id'][:12]}]"
+                for p in pending_effects[:10]
+            )
+            pending_note = (
+                f"[系统] 中断前有 {len(pending_effects)} 个未完成的副作用调用\n"
+                f"（journal 记录但无对应 tool_result）:\n{eff_list}\n"
+                "请向用户确认是**重放**还是**跳过**这些调用——避免重复写文件/执行命令。"
+                "默认建议：跳过（已部分执行可能造成不可预期结果）。"
+            )
+            messages.append(ModelMessage(role=MessageRole.SYSTEM, content=pending_note))
+
         response = None
 
         for ri in range(round_idx + 1, _resolve_max_tool_rounds(self)):
@@ -322,8 +391,12 @@ class SubmissionMixin:
                 self._messages.append(final_content)
                 self._transcript.append(final_content)
                 self._clear_checkpoint()
+                journal.clear()
+                self._journal_cache = None  # clear 后重置缓存，下次 _get_journal 重建
                 self._append_to_session_history(prompt, final_content)
                 self._learn_from_turn(prompt, final_content)
+                # result.data 透出 pending_effects 摘要,让 cli 层可在 /recover 输出中提示
+                final_content += f"\n\n[恢复摘要] 已处理 {len(pending_effects)} 个待确认副作用调用"
                 return Result.ok(final_content)
 
             used_tools = True
@@ -338,4 +411,6 @@ class SubmissionMixin:
         self._messages.append(final_content)
         self._transcript.append(final_content)
         self._clear_checkpoint()
+        journal.clear()
+        self._journal_cache = None
         return Result.ok(final_content)

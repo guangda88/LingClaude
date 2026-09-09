@@ -98,7 +98,7 @@ def test_list_tools(server_env):
                 return [t.name for t in result.tools]
 
     tool_names = asyncio.run(run())
-    assert len(tool_names) == 18
+    assert len(tool_names) == 20
     assert "lm_create" in tool_names
     assert "lm_start_task" in tool_names
 

@@ -41,6 +41,25 @@ class SubagentToolsMixin:
             manager = SubagentManager()
             self._subagent_manager = manager
         result = manager.run(request, ctx)
+
+        # R8：把每次 sub_agent 调用喂给 DataFlywheel,让"子代理节流效果"可查
+        # （docs/SYSTEMS_THEORY_SYNTHESIS §一.4 token 战的治本项）
+        try:
+            if hasattr(self, "_session_runtime"):
+                self._session_runtime.log_to_flywheel(
+                    pattern_type="sub_agent_call",
+                    error_message=(
+                        f"success={result.success} rounds={result.rounds} "
+                        f"provider={result.provider or 'inprocess'} "
+                        f"output_len={len(result.output or '')}"
+                    ),
+                    tool_name="sub_agent",
+                    file_path="",
+                    context=(getattr(self, "session_id", "") or "")[:80],
+                )
+        except Exception:  # noqa: BLE001 — 飞轮失败不阻塞 sub_agent 返回
+            pass
+
         return {
             "agent_id": result.agent_id,
             "output": result.output,

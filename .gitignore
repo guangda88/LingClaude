@@ -71,3 +71,7 @@ handover.*.json
 *.key
 *.pem
 api_keys.json
+# 2026-09-06: 补 *.bak.* — app.py.bak.20260906_063629 形态此前匹配不到
+# *.bak/*.bak_*,致 3a03e6b 误入库 1347 行备份文件
+*.bak.*
+# (移除损坏行: '-lingclaude/cli/app.py.bak.20260906_063629',开头为非法 gitignore 语法)

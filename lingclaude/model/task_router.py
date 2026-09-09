@@ -70,6 +70,7 @@ _HARD_ERROR_COOLDOWN = 1800.0  # 30min
 # 按此映射从环境变量兜底取 key。key 实际单点存放于 ~/.ling_keys.env
 # (proxy3 同源,gen_env.py 管理),不在 lingcode config 落明文。
 _PROVIDER_ENV_KEY_MAP: dict[str, str] = {
+    "volc_coding_plan": "VOLC_CODING_API_KEY",
     "nvidia": "NVIDIA_NIM_API_KEY",
     "minimax": "MINIMAX_API_KEY",
     "volcengine": "VOLC_CODING_API_KEY",

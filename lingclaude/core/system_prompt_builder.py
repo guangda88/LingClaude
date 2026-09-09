@@ -35,6 +35,7 @@ def build_adaptive_system_prompt(
     session_cache_hits: int,
     dementia_detector: Any,
     project_index: dict[str, Any] | None,
+    tool_call_count: int = 0,  # R8: 用于触发 sub_agent 推荐提示
 ) -> str:
     """Build the adaptive system prompt.
 
@@ -49,6 +50,7 @@ def build_adaptive_system_prompt(
         session_cache_hits: Number of file cache hits this session.
         dementia_detector: DementiaDetector instance (diagnose).
         project_index: Project file index dict or None.
+        tool_call_count: R8：当前会话已执行的工具调用总数;超过阈值时注入 sub_agent 推荐。
 
     Returns:
         Complete system prompt string.
@@ -154,6 +156,26 @@ def build_adaptive_system_prompt(
     diagnosis = dementia_detector.diagnose()
     if diagnosis.intervention_prompt:
         extras.append("\n\n" + diagnosis.intervention_prompt)
+
+    # R8: 大任务优先 sub_agent（治本：docs/SYSTEMS_THEORY_SYNTHESIS §一.4 token 战）。
+    # 触发条件由实例属性 auto_sub_agent_threshold 控制（默认 5 tool calls）。
+    # threshold=0 = 显式禁用（不同于"未配置时回落到 5"）。
+    # 不强制（模型仍有自由裁量）——只是建议,避免"长任务靠堆轮次"的反模式。
+    try:
+        threshold = int(
+            getattr(behavior, "auto_sub_agent_threshold", 5) if behavior is not None else 5
+        )
+        current_calls = tool_call_count  # R8：直接从参数取,避免双重真实源混淆
+        if threshold > 0 and current_calls >= threshold:
+            extras.append(
+                f"\n\n💡 R8 提示:当前会话已执行 {current_calls} 次工具调用"
+                f"(阈值 {threshold})。**大型探索/搜索/审查任务**建议拆给 sub_agent:"
+                f"\n  sub_agent(task=\"<具体子目标>\", max_rounds=10, provider=\"inprocess\")"
+                f"\n 拆完后主会话继续,主代理轮次不被探索工作占用"
+                f"（详见 docs/SYSTEMS_THEORY_SYNTHESIS.md §一.4）"
+            )
+    except Exception:  # noqa: BLE001 — 提示注入失败不影响主 prompt
+        pass
 
     if project_index:
         pkg_summary = "\n".join(

@@ -198,6 +198,12 @@ class TestNoDeadModules:
         "INCOMPLETE_SIGNALS", "CONSECUTIVE_FAIL_LIMIT",
         # Datalog 内部函数/常量
         "_ensure_datalog_dir", "_write_event", "DATALOG_DIR",
+        # H18 sandbox/DB 兼容层与配置默认值：
+        # fallback_dir() 由 safe_db 内部回退调用；
+        # devnull_compat 在导入时自动修补，状态函数供诊断；
+        # DEFAULT_JOURNAL_DIR 是配置默认值，测试按模块路径 monkeypatch。
+        "fallback_dir", "is_degraded", "devnull_path",
+        "DEFAULT_JOURNAL_DIR",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:

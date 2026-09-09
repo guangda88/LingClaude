@@ -47,11 +47,11 @@ class TestAPI:
         assert "session_id" in result
 
         task = api.lm.get(result["task_id"])
-        assert task["state"] == "active"
+        assert task["state"] == "in_progress"
         assert task["data"]["goal"] == "以灵元思维推进灵忆开发"
 
         session = api.lm.get(result["session_id"])
-        assert session["state"] == "active"
+        assert session["state"] == "in_progress"
         assert session["data"]["owner"] == "lingclaude"
 
     def test_end_task(self, api):
@@ -356,12 +356,17 @@ class TestAdapter:
             type="task",
             data={"goal": "adapter transition"},
         )
+        adapter.transition(
+            member="lingclaude",
+            record_id=created["id"],
+            event_type="assign",
+        )
         result = adapter.transition(
             member="lingclaude",
             record_id=created["id"],
             event_type="start",
         )
-        assert result["new_state"] == "active"
+        assert result["new_state"] == "in_progress"
 
     def test_query_via_adapter(self, adapter):
         adapter.create(member="lingweb", type="task", data={"goal": "web task"})

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# H18 环境修复: pytest capture 运行时读 os.devnull — /dev/null 只读沙箱下
+# 必须在 pytest 初始化 capture 前重写（conftest 加载早于 capture 初始化，时机正确）。
+# __future__ 之后、其余 import 之前，此为本文件第一条可执行语句。
+import lingclaude.core.devnull_compat  # noqa: F401
+
 import os
 import tempfile
 
@@ -15,6 +20,13 @@ def _isolate_git_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.hooksPath")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", empty_hooks)
+    # 2026-09-09: pre-commit 审计钩子在 git commit 进程内跑全量测试，环境带
+    # GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE → 测试内所有 git 子进程被劫持指向
+    # 主仓库（test_git.py 9 用例假失败，xdist 并行下噪音更大）。统一剥离，
+    # 使钩子内跑测试与手动跑测试行为一致。
+    for _var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
+                 "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"):
+        monkeypatch.delenv(_var, raising=False)
 
 
 # RFC v0.1 §3 A1-1 修订:pytest 环境默认禁用 BusResponder 后台线程

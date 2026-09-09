@@ -492,7 +492,3 @@ def load_role_config(path: Path) -> RoleConflictChecker:
         )
 
     return RoleConflictChecker(agent_roles=agent_roles)
-
-
-# 类型注解导入（保留向后兼容）
-from typing import Any  # noqa: F401

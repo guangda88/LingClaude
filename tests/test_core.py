@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 
-from lingclaude.core.config import lingclaudeConfig, TriggerConfig, load_config
+from lingclaude.core.config import EngineConfig, lingclaudeConfig, TriggerConfig, load_config
 from lingclaude.core.permissions import PermissionContext
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.types import Result
@@ -31,7 +31,8 @@ class TestResult:
 class TestConfig:
     def test_default_config(self) -> None:
         cfg = lingclaudeConfig()
-        assert cfg.engine.max_turns == 8
+        # 引用 dataclass 默认值而非魔法数，避免轮次墙整改后断言漂移
+        assert cfg.engine.max_turns == EngineConfig.max_turns
         assert cfg.triggers.enabled is True
         assert cfg.optimizer.goal == "structure"
 
@@ -52,7 +53,7 @@ class TestConfig:
 
     def test_load_config_missing_file(self) -> None:
         cfg = load_config(Path("/nonexistent/config.yaml"))
-        assert cfg.engine.max_turns == 8
+        assert cfg.engine.max_turns == EngineConfig.max_turns
 
     def test_load_config_from_file(self) -> None:
         with tempfile.NamedTemporaryFile(
@@ -619,14 +620,16 @@ class TestBashSecurity:
         assert result.exit_code == 126
         assert "黑名单" in result.stderr or "基础命令" in result.stderr
 
-    def test_substring_false_positive_apt(self) -> None:
+    def test_substring_false_positive_apt(self, tmp_path) -> None:
         """harness fix 2026-09-06：'apt' 裸词规则此前做子串匹配，连坐合法
         参数含同名子串的命令（pytest --capture、cat VERSION 等）。现统一
         词边界匹配（与 'at ' 同处理），合法命令应放行。
         """
         from lingclaude.engine.bash import BashExecutor
 
-        executor = BashExecutor()
+        # P2-3 fix(2026-09-09): working_dir=tmp_path 防子进程继承项目根,
+        # 否则内层 pytest 全量收集整个套件(~60s); 空目录 code 5 != 126
+        executor = BashExecutor(working_dir=str(tmp_path))
         # 这些都不该被拦（合法命令）
         for cmd in [
             "pytest --capture=fd -x",

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from lingclaude.core.config import lingclaudeConfig, load_config
+from lingclaude.core.config import EngineConfig, lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, StopReason
 from lingclaude.model.types import (
     MessageRole,
@@ -29,7 +29,7 @@ class TestConfigEdgeCases:
         cfg_path = pathlib.Path(str(tmp_path)) / "empty.yaml"
         cfg_path.write_text("")
         cfg = load_config(cfg_path)
-        assert cfg.engine.max_turns == 8
+        assert cfg.engine.max_turns == EngineConfig.max_turns
 
     def test_yaml_with_only_comments(self, tmp_path: object) -> None:
         cfg_path = pathlib.Path(str(tmp_path)) / "comments.yaml"

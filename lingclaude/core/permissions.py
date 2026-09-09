@@ -13,6 +13,15 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "cat", "view", "search", "list", "stat", "wc",
 })
 
+# R5 阶段2:resume 时需要用户二次确认的副作用工具（写/编辑/执行/网络）。
+# 集合与 READ_ONLY_TOOLS 互斥——理论上 = 全局工具名 \\ READ_ONLY_TOOLS,但
+# 显式列出更可读、误加新只读工具时不会自动降级为副作用。
+SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
+    "write", "edit", "bash", "rm", "mv", "cp",
+    "curl", "wget", "ssh", "git", "python", "apply_patch",
+    "request_user_input", "plan_mode",
+})
+
 
 @dataclass(frozen=True)
 class PermissionContext:
@@ -49,6 +58,19 @@ class PermissionContext:
     def blocks(self, tool_name: str) -> bool:
         lowered = tool_name.lower()
         return lowered in self.deny_names or any(lowered.startswith(prefix) for prefix in self.deny_prefixes)
+
+    def blocks_with_rule(self, tool_name: str) -> tuple[bool, str]:
+        """5a：返回 (是否拦截, rule_id)。用于让调用方拿到结构化 rule_id 而非 bool。
+
+        rule_id 是熔断 key 喂给 R5b（_ToolLoopDetector 按 rule_id 熔断）。
+        """
+        lowered = tool_name.lower()
+        if lowered in self.deny_names:
+            return True, "config.deny_tools.exact"
+        for prefix in self.deny_prefixes:
+            if lowered.startswith(prefix):
+                return True, "config.deny_prefixes.prefix"
+        return False, "no_match"
 
     def is_auto_approved(self, tool_name: str) -> bool:
         lowered = tool_name.lower()

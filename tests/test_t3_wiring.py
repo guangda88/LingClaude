@@ -1,7 +1,6 @@
 """T3 接线测试 — 案 5: session_projection 接线到 webui API。"""
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -113,6 +112,7 @@ class TestScheduleManagerWiring:
         task_id = mgr.register("interval:30", "每 30 分钟检查")
         tasks = mgr.list_tasks()
         assert tasks[0].cron == "interval:30"
+        assert mgr.cancel(task_id) is True  # F841 修复: 消费返回值并补 cancel 断言
 
     def test_cancel_task(self):
         """取消任务。"""
@@ -129,13 +129,37 @@ class TestScheduleManagerWiring:
         with pytest.raises(ValueError):
             mgr.register("invalid-cron", "无效任务")
 
+    def test_predefined_schedule_types(self):
+        """接线门回归: ScheduleType 枚举必须是预定义类型的单一事实来源。
+
+        若有人在 _compute_next_run 里绕过枚举硬编码字符串，
+        此测试通过「枚举值注册必成功 + 全等性」拉响警报。
+        """
+        from lingclaude.core.scheduler import ScheduleManager, ScheduleType
+        mgr = ScheduleManager()
+        for st in (ScheduleType.DAILY, ScheduleType.HOURLY, ScheduleType.WEEKLY):
+            task_id = mgr.register(st.value, f"任务-{st.name}")
+            tasks = mgr.list_tasks()
+            assert tasks[-1].cron == st.value, (
+                f"枚举 {st.name}={st.value!r} 注册后 cron 值漂移"
+            )
+            mgr.cancel(task_id)
+
+    def test_interval_prefix_uses_enum(self):
+        """接线门回归: interval 前缀解析必须源自 ScheduleType.INTERVAL。"""
+        from lingclaude.core.scheduler import ScheduleManager, ScheduleType
+        mgr = ScheduleManager()
+        prefix = ScheduleType.INTERVAL.value + ":"
+        task_id = mgr.register(prefix + "15", "每 15 分钟")
+        assert mgr.list_tasks()[0].cron == prefix + "15"
+        assert mgr.cancel(task_id) is True
+
 
 class TestCliScheduleCommand:
     """案 4: CLI /schedule 命令接线验证。"""
 
     def test_slash_schedule_exists(self):
         """cli/app.py 有 /schedule 命令处理。"""
-        from pathlib import Path
         # 锚定仓库根，不依赖进程 cwd（全量跑时其他测试会改 cwd 不还原 → 相对路径偶发炸）
         app_py = (Path(__file__).resolve().parents[1] / "lingclaude" / "cli" / "app.py").read_text()
         assert "/schedule" in app_py

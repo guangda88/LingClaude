@@ -187,7 +187,7 @@ class AnthropicProvider(ModelProvider):
                 url,
                 json=body,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=120),
+                timeout=aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=300),
             ) as resp:
                 if resp.status != 200:
                     text = await resp.text()

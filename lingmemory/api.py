@@ -63,6 +63,8 @@ class LingMemoryAPI:
             data={"goal": goal, "boundary": boundary, "classification": classification or {}},
             created_by=self.member,
         )
+        # 新task状态机(2026-07-20): created --assign--> assigned --start--> in_progress
+        self.lm.transition(task_id, "assign", actor=self.member)
         self.lm.transition(task_id, "start", actor=self.member)
 
         session_id = self.lm.create(
@@ -77,7 +79,8 @@ class LingMemoryAPI:
 
     def end_task(self, task_id: str, conclusion: str) -> str:
         """完成任务 + 归档"""
-        self.lm.transition(task_id, "complete", actor=self.member, data={"conclusion": conclusion})
+        self.lm.transition(task_id, "submit", actor=self.member, data={"conclusion": conclusion})
+        self.lm.transition(task_id, "approve", actor=self.member)
         self.lm.transition(task_id, "archive", actor=self.member)
         return task_id
 
@@ -278,7 +281,7 @@ class LingMemoryAPI:
     def get_active_tasks(self, member: str | None = None) -> list[dict]:
         """获取成员的活跃任务"""
         target = member or self.member
-        result = self.lm.query(type="task", state="active", created_by=target, limit=50)
+        result = self.lm.query(type="task", state="in_progress", created_by=target, limit=50)
         return result["items"]
 
     def get_session_info(self, session_id: str) -> dict | None:

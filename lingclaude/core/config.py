@@ -23,7 +23,7 @@ _CONFIG_SEARCH_PATHS: list[Path] = [
 
 @dataclass(frozen=True)
 class EngineConfig:
-    max_turns: int = 8
+    max_turns: int = 40
     max_budget_tokens: int = 200000
     compact_after_turns: int = 12
     structured_output: bool = False
@@ -98,6 +98,9 @@ class IntelConfig:
     auto_relay: bool = True
     relay_target: str = ""
     digest_hour: int = 23
+    # R8: 主 agent 工具调用超过此阈值时,system prompt 注入 sub_agent 推荐提示
+    # （治本：docs/SYSTEMS_THEORY_SYNTHESIS.md §一.4 token 战 + R5 阶段 2 长会话 token 治本）
+    auto_sub_agent_threshold: int = 5
 
 
 @dataclass(frozen=True)
@@ -139,7 +142,7 @@ class lingclaudeConfig:
 
         return cls(
             engine=EngineConfig(
-                max_turns=engine_raw.get("max_turns", 8),
+                max_turns=engine_raw.get("max_turns", 40),
                 max_budget_tokens=engine_raw.get("max_budget_tokens", 200000),
                 compact_after_turns=engine_raw.get("compact_after_turns", 12),
                 structured_output=engine_raw.get("structured_output", False),
@@ -199,6 +202,7 @@ class lingclaudeConfig:
                 auto_relay=intel_raw.get("auto_relay", True),
                 relay_target=intel_raw.get("relay_target", ""),
                 digest_hour=intel_raw.get("digest_hour", 23),
+                auto_sub_agent_threshold=intel_raw.get("auto_sub_agent_threshold", 5),
             ),
             verification=VerificationConfig(
                 enabled=ver_raw.get("enabled", True),

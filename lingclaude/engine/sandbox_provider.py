@@ -95,6 +95,10 @@ class BwrapSandboxProvider:
             # merged-usr 安全绑定:整根只读(/bin 是 usr/bin 的符号链接,
             # 逐目录绑定会自毁路径),再按需放开工作目录与 /tmp。
             "--ro-bind", "/", "/",
+            # /dev/null 必须可写(ro-bind 使 /dev 只读,导致 2>/dev/null、
+            # git/pytest 等 EACCES——2026-09-06 会话"权限不足"主根因)。
+            # --dev-bind 独立于 ro-bind 重新以读写挂载该设备节点。
+            "--dev-bind", "/dev/null", "/dev/null",
             "--bind", wd, wd,
             "--bind", "/tmp", "/tmp",
             "--die-with-parent",

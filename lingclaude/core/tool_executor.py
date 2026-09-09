@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from typing import Any
 
-from lingclaude.core.config import lingclaudeConfig
 from lingclaude.model.types import ModelConfig
 from lingclaude.core.hooks import HookContext, HookType
 from lingclaude.core.context_compression import compress_messages, CompressionConfig, CompressionLevel
@@ -157,6 +155,20 @@ class ToolExecutor:
                 ),
             )
             self._engine._messages[:] = result.compressed_messages
+            # R5 compact×checkpoint 交互: 压缩后 messages 变了，
+            # 如果有 active checkpoint，用压缩后的消息重新保存
+            if self._engine.session_store.has_checkpoint:
+                try:
+                    self._engine._session_persister.save_checkpoint(
+                        messages=self._engine._messages,
+                        round_idx=0,
+                        prompt=self._engine._messages[-1] if self._engine._messages else "",
+                        used_tools=True,
+                        total_input=0, total_output=0,
+                    )
+                    logger.info("checkpoint re-saved after compact (%d msgs)", len(self._engine._messages))
+                except Exception:
+                    logger.warning("checkpoint re-save after compact failed", exc_info=True)
             logger.info(
                 "Context compressed: dropped=%d, saved~%d tokens, facts=%d",
                 result.dropped_count, result.tokens_estimated_saved, result.archived_facts,
@@ -212,15 +224,15 @@ class ToolExecutor:
         for role, text in dropped:
             if role == "assistant":
                 for line in text.split("\n"):
-                    l = line.strip().lower()
-                    if any(k in l for k in ("决定", "选择", "采用", "decided", "chose", "方案")):
+                    low = line.strip().lower()
+                    if any(k in low for k in ("决定", "选择", "采用", "decided", "chose", "方案")):
                         decisions.append(line.strip()[:200])
-                    if any(k in l for k in ("错误", "失败", "error", "failed", "不对")):
+                    if any(k in low for k in ("错误", "失败", "error", "failed", "不对")):
                         errors_seen.append(line.strip()[:200])
             elif role == "user":
                 for line in text.split("\n"):
-                    l = line.strip().lower()
-                    if any(k in l for k in ("read", "读取", "查看", "cat ", "view ")):
+                    low = line.strip().lower()
+                    if any(k in low for k in ("read", "读取", "查看", "cat ", "view ")):
                         for word in line.strip().split():
                             if ".py" in word or ".js" in word or ".ts" in word or ".md" in word or ".yaml" in word or ".json" in word:
                                 cleaned = word.strip('`"\'*,;:()[]')
@@ -285,6 +297,20 @@ class ToolExecutor:
             return None
 
     def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
+        from lingclaude.model.types import ModelConfig
+        # Check for pinned model first (bypasses TaskRouter)
+        if self._engine.is_model_pinned():
+            pinned_cfg = self._engine._pinned_model_config
+            config = ModelConfig(
+                model=pinned_cfg.model,
+                api_key=pinned_cfg.api_key,
+                base_url=pinned_cfg.base_url,
+                max_tokens=pinned_cfg.max_tokens,
+                temperature=pinned_cfg.temperature,
+                system_prompt=pinned_cfg.system_prompt,
+            )
+            return config, "pinned"
+
         if self._engine._model_config is None:
             return None, None
         from lingclaude.core.behavior import Intent
@@ -333,9 +359,10 @@ class ToolExecutor:
         if diag.dementia_index > 0.3:
             target_temp = min(target_temp, 0.1)
 
+        _model_kwargs = {"api_key": target_api_key}
         config = ModelConfig(
             model=target_model,
-            api_key=target_api_key,
+            **_model_kwargs,
             base_url=target_base_url,
             max_tokens=cfg.max_tokens,
             temperature=target_temp,

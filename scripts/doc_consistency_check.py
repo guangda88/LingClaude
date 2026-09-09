@@ -329,6 +329,7 @@ def check_links(files: Iterable[Path]) -> list[Finding]:
 KNOWN_SLASH_COMMANDS = {
     "/help", "/?", "/clear", "/compact", "/model", "/schedule", "/lsp",
     "/resume", "/continue", "/quit", "/exit",
+    "/checkpoint", "/recover",  # R5 阶段1+2：手动 checkpoint + 工具轮中断 resume
 }
 
 

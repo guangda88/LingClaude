@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# H18 环境修复: 必须在 argparse/subprocess 使用前导入 — /dev/null 只读
+# 沙箱下自动重写 os.devnull（subprocess.DEVNULL 等运行时动态读取）。
+import lingclaude.core.devnull_compat  # noqa: F401  # noqa: E402
+
 import argparse
 import json
 import logging
@@ -29,7 +33,13 @@ from lingclaude.cli.display import (
     print_warning,
     print_welcome,
 )
-from lingclaude.cli.interface import create_session, PromptSessionInterface
+from lingclaude.cli.interface import (
+    create_session,
+    FallbackSession,
+    PromptSessionInterface,
+    PromptToolkitSession,
+)
+from lingclaude.cli.long_task_metrics import append_long_task_metrics
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
@@ -219,6 +229,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         elif _OUTPUT_FORMAT == "plain":
             print(f"[会话恢复失败] {resume_id} 不存在或已损坏，从新会话开始")
 
+    _maybe_recover_on_startup(engine, args)
+
     if args.prompt:
         if args.interactive:
             return _interactive_loop(engine, args.prompt)
@@ -239,22 +251,42 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         sys.stdout.flush()
         response_content = ""
         got_first_token = False
+        observed_tool_calls = 0
+        observed_tool_errors = 0
+        observed_text_deltas = 0
+        observed_stream_error = False
         for event in engine.stream_call_model(prompt):
             if not got_first_token and event.get("type") in ("text_delta", "error"):
                 got_first_token = True
                 sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
                 sys.stdout.flush()
             _handle_stream_event(event)
+            if event.get("type") == "tool_call_start":
+                observed_tool_calls += 1
+            if event.get("type") == "tool_call_end" and event.get("is_error"):
+                observed_tool_errors += 1
             if event.get("type") == "text_delta":
+                observed_text_deltas += 1
                 response_content += event.get("text", "")
             elif event.get("type") == "done":
                 response_content = event.get("content", response_content)
+            if event.get("type") == "error":
+                observed_stream_error = True
         _flush_stream_line()  # P0:打断/异常退出时补冲残行,防污染下一轮
         if response_content:
             engine._messages.append(prompt)
             engine._messages.append(response_content)
             engine._compact_if_needed()
-            engine._append_to_session_history(prompt, response_content)
+            # R5-fix: history 由 engine.stream_call_model 的 done 分支写入
+            # (model_call.py)，CLI 层不重复调用 _append_to_session_history
+        _record_long_task_metrics(
+            engine,
+            event="turn_complete",
+            outcome="error" if observed_stream_error else "ok",
+            tool_calls=observed_tool_calls,
+            tool_errors=observed_tool_errors,
+            text_deltas=observed_text_deltas,
+        )
     else:
         result = engine.submit(prompt)
         print(result.output)
@@ -269,6 +301,73 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
             behavior=bm,
         ))
     return 0
+
+
+def _record_long_task_metrics(
+    engine: QueryEngine,
+    *,
+    event: str,
+    outcome: str,
+    tool_calls: int = 0,
+    tool_errors: int = 0,
+    text_deltas: int = 0,
+    error: str | None = None,
+) -> bool:
+    """Append best-effort long-task observability to project-local JSONL."""
+    checkpoint_dir = Path(
+        getattr(engine.session_store, "_checkpoint_dir", Path(".lingclaude/checkpoints"))
+    )
+    checkpoint_path = checkpoint_dir / f"{engine.session_id}.json"
+    journal_path = Path(".lingclaude/journals") / f"{engine.session_id}.jsonl"
+    stats = engine.get_stats()
+    return append_long_task_metrics({
+        "event": event,
+        "outcome": outcome,
+        "session_id": stats["session_id"],
+        "turns": stats["turns"],
+        "tool_calls": tool_calls,
+        "tool_errors": tool_errors,
+        "text_deltas": text_deltas,
+        "journal_size_bytes": journal_path.stat().st_size if journal_path.exists() else 0,
+        "checkpoint_exists": checkpoint_path.exists(),
+        "checkpoint_size_bytes": checkpoint_path.stat().st_size if checkpoint_path.exists() else 0,
+        "usage": stats.get("usage", {}),
+        "error": error,
+    })
+
+
+def _maybe_recover_on_startup(engine: QueryEngine, args: argparse.Namespace) -> None:
+    """Surface an interrupted tool round at startup.
+
+    `--recover` is explicit automation. `--continue` only announces the
+    checkpoint because resume can execute more model/tool side effects.
+    """
+    if not getattr(args, "recover", False) and not getattr(args, "continue_", False):
+        return
+    if not engine.has_checkpoint:
+        if getattr(args, "recover", False):
+            _record_long_task_metrics(
+                engine,
+                event="startup_recover",
+                outcome="no_checkpoint",
+            )
+            print("[无可恢复任务] 当前会话没有中断 checkpoint")
+        return
+
+    if getattr(args, "recover", False):
+        result = engine.resume_interrupted()
+        _record_long_task_metrics(
+            engine,
+            event="startup_recover",
+            outcome="ok" if result.is_ok else "error",
+            error=None if result.is_ok else result.error,
+        )
+        if result.is_ok:
+            print(f"[已自动恢复中断任务] {result.data}")
+        else:
+            print(f"[自动恢复失败] {result.error}")
+    elif _OUTPUT_FORMAT == "plain":
+        print("[检测到未完成工具轮] 输入 /recover 继续；下次启动可用 --recover 自动恢复")
 
 
 def _start_bus_responder_background(interval: float = 30.0) -> threading.Event:
@@ -417,9 +516,12 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         args = event.get("arguments", "")
         try:
             parsed = json.loads(args)
-            args_preview = " ".join(f"{k}={v}" for k, v in list(parsed.items())[:3])
-        except (json.JSONDecodeError, TypeError):
-            args_preview = args[:60] if args else ""
+            if isinstance(parsed, dict):
+                args_preview = " ".join(f"{k}={v}" for k, v in list(parsed.items())[:3])
+            else:
+                args_preview = str(parsed)[:60]
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            args_preview = args[:60] if isinstance(args, str) else str(args)[:60]
         sys.stdout.write(f"\n  [{name}] {args_preview} ... ")
         sys.stdout.flush()
     elif etype == "tool_call_end":
@@ -427,7 +529,13 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         preview = event.get("output_preview", "")
         mark = "❌" if is_error else "✅"
         if preview and not is_error:
-            preview = preview[:80].replace("\n", " ")
+            # 终端宽度动态截断（替代固定 80 字符）——窄终端不低于 60，
+            # 宽终端用 columns-8 留余白；非 TTY 回落 80
+            try:
+                cols = max(60, (shutil.get_terminal_size().columns or 80) - 8) if sys.stdout.isatty() else 80
+            except Exception:  # noqa: BLE001
+                cols = 80
+            preview = preview[:cols].replace("\n", " ")
             sys.stdout.write(f"{mark} ({len(preview)} chars)\n")
         else:
             sys.stdout.write(f"{mark}\n")
@@ -439,18 +547,24 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
     elif etype == "done":
         _flush_stream_line()
         # P0-完成渲染:TTY 下擦除裸文本行,用 rich Markdown 重渲染正式版
+        # 2026-09-06 修复:之前用 `\x1b[{n}A` 上移 N 行 + 清屏重渲染,但 prompt_toolkit
+        # 同步维护自己的 bottom_toolbar(N 不含 toolbar 行)→ cursor 操作覆盖了 toolbar
+        # 文字("灵克[..]ude │ 上下文 0%"被截成 ude)、产生位移。
+        # 新策略:TTY 下不再用 ANSI cursor 操作(保留 raw stream 输出),改用 Rich 的
+        # `erase + replace` 在底部追加正式版,而非覆盖——避免与 PT 的 toolbar 控制权冲突。
         content = event.get("content", "")
-        if content and sys.stdout.isatty() and globals()["_stream_lines_emitted"] > 0:
-            n = globals()["_stream_lines_emitted"]
-            sys.stdout.write(f"\x1b[{n}A\r\x1b[J")  # 上移 n 行,清屏到底
-            globals()["_stream_lines_emitted"] = 0
+        if content and sys.stdout.isatty():
             try:
                 from lingclaude.cli.display import print_markdown
 
+                # 用 ANSI 光标下移一行(到达 stream 输出末尾之下),再向上滚回渲染
+                # ——比上移 N 行覆盖安全(N 不必精确)
+                sys.stdout.write("\x1b[1B\n")  # 下移 1 行落到 stream 末尾
                 print_markdown(content)
                 sys.stdout.write("\n")
-            except Exception:  # noqa: BLE001 — 渲染失败降级:裸文本已擦,保底重打原文
-                sys.stdout.write(content + "\n\n")
+            except Exception:  # noqa: BLE001 — Markdown 渲染失败时保底输出纯文本
+                sys.stdout.write("\n" + content + "\n\n")
+            globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
         else:
             sys.stdout.write("\n\n")
         sys.stdout.flush()
@@ -501,16 +615,68 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             # F2 修复:删 /undo 出补全 — handler 缺失,留 completer 会让用户以为已实现。
             # 会话恢复:新增 /resume /continue（交互中途恢复历史会话）；
             # 顺手补上帮助文本里有、补全里却漏掉的 /lsp。
-            ["/help", "/clear", "/compact", "/model", "/schedule", "/lsp", "/resume", "/continue", "/quit"],
+            ["/help", "/clear", "/compact", "/model", "/schedule", "/lsp", "/resume", "/continue", "/checkpoint", "/recover", "/quit"],
             ignore_case=True,
         )
     except ImportError:
         _completer = None
     session: PromptSessionInterface = create_session(completer=_completer)
 
+    # H17-TUI: 状态栏 + 挂起队列接线 — 设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md
+    # 组件（status.py/input_queue.py/interface.py）此前已就绪但从未被接线。
+    # 三件套在此构造；仅 TTY+plain 生效，json/jsonl/Fallback 自动降级。
+    from lingclaude.cli.input_queue import InputPump, InputQueue
+    from lingclaude.cli.status import StatusModel, toolbar_fragments
+
+    status = StatusModel()
+    status.refresh_cwd()
+    _prov_cfg0 = getattr(engine._provider, "_config", None) if engine._provider else None
+    status.set_model(str(getattr(_prov_cfg0, "model", "") or "?"))
+    try:
+        from lingclaude.core.tool_executor import _estimate_message_tokens
+
+        status.set_ctx(
+            _estimate_message_tokens(engine._messages),
+            int(getattr(engine.config, "context_window_tokens", None)
+                or getattr(engine.config, "max_budget_tokens", 0) or 0),
+        )
+    except Exception:  # noqa: BLE001 — token 估算失败不阻塞交互启动
+        pass
+    input_queue = InputQueue()
+
+    def _status_prompt() -> str:
+        """prompt 渲染回调：plain 模式显示简短的"灵克>"（保留可读性），
+        状态信息走 bottom_toolbar（已有 toolbar_fragments 实现）。
+
+        为什么不在 prompt 里塞 [model|ctx|task|q]？实测发现：
+        1) prompt 文本变长后 PT 计算光标位置会偏移 → 输入位置错位
+        2) 多余方括号与 | 字符 → 显示多余空格 + 换行错位
+        3) 上下文 window=0 时 ctx 总是 ? → 失去常驻感
+        把状态信息下沉到底部 toolbar 后,prompt 简短可读,光标稳定。
+        """
+        if _OUTPUT_FORMAT != "plain":
+            return "灵克> "
+        # 即便 prompt 简短,仍要刷新 ctx_tokens（每次 session.prompt 都重算）——
+        # 否则状态栏比例永远停在上次 _blocks 触发时的旧值
+        try:
+            from lingclaude.core.tool_executor import _estimate_message_tokens
+
+            status.set_ctx(
+                _estimate_message_tokens(engine._messages),
+                int(getattr(engine.config, "context_window_tokens", None)
+                    or getattr(engine.config, "max_budget_tokens", 0) or 0),
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        status.refresh_cwd()
+        status.set_pending(input_queue.pending())
+        return "灵克> "
+
+    input_pump = InputPump(session, input_queue, prompt_text=_status_prompt)
+
     def _read_input() -> str:
         try:
-            text = session.prompt("灵克> ")
+            text = session.prompt(_status_prompt())
             # 审计#11 修复:prompt_toolkit 的 PromptSession 已自动写 FileHistory,
             # 这里再 push 一次导致 ~/.lingclaude/history 每条重复。
             # push_to_history 语义改为「仅兜底实现需要手动记」→ 见 interface.py。
@@ -522,13 +688,93 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             print("[输入编码错误，请检查终端编码设置]")
             return ""
 
+    def _drain_pending_notice() -> None:
+        """H17-TUI:退出前清空挂起队列并列出被丢弃项（半成品不执行、不落盘）。"""
+        dropped = input_queue.drain()
+        if dropped:
+            print(f"[退出] 丢弃 {len(dropped)} 条挂起输入：")
+            for d in dropped[:5]:
+                print(f"  - {d[:60]}")
+            if len(dropped) > 5:
+                print(f"  … 等共 {len(dropped)} 条")
+
     quit_requested = False
+    # H17-TUI 架构定稿: stdin 读者唯一化 — pump 会话级独占 session.prompt()，
+    # 主循环只从队列取输入。此前「逐轮启停」模型下 stop() 无法中断阻塞在
+    # prompt() 的 pump 线程，主循环再入 prompt() → 同一 PT Application 并发
+    # 运行 → AssertionError: Application is already running（2026-09-08 事故）。
+    _pump_mode = False
+
+    def _next_input() -> str:
+        """pump 模式取输入：唯一来源是队列（EOF 哨兵转 EOFError）。
+        pump 线程死亡时永久降级为阻塞直读。"""
+        while True:
+            if input_pump.dead or not _pump_mode:
+                return _read_input()
+            item = input_queue.get(timeout=0.3)
+            if item is None:
+                # 队列空且 pump 线程已退出（未置 dead）→ EOF 已入队/线程异常退出
+                if not input_pump.is_alive():
+                    item = input_queue.get(timeout=0.5)
+                    if item is None:
+                        raise EOFError
+                continue
+            if InputQueue.is_eof(item):
+                raise EOFError
+            return item
+
+    # H17-TUI 步骤2: 安装状态栏（PT 实现生效；Fallback no-op 自动降级）。
+    # TUI_ONLY_SNAPSHOT: json/jsonl 输出模式禁用（状态栏与流式 stdout 无关但
+    # 保持机器输出纯净）；同时每轮 refresh_cwd 对齐 /cd 场景。
+    _status_bar_active = False
+    if _OUTPUT_FORMAT == "plain":
+        def _status_refresh() -> None:
+            status.refresh_cwd()
+            _prov_cfg = getattr(engine._provider, "_config", None) if engine._provider else None
+            if _prov_cfg is not None:
+                m = getattr(_prov_cfg, "model", "")
+                if m:
+                    status.set_model(str(m))
+            # Update pinned status
+            pinned = engine.get_pinned_model_name()
+            if pinned:
+                status.set_model(f"{pinned} [PINNED]")
+                status.set_pinned(True)
+            else:
+                status.set_pinned(False)
+            try:
+                from lingclaude.core.tool_executor import _estimate_message_tokens
+
+                status.set_ctx(
+                    _estimate_message_tokens(engine._messages),
+                    int(getattr(engine.config, "context_window_tokens", None)
+                        or getattr(engine.config, "max_budget_tokens", 0) or 0),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            status.set_pending(input_queue.pending())
+
+        try:
+            session.install_bottom_toolbar(lambda: toolbar_fragments(status.snapshot()))
+            _status_bar_active = not isinstance(session, FallbackSession)
+        except Exception:  # noqa: BLE001 — 状态栏安装失败不阻塞交互
+            _status_bar_active = False
+
+        # H17-TUI: pump 会话级启动 — 唯一 stdin 读者（架构见 _next_input 注释）。
+        # 仅 PT 会话 + TTY + plain 生效；json/jsonl/Fallback 自动降级阻塞直读。
+        if (
+            _status_bar_active
+            and isinstance(session, PromptToolkitSession)
+            and sys.stdin.isatty()
+        ):
+            _pump_mode = True
+            input_pump.start()
 
     def _handle_slash_command(cmd: str) -> bool:
         """T1-7: 斜杠命令。返回 True 表示已消费；/quit /exit 置 quit_requested。"""
         nonlocal quit_requested
         parts = cmd.strip().split(maxsplit=1)
-        if not parts or not parts[0].startswith("/"):
+        if not parts or parts[0][:1] != "/":
             return False
         name = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
@@ -542,9 +788,11 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             print("  /help                  本帮助")
             print("  /clear                 清空会话上下文")
             print("  /compact               手动压缩（未达阈值时明确提示）")
-            print("  /model [名称]          查看/切换默认模型")
+            print("  /model [名称]          查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复路由）")
             print("  /schedule [表达式]      定时任务注册/列出/取消")
             print("  /lsp add|remove [参数]  LSP 服务器注册/删除（不带参数列出）")
+            print("  /checkpoint             手动保存 checkpoint（R5 阶段1）")
+            print("  /recover                恢复最近中断的工具轮 checkpoint")
             print("  /resume [ID]           恢复指定会话（不带 ID 列出全部；ID 支持短前缀）")
             print("  /continue              恢复最近一次会话（等价启动参数 --continue）")
             print("  /quit、/exit           退出")
@@ -571,30 +819,72 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 print("[提示] 达到阈值后回合结束自动压缩；/compact 仅用于手动提前触发")
             return True
         if name == "/model":
-            # P1-4: /model 显示当前；/model <name> 会话中途切换（保留上下文）
-            if arg:
-                result = engine.switch_model(arg.strip())
+            # /model: 显示当前/钉住模型；/model <name> 钉住模型（绕过 TaskRouter）；/model --unpin 解除钉住
+            parts = arg.strip().split() if arg else []
+            # /model --unpin
+            if parts and parts[0] == "--unpin":
+                result = engine.unpin_model()
                 if result.is_ok:
-                    # F12h:切换后显示端点 — 暴露「模型名换了但端点没换」的假切换
-                    prov_cfg = getattr(engine._provider, "_config", None) if engine._provider else None
-                    base = getattr(prov_cfg, "base_url", "?") or "?"
-                    print(f"[模型已切换] {result.data} @ {base}")
-                    print("[提示] 默认模型已切换；实际每条消息仍按任务动态路由(TaskRouter)")
+                    print(f"[已解除钉住] 恢复 TaskRouter 动态路由（原钉住: {result.data}）")
+                    status.set_pinned(False)
                 else:
-                    print(f"[切换失败] {result.error}")
+                    print(f"[解除失败] {result.error}")
+                return True
+            # /model <name> [--ttl N]
+            if parts:
+                model_name = parts[0]
+                ttl = 0
+                if "--ttl" in parts:
+                    try:
+                        ttl_idx = parts.index("--ttl")
+                        ttl = int(parts[ttl_idx + 1])
+                    except (IndexError, ValueError):
+                        print("[用法] /model <name> [--ttl 秒数]")
+                        return True
+                result = engine.pin_model(model_name, ttl_seconds=ttl)
+                if result.is_ok:
+                    pinned_cfg = engine._pinned_model_config
+                    base = getattr(pinned_cfg, "base_url", "?") or "?"
+                    ttl_str = f" (TTL {ttl}s)" if ttl > 0 else " (会话级永久)"
+                    print(f"[已钉住模型] {result.data} @ {base}{ttl_str}")
+                    print("[提示] 后续请求将强制使用此模型，忽略 TaskRouter 路由表；用 /model --unpin 解除")
+                    status.set_pinned(True)
+                else:
+                    print(f"[钉住失败] {result.error}")
+                return True
+            # /model (无参数): 显示当前/钉住状态
+            pinned = engine.get_pinned_model_name()
+            if pinned:
+                pinned_cfg = engine._pinned_model_config
+                base = getattr(pinned_cfg, "base_url", "?") if pinned_cfg else "?"
+                import time
+                ttl_remain = int(engine._pinned_model_expires - time.time()) if engine._pinned_model_expires != float('inf') else -1
+                ttl_str = f" (剩余 {ttl_remain}s)" if ttl_remain > 0 else (" (会话级)" if ttl_remain < 0 else " (已过期，自动解除)")
+                print(f"[当前钉住模型] {pinned} @ {base}{ttl_str}")
+                print("[提示] 使用 /model --unpin 解除钉住，恢复动态路由")
             else:
-                # /model 显示修复:engine.config 是 QueryEngineConfig(无 .model 字段,
-                # 此前恒显示 unknown)。真实默认模型在 provider._config。
                 prov_cfg = getattr(engine._provider, "_config", None) if engine._provider else None
                 model_name = getattr(prov_cfg, "model", "") or "?"
                 base = getattr(prov_cfg, "base_url", "") or "?"
                 print(f"[当前默认模型] {model_name} @ {base}")
-                print("[提示] 实际模型按任务动态路由(TaskRouter)，每条消息可能不同；"
-                      "/model <name> 切换默认模型")
+                print("[提示] /model <name> 钉住模型（绕过 TaskRouter）；/model --unpin 解除")
+                router = getattr(engine, "_task_router", None)
+                if router is not None and router._providers:
+                    print("[可用模型] 按 provider 分组：")
+                    for pname, pinfo in router._providers.items():
+                        if not pinfo.models:
+                            continue
+                        key_mark = "✓" if pinfo.api_key else "✗(无key)"
+                        print(f"  {pname} [{key_mark}] ({pinfo.base_url}):")
+                        for m in pinfo.models:
+                            default_tag = " ←默认" if m == pinfo.default_model else ""
+                            print(f"    {m}{default_tag}")
+                else:
+                    print("[可用模型] TaskRouter 未加载或无 provider")
             return True
         # T2-2/案 4: /schedule 命令 — 定时任务注册/列出/取消
         if name == "/schedule":
-            from lingclaude.core.scheduler import get_schedule_manager, ScheduleType
+            from lingclaude.core.scheduler import ScheduleType, get_schedule_manager
 
             mgr = get_schedule_manager()
             if not arg:
@@ -618,7 +908,12 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 parts = arg.split(maxsplit=1)
                 if len(parts) < 2:
                     # 审计#10 修复:补上 scheduler 实际支持的 after:N / at:HH:MM
-                    print('[用法] /schedule @daily|@hourly|@weekly|interval:N|after:N|at:HH:MM "任务内容"')
+                    # 接线门修复: ScheduleType 枚举作为帮助文本单一事实来源，
+                    # 避免文档与 _compute_next_run 解析器漂移
+                    predefs = "|".join(
+                        t.value for t in ScheduleType if t is not ScheduleType.INTERVAL
+                    )
+                    print(f'[用法] /schedule {predefs}|{ScheduleType.INTERVAL.value}:N|after:N|at:HH:MM "任务内容"')
                     print("       /schedule cancel <task_id>")
                     print("       /schedule  (列出任务)")
                 else:
@@ -687,6 +982,41 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             else:
                 print("[用法] /lsp add <lang> --command <cmd> | /lsp remove <lang> | /lsp 列出")
             return True
+        # R5 阶段1: /checkpoint 手动保存当前会话 checkpoint + journal
+        if name == "/checkpoint":
+            persist_result = engine._session_persister.persist_session()
+            if persist_result.is_ok:
+                engine._get_journal().append("checkpoint", {
+                    "manual": True,
+                    "messages_count": len(engine._messages),
+                })
+                print(f"[checkpoint] 已保存: {persist_result.data}")
+            else:
+                print(f"[checkpoint] 保存失败: {persist_result.error}")
+            return True
+
+        # R5 阶段1 的核心 API 此前没有 CLI 入口：进程被杀/中断后，
+        # /resume 只能恢复历史会话，不能从中断工具轮继续。
+        if name == "/recover":
+            status.set_task("恢复中")
+            try:
+                result = engine.resume_interrupted()
+            finally:
+                status.set_task("空闲")
+            _record_long_task_metrics(
+                engine,
+                event="slash_recover",
+                outcome="ok" if result.is_ok else ("no_checkpoint" if result.code == "NO_CHECKPOINT" else "error"),
+                error=None if result.is_ok else result.error,
+            )
+            if result.is_ok:
+                print(f"[已恢复中断任务] {result.data}")
+            elif result.code == "NO_CHECKPOINT":
+                print("[无可恢复任务] 当前会话没有中断 checkpoint")
+            else:
+                print(f"[恢复失败] {result.error}")
+            return True
+
         # 会话恢复:/resume [ID] 恢复指定会话、/continue 恢复最近一次。
         # 复用启动参数 --resume/--continue 的同一套持久化接口（load_session），
         # 语义与启动时一致：恢复 = 替换当前上下文。
@@ -731,11 +1061,13 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
     while True:
         if not prompt:
             try:
-                prompt = _read_input().strip()
+                prompt = _next_input().strip()
             except (EOFError, KeyboardInterrupt):
+                _drain_pending_notice()
                 print("\n再见！")
                 break
         if prompt.lower() in ("exit", "quit", "q"):
+            _drain_pending_notice()
             print("再见！")
             break
         if not prompt:
@@ -743,6 +1075,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
         # T1-7: 斜杠命令优先消费
         if _handle_slash_command(prompt):
             if quit_requested:
+                _drain_pending_notice()
                 print("再见！")
                 break
             prompt = ""
@@ -753,55 +1086,169 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             response_content = ""
             got_first_token = False
             interrupted = False
+            observed_tool_calls = 0
+            observed_tool_errors = 0
+            observed_text_deltas = 0
+            observed_stream_error = False
+            status.set_task("生成中")
             # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成；
             # 仅 TTY 启动，且用 _esc_stop 保证回合结束线程必退（审计#6）
             _esc_stop = threading.Event()
-            if sys.stdin.isatty():
+            _esc_thread = None
+            # H17-TUI 架构定稿: pump 会话级运行（循环前已 start），生成期继续
+            # 收文本入队，中断由 Ctrl+C 承担（pump 线程内 KeyboardInterrupt 清行）。
+            # 仅当 pump 不可用（非 PT/非 TTY/pump 已死）时降级 Esc 监听线程。
+            if (_pump_mode and input_pump.dead or not _pump_mode) and sys.stdin.isatty():
                 _esc_thread = threading.Thread(
                     target=_esc_listen_loop, args=(session, _esc_stop), daemon=True,
                 )
                 _esc_thread.start()
-            for event in engine.stream_call_model(prompt):
-                if session.interrupt_event().is_set():
-                    interrupted = True
-                    print("\n[已打断]")
-                    break
-                if not got_first_token and event.get("type") in ("text_delta", "error"):
-                    got_first_token = True
-                    sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
-                    sys.stdout.flush()
-                _handle_stream_event(event)
-                if event.get("type") == "text_delta":
-                    response_content += event.get("text", "")
-                elif event.get("type") == "done":
-                    response_content = event.get("content", response_content)
-            _flush_stream_line()  # P0:打断/异常退出时补冲残行,防污染下一轮
-            # 审计#6:先停线程再清 interrupt — 顺序反了会把线程"复活"成永生线程
-            _esc_stop.set()
-            session.interrupt_event().clear()
+            try:
+                for event in engine.stream_call_model(prompt):
+                    if session.interrupt_event().is_set():
+                        interrupted = True
+                        print("\n[已打断]")
+                        break
+                    if not got_first_token and event.get("type") in ("text_delta", "error"):
+                        got_first_token = True
+                        sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
+                        sys.stdout.flush()
+                    _handle_stream_event(event)
+                    if event.get("type") == "tool_call_start":
+                        observed_tool_calls += 1
+                        status.set_task(f"工具:{event.get('name', '?')}")
+                    if event.get("type") == "tool_call_end" and event.get("is_error"):
+                        observed_tool_errors += 1
+                    if event.get("type") == "text_delta":
+                        observed_text_deltas += 1
+                        response_content += event.get("text", "")
+                    if event.get("type") == "error":
+                        observed_stream_error = True
+                    elif event.get("type") == "done":
+                        response_content = event.get("content", response_content)
+            except KeyboardInterrupt:
+                # pump 模式下 Ctrl+C 承担中断语义（Esc 让位给输入框）
+                interrupted = True
+                print("\n[已打断]")
+            finally:
+                # H17-TUI 修复: 清理入 finally — 流中非 KeyboardInterrupt 异常（网络错等）
+                # 也不泄漏监听线程。审计#6: 先停线程再清 interrupt。
+                # pump 会话级运行，此处不再 stop（唯一 stdin 读者地位不变）。
+                _flush_stream_line()
+                if _esc_thread is not None:
+                    _esc_stop.set()
+                session.interrupt_event().clear()
+                if _status_bar_active:
+                    status.bump_turns()
+                    status.set_task("空闲")
             if response_content and not interrupted:
                 engine._messages.append(prompt)
                 engine._messages.append(response_content)
                 engine._compact_if_needed()
-                engine._append_to_session_history(prompt, response_content)
+                # R5-fix: history 由 engine.stream_call_model 的 done 分支写入
+                # (model_call.py)，CLI 层不重复调用 _append_to_session_history
                 # P0-2+: 逐轮落盘（crush 式增量持久化）— 中途被杀不再丢会话。
                 # 此前仅退出时 persist，57109 被 kill 即全丢（2026-09-06 事故）。
                 persist_result = engine._session_persister.persist_session()
                 if persist_result.is_error and _OUTPUT_FORMAT == "plain":
                     print(f"[警告] 会话逐轮落盘失败: {persist_result.error}")
+            _record_long_task_metrics(
+                engine,
+                event="interrupted_turn" if interrupted else "turn_complete",
+                outcome=(
+                    "interrupted" if interrupted
+                    else "error" if observed_stream_error
+                    else "ok"
+                ),
+                tool_calls=observed_tool_calls,
+                tool_errors=observed_tool_errors,
+                text_deltas=observed_text_deltas,
+            )
         else:
             result = engine.submit(prompt)
             print(f"\n{result.output}\n")
             if result.stop_reason.value == "max_turns_reached":
                 print(f"[会话结束: {result.stop_reason.value}]")
-        _feed_behavior_to_daemon(engine, None)
+            _record_long_task_metrics(
+                engine,
+                event="turn_complete",
+                outcome=result.stop_reason.value,
+            )
 
-        prompt = ""
-        try:
-            prompt = _read_input().strip()
-        except (EOFError, KeyboardInterrupt):
+        # H17-TUI: 消费生成期挂起队列（斜杠命令即时执行；首个文本成为下一轮输入，
+        # 余下重新排队保持顺序；EOF/quit 视为退出请求）
+        # 修复: 余项不可边 drain 边回填同一队列 — get 永远取回回填项，循环永不
+        # break（2026-09-08 死循环事故）。先收集，循环结束后再回填。
+        _queued_next = None
+        _extras: list[str] = []
+        # 修复: 不再以 not input_pump.dead 为循环条件 — pump 死亡时挂起队列
+        # 里的输入仍须消费（2026-09-09: pump 静默死亡 → 6 条挂起全部滞留丢弃）。
+        # 队列空时 get 超时返回 None 自然 break。
+        while True:
+            item = input_queue.get(timeout=0.2)
+            if item is None:
+                break
+            if InputQueue.is_eof(item):
+                quit_requested = True
+                continue
+            if _handle_slash_command(item):
+                if quit_requested:
+                    break
+                continue
+            if _queued_next is None:
+                _queued_next = item
+            else:
+                _extras.append(item)
+        for _x in reversed(_extras):
+            input_queue.put(_x)
+        if quit_requested:
+            _drain_pending_notice()
             print("\n再见！")
             break
+
+        _feed_behavior_to_daemon(engine, None)
+
+        if _queued_next is not None:
+            prompt = _queued_next
+            next_prompt_hint = f"[排队执行] {prompt[:40]}"
+            if _OUTPUT_FORMAT == "plain":
+                print(next_prompt_hint)
+        else:
+            prompt = ""
+            try:
+                prompt = _next_input().strip()
+            except (EOFError, KeyboardInterrupt):
+                _drain_pending_notice()
+                print("\n再见！")
+                break
+
+    def _shutdown_pump() -> None:
+        """会话收尾：优雅退出 pump（唯一 stdin 读者）。
+
+        事故背景（2026-09-09）：pump 是 daemon 线程且阻塞在 prompt() 里，
+        解释器 finalize 阶段 daemon 线程持有 stdout 缓冲锁 →
+        「Fatal Python error: _enter_buffered_busy」核心转储。
+        此处通过 PT 的 app.exit(EOFError) 让阻塞中的 prompt() 抛 EOF 返回，
+        线程干净退出后再 join；优雅失败兜底 os._exit 跳过 finalize。
+        """
+        if not _pump_mode:
+            return
+        input_pump.stop()
+        try:
+            app = getattr(session._session, "app", None)  # noqa: SLF001
+            if app is not None and getattr(app, "is_running", False):
+                app.exit(exception=EOFError)
+        except Exception:  # noqa: BLE001 — PT 版本差异时不阻塞退出
+            pass
+        t = input_pump._thread  # noqa: SLF001
+        if t is not None and t.is_alive():
+            t.join(timeout=2.0)
+            if t.is_alive():
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(0)
+
+    _shutdown_pump()
 
     # P0-2: 退出时持久化会话（--continue/--resume 的数据来源）。
     # 此前从未调用 — 会话只存内存,进程退出即失,续接功能形同虚设。
@@ -899,7 +1346,7 @@ def _cmd_session(args: argparse.Namespace) -> int:
             print("Error: session ID required for delete")
             return 1
         manager.delete(args.session_id)
-        print(f"Deleted session: {args.session_id}")
+        print(f"Removed session: {args.session_id}")
     else:
         print(f"Unknown session action: {args.session_action}")
         return 1
@@ -1135,6 +1582,101 @@ def _wait_for_http(url: str, timeout: float = 15.0) -> bool:
     return False
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """R4: 环境自检 — /dev/null、git/pytest smoke、存储目录、MCP、Provider。"""
+    import shutil
+
+    checks: list[tuple[str, str, str]] = []
+
+    # /dev/null 可写性
+    try:
+        with open("/dev/null", "wb") as f:
+            f.write(b"\x00")
+        checks.append(("devnull", "ok", "writable"))
+    except OSError as e:
+        checks.append(("devnull", "fail", f"not writable: {e}"))
+
+    # git smoke
+    git_path = shutil.which("git")
+    if git_path:
+        try:
+            result = subprocess.run(
+                ["git", "status", "--porcelain"], capture_output=True, timeout=5, text=True,
+            )
+            if result.returncode == 0:
+                checks.append(("git", "ok", "repository accessible"))
+            else:
+                checks.append(("git", "warn", f"status rc={result.returncode}"))
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            checks.append(("git", "warn", f"smoke failed: {e}"))
+    else:
+        checks.append(("git", "warn", "not found in PATH"))
+
+    # pytest smoke
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "--version"],
+            capture_output=True, timeout=10, text=True,
+        )
+        if result.returncode == 0:
+            ver = result.stdout.strip().split("\n")[0]
+            checks.append(("pytest", "ok", ver))
+        else:
+            checks.append(("pytest", "warn", f"rc={result.returncode}"))
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        checks.append(("pytest", "warn", f"not runnable: {e}"))
+
+    # 存储目录可写性
+    storage_dirs = [
+        ("journal_dir", Path(".lingclaude/journals")),
+        ("checkpoint_dir", Path(".lingclaude/checkpoints")),
+        ("session_dir", Path(".lingclaude/sessions")),
+    ]
+    for name, dir_path in storage_dirs:
+        try:
+            dir_path.mkdir(parents=True, exist_ok=True)
+            test_file = dir_path / ".doctor_probe"
+            test_file.write_text("probe")
+            test_file.unlink()
+            checks.append((name, "ok", str(dir_path)))
+        except OSError as e:
+            checks.append((name, "fail", f"not writable: {e}"))
+
+    # MCP 模块可导入性
+    try:
+        import lingclaude.mcp.server  # noqa: F401
+        checks.append(("mcp", "ok", "module importable"))
+    except ImportError as e:
+        checks.append(("mcp", "warn", f"import failed: {e}"))
+
+    # Provider 配置
+    try:
+        config = load_config(Path(args.config) if args.config else None)
+        has_key = bool(config.model.api_key) or _is_local_base(config.model.base_url)
+        if has_key:
+            checks.append(("provider", "ok", f"{config.model.provider}/{config.model.model}"))
+        else:
+            checks.append(("provider", "warn", "no api_key (cloud provider may fail)"))
+    except Exception as e:
+        checks.append(("provider", "warn", f"config load failed: {e}"))
+
+    # 输出
+    has_fail = False
+    print("lingclaude doctor — 环境自检")
+    print("=" * 50)
+    for name, status, detail in checks:
+        icon = {"ok": "✅", "warn": "⚠️ ", "fail": "❌"}[status]
+        if status == "fail":
+            has_fail = True
+        print(f"  {icon} {name:20s} {status:5s} {detail}")
+    print("=" * 50)
+    fail_count = sum(1 for _, s, _ in checks if s == "fail")
+    warn_count = sum(1 for _, s, _ in checks if s == "warn")
+    ok_count = sum(1 for _, s, _ in checks if s == "ok")
+    print(f"  {ok_count} ok / {warn_count} warn / {fail_count} fail")
+    return 1 if has_fail else 0
+
+
 def _cmd_webui(args: argparse.Namespace) -> int:
     """启动 WebUI：webui-server(Rust, 前端) + 可选引擎(api.py :8700)。"""
     port = args.port
@@ -1252,6 +1794,8 @@ def main() -> int:
     run_parser.add_argument("--continue", dest="continue_", action="store_true",
                             help="Resume the most recent session")
     run_parser.add_argument("--resume", metavar="SESSION_ID", help="Resume a specific session by id")
+    run_parser.add_argument("--recover", action="store_true",
+                            help="Resume the latest interrupted tool-round checkpoint")
     run_parser.add_argument("--output-format", choices=["plain", "json", "jsonl"], default="plain",
                             help="Output format (jsonl = one JSON per stream event)")
 
@@ -1297,6 +1841,8 @@ def main() -> int:
 
     gov_parser = subparsers.add_parser("governance-audit", help="Audit governance votes")
     gov_parser.add_argument("--proposals-file", "-p", help="Path to proposals.json")
+
+    subparsers.add_parser("doctor", help="Environment health check")
 
     webui_parser = subparsers.add_parser("webui", help="Start the WebUI server (webui-server + optional engine)")
     webui_parser.add_argument("--port", type=int, default=13458, help="WebUI server port (default 13458)")
@@ -1357,6 +1903,8 @@ def main() -> int:
         return _cmd_metrics(args)
     elif args.command == "governance-audit":
         return _cmd_governance_audit(args)
+    elif args.command == "doctor":
+        return _cmd_doctor(args)
     elif args.command == "webui":
         return _cmd_webui(args)
     elif args.command == "unknowns":

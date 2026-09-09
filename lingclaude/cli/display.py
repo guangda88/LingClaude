@@ -304,7 +304,14 @@ class ToolCallPanel:
     def add_tool_end(self, is_error: bool, preview: str = "") -> None:
         mark = "❌" if is_error else "✅"
         style = "error" if is_error else "success"
-        self._lines.append(f"[{style}]{mark} {preview[:80]}[/{style}]")
+        # 终端宽度动态截断（替代固定 80）——窄终端不低于 60，
+        # 宽终端用 columns-8 留余白；非 TTY 回落 80
+        try:
+            import shutil as _sh, sys as _sys
+            cols = max(60, (_sh.get_terminal_size().columns or 80) - 8) if _sys.stdout.isatty() else 80
+        except Exception:  # noqa: BLE001
+            cols = 80
+        self._lines.append(f"[{style}]{mark} {preview[:cols]}[/{style}]")
         self._render()
 
     def _render(self) -> None:

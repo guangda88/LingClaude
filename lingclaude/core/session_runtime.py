@@ -44,6 +44,34 @@ class SessionRuntime:
         except Exception as e:
             logger.warning("飞轮记录失败: %s", e)
 
+    def log_denial(
+        self,
+        denial_kind: str,
+        command_prefix: str,
+        reason: str,
+        tool_name: str = "",
+    ) -> None:
+        """R2（结构化日志）：把 permission denial 喂给 DataFlywheel（不造新文件）。
+
+        复用 ErrorPattern 字段：
+        - pattern_type = denial_kind（如 "permission_bash_deny_tools"）
+        - tool_name     = command_prefix（如 "git commit"）
+        - error_message = reason 全文
+        - context       = 当前 session_id
+
+        让"同类 denial"统计可查询（docs/SYSTEMS_THEORY_SYNTHESIS.md 摩擦台账 + R1 的
+        "denial ≥2 次同类自动停手"前置条件）。
+        """
+        # denial_kind 形如 "permission_<scope>_<rule>" —— 便于 pattern_type 维度聚合
+        # command_prefix 取 bash 首词或 git commit 之类的高层动作，便于 tool_name 维度聚合
+        self.log_to_flywheel(
+            pattern_type=f"permission_{denial_kind}",
+            error_message=reason,
+            tool_name=command_prefix,
+            file_path="",
+            context=self._engine.session_id,
+        )
+
     def session_state_path(self) -> Path:
         return Path.home() / ".lingclaude" / "session_state.json"
 

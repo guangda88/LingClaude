@@ -1,0 +1,18 @@
+[Unit]
+Description=lingclaude self-optimization daemon watch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ai/lingclaude
+ExecStart=/home/ai/.local/bin/lingclaude daemon watch --interval 300
+Restart=always
+RestartSec=30s
+StartLimitIntervalSec=300
+StartLimitBurst=5
+Nice=10
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=default.target

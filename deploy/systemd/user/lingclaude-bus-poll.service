@@ -1,0 +1,18 @@
+[Unit]
+Description=lingclaude LingBus poll daemon (5min snapshot to /var/tmp)
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ai/lingclaude
+ExecStart=/usr/bin/python3 /home/ai/lingclaude/scripts/lingbus_poll_daemon.py
+Restart=always
+RestartSec=30s
+Nice=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

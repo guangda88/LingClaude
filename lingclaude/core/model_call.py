@@ -9,6 +9,7 @@ import logging
 from typing import Any, Generator
 
 from lingclaude.core.behavior import detect_intent, is_tool_intent
+from lingclaude.core.session_journal import SessionJournal
 from lingclaude.model.types import MessageRole, ModelMessage
 
 logger = logging.getLogger(__name__)
@@ -16,15 +17,55 @@ logger = logging.getLogger(__name__)
 # 模型调用最大工具轮次（query_engine 模块级常量迁移至此，避免循环导入）
 # 注意：这只是"未配置时的兜底值"。运行时上限由 _resolve_max_tool_rounds()
 # 从实例 config.max_turns（config.yaml → agent.max_turns）读取。
-AGENT_MAX_TOOL_ROUNDS = 10
+AGENT_MAX_TOOL_ROUNDS = 40
+
+
+_CFG_MTIME_CACHE: dict[str, float] = {}
+_HOT_RELOAD_INTERVAL = 30.0  # 秒；节流，避免每轮读盘
+_last_hot_reload_check = [0.0]
+
+
+def _maybe_hot_reload_config(engine: Any) -> None:
+    """配置热重载：config 文件 mtime 变化时重建 engine.config 的 max_turns。
+
+    背景：改 config.yaml 后运行中的引擎不感知，旧 max_turns(=8) 导致反复
+    撞「达到最大工具调用轮次」。此函数让长会话中改配置即时生效，无需重启。
+    防御式：任何异常都静默吞掉，绝不影响主循环。
+    """
+    import dataclasses
+    import time as _time
+
+    now = _time.monotonic()
+    if now - _last_hot_reload_check[0] < _HOT_RELOAD_INTERVAL:
+        return
+    _last_hot_reload_check[0] = now
+    try:
+        from lingclaude.core.config import find_config_path, load_config
+
+        path = find_config_path()
+        if path is None:
+            return
+        mtime = path.stat().st_mtime
+        key = str(path)
+        if _CFG_MTIME_CACHE.get(key) == mtime:
+            return
+        _CFG_MTIME_CACHE[key] = mtime
+        cfg = load_config(path)
+        cur = getattr(engine, "config", None)
+        if cur is not None and getattr(cur, "max_turns", None) != cfg.engine.max_turns:
+            object.__setattr__(engine, "config", dataclasses.replace(cur, max_turns=cfg.engine.max_turns))
+            logger.info("配置热重载: max_turns -> %d", cfg.engine.max_turns)
+    except Exception:
+        pass
 
 
 def _resolve_max_tool_rounds(engine: Any) -> int:
     """解析本轮 agent 循环的轮次上限。
 
-    优先级：实例 config.max_turns（config.yaml agent.max_turns）> 模块常量兜底。
+    优先级：热重载后的实例 config.max_turns > 模块常量兜底。
     防御式读取：任何属性缺失/类型不对都回落到常量，绝不抛异常。
     """
+    _maybe_hot_reload_config(engine)
     for attr in ("config", "engine_config", "_config", "cfg"):
         cfg = getattr(engine, attr, None)
         val = getattr(cfg, "max_turns", None) if cfg is not None else None
@@ -50,11 +91,18 @@ class _ToolLoopDetector:
     - 连续第 2 次打转 → abort（熔断）
     - 有任何新调用   → 正常推进，streak 清零
     纯文本轮（无工具调用）不参与判定（那是回答，不是循环）。
+
+    5b：denial 熔断（独立分支,按 rule_id 聚合）。
+    - 同 rule_id 连续 N 次触发 → 返回 "denial_warn" / "denial_abort"
+    - 与现有打转检测并存:打转管 (name, arguments) 重复、denial 管 rule_id 重复
+    - 阈值 R5_THRESHOLDS 字典:读工具放宽、写工具收紧（探索类/危险类分开）
     """
 
     def __init__(self) -> None:
         self._seen: set[tuple[str, str]] = set()
         self._streak = 0
+        # 5b: rule_id 熔断状态
+        self._denial_streak: dict[str, int] = {}  # rule_id -> 连续触发计数
 
     def observe_round(self, calls: list[tuple[str, str]]) -> str | None:
         """观察一轮调用，返回 'warn' / 'abort' / None。"""
@@ -71,9 +119,66 @@ class _ToolLoopDetector:
             return "abort"
         return "warn"
 
+    def observe_denial(self, rule_id: str, tool_name: str, threshold: int = 2) -> str | None:
+        """5b：观察一次 denial，按 rule_id 聚合。
+
+        Args:
+            rule_id: 5a 结构化规则标识（如 "config.deny_tools.exact"）
+            tool_name: 关联工具名（用于日志 / 后续扩展;不计入判定）
+            threshold: 触发熔断的连续次数（默认 2,与现有 abort 阈值一致）
+
+        Returns:
+            None              : 未达阈值,正常放行
+            "denial_warn"     : 第 1 次,告警（不再注入 system note,本轮已经记录）
+            "denial_abort"    : 达到阈值,熔断（暂停+升级语义见 §7.4）
+        """
+        self._denial_streak[rule_id] = self._denial_streak.get(rule_id, 0) + 1
+        n = self._denial_streak[rule_id]
+        if n >= threshold:
+            return "denial_abort"
+        return "denial_warn"
+
+    def reset_denial(self, rule_id: str) -> None:
+        """当一轮成功（无 denial）时,调用此清空对应 rule_id 计数。
+
+        与 observe_round 的 has_new 清零 streak 一致——只要有一次成功就重置。
+        """
+        self._denial_streak.pop(rule_id, None)
+
+
+# 5b 阈值表（按工具类型分维度调整;危险工具收紧,只读工具放宽）
+# 默认门槛 2,与现有 _ToolLoopDetector 行为一致;后续可按工具类型 read/write 区分
+_R5_THRESHOLDS: dict[str, int] = {
+    "default": 2,
+    # 未来可扩展:
+    # "config.deny_tools.exact": {"bash": 1, "read": 5},  # bash 一次性熔断
+    # "strict_mode.non_readonly": {"write": 1},  # 写工具一次性熔断
+}
+
 
 class ModelCallMixin:
     """模型调用 + MV-1 校验 + 幻觉闭环。"""
+
+    def _get_journal(self) -> SessionJournal:
+        """R5: 获取缓存的 SessionJournal 实例（持久化文件句柄复用）。
+
+        session_id 或 journal_dir 变化时重建。
+        """
+        cache_key = (self.session_id, str(self._journal_dir))
+        if not hasattr(self, "_journal_cache") or self._journal_cache_key != cache_key:
+            self._journal_cache = SessionJournal(
+                self.session_id, journal_dir=self._journal_dir,
+            )
+            self._journal_cache_key = cache_key
+        return self._journal_cache
+
+    def _journal_append(self, event_type: str, data: dict[str, Any] | None = None) -> None:
+        """R5: journal append (best-effort, 不阻塞主流程)。"""
+        try:
+            self._get_journal().append(event_type, data)
+        except Exception:
+            logger.debug("journal append silently failed for %s", event_type)
+
 
     def _call_model(self, prompt: str) -> str:
         decision = self._router.route(prompt)
@@ -129,10 +234,19 @@ class ModelCallMixin:
                     content = self._hallucination_correction(messages, content, tools, resolved_config)
                     if content:
                         return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+                self._clear_checkpoint()
                 return self._finalize_turn(prompt, response.content, used_tools, total_input, total_output, resolved_config)
 
             used_tools = True
             self._tool_call_executor.process(response.tool_calls, messages, content=response.content)
+            # R5 阶段1: 非 stream 工具轮也保存 checkpoint
+            self._save_checkpoint(
+                messages, round_idx, prompt, used_tools, total_input, total_output,
+            )
+            for tc in response.tool_calls:
+                self._journal_append("tool_call", {
+                    "tool_call_id": tc.id, "name": tc.name, "arguments": tc.arguments,
+                })
 
             round_error_count = sum(
                 1 for tc in response.tool_calls
@@ -379,6 +493,12 @@ class ModelCallMixin:
                 final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
                 self._append_to_session_history(prompt, final_content)
                 self._learn_from_turn(prompt, final_content)
+                # R5 阶段1: turn 正常完成 → 清 checkpoint + journal turn_end
+                self._clear_checkpoint()
+                self._journal_append("turn_end", {
+                    "final_content_preview": final_content[:200],
+                    "total_input": total_input, "total_output": total_output,
+                })
                 yield {"type": "done", "content": final_content}
                 return
 
@@ -392,6 +512,9 @@ class ModelCallMixin:
 
             round_error_count = 0
             for tc in round_tool_calls:
+                self._journal_append("tool_call", {
+                    "tool_call_id": tc.id, "name": tc.name, "arguments": tc.arguments,
+                })
                 yield {"type": "tool_call_start", "name": tc.name, "arguments": tc.arguments}
                 tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
                 is_error = '"error"' in tool_output
@@ -416,6 +539,20 @@ class ModelCallMixin:
                     name=tc.name,
                     tool_call_id=tc.id,
                 ))
+                self._journal_append("tool_result", {
+                    "tool_call_id": tc.id,
+                    "output_preview": preview,
+                    "is_error": is_error,
+                })
+
+            # R5 阶段1: 工具轮执行完 → 保存 checkpoint（stream 路径此前 0 调用）
+            # 崩溃/kill 后 resume_interrupted 可从此处恢复，最多丢一轮
+            self._save_checkpoint(
+                messages, round_idx, prompt, used_tools, total_input, total_output,
+            )
+            self._journal_append("checkpoint", {
+                "round_idx": round_idx, "messages_count": len(messages),
+            })
 
             if round_error_count == len(round_tool_calls) and round_error_count > 0:
                 consecutive_failures += 1

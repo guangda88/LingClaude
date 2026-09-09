@@ -1,0 +1,6 @@
+#!/bin/bash
+# 沙箱 /dev/null 受限环境的 pytest 包装器（宿主侧 bwrap 真修复前使用）
+# 用法: scripts/pytest-sandbox [pytest 参数...]
+HERE="$(cd "$(dirname "$0")" && pwd)"
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m pytest -p devnull_fallback_plugin "$@"

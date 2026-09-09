@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from lingclaude.core.config import lingclaudeConfig
-from lingclaude.core.permissions import PermissionContext
+from lingclaude.core.permissions import PermissionContext, PermissionStore
 from lingclaude.engine.bash import BashExecutor
 from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 from lingclaude.engine.file_ops import FileOps
@@ -742,13 +742,43 @@ class CodingRuntime(
             # 显式放行 (always_allow) 优先于 deny 翻转（业务约定）。
             effective_deny = self.permissions.deny_names | store.context.deny_names
             allowed = store.explicitly_allowed(tool_name)
+            blocked = False
+            rule_id = "no_match"
             if tool_name.lower() in effective_deny and not allowed:
-                return True
-            if active_mode == "auto":
-                return False
-            if active_mode == "strict" and tool_name not in READ_ONLY_TOOLS:
-                return not allowed
-            return False
+                blocked = True
+                rule_id = "config.deny_tools.exact" if tool_name.lower() in self.permissions.deny_names else "session.deny_tools.exact"
+            elif active_mode == "auto":
+                blocked = False
+            elif active_mode == "strict" and tool_name not in READ_ONLY_TOOLS:
+                blocked = not allowed
+                if blocked:
+                    rule_id = "strict_mode.non_readonly"
+            # R2：把 denial 喂给 DataFlywheel（不造新文件），让"同类 denial"
+            # 统计可查（SYSTEMS_THEORY §一.4 摩擦台账 + R1 熔断前置）。
+            # 5b：按 rule_id 喂 _ToolLoopDetector 熔断（执行层硬规则,非推理层）。
+            if blocked and hasattr(self, "_session_runtime"):
+                try:
+                    self._session_runtime.log_denial(
+                        denial_kind=rule_id,
+                        command_prefix=str(tool_name),
+                        reason=(
+                            f"mode={active_mode}; "
+                            f"in_deny={tool_name.lower() in effective_deny}; "
+                            f"explicitly_allowed={allowed}"
+                        ),
+                    )
+                    if hasattr(self, "_loop_detector"):
+                        # 5b：单次触发不烧轮次,与"denial key 2 次→暂停+升级用户"对齐
+                        verdict = self._loop_detector.observe_denial(rule_id, tool_name, threshold=2)
+                        if verdict == "denial_abort":
+                            from lingclaude.core.types import Result as _R
+                            self._loop_detector._denial_abort_log = (
+                                f"denial_abort: rule_id={rule_id} tool={tool_name} "
+                                f"consecutive={self._loop_detector._denial_streak.get(rule_id, 0)}"
+                            )
+                except Exception:  # noqa: BLE001 — 飞轮/熔断写入失败不阻塞拦截语义
+                    pass
+            return blocked
 
         return self.tool_pipeline.execute(
             name,

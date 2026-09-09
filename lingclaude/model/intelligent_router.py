@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -184,7 +185,7 @@ class IntelligentRouter:
             return RoutingStats()
 
     def _save_stats(self) -> None:
-        """保存统计"""
+        """保存统计（写入失败时降级为警告，统计为非关键数据不应阻断路由）"""
         data = {
             "total_routed": self._stats.total_routed,
             "glm_4_7_count": self._stats.glm_4_7_count,
@@ -194,7 +195,10 @@ class IntelligentRouter:
             "medium_count": self._stats.medium_count,
             "complex_count": self._stats.complex_count,
         }
-        self.stats_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            self.stats_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError as exc:
+            logging.getLogger(__name__).warning("路由统计写入失败(忽略): %s -> %s", self.stats_path, exc)
 
     def _evaluate_complexity(self, query: str, context: dict[str, Any] | None = None) -> TaskComplexity:
         """评估任务复杂度

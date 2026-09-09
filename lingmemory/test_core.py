@@ -92,17 +92,19 @@ class TestTransition:
     def test_task_lifecycle(self, lm):
         rid = lm.create(type="task", data={"goal": "test"}, created_by="test")
 
-        assert lm.transition(rid, "start", actor="test") == "active"
-        assert lm.transition(rid, "complete", actor="test") == "done"
+        assert lm.transition(rid, "assign", actor="test") == "assigned"
+        assert lm.transition(rid, "start", actor="test") == "in_progress"
+        assert lm.transition(rid, "submit", actor="test") == "review"
+        assert lm.transition(rid, "approve", actor="test") == "done"
         assert lm.transition(rid, "archive", actor="test") == "archived"
 
     def test_illegal_transition_rejected(self, lm):
         rid = lm.create(type="task", data={"goal": "test"}, created_by="test")
-        # created -> done is illegal (must go through active)
+        # created -> done is illegal (must go through assigned/in_progress/review)
         with pytest.raises(ValueError, match="illegal transition"):
-            lm.transition(rid, "complete")
+            lm.transition(rid, "archive")
 
-    def test_session_pause_resume(self, lm):
+    def test_session_interrupt_recover(self, lm):
         task_id = lm.create(type="task", data={"goal": "test"}, created_by="test")
         sid = lm.create(
             type="session",
@@ -111,10 +113,10 @@ class TestTransition:
             created_by="lingclaude",
         )
         lm.transition(sid, "activate", actor="lingclaude")
-        lm.transition(sid, "sleep", actor="daemon")
-        assert lm.get(sid)["state"] == "sleeping"
-        lm.transition(sid, "wake", actor="daemon")
-        assert lm.get(sid)["state"] == "active"
+        lm.transition(sid, "interrupt", actor="daemon")
+        assert lm.get(sid)["state"] == "interrupted"
+        lm.transition(sid, "recover", actor="daemon")
+        assert lm.get(sid)["state"] == "resumed"
 
     def test_wildcard_transition(self, lm):
         """session 的 end 是通配符转换（任何状态→ended）"""
@@ -126,14 +128,15 @@ class TestTransition:
             created_by="test",
         )
         lm.transition(sid, "activate")
-        # end should work from active
-        assert lm.transition(sid, "end") == "ended"
+        # end should work from in_progress
+        assert lm.transition(sid, "end") == "completed"
 
-    def test_split_event(self, lm):
-        """拆分：旧task进入split状态，event.data记录子task"""
+    def test_cancel_event(self, lm):
+        """取消：任意状态 --cancel--> archived，event.data记录原因与子task"""
         old_id = lm.create(
             type="task", data={"goal": "大任务"}, created_by="test"
         )
+        lm.transition(old_id, "assign")
         lm.transition(old_id, "start")
 
         child1 = lm.create(type="task", data={"goal": "子任务1"}, parent_id=old_id, created_by="test")
@@ -141,15 +144,15 @@ class TestTransition:
 
         lm.transition(
             old_id,
-            "split",
+            "cancel",
             actor="test",
             data={"reason": "token_overflow", "child_ids": [child1, child2]},
         )
-        assert lm.get(old_id)["state"] == "split"
+        assert lm.get(old_id)["state"] == "archived"
 
         events = lm.get_events(old_id)
-        split_event = [e for e in events if e["event_type"] == "split"][0]
-        assert split_event["data"]["child_ids"] == [child1, child2]
+        cancel_event = [e for e in events if e["event_type"] == "cancel"][0]
+        assert cancel_event["data"]["child_ids"] == [child1, child2]
 
     def test_handoff_event(self, lm):
         """移交：session换owner"""
@@ -193,10 +196,11 @@ class TestQuery:
 
     def test_query_by_state(self, lm):
         rid = lm.create(type="task", data={"goal": "t1"}, created_by="test")
+        lm.transition(rid, "assign")
         lm.transition(rid, "start")
 
         created_tasks = lm.query(type="task", state="created")
-        active_tasks = lm.query(type="task", state="active")
+        active_tasks = lm.query(type="task", state="in_progress")
         assert len(created_tasks["items"]) == 0
         assert len(active_tasks["items"]) == 1
 
@@ -230,38 +234,41 @@ class TestEvents:
 
     def test_event_chain(self, lm):
         rid = lm.create(type="task", data={"goal": "test"}, created_by="test")
+        lm.transition(rid, "assign")
         lm.transition(rid, "start")
-        lm.transition(rid, "complete")
+        lm.transition(rid, "submit")
+        lm.transition(rid, "approve")
         lm.transition(rid, "archive")
 
         events = lm.get_events(rid)
-        assert len(events) == 4  # create + start + complete + archive
+        assert len(events) == 6  # create + assign + start + submit + approve + archive
 
         assert events[0]["event_type"] == "create"
         assert events[0]["from_state"] is None
         assert events[0]["to_state"] == "created"
 
-        assert events[1]["event_type"] == "start"
-        assert events[1]["from_state"] == "created"
-        assert events[1]["to_state"] == "active"
+        assert events[2]["event_type"] == "start"
+        assert events[2]["from_state"] == "assigned"
+        assert events[2]["to_state"] == "in_progress"
 
-        assert events[3]["event_type"] == "archive"
-        assert events[3]["from_state"] == "done"
-        assert events[3]["to_state"] == "archived"
+        assert events[5]["event_type"] == "archive"
+        assert events[5]["from_state"] == "done"
+        assert events[5]["to_state"] == "archived"
 
     def test_event_data_preserved(self, lm):
         rid = lm.create(type="task", data={"goal": "test"}, created_by="test")
+        lm.transition(rid, "assign")
         lm.transition(rid, "start")
         lm.transition(
             rid,
-            "complete",
+            "submit",
             actor="test",
             data={"conclusion": "审计完成，无Critical"},
         )
 
         events = lm.get_events(rid)
-        complete_event = [e for e in events if e["event_type"] == "complete"][0]
-        assert complete_event["data"]["conclusion"] == "审计完成，无Critical"
+        submit_event = [e for e in events if e["event_type"] == "submit"][0]
+        assert submit_event["data"]["conclusion"] == "审计完成，无Critical"
 
 
 class TestGapScenarios:
@@ -323,21 +330,19 @@ class TestGapScenarios:
         """缺口15：会话生命周期 → session状态机已覆盖"""
         task_id = lm.create(type="task", data={"goal": "test"}, created_by="test")
         sid = lm.create(type="session", data={"owner": "t"}, parent_id=task_id, created_by="t")
-        # 完整生命周期：created→active→sleeping→active→interrupted→active→ended
+        # 完整生命周期：created→in_progress→interrupted→resumed→in_progress→completed
         lm.transition(sid, "activate")
-        lm.transition(sid, "sleep")
-        lm.transition(sid, "wake")
         lm.transition(sid, "interrupt")
         lm.transition(sid, "recover")
         lm.transition(sid, "end")
-        assert lm.get(sid)["state"] == "ended"
+        assert lm.get(sid)["state"] == "completed"
 
     def test_gap17_on_demand_lifecycle(self, lm):
         """缺口17：on-demand简化生命周期"""
         # Type Registry 的 states_on_demand 变体
         on_demand_states = lm.registry.get_states("session", variant="on_demand")
-        assert on_demand_states == ["created", "active", "ended"]
-        assert "sleeping" not in on_demand_states
+        assert on_demand_states == ["created", "in_progress", "completed"]
+        assert "interrupted" not in on_demand_states
 
     def test_gap20_security_compliance(self, lm):
         """缺口20：安全合规 → info.retain + visibility + written_by"""
@@ -433,6 +438,6 @@ class TestRegistry:
         reg = TypeRegistry()
         full = reg.get_states("session")
         on_demand = reg.get_states("session", variant="on_demand")
-        assert "sleeping" in full
-        assert "sleeping" not in on_demand
+        assert "interrupted" in full
+        assert "interrupted" not in on_demand
         assert len(on_demand) < len(full)

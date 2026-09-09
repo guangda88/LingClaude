@@ -117,17 +117,17 @@ class ScheduleManager:
         return task_id
 
     def _compute_next_run(self, cron: str) -> str:
-        """计算下次运行时间"""
+        """计算下次运行时间（预定义类型以 ScheduleType 为单一事实来源）"""
         now = datetime.now()
         
-        if cron == "@daily":
+        if cron == ScheduleType.DAILY.value:
             next_run = now.replace(hour=0, minute=0, second=0) + timedelta(days=1)
-        elif cron == "@hourly":
+        elif cron == ScheduleType.HOURLY.value:
             next_run = now.replace(minute=0, second=0) + timedelta(hours=1)
-        elif cron == "@weekly":
+        elif cron == ScheduleType.WEEKLY.value:
             days_ahead = 7 - now.weekday()  # 下周一
             next_run = now.replace(hour=0, minute=0, second=0) + timedelta(days=days_ahead)
-        elif cron.startswith("interval:"):
+        elif cron.startswith(ScheduleType.INTERVAL.value + ":"):
             minutes = int(cron.split(":")[1])
             next_run = now + timedelta(minutes=minutes)
         elif cron.startswith("after:"):
