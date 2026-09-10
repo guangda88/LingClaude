@@ -71,4 +71,3 @@ verification:
   syntax_check: true
   test_command: python3 -m pytest {test_path} -x -q --tb=short
   test_run: false
-
