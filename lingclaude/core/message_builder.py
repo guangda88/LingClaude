@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
+from lingclaude.core.system_prompt_builder import _BASE_PROMPT as _SYSTEM_BASE_PROMPT
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,17 +48,8 @@ class MessageBuilder:
     输出完整 system prompt string。
     """
 
-    BASE_PROMPT = (
-        "你是灵克，一个会自我进化的开源 AI 编程助手。\n"
-        "\n"
-        "核心规则:\n"
-        "1. 先判断用户意图：只有涉及具体代码、文件、项目结构的问题才需要调用工具。\n"
-        "2. 一般性对话、观点讨论、概念解释等非代码问题，直接回答，不要调用工具。\n"
-        "3. 回答代码相关问题时，必须先用工具（read/grep/glob）读取源码，不要猜测。\n"
-        "4. 如果用户指出你胡说或没读代码，立即使用工具重新阅读相关文件。\n"
-        "5. 你擅长代码理解、编辑、终端操作，并通过自优化持续提升能力。\n"
-        "6. 用中文回答，代码保持原样。"
-    )
+    # 单一文本源: 与 system_prompt_builder._BASE_PROMPT 双拷贝收敛为别名
+    BASE_PROMPT = _SYSTEM_BASE_PROMPT
 
     def __init__(
         self,

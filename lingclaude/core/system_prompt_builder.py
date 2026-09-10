@@ -9,7 +9,10 @@ memory injection, flywheel stats) are swallowed and logged as warnings.
 
 from __future__ import annotations
 
+import datetime
 import logging
+import os
+import subprocess
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -23,8 +26,60 @@ _BASE_PROMPT = (
     "3. 回答代码相关问题时，必须先用工具（read/grep/glob）读取源码，不要猜测。\n"
     "4. 如果用户指出你胡说或没读代码，立即使用工具重新阅读相关文件。\n"
     "5. 你擅长代码理解、编辑、终端操作，并通过自优化持续提升能力。\n"
-    "6. 用中文回答，代码保持原样。"
+    "6. 用中文回答，代码保持原样。\n"
+    "\n"
+    "工作纪律:\n"
+    "7. 会话环境见下方 SESSION_CONTEXT（目录/日期/git 摘要），路径类回答以其为准。\n"
+    "8. 只读操作（read/grep/glob 等）可并行调用；写操作与有副作用的命令先确认影响面再执行。\n"
+    "9. 多步任务先列简要计划再动手；计划或结果变化时向用户说明。\n"
+    "10. 回答先给结论再按需展开；文件引用使用 路径:行号 格式。\n"
+    "11. 引用文件路径前必须实测存在，禁止凭记忆或他人汇报转述。"
 )
+
+
+def _build_session_context() -> str:
+    """构建 SESSION_CONTEXT 块（对标生产级 agent 提示词的 Session context）。
+
+    三要素: 当前目录 / 当前日期 / git 摘要（分支+脏文件+最近提交）。
+    任何要素失败都跳过、任何异常都吞掉——可观测/注入组件不得破坏主 prompt。
+    """
+    parts: list[str] = []
+    try:
+        parts.append(f"当前目录: {os.getcwd()}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        parts.append(f"当前日期: {datetime.date.today().isoformat()}")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        r = subprocess.run(
+            ["git", "status", "--porcelain", "-b"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if r.returncode == 0:
+            lines = r.stdout.strip().splitlines()
+            branch = lines[0].replace("## ", "") if lines else "unknown"
+            dirty = [ln for ln in lines[1:] if ln.strip()][:10]
+            block = f"git 分支: {branch}"
+            if dirty:
+                block += "\n未提交改动 (前10):\n" + "\n".join(f"  {ln}" for ln in dirty)
+            parts.append(block)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        r = subprocess.run(
+            ["git", "show", "-s", "--format=%h %s (%ci)", "-5"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            lines = "\n".join(f"  {ln}" for ln in r.stdout.strip().splitlines()[:5])
+            parts.append(f"最近提交:\n{lines}")
+    except Exception:  # noqa: BLE001
+        pass
+    if not parts:
+        return ""
+    return "\n\n# SESSION_CONTEXT\n" + "\n".join(parts)
 
 
 def build_adaptive_system_prompt(
@@ -188,4 +243,4 @@ def build_adaptive_system_prompt(
                 "\n📁 当前项目结构:\n" + pkg_summary
             )
 
-    return _BASE_PROMPT + "".join(extras)
+    return _BASE_PROMPT + _build_session_context() + "".join(extras)
