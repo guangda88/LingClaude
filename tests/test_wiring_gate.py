@@ -193,6 +193,8 @@ class TestNoDeadModules:
         "ModelProviderConfig", "SessionConfig", "EngineConfig",
         "FLYWHEEL_DB_NAME", "HookCallback", "HookEntry",
         "AggregationStats", "TaskGroup", "comfort_check_hook",
+        # P2.a: WiringSpec 是 wiring.py 内部声明面（同模块内 55 次构造调用），不要求跨模块 import
+        "WiringSpec",
         # T0 行为校验内部常量
         "READONLY_COMMANDS", "EDIT_TOOLS", "TOOL_REPEAT_LIMIT",
         "INCOMPLETE_SIGNALS", "CONSECUTIVE_FAIL_LIMIT",

@@ -53,7 +53,16 @@ class TestConfigEdgeCases:
         assert cfg.model.provider == "anthropic"
         assert cfg.model.model == "claude-sonnet-4-20250514"
 
-    def test_from_dict_with_empty_model(self) -> None:
+    def test_from_dict_with_empty_model(
+        self, tmp_path: object, monkeypatch: object
+    ) -> None:
+        # 环境隔离 (2026-09-10): _resolve_api_key 对空 key 有 env → 项目 .env 回退链，
+        # 机器真实凭据会渗入默认值。隔离两条注入路径，守住「无配置=空 key」语义。
+        import lingclaude.core.config as _cfg
+        monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
+        monkeypatch.delenv("GLM_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setattr(_cfg, "_ENV_FILE", pathlib.Path(str(tmp_path)) / "no-such.env")
         cfg = lingclaudeConfig.from_dict({})
         assert cfg.model.provider == "openai"
         assert cfg.model.api_key == ""
