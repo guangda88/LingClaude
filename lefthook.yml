@@ -19,3 +19,8 @@ pre-push:
     pre-push-security:
       run: bash .git/hooks/pre-push-security
       priority: 10
+    # 2026-09-10 测试分层（第3步）: 全量 pytest 移到 pre-push 门禁（无 exclude）。
+    # pre-commit 只跑快子集（.audit/exclude_tests.txt 排除慢测试），全量兜底在此。
+    full-pytest:
+      run: python3 -m pytest tests/ --tb=line -q -n $(nproc)
+      priority: 20
