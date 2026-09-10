@@ -40,6 +40,7 @@ from lingclaude.cli.interface import (
     PromptToolkitSession,
 )
 from lingclaude.cli.long_task_metrics import append_long_task_metrics
+from lingclaude.cli.n5_token_guard import check_token_exhaustion, resolve_max_tokens
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
@@ -255,6 +256,7 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         observed_tool_errors = 0
         observed_text_deltas = 0
         observed_stream_error = False
+        turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
         for event in engine.stream_call_model(prompt):
             if not got_first_token and event.get("type") in ("text_delta", "error"):
                 got_first_token = True
@@ -270,6 +272,9 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
                 response_content += event.get("text", "")
             elif event.get("type") == "done":
                 response_content = event.get("content", response_content)
+                turn_output_tokens = int(
+                    (event.get("usage") or {}).get("output_tokens", 0) or 0
+                )
             if event.get("type") == "error":
                 observed_stream_error = True
         _flush_stream_line()  # P0:打断/异常退出时补冲残行,防污染下一轮
@@ -286,6 +291,7 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
             tool_calls=observed_tool_calls,
             tool_errors=observed_tool_errors,
             text_deltas=observed_text_deltas,
+            turn_output_tokens=turn_output_tokens,
         )
     else:
         result = engine.submit(prompt)
@@ -311,16 +317,22 @@ def _record_long_task_metrics(
     tool_calls: int = 0,
     tool_errors: int = 0,
     text_deltas: int = 0,
+    turn_output_tokens: int | None = None,
     error: str | None = None,
 ) -> bool:
-    """Append best-effort long-task observability to project-local JSONL."""
+    """Append best-effort long-task observability to project-local JSONL.
+
+    N5 守卫挂点: turn_output_tokens 传入**本轮**(非累计) output token 数时,
+    在收尾点执行空响应 token 耗尽检测(0 text_delta + ≥0.95*max_tokens →
+    WARNING, 连续 2 次升 ERROR + LingBus 告警)。守卫失败不影响指标写入。
+    """
     checkpoint_dir = Path(
         getattr(engine.session_store, "_checkpoint_dir", Path(".lingclaude/checkpoints"))
     )
     checkpoint_path = checkpoint_dir / f"{engine.session_id}.json"
     journal_path = Path(".lingclaude/journals") / f"{engine.session_id}.jsonl"
     stats = engine.get_stats()
-    return append_long_task_metrics({
+    ok = append_long_task_metrics({
         "event": event,
         "outcome": outcome,
         "session_id": stats["session_id"],
@@ -334,6 +346,19 @@ def _record_long_task_metrics(
         "usage": stats.get("usage", {}),
         "error": error,
     })
+    # N5 守卫: 指标已落盘, 检测失败也只吞掉（可观测性永不破坏主流程）
+    if turn_output_tokens is not None:
+        try:
+            check_token_exhaustion(
+                session_id=str(stats["session_id"]),
+                text_deltas=text_deltas,
+                turn_output_tokens=turn_output_tokens,
+                max_tokens=resolve_max_tokens(engine),
+                event=event,
+            )
+        except Exception:  # noqa: BLE001
+            _logger.debug("N5 guard failed", exc_info=True)
+    return ok
 
 
 def _maybe_recover_on_startup(engine: QueryEngine, args: argparse.Namespace) -> None:
@@ -1090,6 +1115,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             observed_tool_errors = 0
             observed_text_deltas = 0
             observed_stream_error = False
+            turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
             status.set_task("生成中")
             # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成；
             # 仅 TTY 启动，且用 _esc_stop 保证回合结束线程必退（审计#6）
@@ -1126,6 +1152,9 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                         observed_stream_error = True
                     elif event.get("type") == "done":
                         response_content = event.get("content", response_content)
+                        turn_output_tokens = int(
+                            (event.get("usage") or {}).get("output_tokens", 0) or 0
+                        )
             except KeyboardInterrupt:
                 # pump 模式下 Ctrl+C 承担中断语义（Esc 让位给输入框）
                 interrupted = True
@@ -1163,6 +1192,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 tool_calls=observed_tool_calls,
                 tool_errors=observed_tool_errors,
                 text_deltas=observed_text_deltas,
+                turn_output_tokens=turn_output_tokens,
             )
         else:
             result = engine.submit(prompt)
