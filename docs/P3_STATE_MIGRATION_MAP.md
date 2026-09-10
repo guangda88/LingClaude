@@ -18,6 +18,17 @@
 > 架构层归属落 data.layer_of_origin；L0/L1 不入灵忆（无持久态）。
 > 已知限制：recall/deny 权重漂移不回写镜像（registry 无更新事件，承 P3.2 同款）；
 > L3(meta)/L4(shared) JSON 写点留待 memory_engine/l7_cognitive 归并件处理。
+>
+> **P3.3 第二件（2026-09-11）**：#12 memory_engine 五类写点双写已完成——
+> `lingclaude/core/lingmemory_memstore_bridge.py`（type=memory_store_entry，
+> registry 预扩 type）+ `MemoryStore(legacy_sink=...)`（__init__ 挂缝 +
+> `_emit` 照抄第一件自指卫兵，put_episode/facet/facet_point/entity/edge 五写点镜像）。
+> 镜像语义：default_state=live，终态 merged_away（event=merge，留史不物理删）；
+> 首写为准；edge 复合键 src->tgt:type（主路 f-string × bridge.edge_key 双锚防漂移）。
+> 已知限制：record_recall 漂移不回写镜像（registry 无 recall 事件，承 P3.2 同款）；
+> 主路当前无删除 API，on_forget 供未来删除路径使用；
+> **无装配点**：wiring.py:_memory_engine 为死槽位（T0-4 移除接线，槽位保留），
+> 本件属 schema-first 迁移——先铺镜像通路，待 memory_engine 上岗时零改动可用。
 
 ## 一、盘点方法
 

@@ -173,14 +173,32 @@ CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 
 
 class MemoryStore:
-    def __init__(self, db_path: str | Path | None = None) -> None:
+    def __init__(self, db_path: str | Path | None = None,
+                 legacy_sink: object | None = None) -> None:
         if db_path is None:
             root = Path(__file__).parent.parent.parent / ".lingclaude"
             root.mkdir(parents=True, exist_ok=True)
             db_path = str(root / "memory.db")
         self._db_path = str(db_path)
         self._conn: sqlite3.Connection | None = None
+        # P3.3 双写：可选旁观者（如 LingMemoryStoreSink），主路零依赖。
+        # self._emit 自指卫兵：无 sink 或在 sink 内部再触发 put 时跳过。
+        self._legacy_sink = legacy_sink
+        self._in_sink_emit = False
         self._init_db()
+
+    def _emit(self, method: str, *args: object) -> None:
+        """旁路事件派发：永不抛异常，永不递归（P3.3 第一件同款纪律）"""
+        sink = getattr(self, "_legacy_sink", None)
+        if sink is None or self._in_sink_emit:
+            return
+        self._in_sink_emit = True
+        try:
+            getattr(sink, method)(*args)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("legacy_sink.%s 失败（已忽略）: %s", method, e)
+        finally:
+            self._in_sink_emit = False
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -211,6 +229,15 @@ class MemoryStore:
              ep.created_at, ep.weight, ep.recall_count),
         )
         conn.commit()
+        # P3.3 双写：episode → 灵忆镜像（旁路，永不抛异常）
+        self._emit(
+            "on_put", "episodes", ep.id,
+            {"title": ep.title, "body": ep.body,
+             "episode_type": ep.episode_type.value,
+             "tags": list(ep.tags), "source": ep.source,
+             "created_at": ep.created_at,
+             "weight": float(ep.weight), "recall_count": int(ep.recall_count)},
+        )
         return ep.id
 
     def get_episode(self, ep_id: str) -> Episode | None:
@@ -236,6 +263,11 @@ class MemoryStore:
             (facet.id, facet.episode_id, facet.name, facet.body),
         )
         conn.commit()
+        self._emit(
+            "on_put", "facets", facet.id,
+            {"episode_id": facet.episode_id,
+             "name": facet.name, "body": facet.body},
+        )
         return facet.id
 
     def get_facets(self, episode_id: str) -> list[Facet]:
@@ -255,6 +287,11 @@ class MemoryStore:
             (fp.id, fp.facet_id, fp.claim, json.dumps(fp.tags, ensure_ascii=False)),
         )
         conn.commit()
+        self._emit(
+            "on_put", "facet_points", fp.id,
+            {"facet_id": fp.facet_id, "claim": fp.claim,
+             "tags": list(fp.tags)},
+        )
         return fp.id
 
     def get_facet_points(self, facet_id: str) -> list[FacetPoint]:
@@ -276,6 +313,12 @@ class MemoryStore:
              entity.entity_type.value, entity.description),
         )
         conn.commit()
+        self._emit(
+            "on_put", "entities", entity.id,
+            {"name": entity.name, "aliases": list(entity.aliases),
+             "entity_type": entity.entity_type.value,
+             "description": entity.description},
+        )
         return entity.id
 
     def find_entity(self, name: str) -> Entity | None:
@@ -319,6 +362,12 @@ class MemoryStore:
             (edge.source_id, edge.target_id, edge.edge_type.value, edge.context),
         )
         conn.commit()
+        self._emit(
+            "on_put", "edges",
+            f"{edge.source_id}->{edge.target_id}:{edge.edge_type.value}",
+            {"source_id": edge.source_id, "target_id": edge.target_id,
+             "edge_type": edge.edge_type.value, "context": edge.context},
+        )
 
     def get_neighbors(self, node_id: str) -> list[tuple[str, EdgeType, str]]:
         conn = self._get_conn()
