@@ -1,6 +1,6 @@
 """P2.a wiring manifest 契约测试 — 灵元 1.0 地基验收。
 
-冻结当前 QueryEngine.__init__ 的 55 项装配面：
+冻结当前 QueryEngine.__init__ 的 56 项装配面（P3 新增 state_store）：
 - manifest 与真实 __init__ 完全一致（P2.b 替换装配段时的回归网）
 - assemble() 装配裸引擎（__new__ 绕过 __init__）结果与真实引擎逐属性对齐
 - 顺序无关 + 无重复条目 + phase 分类守恒
@@ -29,14 +29,14 @@ EXPECTED_ATTRS = {
     "_degradation_alerts", "_memory_engine", "_l5_orchestrator",
     "_pinned_model_config", "_pinned_model_expires", "_mv1_violations",
     "_usage", "_write_lock",
-    # collaborator (28)
+    # collaborator (29)  ← P3 新增 state_store
     "_behavior", "_intel_collector", "_session_persister", "_session_runtime",
     "_router", "_task_router", "_tool_router", "_cache", "_aggregator",
     "_monitor", "_prior_verifier", "_meta_cognition", "_layered_memory",
     "_dementia_detector", "_cognitive_rhythm", "_hooks",
     "_degradation_detector", "_task_manager", "_skill_index", "_role_checker",
     "_l5_loop", "_notifier",
-    "session_store", "model_adapter", "audit_collector", "model_request_log",
+    "session_store", "state_store", "model_adapter", "audit_collector", "model_request_log",
     "_tool_executor", "_tool_call_executor",
     # parameterized (2)
     "_provider", "_runtime",
@@ -65,7 +65,7 @@ def _make_ctx(engine):
 
 class TestManifestIntegrity:
     def test_manifest_covers_exactly_55(self):
-        assert len(WIRING_MANIFEST) == 55
+        assert len(WIRING_MANIFEST) == 56
 
     def test_manifest_attrs_match_frozen_set(self):
         attrs = {spec.attr for spec in WIRING_MANIFEST}
@@ -76,7 +76,7 @@ class TestManifestIntegrity:
         assert len(attrs) == len(set(attrs)), "manifest 存在重复条目"
 
     def test_phase_vocabulary_conserved(self):
-        counts = {"state": 25, "collaborator": 28, "parameterized": 2}
+        counts = {"state": 25, "collaborator": 29, "parameterized": 2}
         actual: dict[str, int] = {}
         for spec in WIRING_MANIFEST:
             assert spec.phase in counts, f"未知 phase: {spec.phase}"
@@ -92,7 +92,7 @@ class TestAssembleSemantics:
     def test_assemble_bare_engine_all_attrs_present(self):
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
-        assert len(wired) == 55
+        assert len(wired) == 56
         for attr in EXPECTED_ATTRS:
             assert hasattr(engine, attr), f"装配后缺 {attr}"
 
@@ -142,7 +142,7 @@ class TestAssembleSemantics:
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
         assert engine.audit_collector is not None
-        assert len(wired) == 55
+        assert len(wired) == 56
 
     def test_overrides_state_phase_also_injectable(self):
         """P2.d: overrides 对 state 条目同样生效。

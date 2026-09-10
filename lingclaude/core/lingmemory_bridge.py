@@ -21,9 +21,25 @@ import os
 import threading
 from typing import Any, Protocol
 
-from lingmemory import LingMemory
-
 logger = logging.getLogger(__name__)
+
+# 懒加载 lingmemory（可能不存在/未安装）
+_LingMemory = None
+_LingMemory_ImportError = None
+
+
+def _get_lingmemory():
+    """懒加载 lingmemory.LingMemory，失败返回 None。"""
+    global _LingMemory, _LingMemory_ImportError
+    if _LingMemory is not None or _LingMemory_ImportError is not None:
+        return _LingMemory
+    try:
+        from lingmemory import LingMemory as _LM
+        _LingMemory = _LM
+    except ImportError as e:
+        _LingMemory_ImportError = e
+        logger.warning("lingmemory 模块不可用，双写桥接器将静默失效: %s", e)
+    return _LingMemory
 
 _DUALWRITE_ENV = "LINGCLAUDE_MEMORY_DUALWRITE"
 
@@ -110,6 +126,9 @@ class LingMemoryCacheBridge:
     def _lm_create(self, file_path: str, file_hash: str, content: str,
                    read_count: int, first_read_at: str, last_read_at: str) -> str:
         if self._lm is None:
+            LingMemory = _get_lingmemory()
+            if LingMemory is None:
+                raise RuntimeError("lingmemory 模块不可用")
             # 模块级 import 已就绪；此处仅实例化（连库），保持懒初始化语义
             kwargs = {"db_path": self._db_path} if self._db_path else {}
             self._lm = LingMemory(**kwargs)

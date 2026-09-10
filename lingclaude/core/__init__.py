@@ -79,6 +79,10 @@ from lingclaude.coordination import (
     create_responder,
 )
 
+from lingclaude.core.state_store import (
+    StateStore, StateBackend, JsonFileBackend, LingYiBackend,
+)
+
 from lingclaude.core.session_projection import (
     TokenProjection,
     ToolStat,
@@ -184,6 +188,10 @@ __all__ = [
     "ContextCache",
     "TokenMonitor",
     "DataFlywheel",
+    "StateStore",
+    "StateBackend",
+    "JsonFileBackend",
+    "LingYiBackend",
     "BusResponder",
     "ResponseStats",
     "create_responder",

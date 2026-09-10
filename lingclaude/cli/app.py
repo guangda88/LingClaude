@@ -42,6 +42,7 @@ from lingclaude.cli.interface import (
 from lingclaude.cli.long_task_metrics import append_long_task_metrics
 from lingclaude.cli.n5_token_guard import check_token_exhaustion, resolve_max_tokens
 from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
+from lingclaude.ops.rss_watchdog import check_rss_watchdog
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
@@ -366,6 +367,12 @@ def _record_long_task_metrics(
             )
         except Exception:  # noqa: BLE001
             _logger.debug("N5 guard failed", exc_info=True)
+    # N6 守卫: RSS 增长/硬限检测（同收尾点每轮采样, 基线语义见模块 docstring）
+    try:
+        for f_line in check_rss_watchdog(str(stats["session_id"]), event=event):
+            _logger.warning("[N6] %s", f_line)
+    except Exception:  # noqa: BLE001
+        _logger.debug("N6 guard failed", exc_info=True)
     return ok
 
 

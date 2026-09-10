@@ -21,14 +21,17 @@ CORE_ENGINE_WHITELIST = [
     "core/mcp_tools.py:12",
     "core/mcp_tools.py:64",
     "core/mcp_tools.py:122",
-    "core/wiring.py:145",
+    "core/wiring.py:146",
     "core/tool_call_executor.py:77",
     "core/tool_executor.py:13",
 ]
 BASELINE_SYS_PATH = 14
 # 340 (2026-09-10): P2.a wiring.py 新增 22 个工厂函数内 import —— WIRING_MANIFEST
 # 工厂闭包自带依赖，按需 import 规避 core 内模块级循环；替换的是原 __init__ 内联装配。
-BASELINE_LAZY = 340
+# 344 (2026-09-10): P3 state_store.py 新增 4 个工厂函数内 import（StateBackend 协议 + 两后端 + StateStore）
+# 350 (2026-09-10): P3 lingmemory_bridge.py 懒加载 _get_lingmemory + wiring.py 微调
+# 351 (2026-09-10): P3 wiring.py 新增 _make_state_store 工厂函数
+BASELINE_LAZY = 351
 BASELINE_DICT_ERR = 52
 
 

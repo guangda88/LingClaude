@@ -745,6 +745,7 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         context: str = "",
     ) -> None:
         from lingclaude.core.data_flywheel import DataFlywheel  # noqa: F401 — 接线验证
+        from lingclaude.core.state_store import StateStore  # noqa: F401 — 接线验证
         self._session_runtime.log_to_flywheel(pattern_type, error_message, tool_name, file_path, context)
 
     def _session_state_path(self) -> Path:

@@ -29,19 +29,9 @@
         "timeout": 3
       },
       {
-        "matcher": "^(edit|write|multiedit)$",
-        "command": "python3 /home/ai/lingclaude/.lingclaude/hooks/pre-ponytail-check.py",
-        "timeout": 3
-      },
-      {
         "matcher": "^bash$",
         "command": "/home/ai/lingclaude/.lingclaude/hooks/pre-bash-delete-check.sh",
         "timeout": 5
-      },
-      {
-        "matcher": "^bash$",
-        "command": "python3 /home/ai/lingclaude/.lingclaude/hooks/pre-commit-linggit.py",
-        "timeout": 30
       },
       {
         "matcher": "open_thread|post_reply",

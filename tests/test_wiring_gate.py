@@ -85,6 +85,7 @@ class TestExportCompleteness:
         "fact_checker": {"ClaimExtractor", "KGFactChecker", "FactCheckResult", "audit_response"},
         "hooks": {"HookManager", "HookType", "HookContext"},
         "query_engine": {"QueryEngine"},
+        "state_store": {"StateStore", "StateBackend", "JsonFileBackend", "LingYiBackend"},
     }
 
     def test_all_required_names_exported(self) -> None:
@@ -114,6 +115,7 @@ class TestWiringGate:
         "context_compression": ("tool_executor.py", {"compress_messages", "CompressionConfig"}),
         "behavior": ("query_engine.py", {"BehaviorMetrics"}),
         "intel": ("query_engine.py", {"IntelCollector"}),
+        "state_store": ("query_engine.py", {"StateStore"}),
     }
 
     def test_required_modules_wired_in_query_engine(self) -> None:
@@ -151,6 +153,7 @@ class TestTestCoverage:
         "hooks": "test_hooks",
         "query_engine": "test_agent_loop",
         "skill_parser": "test_skill_parser",
+        "state_store": "test_state_store",
     }
 
     def test_each_module_has_test_file(self) -> None:
@@ -206,6 +209,8 @@ class TestNoDeadModules:
         # DEFAULT_JOURNAL_DIR 是配置默认值，测试按模块路径 monkeypatch。
         "fallback_dir", "is_degraded", "devnull_path",
         "DEFAULT_JOURNAL_DIR",
+        # P3 state_store 模块级配置常量（供环境变量读取，非死代码）
+        "ENV_BACKEND", "ENV_DSN", "ENV_DSN_FALLBACK",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:

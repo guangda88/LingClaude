@@ -231,6 +231,12 @@ def _make_notifier(ctx: WiringContext) -> Any:
     return MailboxNotifier()
 
 
+def _make_state_store(ctx: WiringContext) -> Any:
+    from lingclaude.core.state_store import StateStore
+
+    return StateStore()
+
+
 # ---------------------------------------------------------------------------
 # WIRING_MANIFEST — 与 QueryEngine.__init__ 逐字对齐（55 项）
 # 顺序仅作文档可读性；装配语义与顺序无关（契约测试乱序验证）。
@@ -285,6 +291,7 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     WiringSpec("_l5_loop", _make_l5_loop, note="L5 对话循环"),
     WiringSpec("_notifier", _make_notifier, note="邮箱通知"),
     WiringSpec("session_store", _make_session_store, note="D3 拆包注入(公开属性)"),
+    WiringSpec("state_store", _make_state_store, note="P3 状态存储接缝(JsonFileBackend/LingYiBackend)"),
     WiringSpec("model_adapter", _make_model_adapter, note="D3 模型调用 seam"),
     WiringSpec("audit_collector", _make_audit_collector, note="D3 审计收集"),
     WiringSpec("model_request_log", _make_model_request_log, note="D3 请求日志"),
