@@ -41,6 +41,7 @@ from lingclaude.cli.interface import (
 )
 from lingclaude.cli.long_task_metrics import append_long_task_metrics
 from lingclaude.cli.n5_token_guard import check_token_exhaustion, resolve_max_tokens
+from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
@@ -257,26 +258,33 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         observed_text_deltas = 0
         observed_stream_error = False
         turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
-        for event in engine.stream_call_model(prompt):
-            if not got_first_token and event.get("type") in ("text_delta", "error"):
-                got_first_token = True
-                sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
-                sys.stdout.flush()
-            _handle_stream_event(event)
-            if event.get("type") == "tool_call_start":
-                observed_tool_calls += 1
-            if event.get("type") == "tool_call_end" and event.get("is_error"):
-                observed_tool_errors += 1
-            if event.get("type") == "text_delta":
-                observed_text_deltas += 1
-                response_content += event.get("text", "")
-            elif event.get("type") == "done":
-                response_content = event.get("content", response_content)
-                turn_output_tokens = int(
-                    (event.get("usage") or {}).get("output_tokens", 0) or 0
-                )
-            if event.get("type") == "error":
-                observed_stream_error = True
+        # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
+        _wd = StreamWatchdog()
+        _wd.start()
+        try:
+            for event in engine.stream_call_model(prompt):
+                _wd.touch(str(event.get("type", "")))
+                if not got_first_token and event.get("type") in ("text_delta", "error"):
+                    got_first_token = True
+                    sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
+                    sys.stdout.flush()
+                _handle_stream_event(event)
+                if event.get("type") == "tool_call_start":
+                    observed_tool_calls += 1
+                if event.get("type") == "tool_call_end" and event.get("is_error"):
+                    observed_tool_errors += 1
+                if event.get("type") == "text_delta":
+                    observed_text_deltas += 1
+                    response_content += event.get("text", "")
+                elif event.get("type") == "done":
+                    response_content = event.get("content", response_content)
+                    turn_output_tokens = int(
+                        (event.get("usage") or {}).get("output_tokens", 0) or 0
+                    )
+                if event.get("type") == "error":
+                    observed_stream_error = True
+        finally:
+            _wd.stop()
         _flush_stream_line()  # P0:打断/异常退出时补冲残行,防污染下一轮
         if response_content:
             engine._messages.append(prompt)
@@ -1129,8 +1137,12 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                     target=_esc_listen_loop, args=(session, _esc_stop), daemon=True,
                 )
                 _esc_thread.start()
+            # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
+            _wd = StreamWatchdog()
+            _wd.start()
             try:
                 for event in engine.stream_call_model(prompt):
+                    _wd.touch(str(event.get("type", "")))
                     if session.interrupt_event().is_set():
                         interrupted = True
                         print("\n[已打断]")
@@ -1163,6 +1175,7 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 # H17-TUI 修复: 清理入 finally — 流中非 KeyboardInterrupt 异常（网络错等）
                 # 也不泄漏监听线程。审计#6: 先停线程再清 interrupt。
                 # pump 会话级运行，此处不再 stop（唯一 stdin 读者地位不变）。
+                _wd.stop()  # N5b: 流收尾（正常/打断/异常），watchdog 停表
                 _flush_stream_line()
                 if _esc_thread is not None:
                     _esc_stop.set()

@@ -499,7 +499,8 @@ class ModelCallMixin:
                     "final_content_preview": final_content[:200],
                     "total_input": total_input, "total_output": total_output,
                 })
-                yield {"type": "done", "content": final_content}
+                yield {"type": "done", "content": final_content,
+                       "usage": {"input_tokens": total_input, "output_tokens": total_output}}
                 return
 
             used_tools = True
@@ -579,12 +580,14 @@ class ModelCallMixin:
                     messages.append(ModelMessage(role=MessageRole.USER, content=_LOOP_WARN_HINT))
                 elif verdict == "abort":
                     yield {"type": "text_delta", "text": _LOOP_ABORT_MSG}
-                    yield {"type": "done", "content": response_content + _LOOP_ABORT_MSG}
+                    yield {"type": "done", "content": response_content + _LOOP_ABORT_MSG,
+                           "usage": {"input_tokens": total_input, "output_tokens": total_output}}
                     return
 
         content = response_content or "[达到最大工具调用轮次]"
         final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
-        yield {"type": "done", "content": final_content}
+        yield {"type": "done", "content": final_content,
+               "usage": {"input_tokens": total_input, "output_tokens": total_output}}
 
     def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
         bm = self._behavior
