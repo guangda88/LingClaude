@@ -8,7 +8,7 @@ from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.permissions import PermissionContext
 from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, TurnResult, StopReason
 
-__version__ = "0.3.0"
+__version__ = "0.6.0-lingyuan"
 
 __all__ = [
     "Result",

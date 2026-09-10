@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lingclaude"
-version = "0.3.0"
+version = "0.6.0-lingyuan"
 description = "灵克 (lingclaude) — 开源 AI 编程助手，内置自优化能力"
 readme = "README.md"
 requires-python = ">=3.10"
