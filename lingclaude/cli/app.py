@@ -42,7 +42,7 @@ from lingclaude.cli.interface import (
 from lingclaude.cli.long_task_metrics import append_long_task_metrics
 from lingclaude.cli.n5_token_guard import check_token_exhaustion, resolve_max_tokens
 from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
-from lingclaude.ops.rss_watchdog import check_rss_watchdog
+from lingclaude.ops.rss_watchdog import check_rss_watchdog, sample_rss_mb
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.engine.coding import CodingRuntime
@@ -356,6 +356,7 @@ def _record_long_task_metrics(
     checkpoint_path = checkpoint_dir / f"{engine.session_id}.json"
     journal_path = Path(".lingclaude/journals") / f"{engine.session_id}.jsonl"
     stats = engine.get_stats()
+    rss_mb = sample_rss_mb()  # N6: 每轮采样落盘, 供 RSS 曲线分析(告警之外的连续数据源)
     ok = append_long_task_metrics({
         "event": event,
         "outcome": outcome,
@@ -367,6 +368,7 @@ def _record_long_task_metrics(
         "turn_output_tokens": turn_output_tokens,
         "turn_input_delta": turn_input_delta,
         "turn_duration_s": turn_duration_s,
+        "rss_mb": rss_mb,
         "journal_size_bytes": journal_path.stat().st_size if journal_path.exists() else 0,
         "checkpoint_exists": checkpoint_path.exists(),
         "checkpoint_size_bytes": checkpoint_path.stat().st_size if checkpoint_path.exists() else 0,
@@ -387,8 +389,8 @@ def _record_long_task_metrics(
             _logger.debug("N5 guard failed", exc_info=True)
     # N6 守卫: RSS 增长/硬限检测（同收尾点每轮采样, 基线语义见模块 docstring）
     try:
-        for f_line in check_rss_watchdog(str(stats["session_id"]), event=event):
-            _logger.warning("[N6] %s", f_line)
+        # 告警日志已按级别(WARNING/ERROR)在 rss_watchdog 模块内输出, 此处只触发
+        check_rss_watchdog(str(stats["session_id"]), event=event)
     except Exception:  # noqa: BLE001
         _logger.debug("N6 guard failed", exc_info=True)
     return ok

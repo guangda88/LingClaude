@@ -15,6 +15,20 @@ import pytest
 _SCRIPT = Path("/home/ai/lingclaude/scripts/health_inspect.py")
 
 
+def _socket_available() -> bool:
+    """bwrap --unshare-net 下 socket() 构造可能被拒 — 可用性探测用于干净 skip。"""
+    try:
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _socket_available(), reason="沙箱拒绝 socket 创建（bwrap --unshare-net 场景）"
+)
+
+
 @pytest.fixture(scope="module")
 def hi():
     spec = importlib.util.spec_from_file_location("health_inspect_mod", _SCRIPT)

@@ -43,26 +43,37 @@ PORT_PROBE_ROUNDS = 3
 PORT_PROBE_TIMEOUT_S = 2.0
 
 
-def sh(cmd: str) -> str:
+def sh(cmd: list[str]) -> str:
+    # argv 列表执行 — 2026-09-11 消灭 shell=True(codex 审计 L1:SHELL_INJECT 收口);
+    # 调用点均为硬编码 argv, 管道场景改由 _ps_lines() Python 侧过滤
     try:
-        # nosec B602 — sh() 调用点全部为硬编码字面量命令(ps/ss/grep 运维探针),无插值输入
-        return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15).stdout
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        return r.stdout if r.returncode == 0 else ""
     except Exception:
         return ""
 
 
+def _ps_lines(keyword: str) -> list[str]:
+    """ps 输出按关键词过滤 — 替代 shell 管道 grep（含 grep -v grep 语义）。"""
+    return [ln for ln in sh(["ps", "-eo", "rss,args"]).splitlines() if keyword in ln]
+
+
 def _tcp_probe(port: int) -> float | None:
     """单次 TCP connect 探测 127.0.0.1:<port>, 返回 RTT 秒; 失败返回 None。"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(PORT_PROBE_TIMEOUT_S)
-    t0 = time.monotonic()
+    # socket() 本身也会抛 PermissionError(bwrap --unshare-net 沙箱实测),
+    # 必须与 connect 一起入 try — 观测脚本不允许在受限环境整体崩掉。
+    s = None
     try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(PORT_PROBE_TIMEOUT_S)
+        t0 = time.monotonic()
         s.connect(("127.0.0.1", port))
         return time.monotonic() - t0
     except Exception:
         return None
     finally:
-        s.close()
+        if s is not None:
+            s.close()
 
 
 def probe_port_rtt(port: str, rounds: int = PORT_PROBE_ROUNDS) -> dict:
@@ -81,7 +92,7 @@ def probe_port_rtt(port: str, rounds: int = PORT_PROBE_ROUNDS) -> dict:
 
 
 def _listening_ports() -> list[str]:
-    return sh("ss -tln").splitlines()
+    return sh(["ss", "-tln"]).splitlines()
 
 
 def inspect() -> tuple[list[str], list[str]]:
@@ -90,7 +101,7 @@ def inspect() -> tuple[list[str], list[str]]:
     ts = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     # 1. lingxi 进程基线
-    out = sh("ps -eo rss,args | grep 'lingxi/dist/cli.js' | grep -v grep")
+    out = "\n".join(_ps_lines("lingxi/dist/cli.js"))
     procs = [ln for ln in out.splitlines() if ln.strip()]
     rss_mb = sum(int(ln.split()[0]) for ln in procs if ln.split()) // 1024
     if len(procs) > LINGXI_MAX_PROCS or rss_mb > LINGXI_MAX_RSS_MB:
@@ -99,7 +110,7 @@ def inspect() -> tuple[list[str], list[str]]:
         oks.append(f"lingxi {len(procs)}个/{rss_mb}MB 正常")
 
     # 2. bus-poll 服务 + 快照新鲜度
-    active = sh("systemctl --user is-active lingclaude-bus-poll.service").strip()
+    active = sh(["systemctl", "--user", "is-active", "lingclaude-bus-poll.service"]).strip()
     if active != "active":
         alerts.append(f"lingclaude-bus-poll.service 状态={active or 'unknown'}(应为 active)")
     else:
@@ -128,14 +139,14 @@ def inspect() -> tuple[list[str], list[str]]:
             alerts.append(f"端口 {port}({name}) 未监听")
 
     # 4. daemon watch
-    dw = sh("systemctl --user is-active lingclaude-daemon-watch.service").strip()
+    dw = sh(["systemctl", "--user", "is-active", "lingclaude-daemon-watch.service"]).strip()
     if dw != "active":
         alerts.append(f"daemon-watch 状态={dw or 'unknown'}")
     else:
         oks.append("daemon-watch active")
 
     # 5. 活跃交互会话
-    out = sh("ps -eo rss,args | grep 'lingclaude run -i' | grep -v grep")
+    out = "\n".join(_ps_lines("lingclaude run -i"))
     sessions = [ln for ln in out.splitlines() if ln.strip()]
     if sessions:
         rss_mb = sum(int(ln.split()[0]) for ln in sessions if ln.split()) // 1024

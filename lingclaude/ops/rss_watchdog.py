@@ -42,8 +42,8 @@ def sample_rss_mb(pid: int | None = None) -> int | None:
     pid=None 采样当前进程。Linux-only; 非 Linux /proc 缺失时返回 None。
     """
     try:
-        path = f"/proc/{pid if pid is not None else 'self'}/status"
-        with open(path, encoding="utf-8") as f:
+        status_path = f"/proc/{pid if pid is not None else 'self'}/status"
+        with open(status_path, encoding="utf-8") as f:
             for line in f:
                 if line.startswith("VmRSS:"):
                     kb = int(line.split()[1])
@@ -78,6 +78,7 @@ def check_rss_growth(
     if growth >= GROWTH_WARN_MB:
         line = f"RSS 增长 {growth}MB（基线 {_BASELINES[key]}→{current_mb}）≥{GROWTH_WARN_MB}MB"
         findings.append(f"WARNING: {line}")
+        _logger.warning("[N6] %s", line)
         if (key, "growth") not in _ALERTED:
             _ALERTED.add((key, "growth"))
             _notify(key, "WARNING", f"{line} event={event}")
@@ -88,6 +89,7 @@ def check_rss_growth(
     if hard and (key, "hard") not in _ALERTED:
         line = f"RSS 绝对值 {current_mb}MB ≥{RSS_HARD_LIMIT_MB}MB 硬限"
         findings.append(f"ERROR: {line}")
+        _logger.error("[N6] %s", line)
         _ALERTED.add((key, "hard"))
         _notify(key, "ERROR", f"{line} event={event}")
 

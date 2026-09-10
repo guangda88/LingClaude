@@ -218,3 +218,21 @@ task_router.resolve(max_tokens=4096)        ← 默认值埋在 :173
 | `/home/ai/llm-proxy/proxy3_py/main.py` | proxy3 服务（独立仓，8765） |
 | `/home/ai/llm-proxy/proxy3_py/routes.json` | proxy3 路由表（749 条） |
 | `/home/ai/llm-proxy/proxy3_py/fallback_chains.json` | proxy3 fallback 链（43 个模型） |
+
+## 七、观测盲区补齐（2026-09-11, opencode 审计产物）
+
+| 盲区 | 处置 | 状态 |
+|---|---|---|
+| #1 proxy 延迟（仅端口存活, 无 RTT） | health_inspect 端口检查升级 TCP connect 三次采样, 报 min/med/max; 区分「未监听」与「监听但不可达」 | ✅ 已落地（`scripts/health_inspect.py` + `tests/test_health_rtt.py`） |
+| #2 会话内存泄漏（无 RSS 观测） | N6 看门狗: `lingclaude/ops/rss_watchdog.py`, 挂 `_record_long_task_metrics` 收尾点, 基线增长≥500MB WARN / 绝对值≥1000MB ERROR+LingBus, 一次性告警+基线重置 | ✅ 已落地（+ `tests/test_rss_watchdog.py` 10 用例） |
+| #3 上下文 token window 占用追踪 | 未做——UsageSummary/TokenMonitor 已有 token 总量, window 占用率需 compaction 阈值联动, 属功能扩展非观测补齐 | 归档待议 |
+| #4 N5b 接入 daemon | **前提不成立**: 实测 `scripts/daemon.py` 不存在; 真实候选 `lingclaude/self_optimizer/daemon.py` 为指标采集守护, 无 LLM 流消费（无 stream/yield/for-event）, StreamWatchdog 无接入点 | 关闭（前提证伪） |
+| #5 滑动窗口配额限流 | 未做——涉及 TokenMonitor+session_journal 联动+限流语义, 超出观测补齐范畴 | 归档待议 |
+
+注（P50/P99 语义）: health_inspect 为 30min 点位采样, 只报 min/med/max;
+持续延迟分布需 proxy3 侧 metrics exporter（proxy3 独立仓, 后续项）。
+
+### §七补记（2026-09-11 00:3x）
+- N6 批次最终随 `b7300fe` 入库（并发会话提交顺走 index 中本批已 add 文件, 内容经 21/21 定向复跑验证绿, 属可接受的混批既成事实）
+- **c6227ad 的 N1 全量复核 OOM 阵亡**: execnet `MemoryError`(EXIT:1), 根因两轮全量复核并行(00:04/00:21)超出沙箱内存上限; marker 被自愈清扫回收。教训: 豁免通道的异步全量复核在同仓多会话并发时不可信, 需错峰或降级 -n 1 重试
+- 环境限制记录: 本沙箱全量 pytest(无 ignore 表)OOM 高发(exit 137/MemoryError), 一切「全量 PASS」结论须核对复核日志尾部排除 OOM 假阴性
