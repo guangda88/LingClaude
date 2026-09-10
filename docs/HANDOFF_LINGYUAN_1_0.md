@@ -142,6 +142,15 @@ E4 是幻想门面而非仅未注入）。
   隔离 monitor db，消除与真实 token_monitor.db 的并发竞态）+ 2 个新契约
   （state 条目可注入 / 真实引擎端到端）——overrides 先于工厂调用、全 phase 天然生效，
   无需专门 parameterize 改造。**P2 阶段至此完成。下一步：P3（见 §三 计划）**
+- **P3.0/P3.1/P3.2 已完成**（2026-09-10 晚，c740eee/6ee3abf/97c3e82+c039a06+0a0f4df）：
+  迁移对照表 v0 → type_registry +13 type（30→43）→ context_cache 双写试点
+  （lingmemory_bridge 旁路桥 + memory_sink 钩子 + wiring 装配缝，开关
+  `LINGCLAUDE_MEMORY_DUALWRITE=1` 默认关，主路 SQLite 零改动，已知限制
+  hit_count 不回写）。**P3 下一步：P3.3 核心三件**（layered_memory →
+  memory_engine → l7_cognitive，动刀前先读 P3_STATE_MIGRATION_MAP §二难度分级）
+- ⚠ **并发会话提示**：19:38 起工作区出现未跟踪文件 `lingclaude/core/state_store.py`
+  （外部会话进行中工作，触发 g3 守卫 +1 与死模块守卫 7 名指控；排除该文件后
+  守卫回基线）。多代理同仓作业时，守卫红灯先分清归属再动手
 - **提交提速三件套已生效**（本会话前半）: 豁免+后台补偿复核(日志已修为
   `<commit>-<时间戳>` 独立留痕, -n cap 4 防 INTERNALERROR) / -n nproc / pre-push 全量门禁。
   实测: 豁免提交 3~4s(原 900s 超时被杀)。慢测试排除清单待空闲时段 --durations 基线
