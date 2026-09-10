@@ -23,6 +23,21 @@
 2. 后台任务逐个确认终态（**后台任务不跨会话存活**，关键落盘必须同步确认）
 3. 新完成项 = 测试绿 + 已提交，二者缺一不算完成
 
+## ⚠ 一·六、环境新发现（2026-09-10 本会话）
+
+- **根 FS 只读**：`/` 与 `/home/ai` 均已挂 ro，仅项目目录 rw。因此：
+  - `~/.ling_keys.env` 不可写 → key 改存项目 `.env`（gitignored，600 权限），
+    config.py `_resolve_api_key` 解析链已接管
+  - `~/.ling-audit/records` 不可写 → 审计记录重定向
+    （`LING_AUDIT_DIR=$PWD/.audit-records`，已加 .gitignore）
+- **审计钩子铁律**：提交时必须带环境前缀
+  `LING_AUDIT_FAST=1 LING_AUDIT_DIR=$PWD/.audit-records`（+ urandom 垫片）。
+  `LING_AUDIT_FAST` 仅豁免钩子内全量测试，L0/L1/L2 审计+签名照常；
+  **补偿控制 = 提交后独立全量 pytest**。`--no-verify` 不可用（post-commit
+  tree_hash 配对会回滚）
+- **P0 进度**：P0.1 ✅（key 脱明文+解析链 8 tests）/ P0.2 ✅（5 tests）/
+  P0.3 ✅（12 tests）。**下一步：P0.0 已过门禁通读 → P0.4 架构守卫 → P0.5 垃圾清单**
+
 ## 二、⚠ 环境铁律：urandom 垫片
 
 本环境 `/dev/urandom`、`/dev/random` 被**路径级拦截**（666 权限却 EACCES，

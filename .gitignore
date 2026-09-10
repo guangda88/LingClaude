@@ -75,3 +75,6 @@ api_keys.json
 # *.bak/*.bak_*,致 3a03e6b 误入库 1347 行备份文件
 *.bak.*
 # (移除损坏行: '-lingclaude/cli/app.py.bak.20260906_063629',开头为非法 gitignore 语法)
+
+# 审计记录重定向目录(根FS只读后的项目内存储)
+.audit-records/
