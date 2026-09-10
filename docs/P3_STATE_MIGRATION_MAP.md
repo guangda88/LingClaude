@@ -9,6 +9,15 @@
 > `lingclaude/core/wiring.py::_make_cache`（装配缝注入，开关控制）。
 > 开关 `LINGCLAUDE_MEMORY_DUALWRITE=1`，默认关闭，主路 SQLite 零改动。
 > 已知限制：hit_count 暂不回写灵忆（registry 无 hit 事件，见桥接器 docstring）。
+>
+> **P3.3 进展（2026-09-11）**：三件之第一件 #9 layered_memory 双写已完成——
+> `lingclaude/core/lingmemory_experience_bridge.py`（L2 Experience 镜像桥）+
+> `ExperienceStore/InMemoryExperienceStore(legacy_sink=...)`（两个 Store 类均挂缝，
+> `_emit` 旁路永不抛异常/永不递归）+ `wiring.py::_make_layered_memory`（同一开关装配）。
+> 镜像语义：state=认知分层（首写 working，出清走 forget→archived，灵忆侧留史不物理删），
+> 架构层归属落 data.layer_of_origin；L0/L1 不入灵忆（无持久态）。
+> 已知限制：recall/deny 权重漂移不回写镜像（registry 无更新事件，承 P3.2 同款）；
+> L3(meta)/L4(shared) JSON 写点留待 memory_engine/l7_cognitive 归并件处理。
 
 ## 一、盘点方法
 

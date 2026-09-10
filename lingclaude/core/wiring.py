@@ -185,8 +185,15 @@ def _make_meta_cognition(ctx: WiringContext) -> Any:
 
 def _make_layered_memory(ctx: WiringContext) -> Any:
     from lingclaude.core.layered_memory import LayeredMemory
+    from lingclaude.core.lingmemory_bridge import dualwrite_enabled
+    from lingclaude.core.lingmemory_experience_bridge import (
+        LingMemoryExperienceSink,
+    )
 
-    return LayeredMemory()
+    # P3.3 双写：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
+    # （与 P3.2 context_cache 同一开关、同一纪律；主路默认零依赖）
+    sink = LingMemoryExperienceSink() if dualwrite_enabled() else None
+    return LayeredMemory(memory_sink=sink)
 
 
 def _make_dementia_detector(ctx: WiringContext) -> Any:

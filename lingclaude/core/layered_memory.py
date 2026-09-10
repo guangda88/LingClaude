@@ -15,7 +15,7 @@ import json
 import logging
 import math
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -202,14 +202,32 @@ class WorkingMemory:
 
 
 class ExperienceStore:
-    def __init__(self, db_path: str | None = None) -> None:
+    def __init__(self, db_path: str | None = None,
+                 legacy_sink: object | None = None) -> None:
         if db_path is None:
             root = Path(__file__).parent.parent.parent / ".lingclaude"
             root.mkdir(parents=True, exist_ok=True)
             db_path = str(root / "experience.db")
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        # P3.3 双写：可选旁观者（如 LingMemoryExperienceSink），主路零依赖。
+        # self._emit 自指卫兵：无 sink 或在 sink 内部再触发 store 时跳过。
+        self._legacy_sink = legacy_sink
+        self._in_sink_emit = False
         self._init_db()
+
+    def _emit(self, method: str, *args: object) -> None:
+        """旁路事件派发：永不抛异常，永不递归（P3.2 memory_sink 同款纪律）"""
+        sink = getattr(self, "_legacy_sink", None)
+        if sink is None or self._in_sink_emit:
+            return
+        self._in_sink_emit = True
+        try:
+            getattr(sink, method)(*args)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("legacy_sink.%s 失败（已忽略）: %s", method, e)
+        finally:
+            self._in_sink_emit = False
 
     def _init_db(self) -> None:
         conn = self._get_conn()
@@ -258,6 +276,7 @@ class ExperienceStore:
             ),
         )
         safe_commit(conn)
+        self._emit("on_store", asdict(exp))
         return exp.id
 
     def recall(self, keyword: str, limit: int = 5) -> list[Experience]:
@@ -299,6 +318,7 @@ class ExperienceStore:
         conn = self._get_conn()
         rows = conn.execute("SELECT * FROM experiences").fetchall()
         updated = 0
+        forgotten: list[str] = []
         for row in rows:
             exp = self._row_to_exp(row)
             new_w = ebbinghaus_weight(
@@ -306,15 +326,22 @@ class ExperienceStore:
                 exp.recall_count, exp.deny_count,
                 exp.emotion, len(exp.associations),
             )
+            if new_w < 0.05:
+                forgotten.append(exp.id)
+                updated += 1
+                continue
             safe_execute(conn,
                 "UPDATE experiences SET weight = ? WHERE id = ?",
                 (round(new_w, 4), exp.id),
             )
             updated += 1
-        safe_execute(conn,
-            "DELETE FROM experiences WHERE weight < ?",
-            (0.05,),
-        )
+        if forgotten:
+            safe_execute(conn,
+                "DELETE FROM experiences WHERE id IN (%s)"
+                % ",".join("?" * len(forgotten)),
+                tuple(forgotten),
+            )
+            self._emit("on_decay_forgotten", tuple(forgotten))
         safe_commit(conn)
         return updated
 
@@ -348,8 +375,24 @@ class ExperienceStore:
 
 
 class InMemoryExperienceStore(ExperienceStore):
-    def __init__(self) -> None:
+    def __init__(self, legacy_sink: object | None = None) -> None:
         self._experiences: dict[str, Experience] = {}
+        # P3.3 双写缝（本类不走 super().__init__，需自持 sink 态）
+        self._legacy_sink = legacy_sink
+        self._in_sink_emit = False
+
+    def _emit(self, method: str, *args: object) -> None:
+        """旁路事件派发：永不抛异常，永不递归（P3.2 memory_sink 同款纪律）"""
+        sink = getattr(self, "_legacy_sink", None)
+        if sink is None or self._in_sink_emit:
+            return
+        self._in_sink_emit = True
+        try:
+            getattr(sink, method)(*args)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("legacy_sink.%s 失败（已忽略）: %s", method, e)
+        finally:
+            self._in_sink_emit = False
 
     def _init_db(self) -> None:
         pass
@@ -359,6 +402,7 @@ class InMemoryExperienceStore(ExperienceStore):
 
     def store(self, exp: Experience) -> str:
         self._experiences[exp.id] = exp
+        self._emit("on_store", asdict(exp))
         return exp.id
 
     def recall(self, keyword: str, limit: int = 5) -> list[Experience]:
@@ -399,6 +443,7 @@ class InMemoryExperienceStore(ExperienceStore):
     def decay_all(self) -> int:
         updated = 0
         to_remove: list[str] = []
+        forgotten: list[str] = []
         for eid, exp in self._experiences.items():
             new_w = ebbinghaus_weight(
                 exp.created_at, exp.last_recalled,
@@ -407,6 +452,7 @@ class InMemoryExperienceStore(ExperienceStore):
             )
             if new_w < 0.05:
                 to_remove.append(eid)
+                forgotten.append(eid)
             else:
                 self._experiences[eid] = Experience(
                     id=exp.id, problem=exp.problem, hypothesis=exp.hypothesis,
@@ -419,6 +465,8 @@ class InMemoryExperienceStore(ExperienceStore):
             updated += 1
         for eid in to_remove:
             del self._experiences[eid]
+        if forgotten:
+            self._emit("on_decay_forgotten", tuple(forgotten))
         return updated
 
     def get_stats(self) -> dict[str, int | float]:
@@ -440,10 +488,20 @@ class LayeredMemory:
         common_extra: dict[str, dict[str, str]] | None = None,
         working_capacity: int = 24,
         persist_dir: Path | None = None,
+        memory_sink: object | None = None,
     ) -> None:
         self.common = CommonKnowledge(common_extra)
         self.working = WorkingMemory(working_capacity)
-        self.experience = experience_store or InMemoryExperienceStore()
+        # P3.3 双写：显式传入 store 时由调用方自行装配 sink；
+        # 默认 InMemory 路径在此注入（开关判定在 wiring 缝）。
+        if experience_store is not None:
+            self.experience = experience_store
+        else:
+            self.experience = (
+                InMemoryExperienceStore(legacy_sink=memory_sink)
+                if memory_sink is not None
+                else InMemoryExperienceStore()
+            )
         self._meta_facts: dict[str, str] = {}
         self._shared_facts: dict[str, str] = {}
         if persist_dir is not None:
