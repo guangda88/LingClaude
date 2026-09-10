@@ -21,6 +21,8 @@ import os
 import threading
 from typing import Any, Protocol
 
+from lingmemory import LingMemory
+
 logger = logging.getLogger(__name__)
 
 _DUALWRITE_ENV = "LINGCLAUDE_MEMORY_DUALWRITE"
@@ -108,8 +110,7 @@ class LingMemoryCacheBridge:
     def _lm_create(self, file_path: str, file_hash: str, content: str,
                    read_count: int, first_read_at: str, last_read_at: str) -> str:
         if self._lm is None:
-            from lingmemory import LingMemory
-
+            # 模块级 import 已就绪；此处仅实例化（连库），保持懒初始化语义
             kwargs = {"db_path": self._db_path} if self._db_path else {}
             self._lm = LingMemory(**kwargs)
         # cache_key 必填（P3.1 schema）；长路径做哈希前缀保证可读+唯一性

@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled  # P3.2
 
 
 @dataclass(frozen=True)
@@ -149,10 +150,12 @@ def _make_tool_router(ctx: WiringContext) -> Any:
 
 def _make_cache(ctx: WiringContext) -> Any:
     from lingclaude.core.context_cache import ContextCache
-    from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled
 
     # P3.2 双写试点：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
-    sink = LingMemoryCacheBridge() if dualwrite_enabled() else None
+    # （桥接器在模块级 import：其依赖链指向外部 lingmemory 包，无 core 内循环）
+    sink = (
+        LingMemoryCacheBridge() if dualwrite_enabled() else None
+    )
     return ContextCache(cache_size=100, ttl_hours=24, memory_sink=sink)
 
 
