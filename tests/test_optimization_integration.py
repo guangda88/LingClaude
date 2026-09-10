@@ -118,7 +118,11 @@ class TestOptimizationIntegration:
 
     def test_integration_workflow(self):
         """Test end-to-end workflow with all optimizations."""
-        engine = QueryEngine()
+        # P2.c seam：隔离 monitor db，消除与真实 ~/.lingclaude/token_monitor.db
+        # 的并发竞态（长时 run -i 进程实时写该库，全量跑时 delta 断言被污染）
+        engine = QueryEngine(wiring_overrides={
+            "_monitor": TokenMonitor(db_path=Path(tempfile.mkdtemp()) / "monitor.db"),
+        })
 
         # Get initial stats
         stats_before = engine._monitor.get_daily_stats()
