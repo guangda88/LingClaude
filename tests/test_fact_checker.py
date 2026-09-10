@@ -22,12 +22,14 @@ class TestClaimExtraction:
 
 
 class TestKGFactChecker:
-    def test_mock_check_passes(self):
+    def test_mock_fail_closed(self):
+        """P0.3: mock 假阳性已移除 — 无 KG 时 check 显式不可用（found=False）,
+        不再伪造 found=True。"""
         checker = KGFactChecker()
         claim = ClaimExtractor.extract("已完成代码搜索")[0]
         result = checker.check(claim)
-        assert result.found is True
-        assert result.completeness >= 0.7
+        assert result.found is False
+        assert "fail-closed" in result.error or "mock" in result.error
 
     def test_low_completeness_detected(self):
         checker = KGFactChecker()
@@ -74,16 +76,17 @@ class TestDBPoolInjection:
         checker = KGFactChecker(db_pool=fake)
         assert checker._explicit_pool is fake
 
-    def test_no_pool_no_url_falls_back_to_mock(self):
-        """无 pool 无 URL → RuntimeError → mock 兜底"""
+    def test_no_pool_no_url_declares_unavailable(self):
+        """P0.3: 无 pool 无 URL → mock fail-closed → check 显式声明不可用
+        (found=False + error)，不再回退假阳性。"""
         import os
         old = os.environ.pop("DATABASE_URL", None)
         try:
             checker = KGFactChecker()
             claim = ClaimExtractor.extract("已完成测试")[0]
             result = checker.check(claim)
-            # 失败回退 mock (found=True)
-            assert result.found is True
+            assert result.found is False
+            assert result.error  # 修复指引在 error 里
         finally:
             if old is not None:
                 os.environ["DATABASE_URL"] = old
@@ -105,10 +108,13 @@ class TestDBPoolInjection:
 
 
 class TestAuditResponse:
-    def test_audit_passes_for_mock(self):
+    def test_audit_fails_closed_without_kg(self):
+        """P0.3: 灵知不可用时 audit 不通过（claims 全部无来源），
+        不再因假 mock 而 passed=True。"""
         result = audit_response("已完成代码搜索。使用了grep。")
         assert result["total"] >= 1
-        assert isinstance(result["passed"], bool)
+        assert result["passed"] is False
+        assert result["warning"]
 
     def test_audit_empty_output(self):
         result = audit_response("")

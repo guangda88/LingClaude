@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Any
 
 from lingclaude.core.config import lingclaudeConfig
+from lingclaude.core.model_call import _ToolLoopDetector
 from lingclaude.core.permissions import PermissionContext, PermissionStore
+from lingclaude.core.session_runtime import SessionRuntime
 from lingclaude.engine.bash import BashExecutor
 from lingclaude.engine.bash_lingxi import BashlingxiExecutor
 from lingclaude.engine.file_ops import FileOps
@@ -61,6 +63,16 @@ class CodingRuntime(
         # P1-1: LSP provider (lazy init on first use)
         self._lsp_provider: StdioLspProvider | None = None
         self._lsp_workspace_root: Path | None = None
+
+        # P0.2 (E1 修活熔断): 5b 分支的真实依赖 — 此前从未初始化,
+        # execute_tool._blocks 里对 _session_runtime/_loop_detector 的双重
+        # hasattr 永远为 False，observe_denial 熔断是死代码（V3 §三 E1）。
+        self._loop_detector = _ToolLoopDetector()
+        self._denial_abort_log: str | None = None
+        # 5b 第一道门: log_denial 桥（复用 SessionRuntime→DataFlywheel，不造新文件）。
+        # session_id 兜底 "default"，与 execute_tool 里 permission store 的取法一致。
+        self.session_id = getattr(self.config, "session_id", "default")
+        self._session_runtime = SessionRuntime(self)
 
     def _setup_tools(self) -> None:
         # T0-10: 沙箱策略 — LINGCLAUDE_SANDBOX_MODE=strict/paranoid 时 bwrap 不可用即 fail-closed
@@ -771,8 +783,9 @@ class CodingRuntime(
                         # 5b：单次触发不烧轮次,与"denial key 2 次→暂停+升级用户"对齐
                         verdict = self._loop_detector.observe_denial(rule_id, tool_name, threshold=2)
                         if verdict == "denial_abort":
-                            from lingclaude.core.types import Result as _R
-                            self._loop_detector._denial_abort_log = (
+                            # P0.2: 写实例属性（__init__ 已初始化），execute_tool
+                            # 返回前消费；原写 _loop_detector._denial_abort_log 全库无消费者。
+                            self._denial_abort_log = (
                                 f"denial_abort: rule_id={rule_id} tool={tool_name} "
                                 f"consecutive={self._loop_detector._denial_streak.get(rule_id, 0)}"
                             )
@@ -780,7 +793,7 @@ class CodingRuntime(
                     pass
             return blocked
 
-        return self.tool_pipeline.execute(
+        result = self.tool_pipeline.execute(
             name,
             kwargs,
             permissions_blocks=_blocks,
@@ -788,6 +801,12 @@ class CodingRuntime(
             pre_write_verify=_pre_write_verify,
             post_write_verify=_post_write_verify,
         )
+        # P0.2: 5b 熔断触发后把信号挂到本次工具结果上（模型可见），消费即清零,
+        # 防止旧信号泄漏到后续无关调用。
+        if getattr(self, "_denial_abort_log", None):
+            result.setdefault("denial_circuit_breaker", self._denial_abort_log)
+            self._denial_abort_log = None
+        return result
 
     def _execute_tool_legacy(self, name: str, **kwargs: Any) -> dict[str, Any]:
         if self.permissions.blocks(name):

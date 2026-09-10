@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -183,7 +184,7 @@ class lingclaudeConfig:
             model=ModelProviderConfig(
                 provider=model_raw.get("provider", "openai"),
                 model=model_raw.get("model", "gpt-4o"),
-                api_key=model_raw.get("api_key", ""),
+                api_key=_resolve_api_key(model_raw.get("api_key", "")),
                 base_url=model_raw.get("base_url"),
                 max_tokens=model_raw.get("max_tokens", 4096),
                 temperature=model_raw.get("temperature", 0.7),
@@ -215,6 +216,34 @@ class lingclaudeConfig:
             ),
             log_level=raw.get("system", {}).get("log_level", "INFO"),
         )
+
+
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+
+
+def _resolve_api_key(raw_key: str) -> str:
+    """P0.1 (V3): config.yaml 不落明文 key — 空值时按「环境变量 → 项目 .env」解析。
+
+    优先级: config 显式值 > ${VAR} 引用 > 环境变量 > 项目根 .env（gitignore L7 排除）。
+    fail-soft: 全部未命中返回空串，由 model/factory.create_provider 的既有
+    回退链（env → key_store）继续接管。背景：本机根 FS 只读，
+    ~/.ling_keys.env 不可写，项目 .env 是唯一可写密钥存储点。
+    """
+    if raw_key:
+        # 支持 ${VAR} 引用形式（config.yaml 里写 api_key: ${ZHIPU_API_KEY}）
+        if raw_key.startswith("${") and raw_key.endswith("}"):
+            return os.environ.get(raw_key[2:-1], "")
+        return raw_key
+    for name in ("ZHIPU_API_KEY", "GLM_API_KEY", "OPENAI_API_KEY"):
+        val = os.environ.get(name) or ""
+        if val:
+            return val
+    if _ENV_FILE.exists():
+        for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("ZHIPU_API_KEY") and "=" in line:
+                return line.split("=", 1)[1].strip()
+    return ""
 
 
 def find_config_path() -> Path | None:

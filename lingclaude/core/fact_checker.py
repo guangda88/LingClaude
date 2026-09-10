@@ -4,7 +4,8 @@
 无来源 claim 标警告或重答。
 
 灵知对接: 通过 sys.path 旁路导入 lingzhi FactVerifier。
-回退: mock 实现 (如果灵知不可用)。
+P0.3 (V3 §五 E2): mock 假阳性已移除，fail-closed —— 灵知不可用时
+显式抛 RuntimeError（含修复指引），宁缺勿假，不伪造 found=True 证据。
 
 Production 部署 (T1.1):
 - DB pool 注入优先级: 显式 db_pool 参数 > db_url 参数 > DATABASE_URL 环境变量 > mock
@@ -106,7 +107,8 @@ class _LingZhiSyncSearch:
     生产路径:
       FactVerifier.check_claim -> KGRetriever.search -> asyncpg pool
 
-    降级: pool 创建失败/检索异常 -> rate-limited warning -> 返回 [] (调用方回退 mock)
+    降级: pool 创建失败/检索异常 -> rate-limited warning -> 调用 mock_fallback
+    (P0.3 起 mock_fallback 默认 fail-closed 抛 RuntimeError，不伪造 found=True)
     """
 
     def __init__(self, pool_provider: Callable[[], Any], mock_fallback: Callable[[str], list[dict]]):
@@ -298,8 +300,17 @@ class KGFactChecker:
             return future.result(timeout=15.0)
 
     def _mock_search(self, query: str) -> list[dict]:
-        """回退: 直接返回 mock (始终 found=True)"""
-        return [{"id": "mock", "text": f"(mock) 来自知识库: {query}", "confidence": 1.0}]
+        """P0.3 fail-closed: 原假阳性 mock 已移除。
+
+        原 mock 始终返回 found=True，让幻觉审计形同虚设（V3 §三 E2）。
+        现在显式失败：check() 会把本异常转成 found=False + error，
+        调用方（l5_audit）按「事实校验失败」处理，不再伪造证据。
+        """
+        raise RuntimeError(
+            "灵知 KG 不可用（mock 已按 P0.3 fail-closed 移除）。"
+            "修复指引: 配置 DATABASE_URL 指向灵忆 KG，或显式注入 db_pool/"
+            "search_fn；不要依赖 mock 证据。"
+        )
 
     def check(self, claim: Claim) -> FactCheckResult:
         try:
