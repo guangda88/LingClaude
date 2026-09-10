@@ -259,6 +259,8 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         observed_text_deltas = 0
         observed_stream_error = False
         turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
+        turn_t0 = time.monotonic()  # P1.1: turn 级耗时计时起点
+        usage_t0 = dict(engine.get_stats().get("usage") or {})  # P1.1: delta 基线
         # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
         _wd = StreamWatchdog()
         _wd.start()
@@ -301,6 +303,12 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
             tool_errors=observed_tool_errors,
             text_deltas=observed_text_deltas,
             turn_output_tokens=turn_output_tokens,
+            turn_input_delta=max(
+                0,
+                int((engine.get_stats().get("usage") or {}).get("input_tokens", 0) or 0)
+                - int(usage_t0.get("input_tokens", 0) or 0),
+            ),
+            turn_duration_s=round(time.monotonic() - turn_t0, 3),
         )
     else:
         result = engine.submit(prompt)
@@ -327,6 +335,8 @@ def _record_long_task_metrics(
     tool_errors: int = 0,
     text_deltas: int = 0,
     turn_output_tokens: int | None = None,
+    turn_input_delta: int | None = None,
+    turn_duration_s: float | None = None,
     error: str | None = None,
 ) -> bool:
     """Append best-effort long-task observability to project-local JSONL.
@@ -334,6 +344,11 @@ def _record_long_task_metrics(
     N5 守卫挂点: turn_output_tokens 传入**本轮**(非累计) output token 数时,
     在收尾点执行空响应 token 耗尽检测(0 text_delta + ≥0.95*max_tokens →
     WARNING, 连续 2 次升 ERROR + LingBus 告警)。守卫失败不影响指标写入。
+
+    P1.1 schema 补齐: turn_output_tokens / turn_input_delta(本轮 usage
+    快照差值) / turn_duration_s(流循环耗时) 为 **turn 级**字段;
+    "usage" 沿用 engine 累计计数器 (历史语义不变)。turn 级字段在
+    non-stream/事件型路径为 None — 审计读取时务必区分累计 vs 逐轮。
     """
     checkpoint_dir = Path(
         getattr(engine.session_store, "_checkpoint_dir", Path(".lingclaude/checkpoints"))
@@ -349,6 +364,9 @@ def _record_long_task_metrics(
         "tool_calls": tool_calls,
         "tool_errors": tool_errors,
         "text_deltas": text_deltas,
+        "turn_output_tokens": turn_output_tokens,
+        "turn_input_delta": turn_input_delta,
+        "turn_duration_s": turn_duration_s,
         "journal_size_bytes": journal_path.stat().st_size if journal_path.exists() else 0,
         "checkpoint_exists": checkpoint_path.exists(),
         "checkpoint_size_bytes": checkpoint_path.stat().st_size if checkpoint_path.exists() else 0,
@@ -1131,6 +1149,8 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
             observed_text_deltas = 0
             observed_stream_error = False
             turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
+            turn_t0 = time.monotonic()  # P1.1: turn 级耗时计时起点
+            usage_t0 = dict(engine.get_stats().get("usage") or {})  # P1.1: delta 基线
             status.set_task("生成中")
             # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成；
             # 仅 TTY 启动，且用 _esc_stop 保证回合结束线程必退（审计#6）
@@ -1213,6 +1233,12 @@ def _interactive_loop(engine: QueryEngine, first_prompt: str | None) -> int:
                 tool_errors=observed_tool_errors,
                 text_deltas=observed_text_deltas,
                 turn_output_tokens=turn_output_tokens,
+                turn_input_delta=max(
+                    0,
+                    int((engine.get_stats().get("usage") or {}).get("input_tokens", 0) or 0)
+                    - int(usage_t0.get("input_tokens", 0) or 0),
+                ),
+                turn_duration_s=round(time.monotonic() - turn_t0, 3),
             )
         else:
             result = engine.submit(prompt)
