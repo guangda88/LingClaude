@@ -2,6 +2,13 @@
 
 > 2026-09-10 灵克产出 · 上游依据：`proposals/2026-09-09_LINGYUAN_V3_REFACTOR_PLAN.md` §五 P3
 > 状态：**初盘（启发式扫描）**，每项动刀前仍须通读源文件（V3-8 纪律）
+>
+> **P3.2 进展（2026-09-10）**：试点 #1 context_cache 双写已完成——
+> `lingclaude/core/lingmemory_bridge.py`（旁路桥接器）+
+> `ContextCache(memory_sink=...)`（主路可选旁观者）+
+> `lingclaude/core/wiring.py::_make_cache`（装配缝注入，开关控制）。
+> 开关 `LINGCLAUDE_MEMORY_DUALWRITE=1`，默认关闭，主路 SQLite 零改动。
+> 已知限制：hit_count 暂不回写灵忆（registry 无 hit 事件，见桥接器 docstring）。
 
 ## 一、盘点方法
 
