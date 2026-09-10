@@ -1314,3 +1314,540 @@ workflow_execution:
       required: false
       type: object
       description: 模板执行输出
+
+# ============================================================
+# P3 灵元1.0 扩容批次（2026-09-10 批准动工，V3 §七-4 已解冻）
+# 13 个新 type，覆盖 docs/P3_STATE_MIGRATION_MAP.md 15 项中的 14 项
+# (#4 message_builder 为策略插片非状态，不入册)
+# ============================================================
+context_cache:
+  description: P3-1 上下文缓存条目（承接 core/context_cache.py）
+  default_state: active
+  states:
+  - active
+  - compressed
+  - evicted
+  transitions:
+  - from: active
+    to: compressed
+    event: compact
+    note: 上下文压缩时降级为摘要
+  - from: compressed
+    to: active
+    event: expand
+    note: 需要时展开恢复
+  - from: '*'
+    to: evicted
+    event: evict
+    note: 超出预算被逐出
+  data_schema:
+    cache_key:
+      required: true
+      type: string
+      description: 缓存键（会话+轮次标识）
+    content:
+      required: false
+      type: string
+      description: 缓存内容或摘要文本
+    token_size:
+      required: false
+      type: int
+      description: 占用 token 数
+    layer:
+      required: false
+      type: string
+      description: 缓存层级（l1/l2/l3）
+    hit_count:
+      required: false
+      type: int
+      description: 命中次数
+cognition_state:
+  description: P3-2 认知状态（承接 governance/cognitive_state.py）
+  default_state: idle
+  states:
+  - idle
+  - focused
+  - reflecting
+  - overloaded
+  transitions:
+  - from: idle
+    to: focused
+    event: focus
+  - from: focused
+    to: reflecting
+    event: reflect
+  - from: reflecting
+    to: idle
+    event: settle
+  - from: focused
+    to: overloaded
+    event: saturate
+    note: 认知负载超限
+  - from: overloaded
+    to: focused
+    event: recover
+  data_schema:
+    state_source:
+      required: true
+      type: string
+      description: 状态来源模块
+    cognitive_load:
+      required: false
+      type: number
+      description: 认知负载 0-1
+    trigger_context:
+      required: false
+      type: string
+      description: 触发迁移的上下文
+dementia_signal:
+  description: P3-3 记忆衰减信号事件（承接 core/dementia_detector.py）
+  default_state: detected
+  states:
+  - detected
+  - confirmed
+  - acted
+  - dismissed
+  transitions:
+  - from: detected
+    to: confirmed
+    event: confirm
+  - from: confirmed
+    to: acted
+    event: act
+  - from: detected
+    to: dismissed
+    event: dismiss
+    note: 误报直接关闭
+  data_schema:
+    signal_type:
+      required: true
+      type: string
+      description: 衰减类型（decay/conflict/stale）
+    target_record:
+      required: true
+      type: string
+      description: 衰减目标记忆记录 ID
+    severity:
+      required: false
+      type: number
+      description: 严重度 0-1
+    evidence:
+      required: false
+      type: string
+      description: 判定证据摘要
+trace_record:
+  description: P3-5 执行追踪记录（承接 lacp/trace.py）
+  default_state: recording
+  states:
+  - recording
+  - sealed
+  transitions:
+  - from: recording
+    to: sealed
+    event: seal
+    note: 追踪封存，只读
+  data_schema:
+    trace_kind:
+      required: true
+      type: string
+      description: 追踪种类（code/agent/llm_call）
+    span_id:
+      required: true
+      type: string
+      description: 跨度标识
+    parent_span:
+      required: false
+      type: string
+      description: 父跨度标识
+    payload:
+      required: false
+      type: object
+      description: 追踪负载（请求/响应/时延）
+    duration_ms:
+      required: false
+      type: int
+      description: 耗时毫秒
+knowledge_record:
+  description: P3-6 知识条目（承接 self_optimizer/learner/knowledge.py）
+  default_state: draft
+  states:
+  - draft
+  - validated
+  - applied
+  - deprecated
+  transitions:
+  - from: draft
+    to: validated
+    event: validate
+    note: 经验证可信
+  - from: validated
+    to: applied
+    event: apply
+    note: 已用于改进
+  - from: validated
+    to: deprecated
+    event: invalidate
+    note: 后续被证伪
+  - from: applied
+    to: deprecated
+    event: retire
+  data_schema:
+    domain:
+      required: true
+      type: string
+      description: 知识领域
+    statement:
+      required: true
+      type: string
+      description: 知识陈述本体
+    confidence:
+      required: false
+      type: number
+      description: 置信度 0-1
+    evidence_refs:
+      required: false
+      type: array
+      description: 证据来源引用列表
+    apply_count:
+      required: false
+      type: int
+      description: 被应用次数
+checkpoint:
+  description: P3-7 会话检查点（承接 core/handover.py）
+  default_state: created
+  states:
+  - created
+  - restorable
+  - restored
+  - expired
+  transitions:
+  - from: created
+    to: restorable
+    event: verify
+    note: 完整性校验通过
+  - from: restorable
+    to: restored
+    event: resume
+    note: 已用于恢复会话
+  - from: '*'
+    to: expired
+    event: expire
+    note: 超期失效
+  data_schema:
+    session_ref:
+      required: true
+      type: string
+      description: 所属会话标识
+    snapshot_digest:
+      required: true
+      type: string
+      description: 状态快照摘要
+    resume_hint:
+      required: false
+      type: string
+      description: 恢复时的续接提示
+    coverage:
+      required: false
+      type: array
+      description: 覆盖的状态范围清单
+layered_memory_entry:
+  description: P3-9 五层记忆条目（承接 core/layered_memory.py，核心目标）
+  default_state: working
+  states:
+  - working
+  - episodic
+  - semantic
+  - procedural
+  - reflective
+  - archived
+  transitions:
+  - from: working
+    to: episodic
+    event: consolidate
+    note: 工作记忆固化入情景层
+  - from: episodic
+    to: semantic
+    event: abstract
+    note: 情景抽象为语义知识
+  - from: episodic
+    to: reflective
+    event: introspect
+    note: 经反思进入内省层
+  - from: working
+    to: procedural
+    event: rehearse
+    note: 重复练习固化为技能
+  - from: '*'
+    to: archived
+    event: forget
+    note: 主动遗忘归档
+  data_schema:
+    layer_of_origin:
+      required: true
+      type: string
+      description: 来源层
+    content:
+      required: true
+      type: string
+      description: 记忆内容
+    strength:
+      required: false
+      type: number
+      description: 记忆强度 0-1
+    access_count:
+      required: false
+      type: int
+      description: 访问次数
+    last_access_at:
+      required: false
+      type: string
+      description: 最近访问时间
+intel_item:
+  description: P3-10 情报条目（承接 core/intel.py）
+  default_state: collected
+  states:
+  - collected
+  - verified
+  - merged
+  - stale
+  transitions:
+  - from: collected
+    to: verified
+    event: verify
+  - from: verified
+    to: merged
+    event: merge
+    note: 并入知识或归档主体
+  - from: '*'
+    to: stale
+    event: age_out
+    note: 时效过期
+  data_schema:
+    intel_source:
+      required: true
+      type: string
+      description: 情报来源
+    subject:
+      required: true
+      type: string
+      description: 情报主题
+    body:
+      required: false
+      type: string
+      description: 情报正文
+    reliability:
+      required: false
+      type: number
+      description: 可信度 0-1
+aggregation_task:
+  description: P3-11 聚合任务（承接 core/task_aggregation.py）
+  default_state: open
+  states:
+  - open
+  - collecting
+  - aggregated
+  - closed
+  transitions:
+  - from: open
+    to: collecting
+    event: start_collect
+  - from: collecting
+    to: aggregated
+    event: finalize
+    note: 达成聚合条件出结论
+  - from: collecting
+    to: open
+    event: reopen
+  - from: aggregated
+    to: closed
+    event: close
+  data_schema:
+    aggregation_kind:
+      required: true
+      type: string
+      description: 聚合类型（voting/merge/summary）
+    participants:
+      required: false
+      type: array
+      description: 参与聚合的来源列表
+    quorum_rule:
+      required: false
+      type: string
+      description: 达成条件规则描述
+    result:
+      required: false
+      type: object
+      description: 聚合结果
+memory_store_entry:
+  description: P3-12 记忆引擎存取条目（承接 core/memory_engine.py，核心目标）
+  default_state: live
+  states:
+  - live
+  - frozen
+  - merged_away
+  transitions:
+  - from: live
+    to: frozen
+    event: freeze
+    note: 只读冻结防篡改
+  - from: frozen
+    to: live
+    event: unfreeze
+  - from: live
+    to: merged_away
+    event: merge
+    note: 被更强记忆吸收
+  data_schema:
+    store_name:
+      required: true
+      type: string
+      description: 所属存储名
+    entry_key:
+      required: true
+      type: string
+      description: 条目键
+    value:
+      required: false
+      type: object
+      description: 条目值（结构化）
+    version:
+      required: false
+      type: int
+      description: 版本号
+    writer:
+      required: false
+      type: string
+      description: 写入者标识
+proposal_lifecycle:
+  description: P3-13 提案生命周期（承接 governance/proposal_lifecycle.py，2T3A 适配）
+  default_state: drafted
+  states:
+  - drafted
+  - submitted
+  - reviewing
+  - approved
+  - rejected
+  - executing
+  - executed
+  - withdrawn
+  transitions:
+  - from: drafted
+    to: submitted
+    event: submit
+  - from: submitted
+    to: reviewing
+    event: open_review
+  - from: reviewing
+    to: approved
+    event: approve
+    note: P0 需双签，与 task 一致
+  - from: reviewing
+    to: rejected
+    event: reject
+  - from: approved
+    to: executing
+    event: start_exec
+  - from: executing
+    to: executed
+    event: finish_exec
+  - from: '*'
+    to: withdrawn
+    event: withdraw
+    note: 撤回
+  data_schema:
+    proposal_kind:
+      required: true
+      type: string
+      description: 提案种类
+    title:
+      required: true
+      type: string
+      description: 提案标题
+    body:
+      required: false
+      type: string
+      description: 提案正文
+    approvals:
+      required: false
+      type: array
+      description: 签注记录（含双签）
+    execution_ref:
+      required: false
+      type: string
+      description: 执行结果引用
+token_usage_record:
+  description: P3-14 token 用量记录（承接 core/token_monitor.py）
+  default_state: recorded
+  states:
+  - recorded
+  - analyzed
+  - alerted
+  transitions:
+  - from: recorded
+    to: analyzed
+    event: analyze
+  - from: analyzed
+    to: alerted
+    event: breach
+    note: 触发阈值告警
+  data_schema:
+    usage_kind:
+      required: true
+      type: string
+      description: 用量种类（input/output/total）
+    model_name:
+      required: false
+      type: string
+      description: 模型名
+    token_count:
+      required: true
+      type: int
+      description: token 数量
+    threshold_breached:
+      required: false
+      type: string
+      description: 突破的阈值名
+    session_ref:
+      required: false
+      type: string
+      description: 关联会话
+l7_cognitive_state:
+  description: P3-15 L7 认知态（承接 core/l7_cognitive.py，核心目标）
+  default_state: dormant
+  states:
+  - dormant
+  - observing
+  - synthesizing
+  - committed
+  transitions:
+  - from: dormant
+    to: observing
+    event: wake
+  - from: observing
+    to: synthesizing
+    event: synthesize
+  - from: synthesizing
+    to: committed
+    event: commit
+    note: 认知结论定稿写入
+  - from: committed
+    to: observing
+    event: reobserve
+    note: 新证据触发再观察
+  data_schema:
+    cognitive_domain:
+      required: true
+      type: string
+      description: 认知域
+    belief_snapshot:
+      required: false
+      type: object
+      description: 信念快照
+    revision:
+      required: false
+      type: int
+      description: 修订代数
+    contradiction_resolved:
+      required: false
+      type: boolean
+      description: 矛盾是否已消解
