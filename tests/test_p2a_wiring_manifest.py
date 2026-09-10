@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import random
+import tempfile
 
 import pytest
 
@@ -142,6 +143,32 @@ class TestAssembleSemantics:
         wired = assemble(_make_ctx(engine))
         assert engine.audit_collector is not None
         assert len(wired) == 55
+
+    def test_overrides_state_phase_also_injectable(self):
+        """P2.d: overrides 对 state 条目同样生效。
+
+        assemble 的 override 检查先于工厂调用，对所有 phase 天然成立 ——
+        state 字面量不需要专门的 parameterize 改造即可注入。
+        """
+        engine = _bare_engine()
+        sentinel = object()
+        wired = assemble(_make_ctx(engine), overrides={"_model_router": sentinel})
+        assert engine._model_router is sentinel
+        assert "_model_router" in wired
+
+    def test_real_engine_wiring_overrides_end_to_end(self):
+        """P2.d: QueryEngine(wiring_overrides=...) 公开接缝端到端。
+
+        注入实例必须原样出现在真实引擎上（flaky 修复即依赖此契约）。
+        """
+        from pathlib import Path
+
+        from lingclaude.core.query_engine import QueryEngine
+        from lingclaude.core.token_monitor import TokenMonitor
+
+        monitor = TokenMonitor(db_path=Path(tempfile.mkdtemp()) / "m.db")
+        eng = QueryEngine(wiring_overrides={"_monitor": monitor})
+        assert eng._monitor is monitor
 
 class TestParityWithRealEngine:
     @pytest.fixture()

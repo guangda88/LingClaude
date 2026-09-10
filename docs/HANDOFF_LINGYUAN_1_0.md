@@ -133,8 +133,15 @@ E4 是幻想门面而非仅未注入）。
 
 ## 九、P2.a 已落地 + 会话尾部状态（2026-09-10 第二段会话收尾对齐）
 
-- **P2.a 地基已提交**（`467c52e`）：`lingclaude/core/wiring.py` manifest + 12 契约测试全绿。
-  **下一步：P2.b** — QueryEngine.__init__ 装配段替换为消费 WIRING_MANIFEST（契约测试即回归网）
+- **P2.a 地基已提交**（`467c52e`）：`lingclaude/core/wiring.py` manifest + 契约测试全绿。
+- **P2.b 装配收敛已提交**（`4a319b7`）：__init__ 装配段 → assemble(WIRING_MANIFEST)，
+  主干 83→16 行。复核修复（`1230517`）：g1 白名单换血/g3 基线 340/config 环境隔离。
+- **P2.c seam 已提交**（`e098bcd`）：assemble(overrides) + QueryEngine(wiring_overrides=)，
+  29 collaborator 全部无 patch 可替换；契约 16 项。
+- **P2.d 收官已提交**（本提交）：flaky 修复（test_optimization_integration 两用例注入
+  隔离 monitor db，消除与真实 token_monitor.db 的并发竞态）+ 2 个新契约
+  （state 条目可注入 / 真实引擎端到端）——overrides 先于工厂调用、全 phase 天然生效，
+  无需专门 parameterize 改造。**P2 阶段至此完成。下一步：P3（见 §三 计划）**
 - **提交提速三件套已生效**（本会话前半）: 豁免+后台补偿复核(日志已修为
   `<commit>-<时间戳>` 独立留痕, -n cap 4 防 INTERNALERROR) / -n nproc / pre-push 全量门禁。
   实测: 豁免提交 3~4s(原 900s 超时被杀)。慢测试排除清单待空闲时段 --durations 基线

@@ -1,6 +1,7 @@
 """Integration tests for GLM token optimization components."""
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 from lingclaude.core.query_engine import QueryEngine
@@ -96,13 +97,11 @@ class TestOptimizationIntegration:
 
     def test_monitor_can_record_token_usage(self):
         """Verify monitor can record token usage."""
-        engine = QueryEngine()
-
-        # Get initial stats
-        stats_before = engine._monitor.get_daily_stats()
-        initial_tokens = stats_before.total_tokens
-
-        # Record usage
+        # P2.c seam 实战：注入隔离 monitor（独立 SQLite），消除全量并发
+        # 与真实 db ~/.lingclaude/token_monitor.db 的共享状态竞态
+        engine = QueryEngine(wiring_overrides={
+            "_monitor": TokenMonitor(db_path=Path(tempfile.mkdtemp()) / "monitor.db"),
+        })
         engine._monitor.record_usage(
             model="GLM_4_7",
             task_type="code_generation",
@@ -113,9 +112,9 @@ class TestOptimizationIntegration:
 
         # Verify usage increased
         stats_after = engine._monitor.get_daily_stats()
-        assert stats_after.total_tokens == initial_tokens + 1000, "Token count should increase by 1000"
-        assert stats_after.input_tokens == stats_before.input_tokens + 600, "Input tokens should increase by 600"
-        assert stats_after.output_tokens == stats_before.output_tokens + 400, "Output tokens should increase by 400"
+        assert stats_after.total_tokens == 1000, "Token count should be 1000"
+        assert stats_after.input_tokens == 600, "Input tokens should be 600"
+        assert stats_after.output_tokens == 400, "Output tokens should be 400"
 
     def test_integration_workflow(self):
         """Test end-to-end workflow with all optimizations."""
@@ -209,10 +208,10 @@ class TestOptimizationDataflow:
 
     def test_aggregator_to_monitor_dataflow(self):
         """Verify aggregated task usage is monitored."""
-        engine = QueryEngine()
-
-        # Get initial stats
-        stats_before = engine._monitor.get_daily_stats()
+        # P2.c seam 实战：同上，隔离 db 消除并发竞态
+        engine = QueryEngine(wiring_overrides={
+            "_monitor": TokenMonitor(db_path=Path(tempfile.mkdtemp()) / "monitor.db"),
+        })
 
         # Add multiple tasks
         for i in range(3):
@@ -236,4 +235,4 @@ class TestOptimizationDataflow:
 
         # Verify batch usage was tracked
         stats_after = engine._monitor.get_daily_stats()
-        assert stats_after.total_tokens == stats_before.total_tokens + 5000, "Batch usage should be tracked"
+        assert stats_after.total_tokens == 5000, "Batch usage should be tracked"

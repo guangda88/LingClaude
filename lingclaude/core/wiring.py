@@ -309,7 +309,7 @@ def assemble(
     先行场景请用 __new__ 裸引擎自行调 assemble，见契约测试 _bare_engine）。
 
     P2.c seam (2026-09-10): overrides 让任意协作者属性可注入替换实例
-    （attr -> 实例），命中条目跳过工厂构造 —— 全部 collaborator 无需 patch
+    （attr -> 实例），命中条目跳过工厂构造 —— 全部协作者（含 state 条目）无需 patch
     内部即可替换，这是装配层暴露给测试/宿主的标准接缝。
     """
     wired: list[str] = []
