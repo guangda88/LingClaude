@@ -43,6 +43,7 @@ from lingclaude.core.task_manager import TaskSnapshot as TaskSnapshot  # noqa: F
 from lingclaude.core.skill_index import SkillIndex
 from lingclaude.core.role_separation import create_lingclaude_role_separation
 from lingclaude.core.l5_conversation_loop import L5ConversationLoop
+from lingclaude.core.wiring import WiringContext, assemble  # P2.b: 装配收敛至 WIRING_MANIFEST
 
 # 灵元测试薄主干 (TestCase 契约)
 import sys as _sys
@@ -150,74 +151,19 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         model_provider: Any | None = None,
         runtime: Any | None = None,
     ) -> None:
+        # P2.b: 主干三件套之外的全部装配（55 项）收敛至 WIRING_MANIFEST（core/wiring.py）。
+        # 不变式：新增协作者 = manifest 加一行，本文件 diff 为 0；
+        # 装配语义与原逐字赋值版本逐项对齐（回归网：tests/test_p2a_wiring_manifest.py）。
         self.config = config or QueryEngineConfig()
         self.session_manager = session_manager or SessionManager()
         self.session_id: str = uuid4().hex[:16]
-        self._messages: list[str] = []
-        self._conversation: list[tuple[str, str]] = []
-        self._denials: list[PermissionDenial] = []
-        self._usage = UsageSummary()
-        self._transcript: list[str] = []
-        self._provider = model_provider
-        self._runtime = runtime
-        self._behavior = BehaviorMetrics()
-        self._project_index: dict[str, Any] = {}
-        self._model_config: Any = None
-        self._journal_dir: Any = None  # R5: journal dir override (tests use tmp_path)
-        self._model_router: Any = None
-        self._intel_collector = IntelCollector()
-        self._intel_relay: IntelRelay | None = None
-        self._session_history_path: Path = Path("data/session_history.json")
-        self._notifier = MailboxNotifier()
-        self._session_persister = SessionPersister(self)
-        self._session_runtime = SessionRuntime(self)
-        self._router = IntelligentRouter()
-        self._task_router = TaskRouter()
-        self._tool_router: ToolRouter = create_default_router()
-        self._mcp_initialized: bool = False
-        self._cache = ContextCache(cache_size=100, ttl_hours=24)
-        self._aggregator = TaskAggregator(max_group_size=5)
-        self._monitor = TokenMonitor()
-        self._prior_verifier = PriorVerifier()
-        self._meta_cognition = MetaCognition()
-        self._layered_memory = LayeredMemory()
-        self._active_checkpoint: Path | None = None
-        self._session_cache_hits: int = 0
-        self._dementia_detector = DementiaDetector()
-        self._cognitive_rhythm = CognitiveRhythm()
-        self._tool_call_count: int = 0
-        self._hooks = HookManager()
-        self._total_messages_sent: int = 0
-        self._l1_last_triggered_at: int = -1
-        self._l1_handover_checksum: str = ""
-        self._degradation_detector = DegradationDetector()
-        self._degradation_alerts: list[DegradationAlert] = []
-        self._task_manager = TaskManager()
-        # T0-4: 接入 SkillIndex（skill match 用于 prompt 预处理）
-        self._skill_index = SkillIndex()
-        # T0-4: 删除 MemoryEngine 死接线（无消费者）
-        self._memory_engine = None
-        self._role_checker = create_lingclaude_role_separation()
-        self._l5_loop = L5ConversationLoop(l5_session_id=self.session_id)
-        self._l5_orchestrator: Any = None  # lazy init
-        # Pinned model (bypasses TaskRouter)
-        self._pinned_model_config: Any = None
-        self._pinned_model_expires: float = 0.0
-        # LINGKERNEL_v1 D3: 拆包模块注入 (dsh spine 对位)
-        from lingclaude.core.session_store import SessionStore
-        from lingclaude.core.model_adapter import ModelAdapter
-        from lingclaude.core.audit_collector import AuditCollector
-        from lingclaude.core.model_request_log import ModelRequestLog, Mv1Violation
-        self.session_store = SessionStore(self.session_manager, self.session_id)
-        self.model_adapter = ModelAdapter(self._provider)
-        self.audit_collector = AuditCollector()
-        self.model_request_log = ModelRequestLog()
-        from lingclaude.core.tool_executor import ToolExecutor
-        self._tool_executor = ToolExecutor(self)
-        # T3-3 瘦身: 工具调用执行（并行/顺序分流 + 写冲突降级）拆至独立执行器
-        self._tool_call_executor = ToolCallExecutor(self)
-        # T1-3 深化: 并行冲突检测 — 写工具序列化锁（防止并发写冲突）
-        self._write_lock = threading.Lock()
+        ctx = WiringContext(
+            engine=self,
+            session_manager=self.session_manager,
+            provider=model_provider,
+            runtime=runtime,
+        )
+        assemble(ctx)
         # T0-7: 工具错误 → ON_ERROR hook（ToolPipeline error listener 接线，原先定义无触发点）
         if self._runtime is not None:
             _pipeline = getattr(self._runtime, "tool_pipeline", None)
@@ -230,8 +176,6 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
                         error_message=error_msg,
                     ))
                 _pipeline.add_error_listener(_on_tool_error)
-        # D8: 结构化违规记录 (灵信 L-b 按 seq 归因)
-        self._mv1_violations: list[Mv1Violation] = []
         self._load_session_state()
 
     def init_mailbox(self, mailbox: Any) -> None:

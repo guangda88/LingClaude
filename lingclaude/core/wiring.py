@@ -7,8 +7,9 @@ engine / session_manager / provider。
 不变式（P2 验收口径）：
 - 新增协作者 = manifest 加一行，query_engine.py 主干 diff 为 0
 - 装配语义与原 __init__ 逐字对齐（phase/note 记录迁移依据）
-- 本 commit 只做基座：QueryEngine 暂仍走自身 __init__，行为零变化
-  （P2.b 再把 __init__ 的装配段替换为消费本 manifest）
+- P2.b 已完成：QueryEngine.__init__ 装配段收敛为 assemble(WIRING_MANIFEST)，
+  主干仅保留构造三件套（config/session_manager/session_id）+ T0-7 运行时
+  监听接线 + _load_session_state()。回归网：tests/test_p2a_wiring_manifest.py
 
 phase 三值语义：
 - collaborator  类实例协作者（29 项）——真正的插片候选，P2.c 起逐个转 seam
@@ -34,6 +35,8 @@ class WiringContext:
         engine: 正在装配的 QueryEngine 实例（协作者普遍持有引擎引用）。
         session_manager: 会话管理器（源自 QueryEngine 构造参数）。
         provider: 模型 provider（源自 QueryEngine 构造参数）。
+        runtime: 运行时（可选）；T0-7 工具管线监听接线在 __init__ 主干消费它，
+            manifest 中 _runtime 条目仅存档注入。
     """
 
     engine: Any
@@ -297,8 +300,9 @@ def _make_usage() -> Any:
 def assemble(ctx: WiringContext, manifest: tuple[WiringSpec, ...] = WIRING_MANIFEST) -> list[str]:
     """按 manifest 装配 engine 属性，返回实际装配的属性名列表。
 
-    顺序无关（条目互不依赖）；已存在属性默认跳过（preserve 语义，便于
-    测试注入先行），strict=True 时冲突抛错。
+    条目顺序无关（互不依赖）；每次装配无条件覆写目标属性（P2.b 语义：
+    __init__ 每次实例化都需全新装配，覆写与逐字赋值版本等价；测试注入
+    先行场景请用 __new__ 裸引擎自行调 assemble，见契约测试 _bare_engine）。
     """
     wired: list[str] = []
     for spec in manifest:
