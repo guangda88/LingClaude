@@ -75,6 +75,16 @@ class ToolExecutor:
         except json.JSONDecodeError:
             return json.dumps({"error": f"Invalid JSON arguments: {arguments_json}"}, ensure_ascii=False)
 
+        # 防御：模型偶发把参数包成 list（如 [{"path": ...}]），解包首元素；
+        # 仍非 mapping 则直接返回结构化错误，避免 **kwargs 展开时 TypeError 崩溃。
+        if isinstance(kwargs, list) and kwargs and isinstance(kwargs[0], dict):
+            kwargs = kwargs[0]
+        if not isinstance(kwargs, dict):
+            return json.dumps(
+                {"error": f"Tool arguments must be a JSON object, got {type(kwargs).__name__}: {arguments_json[:200]}"},
+                ensure_ascii=False,
+            )
+
         if name == "read" and "path" in kwargs:
             try:
                 content, cache_hit = self._engine._cache.read_file(kwargs["path"])
@@ -104,7 +114,8 @@ class ToolExecutor:
             result_str = json.dumps(result, ensure_ascii=False, default=str)
             return self._prune_output(result_str)
         except Exception as e:
-            logger.warning("Tool execution failed: %s.%s -> %s", name, kwargs.keys(), e)
+            kw_desc = kwargs if isinstance(kwargs, dict) else str(kwargs)[:120]
+            logger.warning("Tool execution failed: %s.%s -> %s", name, kw_desc, e)
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
     def _execute_mcp_tool(self, name: str, kwargs: dict[str, Any]) -> str:
