@@ -151,6 +151,14 @@ E4 是幻想门面而非仅未注入）。
 - ⚠ **并发会话提示**：19:38 起工作区出现未跟踪文件 `lingclaude/core/state_store.py`
   （外部会话进行中工作，触发 g3 守卫 +1 与死模块守卫 7 名指控；排除该文件后
   守卫回基线）。多代理同仓作业时，守卫红灯先分清归属再动手
+- ⚠ **l7_hook 两测失败归因（20:40 三重取证，非 P3.2 回归）**：
+  `test_agenda_role_overlap_blocks`/`test_governance_boundary_violation_blocks`
+  在干净 worktree（6ee3abf，我任何提交之前）同样失败 → 与 P3.2 代码无关；
+  20:07 `lingclaude/data/approvals.json` 被改为 `{"mode":"auto"}`（并发会话活跃期），
+  pytest 经 subprocess 全链路走 hook 时 check_role_boundary 未被挂载（审计日志
+  只有 inject 三条），而同机手动同参调用却正确 BLOCK（20:36:23 审计在案）——
+  运行时状态被外部会话改变所致。修复归属：改变 approvals.json 的会话。
+  直调 RoleConflictChecker.check_role_boundary 逻辑本身正确（重叠→拦截）
 - **提交提速三件套已生效**（本会话前半）: 豁免+后台补偿复核(日志已修为
   `<commit>-<时间戳>` 独立留痕, -n cap 4 防 INTERNALERROR) / -n nproc / pre-push 全量门禁。
   实测: 豁免提交 3~4s(原 900s 超时被杀)。慢测试排除清单待空闲时段 --durations 基线
