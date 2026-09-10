@@ -149,8 +149,11 @@ def _make_tool_router(ctx: WiringContext) -> Any:
 
 def _make_cache(ctx: WiringContext) -> Any:
     from lingclaude.core.context_cache import ContextCache
+    from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled
 
-    return ContextCache(cache_size=100, ttl_hours=24)
+    # P3.2 双写试点：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
+    sink = LingMemoryCacheBridge() if dualwrite_enabled() else None
+    return ContextCache(cache_size=100, ttl_hours=24, memory_sink=sink)
 
 
 def _make_aggregator(ctx: WiringContext) -> Any:

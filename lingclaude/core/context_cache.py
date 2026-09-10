@@ -13,6 +13,7 @@ import logging
 import sys
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from typing import Any
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -60,13 +61,18 @@ class CacheStats:
 
 
 class ContextCache:
-    """上下文缓存"""
+    """上下文缓存
+
+    P3.2 双写：可选 memory_sink（如 LingMemoryCacheBridge）旁路镜像
+    到灵忆；sink 不传则行为与历史版本逐字节一致（V3 旁路不侵主路）。
+    """
 
     def __init__(
         self,
         cache_size: int = 100,
         ttl_hours: int = 24,
         db_path: str | Path | None = None,
+        memory_sink: Any = None,
     ):
         """初始化缓存
 
@@ -74,9 +80,14 @@ class ContextCache:
             cache_size: 最大缓存文件数
             ttl_hours: 缓存过期时间（小时）
             db_path: 数据库路径
+            memory_sink: P3.2 灵忆双写旁观者，可选；要求实现
+                on_store(file_path, file_hash, content, read_count,
+                first_read_at, last_read_at) 与 on_evict(file_path)。
+                旁路事件：主路侧兜底吞一切 sink 异常，SQLite 零影响
         """
         self.cache_size = cache_size
         self.ttl_hours = ttl_hours
+        self.memory_sink = memory_sink
 
         if db_path is None:
             db_path = Path.home() / ".lingclaude" / "context_cache.db"
@@ -229,6 +240,17 @@ class ContextCache:
             self._memory_cache.popitem(last=False)
         self._memory_cache[file_path] = entry
 
+        # P3.2 旁路双写：主路兜底吞异常（旁路永不侵主路，不依赖 sink 自律）
+        if self.memory_sink is not None:
+            self._notify_store(
+                file_path=file_path,
+                file_hash=file_hash,
+                content=content,
+                read_count=entry.read_count,
+                first_read_at=entry.first_read_at,
+                last_read_at=entry.last_read_at,
+            )
+
         return content, False
 
     def _update_read_count(self, file_path: str) -> None:
@@ -251,6 +273,21 @@ class ContextCache:
         safe_commit(conn)
         conn.close()
 
+    def _notify(self, method: str, **kwargs: Any) -> None:
+        """P3.2 旁路双写统一入口：主路兜底吞异常（旁路永不侵主路）"""
+        try:
+            getattr(self.memory_sink, method)(**kwargs)
+        except Exception as e:  # noqa: BLE001 — 旁路故障只记日志
+            logger.warning("memory_sink.%s 失败（已忽略）: %s", method, e)
+
+    def _notify_store(self, **kwargs: Any) -> None:
+        if self.memory_sink is not None:
+            self._notify("on_store", **kwargs)
+
+    def _notify_evict(self, file_path: str) -> None:
+        if self.memory_sink is not None:
+            self._notify("on_evict", file_path=file_path)
+
     def invalidate(self, file_path: str | None = None) -> None:
         """使缓存失效
 
@@ -272,6 +309,8 @@ class ContextCache:
             # 移除指定文件的缓存
             if file_path in self._memory_cache:
                 del self._memory_cache[file_path]
+
+            self._notify_evict(file_path)
 
             conn = safe_connect(self.db_path)
             cursor = conn.cursor()
@@ -302,10 +341,11 @@ class ContextCache:
         safe_commit(conn)
         conn.close()
 
-        # 从内存缓存中移除
+        # 从内存缓存中移除 + 旁路通知双写
         for file_path in expired_files:
             if file_path in self._memory_cache:
                 del self._memory_cache[file_path]
+            self._notify_evict(file_path)
 
         return len(expired_files)
 
