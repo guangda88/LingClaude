@@ -22,9 +22,5 @@ __all__ = [
     "GlmRetryPolicy",
     "is_rate_limit_error",
 ]
-
-def create_hybrid_provider(api_provider: ModelProvider) -> ModelProvider:
-    from lingclaude.model.local_provider import LocalModelProvider
-    from lingclaude.model.hybrid_router import HybridRouterProvider
-    local = LocalModelProvider()
-    return HybridRouterProvider(local_provider=local, api_provider=api_provider)
+# E3(灵元1.0 P1): create_hybrid_provider 已从主干导出摘除——无业务调用方的死插片。
+# hybrid_router/local_provider 保留源码(实验态), P2 manifest 定夺去留。

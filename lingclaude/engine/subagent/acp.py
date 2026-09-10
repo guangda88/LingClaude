@@ -4,13 +4,19 @@
 本模块提供最小 ACP 客户端: POST /session + POST /message + GET /message.
 真实网络层可用 requests/httpx; 未安装时返回明确错误(与现有"未配置 runtime"错误一致).
 T1-6 深化: 支持 parallel 并行 + control_channel 状态跟踪.
+
+E5(灵元1.0 P1): 摘除默认端点 http://127.0.0.1:8901——manager 启动即自动注册本后端,
+原默认值导致请求打到无服务端口、ConnectionRefused 被吞进 FAILED 结果,全程无告警
+("静默空转")。现端点必须显式 AcpConfig(endpoint=...) 或 set_endpoint() 注入,
+未配置时 run() 告警并 fail-closed。
 """
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lingclaude.engine.subagent.base import (
@@ -21,10 +27,13 @@ from lingclaude.engine.subagent.base import (
     SubagentStatus,
 )
 
+logger = logging.getLogger("lingclaude.engine.subagent.acp")
+
 
 @dataclass(frozen=True)
 class AcpConfig:
-    endpoint: str = "http://127.0.0.1:8901"
+    # E5: 空串=未配置。原默认 http://127.0.0.1:8901 是静默空转根源, 已摘除。
+    endpoint: str = ""
     api_key: str | None = None
     timeout_s: int = 60
     # 是否对结果做截断, 防止超长输出撑爆上下文
@@ -41,6 +50,17 @@ class AcpSubagentBackend(SubagentBackend):
         # T1-6: 控制通道
         self._running: dict[str, dict] = {}
         self._lock = threading.Lock()
+        # E5: 未配置告警每实例只发一次
+        self._unconfig_warned = False
+
+    def set_endpoint(self, endpoint: str, api_key: str | None = None) -> None:
+        """E5: 显式端点注入(AcpConfig frozen, 经 dataclasses.replace 重建)。"""
+        self._config = replace(
+            self._config,
+            endpoint=endpoint,
+            api_key=api_key if api_key is not None else self._config.api_key,
+        )
+        self._unconfig_warned = False
 
     # ------------------------------------------------------------------
     # HTTP transport (可替换)
@@ -84,6 +104,22 @@ class AcpSubagentBackend(SubagentBackend):
     # Backend contract
     # ------------------------------------------------------------------
     def run(self, request: SubagentRequest, ctx: SubagentContext) -> SubagentResult:
+        # E5: 端点未配置 → 告警 + fail-closed, 终结静默空转
+        if not self._config.endpoint:
+            if not self._unconfig_warned:
+                logger.warning(
+                    "ACP backend 端点未配置: 请 AcpConfig(endpoint=...) 或 set_endpoint(); "
+                    "已拒绝空转(原默认 127.0.0.1:8901 已摘除)"
+                )
+                self._unconfig_warned = True
+            return SubagentResult(
+                agent_id=f"acp-{uuid.uuid4().hex[:8]}",
+                task=request.task,
+                output="",
+                success=False,
+                error="ACP endpoint 未配置——请显式 set_endpoint() 或 AcpConfig(endpoint=...)",
+                status=SubagentStatus.FAILED,
+            )
         # T1-6: 并行执行
         if request.parallel > 1:
             return self._run_parallel(request, ctx)

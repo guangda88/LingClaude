@@ -190,7 +190,10 @@ class GovernanceEngine:
         title: str,
         body: str = "",
         deadline_hours: float = 1.0,
+        notify: bool = True,
     ) -> ProposalV2:
+        # E4(灵元1.0 P1): notify=False 供机器路由使用——完全跳过通知路径，
+        # 不触发 bus 属性的灵信自动连接（此前仅测试提案静默，机器提案无开关）。
         if proposal_id in self.proposals:
             raise ValueError(f"提案 {proposal_id} 已存在")
 
@@ -207,7 +210,9 @@ class GovernanceEngine:
         self._save()
         logger.info("提案已创建: %s (爆破半径=%s)", proposal_id, proposal.blast_analysis.risk_level)
         self.lifecycle.create(proposal_id, deadline_hours=deadline_hours)
-        if not _is_test_proposal(proposer, title):
+        if not notify:
+            logger.info("跳过机器提案通知 (notify=False): %s", proposal_id)
+        elif not _is_test_proposal(proposer, title):
             self._notify_new_proposal(proposal)
         else:
             logger.info("跳过测试提案通知: %s (proposer=%s, title=%s)", proposal_id, proposer, title)

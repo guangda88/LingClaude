@@ -1,0 +1,68 @@
+# D1 (灵元1.0 P1): 最小 CI — 离线三层, 全部本地演练过才上
+# 设计原则: hermetic 优先。全量 pytest 有网络依赖(真实治理状态目录/LLM端点),
+# 故第一版不跑全量, 只跑: ①全量编译 ②ruff 真bug类(F821/F811) ③导入冒烟
+# ④tests/unit 定向单测(continue-on-error 观察1-2周再决定是否转必过)。
+# 本地演练命令(2026-09-10 全绿):
+#   python3 -m compileall lingclaude -q
+#   ruff check lingclaude --select F821,F811
+#   python3 -c "import lingclaude.engine.coding, lingclaude.core.config"
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  compile:
+    name: 全量编译
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: compileall
+        run: python -m compileall lingclaude -q
+
+  lint:
+    name: ruff 真 bug 类检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pipx install ruff
+      - name: F821 undefined / F811 redefined
+        run: ruff check lingclaude --select F821,F811
+
+  smoke:
+    name: 导入冒烟
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Smoke import (无三方依赖模块)
+        run: |
+          python -c "import lingclaude; print('lingclaude OK')"
+
+  unit:
+    name: 定向单测 (观察期)
+    runs-on: ubuntu-latest
+    continue-on-error: true # 观察期: hermetic 边界未完全确认, 先看红绿再转必过
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: pytest tests/unit
+        run: python -m pytest tests/unit -q -p no:cacheprovider

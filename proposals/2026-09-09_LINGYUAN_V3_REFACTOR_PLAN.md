@@ -128,6 +128,19 @@
 ### P1 补丁尸体清偿（3 天，纯删除/接线）
 B1-B4 双轨合一 · E3/E4/E5 死插片三连处置（E4=注入真引擎或 engine 必填） · C3/C4 文档修订 · D1 CI 上线 · C5 红灯逐条销账
 
+> **P1 处置实录（2026-09-10 第一波完工，以本实录为准）**
+> - **B1 ✅删除**（coding.py 924→888 行，零调用方）
+> - **B2 →P2**：实况与计划不符——bash.py(native) 与 bash_lingxi.py 双双注册在用，非死轨；合一动主干，按计划本身归 P2
+> - **B3 重新定性**：llm_proxy 并非"在用双 retry"，是**未接线子系统**（主干零调用仅自测试）；已加 B3 定性标注于 `model/llm_proxy/__init__.py`，接线/归档留 P2 manifest
+> - **E3 ✅摘导出**：`create_hybrid_provider` 移出 `model/__init__`，hybrid_router/local_provider 标 EXPERIMENTAL 保留（10 个有效测试在覆盖），物理删除留 P2
+> - **E4 ✅接真机**：比文档更糟的实况——Router 是"幻想门面"（propose/vote/resolve 等转发到引擎上不存在的方法）。已重写：propose 接真 GovernanceEngine、vote/resolve 显式 NotImplementedError、状态三接口按真实字段接线；`governance_v2.create_proposal` 新增 notify 开关（机器路由默认灵信零触碰，防止 bus 属性惰性连总线轰炸议会）
+> - **E5 ✅终结空转**：默认 8901 摘除、set_endpoint 显式注入、未配置 fail-closed+告警去重
+> - **C3 ✅重建索引**：AGENTS.md 6 断链→2 真实文件（原文件 git 历史即无，疑从未入库）
+> - **C4 ✅三处勘误**：atomcode compaction 实存（42 个 rust 文件）、路径应为 atomcode-src、DSH 实测 248 包
+> - **C5 部分收口**：IP 红灯实为 loopback 合法默认值（最近审计 l0_findings 已空，E5 顺手消灭 8901 残留）；**app.py 复杂度 347 留 P4**（拆消费者时自然归零）
+> - **D1 ✅上线**：`.github/workflows/ci.yml` 四 job（compileall / ruff F821,F811 / smoke import / tests/unit 定向单测观察期），全层本地演练绿；全量 pytest 因网络依赖不上 CI，hermetic 边界留待观察期确认
+> - 波及面验证：175 passed / 2 skipped / 0 failed；新增 1 个环境守卫 skip（libtorch_cuda 沙箱映射失败，stash 基线证实非回归）
+
 ### P2 倒转装配（1-2 周，结构债主攻）
 QueryEngine 30 对象 → wiring manifest 注入 · CodingRuntime 10 mixin → manifest 工具组 · A4 sys.path.insert → LACP seam · E6 七处倒装 → seam 化 · api.py 门面第一步瘦身 · **验收硬线：主干 ≤5,000 行 + 新增"hello provider"插片演练 0 主干改动**
 

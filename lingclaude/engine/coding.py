@@ -706,7 +706,6 @@ class CodingRuntime(
 
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         # LINGKERNEL_v1 #2: 5 段 pipeline (pre-execute -> guards -> execute -> post -> finalize)
-        # 旧 inline 实现保留为 _execute_tool_legacy, pipeline 透传原有校验逻辑
         def _pre_write_verify(tool_name: str, file_path: Any, content: Any) -> tuple[bool, str]:
             if not self.verification_gate.enabled:
                 return True, ""
@@ -807,42 +806,6 @@ class CodingRuntime(
             result.setdefault("denial_circuit_breaker", self._denial_abort_log)
             self._denial_abort_log = None
         return result
-
-    def _execute_tool_legacy(self, name: str, **kwargs: Any) -> dict[str, Any]:
-        if self.permissions.blocks(name):
-            return {"error": f"Tool blocked by permissions: {name}"}
-
-        rate = self.verification_gate.check_rate_limit()
-        if not rate.passed:
-            return {"error": f"[安全限制] {rate.error}"}
-
-        if name in WRITE_SCOPED_TOOLS and self.verification_gate.enabled:
-            file_path = kwargs.get("path") or kwargs.get("file_path")
-            content = kwargs.get("content") or kwargs.get("new_text") or kwargs.get("new_body")
-            pre = self.verification_gate.verify(name, file_path=file_path, content=content)
-            if not pre.passed:
-                return {"error": f"[验证关卡] 写入被阻止: {pre.error}", "verification": {"passed": False, "checks": [c for c in pre.checks if not c.get("passed", True)]}}
-
-        if name in CRITICAL_TOOLS:
-            command = kwargs.get("command", "")
-            dangerous_patterns = ("rm -rf /", "mkfs", "dd if=", "> /dev/sd", "chmod 777 /", ":(){:|:&};:")
-            for pat in dangerous_patterns:
-                if pat in command:
-                    return {"error": f"[安全限制] 危险命令被阻止: 含有 '{pat}'"}
-
-        result = self.registry.execute(name, **kwargs)
-        if result.is_error:
-            return {"error": result.error}
-        data = result.data
-
-        if name in WRITE_SCOPED_TOOLS and self.verification_gate.enabled:
-            file_path = kwargs.get("path") or kwargs.get("file_path")
-            if file_path:
-                post = self.verification_gate.verify_post_write(file_path)
-                if not post.passed:
-                    return {"error": f"[验证关卡] 写入后验证失败: {post.error}", "verification": {"passed": False, "checks": [c for c in post.checks if not c.get("passed", True)]}}
-
-        return data if isinstance(data, dict) else {"result": data}
 
     def analyze(self, target: str = ".") -> dict[str, Any]:
         self.evaluator = StructureEvaluator(target)

@@ -1,3 +1,5 @@
+"""[EXPERIMENTAL - E3 灵元1.0 P1] LocalModelProvider: 主干无业务调用方的死插片, 仅测试引用。P2 manifest 定夺去留。
+"""
 from __future__ import annotations
 
 import logging

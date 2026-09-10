@@ -11,7 +11,7 @@
 
 | 维度 | lingclaude | AtomCode | DSH (deepseek-harness) |
 |---|---|---|---|
-| **语言/架构** | Python, monorepo 单进程 | Rust 1.88+, Cargo workspace, 14 crates | TypeScript, Cordis 插件架构, ~50 packages |
+| **语言/架构** | Python, monorepo 单进程 | Rust 1.88+, Cargo workspace, 14 crates | TypeScript, Cordis 插件架构, 219 packages【C4勘误2026-09-09：实测现库248包】 |
 | **定位** | 灵族工程执行者（自省/治理/协作） | 终端 AI coding agent（对标 Claude Code/Cursor） | DeepSeek 官方 harness，一切皆插件 |
 | **核心理念** | 自知→自觉→自决→进化；元认知守卫 H1-H17；LACP 治理 | 100% AI 生成，人类仅决策；Multi-provider OpenAI 兼容 | 时空可组合编程范式；capability seam；一切皆可选 |
 | **成熟度** | v0.3.0, 1508 tests | v5.0.3 | developer preview |
@@ -38,7 +38,7 @@
 
 | 能力 | lingclaude | AtomCode | DSH |
 |---|---|---|---|
-| 上下文压缩 | ✅ `context_compression.py` | ❌ (Rust crate 未见) | ✅ `compaction` + `compaction-basic` |
+| 上下文压缩 | ✅ `context_compression.py` | ✅ 实存于 atomcode-tuix/cli（`CompactionStarted` 事件+auto-compaction）【C4勘误2026-09-09：原判"未见"系未检出 atomcode-src】 | ✅ `compaction` + `compaction-basic` |
 | **工具结果裁剪** | ❌ | ❌ | ✅ `compaction-tool-result-pruner` |
 | **上下文缓存** | ✅ `context_cache.py` | ❌ | ⚠️ session scope |
 | 分层记忆 | ✅ `layered_memory.py` (Emotion/Working/Common) | ⚠️ `kernel/memory/store.rs` | ⚠️ session-transcript |
@@ -241,7 +241,7 @@
 ## 附录 A — 参考文档
 
 - DSH subsystems: `/home/ai/deepseek-harness/docs/subsystems/` (49 个 .md)
-- AtomCode crates: `/home/ai/atomcode/crates/` (14 个)
+- AtomCode crates: `/home/ai/atomcode-src/crates/` (14 个)【C4勘误2026-09-09：原路径 /home/ai/atomcode/ 不存在】
 - 灵克代码: `/home/ai/lingclaude/lingclaude/`
 
 ## 附录 B — 工具数量统计
