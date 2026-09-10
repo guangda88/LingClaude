@@ -130,3 +130,13 @@ E4 是幻想门面而非仅未注入）。
    tail 管道会吞退出码，汇总行以落盘文件为准
 5. **AGENTS.md 权限 444**：属主是 ai 本身，`chmod u+w` 即解，改完恢复
 6. **edit 工具自动留 .bak**：每次 edit 后 `find . -name "*.bak"` 清扫
+
+## 九、P2.a 已落地 + 会话尾部状态（2026-09-10 第二段会话收尾对齐）
+
+- **P2.a 地基已提交**（`467c52e`）：`lingclaude/core/wiring.py` manifest + 12 契约测试全绿。
+  **下一步：P2.b** — QueryEngine.__init__ 装配段替换为消费 WIRING_MANIFEST（契约测试即回归网）
+- **提交提速三件套已生效**（本会话前半）: 豁免+后台补偿复核(日志已修为
+  `<commit>-<时间戳>` 独立留痕, -n cap 4 防 INTERNALERROR) / -n nproc / pre-push 全量门禁。
+  实测: 豁免提交 3~4s(原 900s 超时被杀)。慢测试排除清单待空闲时段 --durations 基线
+- **未跟踪遗留**: `docs/SELF_OPT_READ_ROOTS.md`（read 白名单放宽提案, todo 624faa95,
+  pending, 施工期约束=不早于 P2.a 且不与 P1/P2 混栈——P2.a 已落地, 可排期）
