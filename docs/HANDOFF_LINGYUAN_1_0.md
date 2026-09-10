@@ -12,7 +12,7 @@
 | 唯一 flaky | `tests/unit/test_optimization_integration.py::test_monitor_can_record_token_usage`（并行隔离型，单跑必绿，勿当回归） |
 | todo 工具 | 内部报错不可用（`tuple indices must be integers`），用 git commit 序列代替任务追踪 |
 | 工作树 | 干净（仅 `workspace/better-harness` 子模块指针变动，可忽略） |
-| **P0 进度** | **P0.2 ✅ P0.3 ✅**（上会话中断遗留工作，本会话验证后补提交；P0.0/P0.1/P0.4/P0.5 待做） |
+| **P0 进度** | **P0.0→P0.5 全部 ✅**（42051ae / 4e5275c / 59c0582 / 2c5e189 / 1244685；2026-09-10 本会话逐项复核确认）。**下一步：P1 补丁尸体清偿**（见 §三） |
 
 ## ⚠ 一·五、收工协议（中断复盘产物，永久生效）
 
@@ -35,8 +35,9 @@
   `LING_AUDIT_FAST` 仅豁免钩子内全量测试，L0/L1/L2 审计+签名照常；
   **补偿控制 = 提交后独立全量 pytest**。`--no-verify` 不可用（post-commit
   tree_hash 配对会回滚）
-- **P0 进度**：P0.1 ✅（key 脱明文+解析链 8 tests）/ P0.2 ✅（5 tests）/
-  P0.3 ✅（12 tests）。**下一步：P0.0 已过门禁通读 → P0.4 架构守卫 → P0.5 垃圾清单**
+- **P0 进度**：P0.1/P0.2/P0.3（`42051ae`）+ P0.4/P0.5（`59c0582`/`2c5e189`/
+  `1244685`）**全部 ✅**。**下一步：P1 补丁尸体清偿**（B1-B4 双轨合一 /
+  E3-E5 死插片 / C3-C4 文档 / D1 CI / C5 红灯销账，详见 V3 计划 §五）
 
 ## 二、⚠ 环境铁律：urandom 垫片
 
@@ -54,7 +55,9 @@ export LD_PRELOAD=/home/ai/lingclaude/scripts/shim/urandom_shim.so
 
 ## 三、重构计划与执行顺序
 
-计划正文：`docs/AUDIT_7D_LINGYUAN.md` §五（V3）。按序执行：
+计划正文：`proposals/2026-09-09_LINGYUAN_V3_REFACTOR_PLAN.md` §五。
+⚠ 本行旧版曾错误指向 `docs/AUDIT_7D_LINGYUAN.md`（6 月审计灵元化笔记，无执行序）——
+这正是上会话"原地打转"的根因：按错误指引找不到 P1 路线。已修正。按序执行：
 
 1. **P0.0 门禁**：通读四份关键文件（V3 §七指定），确认无理解偏差
 2. **P0.1**：config.yaml 改 env/key_store 引用（key 已轮换，本步是引用方式收尾）
@@ -62,9 +65,12 @@ export LD_PRELOAD=/home/ai/lingclaude/scripts/shim/urandom_shim.so
    denial_abort 信号模型可见+消费即清零；`tests/test_p02_denial_circuit_breaker.py` 5/5 绿）
 4. ~~**P0.3**：mock fail-closed~~ ✅ 已完成（`fact_checker.py` 移除假阳性 mock，
    显式 RuntimeError+修复指引；`tests/test_fact_checker.py` 12/12 绿）
-5. **P0.4**：架构守卫（防 E 类倒装复发）
-6. **P0.5**：根目录垃圾清单逐项确认后删除（`.write_test`、`tmp/`、
-   `tmp_regex_gap_test.py`——已随快照入库，删除可随时从锚点找回）
+5. ~~**P0.4**~~ ✅ 已完成（`59c0582`：架构守卫 5 条——白名单只缩不放 /
+   sys.path.insert / lazy import / dict-判错基线 / 截断写入检测）
+6. ~~**P0.5**~~ ✅ 已完成（`2c5e189` 垃圾 3 项删除 + `1244685` 版本统一
+   0.6.0-lingyuan 三处一致）
+7. **P1（下一站）**：补丁尸体清偿——B1-B4 双轨合一 / E3-E5 死插片三连处置
+   （E4=注入真引擎或 engine 必填）/ C3-C4 文档修订 / D1 CI 上线 / C5 红灯销账
 
 ## 四、TUI 插片方案（重构内嵌项）
 
