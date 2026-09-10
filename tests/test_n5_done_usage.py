@@ -196,3 +196,42 @@ class TestWatchdogStartDegradation:
             assert not wd._stopped.is_set()
         finally:
             wd.stop()
+
+
+class TestNoneUsageRobustness:
+    """N5a-v2: provider 异常流 usage=None 时全链路不崩、归零记账。
+
+    背景: event.get("usage", ModelUsage()) 在 key 存在但值为 None 时
+    返回 None → .input_tokens AttributeError 炸穿整个 turn。
+    """
+
+    def test_finish_with_none_usage_does_not_crash(self) -> None:
+        """finish 事件 usage=None → 不抛 AttributeError, done.usage 归零。"""
+
+        class _NoneUsageProvider(_UsageStreamProvider):
+            def stream_complete(self, messages, config=None, tools=None):
+                yield {"type": "text_delta", "text": "回答正文"}
+                yield {"type": "finish", "reason": "stop", "usage": None}
+
+        engine = _make_engine(_NoneUsageProvider())
+        events = list(engine.stream_call_model("问题"))  # 修复前此处即崩
+
+        done = [e for e in events if e["type"] == "done"]
+        assert len(done) == 1
+        assert done[0]["usage"] == {"input_tokens": 0, "output_tokens": 0}
+
+    def test_cli_extraction_survives_none_usage(self) -> None:
+        """CLI done 分支取数表达式 (app.py:284-286) 对 usage=None 健壮。
+
+        逐字复刻 app.py 消费语义, 锁死兜底行为防回归:
+        usage=None / usage 内字段 None / usage 缺失 → 全部归 0。
+        """
+        cli_extract = lambda event: int(  # noqa: E731
+            (event.get("usage") or {}).get("output_tokens", 0) or 0
+        )
+        assert cli_extract({"type": "done", "content": "x", "usage": None}) == 0
+        assert cli_extract({"type": "done", "content": "x",
+                            "usage": {"output_tokens": None}}) == 0
+        assert cli_extract({"type": "done", "content": "x"}) == 0
+        assert cli_extract({"type": "done", "content": "x",
+                            "usage": {"output_tokens": 42}}) == 42

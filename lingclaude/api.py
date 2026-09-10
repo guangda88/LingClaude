@@ -877,3 +877,14 @@ def _analyze_dir(path: Path, focus: str) -> dict:
 def run_server(host: str = "127.0.0.1", port: int = 8700):  # nosec B104 — 默认本地绑定
     import uvicorn
     uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+if __name__ == "__main__":
+    # N6-fix: python -m lingclaude.api 现在真正启动 server (此前缺 __main__ 块)
+    import argparse
+
+    _parser = argparse.ArgumentParser(description="灵克 HTTP API (端口 8700)")
+    _parser.add_argument("--host", default="127.0.0.1", help="绑定地址 (默认 127.0.0.1)")
+    _parser.add_argument("--port", type=int, default=8700, help="绑定端口 (默认 8700)")
+    _args = _parser.parse_args()
+    run_server(host=_args.host, port=_args.port)

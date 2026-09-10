@@ -421,8 +421,11 @@ class ModelCallMixin:
                         )
                         round_tool_calls.append(tc)
                     elif event["type"] == "finish":
-                        total_input += event.get("usage", ModelUsage()).input_tokens
-                        total_output += event.get("usage", ModelUsage()).output_tokens
+                        # N5a-v2: usage key 存在但值为 None 时 .get 默认值不生效,
+                        # 显式 or 兜底, 防 provider 异常流炸穿整个 turn
+                        usage = event.get("usage") or ModelUsage()
+                        total_input += usage.input_tokens
+                        total_output += usage.output_tokens
                     elif event["type"] == "error":
                         stream_error = event["error"]
 
