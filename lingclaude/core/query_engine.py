@@ -149,6 +149,7 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         session_manager: SessionManager | None = None,
         model_provider: Any | None = None,
         runtime: Any | None = None,
+        wiring_overrides: dict[str, Any] | None = None,  # P2.c seam: 协作者注入接缝
     ) -> None:
         # P2.b: 主干三件套之外的全部装配（55 项）收敛至 WIRING_MANIFEST（core/wiring.py）。
         # 不变式：新增协作者 = manifest 加一行，本文件 diff 为 0；
@@ -162,7 +163,7 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
             provider=model_provider,
             runtime=runtime,
         )
-        assemble(ctx)
+        assemble(ctx, overrides=wiring_overrides)
         # T0-7: 工具错误 → ON_ERROR hook（ToolPipeline error listener 接线，原先定义无触发点）
         if self._runtime is not None:
             _pipeline = getattr(self._runtime, "tool_pipeline", None)

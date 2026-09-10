@@ -297,15 +297,27 @@ def _make_usage() -> Any:
     return UsageSummary()
 
 
-def assemble(ctx: WiringContext, manifest: tuple[WiringSpec, ...] = WIRING_MANIFEST) -> list[str]:
+def assemble(
+    ctx: WiringContext,
+    manifest: tuple[WiringSpec, ...] = WIRING_MANIFEST,
+    overrides: dict[str, Any] | None = None,
+) -> list[str]:
     """按 manifest 装配 engine 属性，返回实际装配的属性名列表。
 
     条目顺序无关（互不依赖）；每次装配无条件覆写目标属性（P2.b 语义：
     __init__ 每次实例化都需全新装配，覆写与逐字赋值版本等价；测试注入
     先行场景请用 __new__ 裸引擎自行调 assemble，见契约测试 _bare_engine）。
+
+    P2.c seam (2026-09-10): overrides 让任意协作者属性可注入替换实例
+    （attr -> 实例），命中条目跳过工厂构造 —— 全部 collaborator 无需 patch
+    内部即可替换，这是装配层暴露给测试/宿主的标准接缝。
     """
     wired: list[str] = []
     for spec in manifest:
+        if overrides and spec.attr in overrides:
+            setattr(ctx.engine, spec.attr, overrides[spec.attr])
+            wired.append(spec.attr)
+            continue
         setattr(ctx.engine, spec.attr, spec.factory(ctx))
         wired.append(spec.attr)
     return wired

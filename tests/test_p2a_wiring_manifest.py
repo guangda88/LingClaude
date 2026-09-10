@@ -127,6 +127,22 @@ class TestAssembleSemantics:
         assert isinstance(engine._usage, UsageSummary)
 
 
+    def test_overrides_inject_skips_factory(self):
+        """P2.c seam: overrides 命中的属性直接注入，工厂不执行（无 patch 接缝）。"""
+        engine = _bare_engine()
+        sentinel = object()
+        wired = assemble(_make_ctx(engine), overrides={"audit_collector": sentinel})
+        assert engine.audit_collector is sentinel
+        assert "audit_collector" in wired  # 仍在装配报告内
+        assert "session_store" in wired    # 未 override 的条目照常装配
+
+    def test_overrides_none_keeps_default_semantics(self):
+        """overrides=None（默认）与 P2.b 覆写语义完全一致。"""
+        engine = _bare_engine()
+        wired = assemble(_make_ctx(engine))
+        assert engine.audit_collector is not None
+        assert len(wired) == 55
+
 class TestParityWithRealEngine:
     @pytest.fixture()
     def real_engine(self):
