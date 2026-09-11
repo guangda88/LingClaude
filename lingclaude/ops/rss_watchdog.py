@@ -9,24 +9,49 @@
   挂点与 N5a 相同 — _record_long_task_metrics 收尾点, 每轮采样一次:
     - 首轮建基线
     - 增长 ≥500MB → WARNING（一次, 基线重置到当前值重新观测）
-    - 绝对值 ≥1000MB → ERROR + LingBus 告警（一次, 基线同步重置）
+    - 绝对值 ≥ 有效硬限 → ERROR + LingBus 告警（一次, 基线同步重置）
   基线重置语义: 报警后以当前值为新基线, 避免稳态泄漏场景每轮重复轰炸。
+  硬限动态下界: max(默认硬限, 基线+增长线) — 高基线会话（实测常驻 553MB）
+  下静态硬限 1000MB 先于增长线 1053MB 触发, WARNING 沦为死代码、首告即 ERROR;
+  加下界后有效硬限恒 ≥ 增长线触发点（消除倒挂, 只升不降、绝对帽语义不变）;
+  单步大跳可能同轮双触发（硬限确实被击穿, 行为合理）。
 
 设计约束: best-effort 全程吞异常 — 可观测性组件不得破坏主流程。
 """
 from __future__ import annotations
 
 import logging
+import os
 
 from lingclaude.coordination.alert import send_lingbus_alert
 
 _logger = logging.getLogger(__name__)
 
 # 阈值（MB）: 增长告警 / 绝对值硬限（opencode 建议 500MB 告警线）
-GROWTH_WARN_MB = 500
-RSS_HARD_LIMIT_MB = 1000
+# env 覆盖: LINGCLAUDE_RSS_GROWTH_WARN_MB / LINGCLAUDE_RSS_HARD_LIMIT_MB（整数 MB, 非法值静默回退默认 — best-effort）
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+
+
+GROWTH_WARN_MB = _env_int("LINGCLAUDE_RSS_GROWTH_WARN_MB", 500)
+RSS_HARD_LIMIT_MB = _env_int("LINGCLAUDE_RSS_HARD_LIMIT_MB", 1000)
 # 基线表上限（防长进程多会话泄漏）: 超限淘汰最早插入的会话
 _MAX_BASELINES = 256
+
+
+def _effective_hard_limit_mb(baseline_mb: int) -> int:
+    """有效硬限 = max(绝对硬限, 基线+增长线)。
+
+    高基线会话下静态硬限可能先于增长线触发（分级倒挂）;
+    动态下界保证 ERROR 阈值恒不低于 WARNING 阈值, 只升不降。
+    基线未知(<=0)回退静态值。
+    """
+    if baseline_mb <= 0:
+        return RSS_HARD_LIMIT_MB
+    return max(RSS_HARD_LIMIT_MB, baseline_mb + GROWTH_WARN_MB)
 
 _LINGBUS_ALERT_SUBJECT = "[N6守卫] 会话 RSS 异常"
 
@@ -72,8 +97,10 @@ def check_rss_growth(
             _BASELINES.pop(next(iter(_BASELINES)))
         return findings
 
-    growth = current_mb - _BASELINES[key]
-    hard = current_mb >= RSS_HARD_LIMIT_MB
+    baseline = _BASELINES[key]
+    growth = current_mb - baseline
+    effective_hard = _effective_hard_limit_mb(baseline)
+    hard = current_mb >= effective_hard
 
     if growth >= GROWTH_WARN_MB:
         line = f"RSS 增长 {growth}MB（基线 {_BASELINES[key]}→{current_mb}）≥{GROWTH_WARN_MB}MB"
@@ -87,7 +114,7 @@ def check_rss_growth(
         _ALERTED.discard((key, "hard"))  # 增长回落后允许硬限重新评估
 
     if hard and (key, "hard") not in _ALERTED:
-        line = f"RSS 绝对值 {current_mb}MB ≥{RSS_HARD_LIMIT_MB}MB 硬限"
+        line = f"RSS 绝对值 {current_mb}MB ≥{effective_hard}MB 硬限"
         findings.append(f"ERROR: {line}")
         _logger.error("[N6] %s", line)
         _ALERTED.add((key, "hard"))

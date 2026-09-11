@@ -51,8 +51,12 @@ def test_growth_at_threshold_warns_once_and_resets():
 
 
 def test_hard_limit_error_and_alert():
+    # 高基线下有效硬限 = max(绝对帽, 基线+增长线): 基线 950 → 抬到 1450
+    # (旧静态行为 1000 即 ERROR, 先于增长线 — 分级倒挂, 已由动态下界修复)
     rw.check_rss_growth("s1", 950)
-    out = rw.check_rss_growth("s1", 1000)
+    assert rw.check_rss_growth("s1", 1449) == []  # 倒挂回归: 早于 WARNING 的 ERROR 不得存在
+    out = rw.check_rss_growth("s1", 1450)         # growth(+500) 与 hard 同轮, 单步大跳双触发
+    assert any(x.startswith("WARNING") for x in out)
     assert any(x.startswith("ERROR") for x in out)
 
 
@@ -96,5 +100,32 @@ def test_check_rss_watchdog_end_to_end(monkeypatch):
     monkeypatch.setattr(rw, "sample_rss_mb", lambda *a, **k: 2000)
     out = rw.check_rss_watchdog("se2e")
     assert out == []  # 首轮=基线
+    monkeypatch.setattr(rw, "sample_rss_mb", lambda *a, **k: 2600)
     out2 = rw.check_rss_watchdog("se2e")
+    # +600 → WARNING; 有效硬限 max(1000, 2000+500)=2500 → 同轮 ERROR
+    assert any(x.startswith("WARNING") for x in out2)
     assert any(x.startswith("ERROR") for x in out2)
+
+
+def test_absolute_cap_preserved_low_baseline():
+    # 低基线: 绝对帽 1000 仍是硬限（动态下界只抬高不降低）
+    rw.check_rss_growth("s1", 100)
+    out = rw.check_rss_growth("s1", 1000)
+    assert any(x.startswith("ERROR") for x in out)
+    assert "≥1000MB" in out[-1]  # 文案报有效硬限
+
+
+def test_effective_hard_limit_floor_semantics():
+    assert rw._effective_hard_limit_mb(100) == 1000   # max(1000, 600) 绝对帽主导
+    assert rw._effective_hard_limit_mb(553) == 1053   # 实测常驻基线场景, 恰为增长触发点
+    assert rw._effective_hard_limit_mb(2000) == 2500  # 高基线抬高
+    assert rw._effective_hard_limit_mb(0) == rw.RSS_HARD_LIMIT_MB  # 未知基线回退静态
+
+
+def test_env_int_fallback(monkeypatch):
+    monkeypatch.setenv("LINGCLAUDE_TEST_INT", "abc")
+    assert rw._env_int("LINGCLAUDE_TEST_INT", 7) == 7   # 非法回退
+    monkeypatch.setenv("LINGCLAUDE_TEST_INT", "42")
+    assert rw._env_int("LINGCLAUDE_TEST_INT", 7) == 42  # 合法生效
+    monkeypatch.delenv("LINGCLAUDE_TEST_INT", raising=False)
+    assert rw._env_int("LINGCLAUDE_TEST_INT", 7) == 7   # 未设回退
