@@ -21,7 +21,7 @@ CORE_ENGINE_WHITELIST = [
     "core/mcp_tools.py:12",
     "core/mcp_tools.py:64",
     "core/mcp_tools.py:122",
-    "core/wiring.py:146",
+    "core/wiring.py:147",
     "core/tool_call_executor.py:77",
     "core/tool_executor.py:13",
 ]
@@ -31,7 +31,7 @@ BASELINE_SYS_PATH = 14
 # 344 (2026-09-10): P3 state_store.py 新增 4 个工厂函数内 import（StateBackend 协议 + 两后端 + StateStore）
 # 350 (2026-09-10): P3 lingmemory_bridge.py 懒加载 _get_lingmemory + wiring.py 微调
 # 351 (2026-09-10): P3 wiring.py 新增 _make_state_store 工厂函数
-BASELINE_LAZY = 351
+BASELINE_LAZY = 351  # 2026-09-11: d6666f8 漏记 +2（wiring 装配点），修复上提模块级回 351
 BASELINE_DICT_ERR = 52
 
 

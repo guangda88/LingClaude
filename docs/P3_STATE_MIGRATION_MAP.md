@@ -30,6 +30,21 @@
 > **无装配点**：wiring.py:_memory_engine 为死槽位（T0-4 移除接线，槽位保留），
 > 本件属 schema-first 迁移——先铺镜像通路，待 memory_engine 上岗时零改动可用。
 
+> **P3.3 第三件（2026-09-11）**：#15 l7_cognitive 五写点双写已完成——
+> `lingclaude/core/lingmemory_l7_bridge.py`（type=l7_state，registry **schema-first
+> 补扩 P3-14**：上会话"1778 已预扩"系误记，实测 1681 后直接 proposal_lifecycle）
+> + `CognitiveStore(legacy_sink=...)` + `L7Cognitive(legacy_sink=...)` 直通
+> （facade 无注入口，本件补）+ `_emit` 三件同款重入卫兵，
+> put_memory/doc/glossary/edge/log_session_event 五写点全镜像。
+> 镜像语义：default_state=active（cool/rewarm/archive 留 P3.x 后续件）；
+> anchor=origin:entry_key 复合去重，首写为准；edge 双锚
+> origin_id=src->tgt:rel × entry_key=src->rel->tgt（与主路 f-string 一致）。
+> 已知限制：L7 引擎同步段（l7_memory.py best-effort）不在镜像范围；
+> **本件顺手修三桥共有缺陷**：_lookup_active 在 _lm=None 时短路放弃查询，
+> "跨重启续接"从未真正生效 → _ensure_lm 模块不可用才放弃（熔断测试同步
+> 改行为级断言）。**无装配点**：l7_cognitive 当前无 wiring 接线（bridge 亦
+> 无消费者），承第二件 schema-first 先例，通路铺好待上岗。
+
 ## 一、盘点方法
 
 扫描 `lingclaude/` 全部 `.py`（排除 tests/dist/__pycache__），特征计分：

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled  # P3.2
+from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink  # P3.3 模块级（g3 守卫基线 351 内化，勿放函数内）
 
 
 @dataclass(frozen=True)
@@ -185,13 +186,10 @@ def _make_meta_cognition(ctx: WiringContext) -> Any:
 
 def _make_layered_memory(ctx: WiringContext) -> Any:
     from lingclaude.core.layered_memory import LayeredMemory
-    from lingclaude.core.lingmemory_bridge import dualwrite_enabled
-    from lingclaude.core.lingmemory_experience_bridge import (
-        LingMemoryExperienceSink,
-    )
 
     # P3.3 双写：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
     # （与 P3.2 context_cache 同一开关、同一纪律；主路默认零依赖）
+    # dualwrite_enabled / LingMemoryExperienceSink 已在模块级导入（g3 纪律）
     sink = LingMemoryExperienceSink() if dualwrite_enabled() else None
     return LayeredMemory(memory_sink=sink)
 

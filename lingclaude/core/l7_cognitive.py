@@ -247,15 +247,35 @@ class CognitiveStore:
     降级策略: L7 存储引擎 (l7_memory.py) 不可用时，独立运行于本地 SQLite。
     """
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        legacy_sink: Any | None = None,
+    ) -> None:
         if db_path is None:
             root = Path(__file__).parent.parent.parent / ".lingclaude"
             root.mkdir(parents=True, exist_ok=True)
             db_path = str(root / "l7_cognitive.db")
         self._db_path = str(db_path)
         self._conn: sqlite3.Connection | None = None
+        # P3.3 旁路：put_* 镜像旁观者（认知条目双写灵忆），主路默认零依赖
+        self._legacy_sink = legacy_sink
+        self._in_sink_emit = False
         self._init_db()
         self._l7_available = self._try_load_l7()
+
+    def _emit(self, method: str, *args: object) -> None:
+        """旁路事件派发：永不抛异常，永不递归（P3.3 第一件同款纪律）"""
+        sink = getattr(self, "_legacy_sink", None)
+        if sink is None or self._in_sink_emit:
+            return
+        self._in_sink_emit = True
+        try:
+            getattr(sink, method)(*args)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("legacy_sink.%s 失败（已忽略）: %s", method, e)
+        finally:
+            self._in_sink_emit = False
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -298,6 +318,16 @@ class CognitiveStore:
              mem.created_at, mem.updated_at, mem.access_count),
         )
         safe_commit(conn)
+
+        # P3.3 双写旁观者（return 前、L7 引擎同步前）
+        self._emit("on_memory", {
+            "origin": "memory",
+            "origin_id": mem.id,
+            "entry_key": mem.key,
+            "summary": str(mem.value)[:500] if mem.value is not None else "",
+            "importance": int(mem.importance),
+            "tier": mem.tier.value,
+        })
 
         # 同步到 L7 存储引擎 (如果可用)
         if self._l7_available and self._l7_store:
@@ -427,6 +457,15 @@ class CognitiveStore:
              doc.project, doc.created_at),
         )
         safe_commit(conn)
+
+        # P3.3 双写旁观者（return 前）
+        self._emit("on_doc", {
+            "origin": "doc",
+            "origin_id": doc.id,
+            "entry_key": doc.path,
+            "summary": f"{doc.title}: {doc.summary}"[:500],
+            "project": doc.project,
+        })
         return doc.id
 
     def search_docs(self, query: str, top_k: int = 5, project: str = "") -> list[DocIndex]:
@@ -470,6 +509,15 @@ class CognitiveStore:
              term.source_thread, term.created_at),
         )
         safe_commit(conn)
+
+        # P3.3 双写旁观者（return 前）
+        self._emit("on_glossary", {
+            "origin": "glossary",
+            "origin_id": term.id,
+            "entry_key": term.term,
+            "summary": f"{term.term}: {term.definition}"[:500],
+            "aliases": list(term.aliases),
+        })
         return term.id
 
     def lookup_glossary(self, term: str) -> GlossaryTerm | None:
@@ -510,6 +558,14 @@ class CognitiveStore:
             (edge.source_id, edge.target_id, edge.relation, edge.context),
         )
         safe_commit(conn)
+
+        # P3.3 双写旁观者
+        self._emit("on_edge", {
+            "origin": "edge",
+            "origin_id": f"{edge.source_id}->{edge.target_id}:{edge.relation}",
+            "entry_key": f"{edge.source_id}->{edge.relation}->{edge.target_id}",
+            "summary": str(edge.context)[:500],
+        })
 
     def get_neighbors(self, node_id: str, depth: int = 1) -> dict:
         """BFS 知识图谱遍历"""
@@ -588,6 +644,15 @@ class CognitiveStore:
             (session_id, event, summary, time.time()),
         )
         safe_commit(conn)
+
+        # P3.3 双写旁观者
+        self._emit("on_session_log", {
+            "origin": "session_log",
+            "origin_id": f"{session_id}:{event}:{time.time()}",
+            "entry_key": f"{session_id}:{event}",
+            "summary": str(summary)[:500],
+            "ts": time.time(),
+        })
 
     def get_session_log(self, session_id: str, limit: int = 20) -> list[dict]:
         conn = self._get_conn()
@@ -801,8 +866,12 @@ class L7Cognitive:
         cog.stop_session("session-123", "我决定用 DeepSeek 模型", "好的...")
     """
 
-    def __init__(self, db_path: str | Path | None = None) -> None:
-        self.store = CognitiveStore(db_path)
+    def __init__(
+        self,
+        db_path: str | Path | None = None,
+        legacy_sink: Any | None = None,
+    ) -> None:
+        self.store = CognitiveStore(db_path, legacy_sink=legacy_sink)
         self.hooks = SessionHooks(self.store)
         self.classifier = MessageClassifier()
 

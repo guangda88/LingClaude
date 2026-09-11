@@ -133,14 +133,17 @@ class TestBypassDiscipline:
     def test_bridge_fuse_on_failure(self, lm_pair, monkeypatch):
         store, sink, _ = lm_pair
 
+        calls = []
+
         def _boom(exp_dict):
+            calls.append(exp_dict)
             raise ValueError("灵忆写失败")
 
         monkeypatch.setattr(sink, "_lm_create", _boom)
         store.store(_mk_exp())
         assert sink._broken is True   # 熔断
         assert store.store(_mk_exp()) is not None  # 主路继续
-        assert sink._lm is None       # 熔断后不再触灵忆
+        assert len(calls) == 1        # 熔断后不再重试 _lm_create（行为级断言）
 
     def test_recursive_store_guard(self, lm_pair):
         """sink 内再触发同一 store 不递归（_in_sink_emit 卫兵）"""

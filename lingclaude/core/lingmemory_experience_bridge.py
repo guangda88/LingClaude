@@ -99,10 +99,20 @@ class LingMemoryExperienceSink:
     # ------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------
+    def _ensure_lm(self) -> bool:
+        """懒初始化灵忆实例；模块不可用返回 False（旁路纪律：不抛）"""
+        if self._lm is None:
+            LingMemory = _get_lingmemory()
+            if LingMemory is None:
+                return False
+            kwargs = {"db_path": self._db_path} if self._db_path else {}
+            self._lm = LingMemory(**kwargs)
+        return True
+
     def _lookup_active(self, exp_id: str) -> str | None:
         """按 experience_id 找灵忆侧 working record（跨重启续接状态机）"""
-        if self._lm is None:
-            return None  # 本进程尚未触灵忆，无从查询
+        if not self._ensure_lm():
+            return None  # lingmemory 不可用，无从查询
         items = self._lm.query(
             type=_LM_TYPE, state="working",
             data_filter={"experience_id": exp_id}, limit=1,
@@ -110,12 +120,8 @@ class LingMemoryExperienceSink:
         return items[0]["id"] if items else None
 
     def _lm_create(self, exp_dict: dict[str, Any]) -> str:
-        if self._lm is None:
-            LingMemory = _get_lingmemory()
-            if LingMemory is None:
-                raise RuntimeError("lingmemory 模块不可用")
-            kwargs = {"db_path": self._db_path} if self._db_path else {}
-            self._lm = LingMemory(**kwargs)
+        if not self._ensure_lm():
+            raise RuntimeError("lingmemory 模块不可用")
         # 必填字段：layer_of_origin（架构层归属）+ content
         content = " | ".join(
             f"{k}={exp_dict[k]}"

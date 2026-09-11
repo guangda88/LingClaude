@@ -142,14 +142,17 @@ class TestBypassDiscipline:
     def test_bridge_fuse_on_failure(self, ms_pair, monkeypatch):
         store, sink, _ = ms_pair
 
+        calls = []
+
         def _boom(*args, **kwargs):
+            calls.append(args)
             raise RuntimeError("lm down")
 
         monkeypatch.setattr(sink, "_lm_create", _boom)
         store.put_episode(_mk_episode())       # 触发首错 → 熔断
         assert sink._broken is True
         store.put_episode(_mk_episode(title="第二条"))  # 熔断后静默不再试
-        assert sink._lm is None                # 灵忆从未被真正触达
+        assert len(calls) == 1                 # 熔断后不再重试 _lm_create（行为级断言）
 
     def test_recursive_put_guard(self, ms_pair):
         store, sink, _ = ms_pair

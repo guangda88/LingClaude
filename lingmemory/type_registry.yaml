@@ -1851,3 +1851,51 @@ l7_cognitive_state:
       required: false
       type: boolean
       description: 矛盾是否已消解
+
+# ── P3.3 三件之三：L7 认知层双写灵忆（schema-first，2026-09-11 灵克补扩）──
+# 上会话"registry:1778 已预扩 l7_state"系误记（实测 1681 后直接 proposal_lifecycle），
+# 本件补扩。锚定 core/l7_cognitive.py 五个 CognitiveStore.put_* 写点。
+l7_state:
+  description: P3-14 L7 认知层条目（承接 core/l7_cognitive.py，P3.3 三件之三）
+  default_state: active
+  states:
+  - active
+  - cold
+  - archived
+  transitions:
+  - from: active
+    to: cold
+    event: cool
+    note: 低频冷却（importance 降级或长期未访问）
+  - from: cold
+    to: active
+    event: rewarm
+  - from: active
+    to: archived
+    event: archive
+    note: 归档留史
+  data_schema:
+    origin:
+      required: true
+      type: string
+      description: 来源子层 memory/doc/glossary/edge/session_log
+    origin_id:
+      required: true
+      type: string
+      description: 主路条目 id
+    entry_key:
+      required: false
+      type: string
+      description: 主路 key（记忆/术语）或 doc 路径
+    summary:
+      required: false
+      type: string
+      description: 内容摘要（人类可读）
+    importance:
+      required: false
+      type: int
+      description: 重要度 1-10
+    tier:
+      required: false
+      type: string
+      description: 分层 always/ondemand/triggered
