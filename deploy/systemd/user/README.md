@@ -9,6 +9,7 @@
 | `lingclaude-bus-poll.service` | LingBus 轮询快照（5min → /var/tmp） | `scripts/lingbus_poll_daemon.py` |
 | `lingclaude-daemon-watch.service` | 自优化 daemon 看护（300s 循环） | `lingclaude daemon watch --interval 300` |
 | `lingclaude-token-monitor.service` | token 遥测本地服务（13470 端口） | `token_monitor_service.py` |
+| `lingclaude-refactor-ledger.service` + `.timer` | P5 重构指标入册（10min 周期） | `scripts/refactor_metrics_daemon.py` |
 
 ## 安装
 

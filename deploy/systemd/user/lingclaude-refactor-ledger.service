@@ -1,0 +1,10 @@
+[Unit]
+Description=lingclaude refactor metrics ledger (P5 loop, 10min)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ai/lingclaude
+ExecStart=/usr/bin/python3 /home/ai/lingclaude/scripts/refactor_metrics_daemon.py
+Nice=10
+StandardOutput=journal
+StandardError=journal
