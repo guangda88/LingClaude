@@ -92,6 +92,53 @@ _READ_ACCESS_CMDS = frozenset({
 })
 
 
+# 复合命令拆分（与 bash.py._split_chain 同源语义）：按 && / || / ; / | / $() / ` 切子命令。
+# 修复 2026-09-12（codex 审计 P0-1）：此前只看整条命令第一个 token，
+# ``test -f ~/.ssh/config && cat ~/.ssh/config`` 首 token 是 metadata 命令被放行，
+# 后半段读敏感内容被绕过。现逐子命令独立判定意图，任一子命令读敏感 → 拦截。
+_COMMAND_CHAIN_SPLIT_RE = re.compile(r"[;|&]|\$\(")
+
+
+def _split_command_chain(command: str) -> list[str]:
+    """把复合命令拆成子命令段（保持顺序，trim 空白）。"""
+    parts = _COMMAND_CHAIN_SPLIT_RE.split(command)
+    out: list[str] = []
+    for p in parts:
+        p = p.strip()
+        # 去掉行尾命令替换残留（`...` / $() 已拆出）
+        p = p.rstrip("`")
+        if p:
+            out.append(p)
+    return out
+
+
+def _cmd_intent(cmd: str) -> str:
+    """判断子命令意图：metadata / read / unknown（未知按 fail-closed 保守拦截）。
+
+    - metadata：仅判断存在性/属性（test -f、ls 等）→ 放行，不读内容
+    - read：明确读取内容的命令（cat/base64/cp 等）→ 拦截
+    - unknown：未归类命令 → 保守拦截（安全优先）
+    """
+    tokens = cmd.split()
+    if not tokens:
+        return "metadata"  # 空段（如纯管道符）无操作
+    lead = tokens[0]
+    # 去路径前缀（/usr/bin/cat → cat）、引号、赋值前缀
+    lead_name = Path(lead.replace("\"", "").replace("'", "")).name
+    if "=" in lead_name and tokens[0] == lead:
+        # 形如 FOO=bar cat ... 的 env 赋值，跳到第一个非赋值 token
+        for t in tokens[1:]:
+            if "=" in t and t is tokens[1]:
+                continue
+            lead_name = Path(t.replace("\"", "").replace("'", "")).name
+            break
+    if lead_name in _METADATA_ACCESS_CMDS:
+        return "metadata"
+    if lead_name in _READ_ACCESS_CMDS:
+        return "read"
+    return "unknown"
+
+
 def check_sensitive_path(
     path_str: str,
     command: str | None = None,
@@ -106,13 +153,15 @@ def check_sensitive_path(
     if not is_sensitive_path(path_str):
         return False, None
 
-    # 有命令上下文时分级：metadata 操作（test -f / ls）放行，不读内容
+    # 有命令上下文时分级：逐子命令分析意图（修复 2026-09-12 P0-1 复合命令绕过）
     if command:
-        cmd_stripped = command.strip()
-        lead = cmd_stripped.split()[0] if cmd_stripped.split() else ""
-        lead_name = lead.replace("/", "").split(" ")[0]
-        if lead_name in _METADATA_ACCESS_CMDS:
-            return False, None
+        for sub in _split_command_chain(command):
+            intent = _cmd_intent(sub)
+            # 仅 metadata 子命令（test -f / ls）放行；read / unknown 一律拦截
+            if intent != "metadata":
+                return True, "访问敏感路径，需要审批"
+        # 全部子命令都是 metadata → 不读内容，放行
+        return False, None
 
     return True, "访问敏感路径，需要审批"
 

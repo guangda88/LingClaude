@@ -158,6 +158,7 @@ class ToolPipeline:
         rate_check: Callable[[], tuple[bool, str]] | None = None,
         pre_write_verify: Callable[[str, Any, Any], tuple[bool, str]] | None = None,
         post_write_verify: Callable[[str], tuple[bool, str]] | None = None,
+        rollback_callback: Callable[[str, dict[str, Any]], str | None] | None = None,
     ) -> dict[str, Any]:
         """5 段流水线主入口。
 
@@ -165,6 +166,9 @@ class ToolPipeline:
         rate_check: ()→ (passed, err_msg)
         pre_write_verify: (name, content, new_text)→ (passed, err_msg)
         post_write_verify: (file_path)→ (passed, err_msg)
+        rollback_callback: (tool_name, args)→ 回滚结果（None=回滚成功，str=回滚失败原因）。
+                          P1-2 (2026-09-12): 写工具 post-write 失败时自动 undo，
+                          返回「已回滚」的结构化结果，避免残留脏文件。
         """
         ctx = PipelineContext(name=name, args=args)
 
@@ -285,6 +289,16 @@ class ToolPipeline:
             if not passed:
                 ctx.aborted = True
                 ctx.abort_reason = f"[verify-post] {err}"
+                # P1-2 (2026-09-12): post-write 失败自动回滚 — 调用方传入
+                # rollback_callback 时执行 undo，避免残留脏文件；回滚结果附在错误里。
+                rollback_note = ""
+                if rollback_callback is not None:
+                    try:
+                        rb = rollback_callback(name, args)
+                        rollback_note = "已回滚" if rb is None else f"回滚失败: {rb}"
+                    except Exception as e:  # noqa: BLE001 — 回滚异常不掩盖主错误
+                        rollback_note = f"回滚异常: {e}"
+                    ctx.abort_reason += f" | {rollback_note}"
                 return self._error(ctx.abort_reason, ToolErrorCode.VERIFY_POST_FAILED)
 
         # === P0-2: output size pruning (tool result spill) ===

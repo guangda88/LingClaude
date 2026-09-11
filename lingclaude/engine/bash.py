@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import resource
 import shutil
+import signal
 import subprocess
 import time
 from dataclasses import dataclass
@@ -22,29 +24,25 @@ class SandboxUnavailableError(RuntimeError):
 
 
 # bwrap 可用性探测结果缓存（None=未探测，False=本环境不可用）
+# 2026-09-12（codex 审计 P0-3）：删除本模块独立探测——旧探测不带 --unshare-net，
+# 在 netns 受限环境会「探测通过、执行失败」。统一委托 sandbox_provider._bwrap_probe
+# （带 --unshare-net 与真实 wrap 一致，且返回 reason 供诊断）。消除二义性。
 _BWARP_PROBE_RESULT: bool | None = None
 
 
 def _bwrap_probe(bwrap: str) -> bool:
     """探测 bwrap 在本环境是否真正可用（一次性，结果缓存）。
 
-    本环境常见失败：uid map / net namespace 被禁（无特权容器），
-    此时 bwrap 即使存在也无法运行——必须降级，不能反复失败。
+    委托 sandbox_provider._bwrap_probe——与真实 wrap 使用完全一致的 flag 组合
+    （--ro-bind / + --unshare-net），避免「探测通过、真实执行失败」的二义性。
     """
     global _BWARP_PROBE_RESULT
     if _BWARP_PROBE_RESULT is not None:
         return _BWARP_PROBE_RESULT
     try:
-        # 修复:原探测命令在 merged-usr 系统(/bin -> usr/bin 符号链接)上自毁——
-        # 先绑 /usr 再绑 /bin 会用符号链接目标覆盖 /usr 内路径,execvp /bin/true
-        # 必然 ENOENT,导致沙箱被永远误判不可用。改为整根只读绑定。
-        r = subprocess.run(
-            [bwrap, "--ro-bind", "/", "/", "--", "/bin/true"],
-            capture_output=True,
-            timeout=5,
-        )
-        ok = r.returncode == 0
-    except Exception:
+        from lingclaude.engine.sandbox_provider import _bwrap_probe as _probe
+        ok, _reason = _probe(bwrap)
+    except Exception:  # noqa: BLE001 — 探测失败视为不可用
         ok = False
     _BWARP_PROBE_RESULT = ok
     return ok
@@ -57,6 +55,9 @@ class BashResult:
     stderr: str
     duration: float
     command: str
+    # 2026-09-12（codex 审计 P0-3）：降级显式化——bwrap 不可用时置 True，
+    # 供上层工具输出/审计可见（不再静默降级，只在日志 WARN）。
+    degraded: bool = False
 
     @property
     def success(self) -> bool:
@@ -220,6 +221,70 @@ def _is_output_modifier(sub: str) -> bool:
     return head in _OUTPUT_MODIFIER_PREFIXES
 
 
+# 危险 git 参数（可执行任意代码/指定远程程序，网络白名单命中时仍需拒绝）
+_GIT_DANGEROUS_PARAMS = (
+    "--upload-pack",
+    "--receive-pack",
+    "--exec",
+    "--config-env",
+    "-c ",  # git -c core.sshCommand='...' 可执行任意命令（含空格版本）
+    "-c=",
+    "--config=",
+    "--git-dir=",
+    "--work-tree=",
+    "--namespace=",
+)
+# 远程白名单（git push/fetch/pull/clone/ls-remote 的 remote 目标）
+# 空 = 不限制（保持向后兼容）；可配置时仅放行已登记的 remote。
+_ALLOWED_GIT_REMOTES: frozenset[str] = frozenset({"origin", "github", "upstream", "gh"})
+# 明确允许的 git 子命令（其余 git 子命令不放行网络）
+_GIT_NETWORK_SUBCOMMANDS = frozenset({"push", "fetch", "pull", "clone", "ls-remote", "remote"})
+
+
+def _git_network_safe(sub: str) -> bool:
+    """校验单个 git 网络子命令是否参数安全（P0-4 增强，2026-09-12）。
+
+    字符串前缀白名单无法挡住 ``git push --upload-pack='evil'`` 参数注入：
+    --upload-pack / --receive-pack / -c / --config-env 可让 git 远程端执行任意程序。
+    此处对 git 命中段做参数级校验——含危险参数或命令替换 → 不放行网络。
+    """
+    s = sub.lower()
+    # 命令替换（$() / `...`）在 _split_chain 已拆出独立段判定，此处再兜底
+    if "$(" in s or "`" in s:
+        return False
+    # 去透明前缀后取 git 子命令
+    toks = _strip_transparent_prefix(sub).split()
+    if not toks or toks[0].replace("/", "").rstrip(".") not in ("git", "git.exe"):
+        return False
+    # git remote（无子命令）→ 只读列出，安全
+    if len(toks) == 1:
+        return True
+    subcmd = toks[1]
+    if subcmd not in _GIT_NETWORK_SUBCOMMANDS:
+        return False
+    # 参数级校验：危险参数一律拒绝
+    for i, t in enumerate(toks):
+        if t in ("-c", "--upload-pack", "--receive-pack", "--exec", "--config-env"):
+            return False
+        if any(t.startswith(p) for p in _GIT_DANGEROUS_PARAMS):
+            return False
+    # remote 白名单（clone/ls-remote/push/fetch/pull 的目标）
+    if subcmd in ("push", "fetch", "pull", "clone", "ls-remote"):
+        for t in toks[2:]:
+            # 选项参数与重定向（2>&1 / >log / 1>>log）跳过
+            if t.startswith("-") or t.startswith(">") or (
+                len(t) >= 2 and t[0].isdigit() and t[1] in ">"
+            ):
+                continue
+            # 第一个非选项参数是 remote/url — 仅放行白名单内或 URL 形
+            if subcmd == "clone":
+                return True  # clone 的 URL 由用户显式指定，白名单难覆盖，保持放行（网络面=git 自身）
+            if _ALLOWED_GIT_REMOTES and t not in _ALLOWED_GIT_REMOTES and "://" not in t and "@" not in t:
+                return False
+            break
+    return True
+
+
 def _is_network_allowed(command: str) -> bool:
     """判断命令是否命中网络白名单（全链判定，仅 git 远程/认证类操作）。
 
@@ -260,6 +325,12 @@ def _is_network_allowed(command: str) -> bool:
         )
         if not hit:
             return False
+        # P0-4 增强 (2026-09-12): git 命中段再做参数级校验 —
+        # 防 `git push --upload-pack='evil'` / `git -c core.sshCommand=... push`
+        # 参数注入（字符串前缀白名单挡不住）。
+        if norm.split()[0].replace("/", "").rstrip(".") in ("git", "git.exe"):
+            if not _git_network_safe(sub):
+                return False
     return True
 
 
@@ -343,9 +414,12 @@ class BashExecutor:
         self.memory_limit = memory_limit
         self.cpu_limit = cpu_limit
         self.sandbox_policy = sandbox_policy
+        # 2026-09-12（codex 审计 P0-3）：降级显式化标记（每命令执行前复位）
+        self._last_degraded = False
 
     def run(self, command: str, timeout: int | None = None) -> BashResult:
         effective_timeout = timeout or self.timeout
+        self._last_degraded = False  # 2026-09-12：每次执行前复位降级标记
 
         blocked_reason = self._check_blocked(command)
         if blocked_reason:
@@ -371,6 +445,7 @@ class BashExecutor:
                     text=True,
                     timeout=effective_timeout,
                     cwd=self.working_dir,
+                    start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
                     preexec_fn=lambda: self._set_resource_limits(command),
                 )
             else:
@@ -382,6 +457,7 @@ class BashExecutor:
                     text=True,
                     timeout=effective_timeout,
                     cwd=self.working_dir,
+                    start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
                     preexec_fn=lambda: self._set_resource_limits(command),
                 )
             duration = time.monotonic() - start
@@ -407,6 +483,7 @@ class BashExecutor:
                     text=True,
                     timeout=effective_timeout,
                     cwd=self.working_dir,
+                    start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
                     preexec_fn=lambda: self._set_resource_limits(command),
                 )
                 duration = time.monotonic() - start
@@ -416,15 +493,25 @@ class BashExecutor:
                 stderr=result.stderr,
                 duration=duration,
                 command=command,
+                degraded=self._last_degraded,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as te:
             duration = time.monotonic() - start
+            # 2026-09-12 (P1-1): 超时真正取消 — start_new_session 建了新进程组，
+            # 这里 killpg 整组（含 bash 子进程），避免 daemon 线程/子进程残留。
+            try:
+                pgid = te.process.pid if te.process is not None else None
+                if pgid:
+                    os.killpg(pgid, signal.SIGKILL)
+            except Exception:  # noqa: BLE001 — killpg 失败仅记录（进程可能已退出）
+                pass
             return BashResult(
                 exit_code=124,
                 stdout="",
-                stderr=f"命令在 {effective_timeout}s 后超时",
+                stderr=f"命令在 {effective_timeout}s 后超时（已终止进程组）",
                 duration=duration,
                 command=command,
+                degraded=self._last_degraded,
             )
         except SandboxUnavailableError:
             # 重新抛出 — 配置错误，不应被吞为普通 exit_code=1
@@ -493,6 +580,9 @@ class BashExecutor:
                 "bwrap 不可用，bash 命令以非沙箱方式执行（黑名单+资源限制仍生效）: %s",
                 command[:80],
             )
+            # 2026-09-12（codex 审计 P0-3）：降级显式化 — 标记本次执行降级，
+            # run() 读取后写入 BashResult.degraded，工具输出/审计可见。
+            self._last_degraded = True
             return command
         allow_network = _is_network_allowed(command)
         return provider.wrap(

@@ -28,6 +28,11 @@ class MCPServerInfo:
     transport: str = "module"
     command: tuple[str, ...] = ()
     url: str | None = None
+    # 2026-09-12（codex 审计 P1-3）：可用性状态 — "available" | "unavailable"
+    # stdio 型 server 启动时检查 command[0] 是否在 PATH；不存在 → unavailable，
+    # 工具不暴露给模型（消除「假可用」死工具）。
+    status: str = "available"
+    status_reason: str | None = None
 
 
 @dataclass
@@ -63,6 +68,20 @@ def register_server(
     url: str | None = None,
     tool_schemas: dict[str, dict[str, Any]] | None = None,
 ) -> None:
+    """注册 MCP server。stdio 型启动时检查二进制是否在 PATH（P1-3 假可用修复）。"""
+    import shutil
+
+    status = "available"
+    status_reason: str | None = None
+    if transport == "stdio" and command:
+        bin0 = command[0]
+        if not shutil.which(bin0):
+            status = "unavailable"
+            status_reason = f"MCP server binary not found in PATH: {bin0}"
+            logger.warning(
+                "MCP server %s (%s) unavailable: %s",
+                key, name, status_reason,
+            )
     _SERVERS[key] = MCPServerInfo(
         key=key,
         name=name,
@@ -74,6 +93,8 @@ def register_server(
         command=tuple(command) if command else (),
         url=url,
         tool_schemas=tool_schemas or {},
+        status=status,
+        status_reason=status_reason,
     )
 
 
@@ -102,8 +123,11 @@ def find_server_with_conflicts(tool_name: str) -> tuple[MCPServerInfo | None, li
 
 
 def list_all_tools() -> tuple[str, ...]:
+    """列出所有可用工具（跳过 unavailable server，P1-3 假可用修复）。"""
     seen: set[str] = set()
     for info in _SERVERS.values():
+        if info.status == "unavailable":
+            continue
         for t in info.tools:
             seen.add(t)
     return tuple(sorted(seen))
@@ -257,6 +281,12 @@ def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
         return Result.fail(
             f"No server found for tool: {tool_name}",
             code="TOOL_NOT_FOUND",
+        )
+    # P1-3 (2026-09-12): 假可用修复 — 注册时已判 unavailable 的 server 拒绝调用
+    if server.status == "unavailable":
+        return Result.fail(
+            f"MCP server '{server.key}' unavailable: {server.status_reason or 'binary not found'}",
+            code="SERVER_UNAVAILABLE",
         )
 
     t0 = time.monotonic()

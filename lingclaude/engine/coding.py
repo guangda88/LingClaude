@@ -381,6 +381,24 @@ class CodingRuntime(
         store = get_permission_store(getattr(self.config, "session_id", "default"))
         return self._tool_blocked(tool_name, store, get_permission_mode())
 
+    def _auto_rollback_write(self, tool_name: str, args: dict[str, Any]) -> str | None:
+        """P1-2 (2026-09-12): post-write 验证失败自动回滚。
+
+        基于 file_edit 的 .bak undo 能力，覆盖 write/edit/file_create/
+        file_insert/file_delete_lines（均经 file_ops/file_edit 产生 .bak）。
+        返回 None=回滚成功；str=回滚失败原因。
+        """
+        path = args.get("path") or args.get("file_path")
+        if not path:
+            return f"无法回滚: 无 path 参数 (tool={tool_name})"
+        try:
+            result = self.file_edit.undo(str(path))
+            if result.is_error:
+                return f"undo 失败: {result.error}"
+            return None
+        except Exception as e:  # noqa: BLE001 — 回滚异常返回原因，不掩盖主错误
+            return f"undo 异常: {e}"
+
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         # LINGKERNEL_v1 #2: 5 段 pipeline (pre-execute -> guards -> execute -> post -> finalize)
         def _pre_write_verify(tool_name: str, file_path: Any, content: Any) -> tuple[bool, str]:
@@ -433,6 +451,9 @@ class CodingRuntime(
             rate_check=lambda: (rate_ok, rate_err),
             pre_write_verify=_pre_write_verify,
             post_write_verify=_post_write_verify,
+            # P1-2 (2026-09-12): post-write 验证失败自动回滚 — 基于 file_edit 的 .bak
+            # undo 能力（write/edit/file_create/file_insert/file_delete_lines 均走此回滚）。
+            rollback_callback=lambda n, a: self._auto_rollback_write(n, a),
         )
         # P0.2: 5b 熔断触发后把信号挂到本次工具结果上（模型可见），消费即清零,
         # 防止旧信号泄漏到后续无关调用。

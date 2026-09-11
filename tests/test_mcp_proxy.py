@@ -196,7 +196,9 @@ class TestInitFromLingflowRegistry:
         assert info is not None
         assert info.key == "lingyi"
         tools = list_all_tools()
-        assert len(tools) == 152
+        # P1-3 (2026-09-12): stdio server 二进制缺失时标记 unavailable，工具不暴露。
+        # lingflow-mcp 通常不在 PATH → 其工具被过滤；总数 ≤ 152（注册数）。
+        assert len(tools) <= 152
 
     def test_stats_after_init(self) -> None:
         from lingclaude.engine.mcp_proxy import init_from_lingflow_registry
@@ -205,7 +207,8 @@ class TestInitFromLingflowRegistry:
             pytest.skip("lingflow_plus not available")
         stats = get_stats()
         assert stats["total_servers"] >= 12
-        assert stats["total_tools"] == 152
+        # P1-3: 可用工具数 = 注册数 - unavailable server 的工具数
+        assert stats["total_tools"] <= 152
 
     def test_find_tool_across_servers(self) -> None:
         from lingclaude.engine.mcp_proxy import init_from_lingflow_registry
