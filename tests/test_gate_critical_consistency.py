@@ -73,11 +73,22 @@ def _src(p: Path) -> str:
 
 
 def test_pre_commit_consumes_constants_not_inline_tokens():
-    src = _src(REPO / ".git" / "hooks" / "pre-commit")
-    assert "CRITICAL_L1_TOKENS" in src, "pre-commit 必须引用单一事实源常量"
+    # 2026-09-12 (lefthook 接管) 修正：.git/hooks/pre-commit 是 lefthook wrapper，
+    # 不含业务逻辑；pre-commit 业务在 lefthook.yml 引用的 linggit/hooks/pre_commit.py
+    # （走 linggit/rules 规则集，不消费 CRITICAL_* 常量——那是 post-commit/audit 的事）。
+    # 本测试锁定：lefthook.yml 的 pre-commit 命令必须引用 linggit/hooks/pre_commit.py
+    # （防 wrapper 被替换后钩子静默失效），且 wrapper 本身不得内联 critical 令牌。
+    lf = REPO / "lefthook.yml"
+    assert lf.exists(), "lefthook.yml 必须存在（pre-commit 业务入口）"
+    src = lf.read_text(encoding="utf-8")
+    assert "linggit/hooks/pre_commit.py" in src, (
+        "lefthook.yml pre-commit 命令必须引用 linggit/hooks/pre_commit.py"
+    )
+    # 业务源头也禁止内联 critical 令牌（与 post-commit/audit 同源约束）
+    pre_src = _src(REPO / "linggit" / "hooks" / "pre_commit.py")
     for token in ("SHELL_INJECT", "SQL_INJECT", "PATH_TRAVERSE"):
-        assert f'"{token}"' not in src, (
-            f"pre-commit 重新内联了 {token} 判定 — 请改用 ling_audit_lib.CRITICAL_*_TOKENS"
+        assert f'"{token}"' not in pre_src, (
+            f"linggit/hooks/pre_commit.py 重新内联了 {token} 判定 — 请改用 ling_audit_lib.CRITICAL_*_TOKENS"
         )
 
 

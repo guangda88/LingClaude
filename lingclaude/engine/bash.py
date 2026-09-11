@@ -639,8 +639,6 @@ class BashExecutor:
         2. 保留 '?' 单字符变体检测（EXP-S2 混淆防御）：文本里 "s?do" 仍命中
            "sudo" 规则；rm -rf / 等非词尾规则不再被错误的 \\b 追加破坏
         """
-        import re
-
         # 词边界精确匹配（防误伤）：apt 不再命中 --capture、su 不再命中
         # resume/stat、at 不再命中 cat。
         # （EXP-S2 的文本 '?' 混淆检测移至 _check_blocked 的 token 级处理——

@@ -15,7 +15,6 @@ from lingclaude.core.types import (
     ToolResult,
     parse_tool_result,
 )
-from lingclaude.engine import mcp_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +165,8 @@ class ToolExecutor:
 
     def _execute_mcp_tool_typed(self, name: str, kwargs: dict[str, Any]) -> ToolResult[Any]:
         """强类型版本：MCP 工具调用。"""
+        from lingclaude.engine import mcp_proxy
+
         self._engine._ensure_mcp()
         result = mcp_proxy.call_tool(name, **kwargs)
         if result.is_error:

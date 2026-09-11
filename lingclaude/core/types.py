@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, TypeVar
@@ -217,10 +218,8 @@ def is_tool_error(value: Any) -> bool:
     if isinstance(value, dict):
         return value.get("error") is not None
     if isinstance(value, str):
-        import json as _json
-
         try:
-            parsed = _json.loads(value)
+            parsed = json.loads(value)
         except Exception:  # noqa: BLE001 — 非 JSON 字符串视为普通文本
             return False
         if isinstance(parsed, dict):

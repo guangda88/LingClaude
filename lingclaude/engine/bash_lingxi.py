@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import shlex
 from dataclasses import dataclass
@@ -172,8 +173,6 @@ class BashlingxiExecutor:
         Returns:
             Reason if blocked, None otherwise
         """
-        import re
-
         cmd_stripped = command.strip()
         cmd_lower = cmd_stripped.lower()
 

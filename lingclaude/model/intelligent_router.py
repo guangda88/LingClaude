@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -330,8 +331,6 @@ class IntelligentRouter:
             )
         elif complexity == TaskComplexity.MEDIUM:
             # 80% 概率用 GLM-4.7，20% 概率用 GLM-5.1
-            import random
-
             if random.random() < 0.8:
                 return (
                     GLMModel.GLM_4_7,

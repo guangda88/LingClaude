@@ -679,10 +679,13 @@ class TestGlmRetryPolicy:
         assert policy.models[0] == "glm-4.7"
         assert "glm-4.7" not in policy.models[1:]
 
-    def test_configure_primary_non_glm_ignored(self) -> None:
+    def test_configure_primary_non_glm_set_as_primary(self) -> None:
+        # 2026-09-11 (57c76c6) 刻意放宽：非 glm 系列也允许 configure_primary，
+        # 修复 /model deepseek-v4-flash 后 retry policy 不更新的问题。
         policy = GlmRetryPolicy()
         policy.configure_primary("gpt-4o")
-        assert policy.current_model == "glm-5.1"
+        assert policy.current_model == "gpt-4o"
+        assert policy.models[0] == "gpt-4o"
 
     def test_configure_primary_empty_ignored(self) -> None:
         policy = GlmRetryPolicy()
@@ -706,9 +709,10 @@ class TestGlmRetryPolicy:
         provider = OpenAIProvider(ModelConfig(model="glm-4.7", api_key="sk-test"))
         assert provider._retry_policy.current_model == "glm-4.7"
 
-    def test_openai_provider_non_glm_keeps_default(self) -> None:
+    def test_openai_provider_non_glm_sets_primary(self) -> None:
+        # 57c76c6 语义：非 glm 模型也置为 retry policy 主模型（模型切换生效）
         provider = OpenAIProvider(ModelConfig(model="gpt-4o", api_key="sk-test"))
-        assert provider._retry_policy.current_model == "glm-5.1"
+        assert provider._retry_policy.current_model == "gpt-4o"
 
     def test_circuit_breaker_opens_after_consecutive_429(self) -> None:
         policy = GlmRetryPolicy(circuit_failure_threshold=3)
@@ -984,6 +988,7 @@ class TestOpenAIProvider429Retry:
         assert "已重试" in result.error
 
     def test_non_glm_model_unchanged(self) -> None:
+        # 57c76c6 语义：非 glm 模型置主后，调用成功不改变主模型（仍是 gpt-4o）
         provider = OpenAIProvider(ModelConfig(model="gpt-4o", api_key="sk-test"))
 
         mock_resp = MagicMock()
@@ -1001,8 +1006,8 @@ class TestOpenAIProvider429Retry:
             )
 
         assert result.is_ok
-        assert provider._retry_policy.current_model == "glm-5.1"
-        assert provider._retry_policy.models[0] == "glm-5.1"
+        assert provider._retry_policy.current_model == "gpt-4o"
+        assert provider._retry_policy.models[0] == "gpt-4o"
 
     def test_success_resets_primary_counter(self) -> None:
         provider = OpenAIProvider(ModelConfig(model="glm-5.1", api_key="sk-test"))

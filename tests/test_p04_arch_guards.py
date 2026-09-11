@@ -23,7 +23,9 @@ CORE_ENGINE_WHITELIST = [
     "core/mcp_tools.py:122",
     "core/wiring.py:148",
     "core/tool_call_executor.py:77",
+    "core/tool_call_executor.py:78",
     "core/tool_executor.py:13",
+    "core/tool_executor.py:168",
 ]
 BASELINE_SYS_PATH = 14
 # 340 (2026-09-10): P2.a wiring.py 新增 22 个工厂函数内 import —— WIRING_MANIFEST

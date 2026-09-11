@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import importlib
 import importlib.util
+import inspect
 import logging
+import shutil
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -69,8 +72,6 @@ def register_server(
     tool_schemas: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     """注册 MCP server。stdio 型启动时检查二进制是否在 PATH（P1-3 假可用修复）。"""
-    import shutil
-
     status = "available"
     status_reason: str | None = None
     if transport == "stdio" and command:
@@ -274,8 +275,6 @@ def _get_tool_function(server: MCPServerInfo, tool_name: str) -> Callable[..., A
 
 
 def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
-    import time
-
     server = find_server(tool_name)
     if server is None:
         return Result.fail(
@@ -400,8 +399,6 @@ def _annotation_to_json_type(annotation: Any) -> str:
 
 def _schema_from_signature(fn: Callable[..., Any]) -> tuple[dict[str, Any], list[str]]:
     """从 Python 函数签名推导 (properties, required)。无注解参数按 string 处理。"""
-    import inspect
-
     try:
         sig = inspect.signature(fn)
     except (TypeError, ValueError):

@@ -650,31 +650,47 @@ class TestVerificationGate:
         assert "验证关卡" not in result.get("error", "")
 
     def test_edit_with_syntax_error_blocked(self, tmp_path):
-        """edit 操作对语法错误也应阻止"""
+        """edit 操作对语法错误也应阻止
+
+        注：使用项目内临时目录（file_edit.base_dir 限制 /tmp 等外部路径，
+        tmp_path 位于 /tmp/pytest-* 会被 base_dir 拒绝而拿不到验证关卡语义）。
+        """
         runtime = CodingRuntime()
-        py_file = tmp_path / "edit_target.py"
-        py_file.write_text("x = 1\n", encoding="utf-8")
-        result = runtime.execute_tool(
-            "edit",
-            path=str(py_file),
-            old_text="x = 1",
-            new_text="def bad(\n",
-        )
-        assert "error" in result
-        assert "验证关卡" in result["error"]
+        workdir = Path(__file__).parent / ".tmp_gate_edit"
+        workdir.mkdir(exist_ok=True)
+        try:
+            py_file = workdir / "edit_target.py"
+            py_file.write_text("x = 1\n", encoding="utf-8")
+            result = runtime.execute_tool(
+                "edit",
+                path=str(py_file),
+                old_text="x = 1",
+                new_text="def bad(\n",
+            )
+            assert "error" in result
+            assert "验证关卡" in result["error"]
+        finally:
+            for p in workdir.glob("*.py*"):
+                p.unlink(missing_ok=True)
 
     def test_edit_valid_syntax_passes(self, tmp_path):
         """edit 操作对语法正确的内容应通过"""
         runtime = CodingRuntime()
-        py_file = tmp_path / "edit_ok.py"
-        py_file.write_text("x = 1\n", encoding="utf-8")
-        result = runtime.execute_tool(
-            "edit",
-            path=str(py_file),
-            old_text="x = 1",
-            new_text="y = 2\n",
-        )
-        assert "验证关卡" not in result.get("error", "")
+        workdir = Path(__file__).parent / ".tmp_gate_edit"
+        workdir.mkdir(exist_ok=True)
+        try:
+            py_file = workdir / "edit_ok.py"
+            py_file.write_text("x = 1\n", encoding="utf-8")
+            result = runtime.execute_tool(
+                "edit",
+                path=str(py_file),
+                old_text="x = 1",
+                new_text="y = 2\n",
+            )
+            assert "验证关卡" not in result.get("error", "")
+        finally:
+            for p in workdir.glob("*.py*"):
+                p.unlink(missing_ok=True)
 
     def test_file_create_with_syntax_error_blocked(self, tmp_path):
         """file_create 操作对语法错误也应阻止"""
