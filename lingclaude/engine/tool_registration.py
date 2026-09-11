@@ -158,6 +158,22 @@ SPECS: tuple[ToolSpec, ...] = (
         concurrency_safe=False,
     ),
     ToolSpec(
+        name='git_push',
+        description='Push commits to a remote (parameterized, remote/branch allowlist, no shell interpolation)',
+        parameters={'path': {'type': 'string', 'description': 'Repository path (default: .)'}, 'remote': {'type': 'string', 'description': 'Remote name (allowlist: origin/github/upstream)'}, 'branch': {'type': 'string', 'description': 'Branch/refspec (allowlist chars only)'}, 'force': {'type': 'boolean', 'description': 'Force push (default false)'}, 'timeout': {'type': 'integer', 'description': 'Timeout seconds (default 120)'}},
+        handler_attr='_git_push_handler',
+        security_scope='execute',
+        concurrency_safe=False,
+    ),
+    ToolSpec(
+        name='git_push_preflight',
+        description='Preflight check before push: remotes, unpushed commits, dirty state, gate blocking',
+        parameters={'path': {'type': 'string', 'description': 'Repository path (default: .)'}},
+        handler_attr='_git_push_preflight_handler',
+        security_scope='read',
+        concurrency_safe=False,
+    ),
+    ToolSpec(
         name='index_project',
         description='Scan Python project and build symbol table (classes, functions, imports)',
         parameters={'path': {'type': 'string', 'description': 'Project root directory'}, 'max_files': {'type': 'integer', 'description': 'Max files to scan (default 200)'}},

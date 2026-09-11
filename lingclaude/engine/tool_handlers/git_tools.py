@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from lingclaude.engine.git import git_blame, git_diff, git_log, git_status
+from lingclaude.engine.git import (
+    git_blame,
+    git_diff,
+    git_log,
+    git_push,
+    git_push_preflight,
+    git_status,
+)
 
 
 class GitToolsMixin:
-    """git_status / git_diff / git_log / git_blame（依赖 engine.git 模块函数）。"""
+    """git_status / git_diff / git_log / git_blame / git_push / git_push_preflight（依赖 engine.git 模块函数）。"""
 
     def _git_status_handler(self, path: str = ".", **_kwargs: Any) -> dict[str, Any]:
         result = git_status(path)
@@ -50,6 +57,28 @@ class GitToolsMixin:
         **_kwargs: Any,
     ) -> dict[str, Any]:
         result = git_blame(file_path, cwd=cwd, start_line=start_line, end_line=end_line)
+        if result.is_error:
+            return {"error": result.error}
+        return result.data
+
+    def _git_push_handler(
+        self,
+        path: str = ".",
+        remote: str = "origin",
+        branch: str = "master",
+        force: bool = False,
+        timeout: int = 120,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        """专用 git push：参数化构造（防注入）+ remote/branch 白名单。"""
+        result = git_push(path=path, remote=remote, branch=branch, force=force, timeout=timeout)
+        if result.is_error:
+            return {"error": result.error}
+        return result.data
+
+    def _git_push_preflight_handler(self, path: str = ".", **_kwargs: Any) -> dict[str, Any]:
+        """push 前置预检：remote / 未推送提交 / 门禁状态 / 工作区。"""
+        result = git_push_preflight(path=path)
         if result.is_error:
             return {"error": result.error}
         return result.data
