@@ -8,7 +8,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-CONFIG_PATH = Path("/home/ai/lingcode/config.json")
+# LINGCODE_CONFIG 环境变量可覆盖 — 跨仓配置路径不再绑死本机布局 (2026-09-11 审计修复)
+CONFIG_PATH = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/lingcode/config.json"))
 
 
 @dataclass

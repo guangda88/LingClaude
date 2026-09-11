@@ -211,6 +211,8 @@ class TestNoDeadModules:
         "DEFAULT_JOURNAL_DIR",
         # P3 state_store 模块级配置常量（供环境变量读取，非死代码）
         "ENV_BACKEND", "ENV_DSN", "ENV_DSN_FALLBACK",
+        # P4 token_monitor 目标模型常量（模块内大量使用，非死代码）
+        "TARGET_MODEL",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:

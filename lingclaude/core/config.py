@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 
+# 配置搜索顺序: cwd 优先, 其次用户目录, 最后仓库根兜底 —
+# 刻意让「运行目录局部配置」覆盖「仓库全局配置」, 并非缺陷。
+# 实际排序语义见 find_config_path()。
 _CONFIG_SEARCH_PATHS: list[Path] = [
     Path("config.yaml"),
     Path.home() / ".lingclaude" / "config.yaml",

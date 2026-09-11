@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -33,6 +34,24 @@ MARKER_DIR = Path("/tmp/lingclaude_exempt_review")
 DEFAULT_TIMEOUT = 1800  # 秒；全量套件在空载机器约 5-10 分钟，1 倍余量取 30 分钟
 RETRY_CONCURRENCY = (4, 2, 1)
 QUOTA_ERR_MARK = "can't start new thread"
+
+
+def _claim_marker(marker_path: Path) -> bool:
+    """原子认领 marker：O_CREAT|O_EXCL 独占创建 <marker>.claim 哨兵文件。
+
+    场景：同一 commit 的 watcher 被拉起多次（会话 OOM 重试、post-commit 与
+    check_stale 撞车）时，只允许一个执行者跑 pytest 并终态化，其余立即让位 —
+    否则双跑浪费 CPU/内存配额（曾实证触发 OOM-kill），双写结果文件互相覆盖。
+    claim 文件随 /tmp 清理自然消亡，不参与终态语义。
+    """
+    claim = marker_path.with_suffix(marker_path.suffix + ".claim")
+    try:
+        fd = os.open(str(claim), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    else:
+        os.close(fd)
+        return True
 
 
 def _repo_root() -> Path:
@@ -123,6 +142,11 @@ def _run_pytest_with_retry(info: dict, deadline: float) -> int | None:
 
 def watch(marker_path: Path) -> int:
     """复核主流程：执行 pytest → 终态化。由 post-commit 拉起。"""
+    if not _claim_marker(marker_path):
+        # 已有并发执行者认领（OOM 重试/钩子撞车）— 让位，不重复跑 pytest
+        print(f"[exempt-review] marker already claimed, skip: {marker_path.name}",
+              file=sys.stderr)
+        return 0
     info = json.loads(marker_path.read_text(encoding="utf-8"))
     root = Path(info.get("root") or _repo_root())
     log_path = Path(info["log"])

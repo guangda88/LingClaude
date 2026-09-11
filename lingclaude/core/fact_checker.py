@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -43,16 +44,15 @@ except ImportError:
 
 
 # === Module-level singleton DB pool (production 部署核心) ===
+# 2026-09-11: 锁改为 import 期 eager 创建 — lazy 初始化自身也有竞态
+# (两线程同时看到 None 各建一把锁, 各自进临界区, double-check 形同虚设)。
 _POOL_SINGLETON: Any = None
-_POOL_LOCK = None  # threading.Lock 延迟初始化 (避免 module import 时建 loop)
+_POOL_LOOP: Any = None  # pool 绑定的事件循环 (跨 loop 复用检测用)
+_POOL_LOCK = threading.Lock()
 
 
 def _get_pool_lock():
     """获取 module-level threading.Lock 单例 (同步锁, 跨 loop 安全)"""
-    global _POOL_LOCK
-    if _POOL_LOCK is None:
-        import threading
-        _POOL_LOCK = threading.Lock()
     return _POOL_LOCK
 
 
@@ -66,8 +66,21 @@ async def get_db_pool(db_url: str | None = None, min_size: int = 2, max_size: in
     Returns:
         asyncpg.Pool 单例 (首次调用创建, 后续复用).
     """
-    global _POOL_SINGLETON
+    global _POOL_SINGLETON, _POOL_LOOP
     if _POOL_SINGLETON is not None:
+        # 2026-09-11: 跨 loop 复用检测 — 本模块同步包装层每次 new_event_loop,
+        # pool 会被绑死在创建时的 loop 上, 跨 loop acquire 时 asyncpg 报错。
+        # 显式告警留痕, 重构(pool 代理/专用 loop)另行立项。
+        try:
+            loop_now = asyncio.get_running_loop()
+        except RuntimeError:
+            loop_now = None
+        if loop_now is not None and _POOL_LOOP is not None and loop_now is not _POOL_LOOP:
+            logger.warning(
+                "get_db_pool: pool 属于其他事件循环 (%s ≠ %s) — "
+                "跨 loop 使用 asyncpg pool 会失败 (已知限制)",
+                _POOL_LOOP, loop_now,
+            )
         return _POOL_SINGLETON
 
     import asyncpg
@@ -79,10 +92,19 @@ async def get_db_pool(db_url: str | None = None, min_size: int = 2, max_size: in
             "(灵知生产环境 DSN 见灵知配置, 切勿硬编码)"
         )
 
-    with _get_pool_lock():
+    # 2026-09-11: 非 blocking acquire + yield 替代原地自旋 — 原写法在协程
+    # 语境下持同步锁跨 await, 事件循环整个冻结 (同线程其余协程全部停摆)。
+    # 现在抢不到锁就让出调度权; 冷启动仅一个创建者, 空转几轮即到临界区。
+    lock = _get_pool_lock()
+    while not lock.acquire(blocking=False):
+        await asyncio.sleep(0)
+    try:
         if _POOL_SINGLETON is None:  # double-check
             _POOL_SINGLETON = await asyncpg.create_pool(url, min_size=min_size, max_size=max_size)
+            _POOL_LOOP = asyncio.get_running_loop()
             logger.info("FactChecker DB pool 已创建: min=%d max=%d", min_size, max_size)
+    finally:
+        lock.release()
     return _POOL_SINGLETON
 
 

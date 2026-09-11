@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import tempfile
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -23,6 +24,28 @@ from typing import Any, TypeAlias
 from lingclaude.core.safe_db import safe_commit, safe_connect
 
 logger = logging.getLogger(__name__)
+
+# 目标「优选模型」— 建议/评分/趋势 SQL 的过滤名。
+# 2026-09-11: 原 19 处硬编码 "GLM-4.7" 收敛到此常量(config.yaml 生产模型
+# 已是 glm-5.3-flash, 旧报告的"提升 GLM-4.7 到 80%"建议已误导)。
+# 更名改值后各报表文案随常量联动。
+TARGET_MODEL = "GLM-4.7"
+
+
+def _default_report_path(name: str) -> Path:
+    """默认报告路径带可写性回退 — ~/.lingclaude/reports/ 不可写时(只读根 FS,
+    V3 沙箱常态)退到系统临时目录, 报告生成不因存储只读而崩(2026-09-11 实测)。"""
+    primary = Path.home() / ".lingclaude" / "reports" / name
+    try:
+        primary.parent.mkdir(parents=True, exist_ok=True)
+        probe = primary.parent / ".probe"
+        probe.write_text("", encoding="utf-8")
+        probe.unlink()
+        return primary
+    except OSError:
+        fallback = Path(tempfile.gettempdir()) / "lingclaude_reports"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback / name
 
 # 数据类型
 UsageRecord: TypeAlias = dict[str, Any]
@@ -334,8 +357,8 @@ class TokenMonitor:
         avg_input_tokens = stats.input_tokens / stats.prompt_count if stats.prompt_count > 0 else 0
         avg_output_tokens = stats.output_tokens / stats.prompt_count if stats.prompt_count > 0 else 0
 
-        # GLM-4.7 使用率
-        glm_4_7_tokens = stats.model_distribution.get("GLM-4.7", 0)
+        # 目标模型使用率
+        glm_4_7_tokens = stats.model_distribution.get(TARGET_MODEL, 0)
         glm_4_7_ratio = glm_4_7_tokens / stats.total_tokens if stats.total_tokens > 0 else 0.0
 
         # 重复读取率
@@ -360,7 +383,7 @@ class TokenMonitor:
             报告路径
         """
         if output_path is None:
-            output_path = Path.home() / ".lingclaude" / "reports" / "token_report.html"
+            output_path = _default_report_path("token_report.html")
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -503,7 +526,7 @@ class TokenMonitor:
 
         for model, tokens in sorted(stats.model_distribution.items(), key=lambda x: x[1], reverse=True):
             ratio = tokens / stats.total_tokens if stats.total_tokens > 0 else 0
-            status = "status-good" if model == "GLM-4.7" else "status-warning"
+            status = "status-good" if model == TARGET_MODEL else "status-warning"
             html += f"""
             <tr>
                 <td>{model}</td>
@@ -550,7 +573,7 @@ class TokenMonitor:
     <div class="metrics">
         <div class="metric-card">
             <div class="metric-value" style="font-size: 1.5em;">{metrics.glm_4_7_ratio * 100:.1f}%</div>
-            <div class="metric-label">GLM-4.7 使用率</div>
+            <div class="metric-label">{TARGET_MODEL} 使用率</div>
             <div style="margin-top: 5px; color: {'#4CAF50' if metrics.glm_4_7_ratio >= 0.8 else '#ff9800'}">
                 {'✓ 目标达成' if metrics.glm_4_7_ratio >= 0.8 else '⚠️ 需优化'}
             </div>
@@ -576,7 +599,7 @@ class TokenMonitor:
         suggestions = []
 
         if metrics.glm_4_7_ratio < 0.8:
-            suggestions.append(f"• GLM-4.7 使用率仅 {metrics.glm_4_7_ratio * 100:.1f}%，建议提升到 80% 以上")
+            suggestions.append(f"• {TARGET_MODEL} 使用率仅 {metrics.glm_4_7_ratio * 100:.1f}%，建议提升到 80% 以上")
 
         if metrics.duplicate_read_ratio > 0.15:
             suggestions.append(f"• 重复读取率 {metrics.duplicate_read_ratio * 100:.1f}% 较高，建议实施上下文缓存")
@@ -589,7 +612,7 @@ class TokenMonitor:
 
         html += "\n".join(f"<p>{s}</p>" for s in suggestions)
 
-        html += """
+        html += f"""
     </div>
 
     <h2>📅 最近 7 天趋势</h2>
@@ -599,7 +622,7 @@ class TokenMonitor:
                 <th>日期</th>
                 <th>总 Token</th>
                 <th>Prompt 数</th>
-                <th>GLM-4.7 使用率</th>
+                <th>{TARGET_MODEL} 使用率</th>
                 <th>效率评分</th>
             </tr>
 """
@@ -620,8 +643,8 @@ class TokenMonitor:
                 cursor.execute("""
                     SELECT SUM(total_tokens)
                     FROM usage_records
-                    WHERE DATE(timestamp) = ? AND model = 'GLM-4.7'
-                """, (date,))
+                    WHERE DATE(timestamp) = ? AND model = ?
+                """, (date, TARGET_MODEL))
                 glm_4_7 = cursor.fetchone()[0] or 0
                 ratio = glm_4_7 / result[0] if result[0] > 0 else 0
 
@@ -666,7 +689,7 @@ class TokenMonitor:
             报告路径
         """
         if output_path is None:
-            output_path = Path.home() / ".lingclaude" / "reports" / "token_report.md"
+            output_path = _default_report_path("token_report.md")
 
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -705,12 +728,12 @@ class TokenMonitor:
 
         for model, tokens in sorted(stats.model_distribution.items(), key=lambda x: x[1], reverse=True):
             ratio = tokens / stats.total_tokens if stats.total_tokens > 0 else 0
-            status = "✓" if model == "GLM-4.7" else "⚠️"
+            status = "✓" if model == TARGET_MODEL else "⚠️"
             markdown += f"| {model} | {tokens:,} | {ratio * 100:.1f}% | {status} |\n"
 
         markdown += f"""
 
-**GLM-4.7 使用率**：{metrics.glm_4_7_ratio * 100:.1f}%
+**{TARGET_MODEL} 使用率**：{metrics.glm_4_7_ratio * 100:.1f}%
 - {'✓ 目标达成（≥80%）' if metrics.glm_4_7_ratio >= 0.8 else '⚠️ 需优化（目标：≥80%）'}
 
 ---
@@ -733,7 +756,7 @@ class TokenMonitor:
 
 | 指标 | 数值 | 状态 |
 |------|------|------|
-| **GLM-4.7 使用率** | {metrics.glm_4_7_ratio * 100:.1f}% | {'✓ 良好' if metrics.glm_4_7_ratio >= 0.8 else '⚠️ 需优化'} |
+| **{TARGET_MODEL} 使用率** | {metrics.glm_4_7_ratio * 100:.1f}% | {'✓ 良好' if metrics.glm_4_7_ratio >= 0.8 else '⚠️ 需优化'} |
 | **重复读取率** | {metrics.duplicate_read_ratio * 100:.1f}% | {'✓ 良好（≤15%）' if metrics.duplicate_read_ratio <= 0.15 else '⚠️ 需优化（目标：≤15%）'} |
 | **重复读取次数** | {stats.duplicate_reads:,} | - |
 
@@ -747,7 +770,7 @@ class TokenMonitor:
         suggestions = []
 
         if metrics.glm_4_7_ratio < 0.8:
-            suggestions.append(f"- [ ] GLM-4.7 使用率仅 {metrics.glm_4_7_ratio * 100:.1f}%，建议提升到 80% 以上")
+            suggestions.append(f"- [ ] {TARGET_MODEL} 使用率仅 {metrics.glm_4_7_ratio * 100:.1f}%，建议提升到 80% 以上")
 
         if metrics.duplicate_read_ratio > 0.15:
             suggestions.append(f"- [ ] 重复读取率 {metrics.duplicate_read_ratio * 100:.1f}% 较高，建议实施上下文缓存")
@@ -760,13 +783,13 @@ class TokenMonitor:
 
         markdown += "\n".join(suggestions)
 
-        markdown += """
+        markdown += f"""
 
 ---
 
 ## 📅 最近 7 天趋势
 
-| 日期 | 总 Token | Prompt 数 | GLM-4.7 使用率 | 效率评分 |
+| 日期 | 总 Token | Prompt 数 | {TARGET_MODEL} 使用率 | 效率评分 |
 |------|----------|-----------|----------------|----------|
 """
 
@@ -786,8 +809,8 @@ class TokenMonitor:
                 cursor.execute("""
                     SELECT SUM(total_tokens)
                     FROM usage_records
-                    WHERE DATE(timestamp) = ? AND model = 'GLM-4.7'
-                """, (date,))
+                    WHERE DATE(timestamp) = ? AND model = ?
+                """, (date, TARGET_MODEL))
                 glm_4_7 = cursor.fetchone()[0] or 0
                 ratio = glm_4_7 / result[0] if result[0] > 0 else 0
 
@@ -823,7 +846,7 @@ def main():
     # 添加示例数据（仅用于演示）
     print("\n📝 添加示例数据...")
     monitor.record_usage(
-        model="GLM-4.7",
+        model=TARGET_MODEL,
         task_type="code_generation",
         total_tokens=15000,
         input_tokens=5000,
@@ -837,7 +860,7 @@ def main():
         output_tokens=15000,
     )
     monitor.record_usage(
-        model="GLM-4.7",
+        model=TARGET_MODEL,
         task_type="search",
         total_tokens=8000,
         input_tokens=3000,
@@ -865,7 +888,7 @@ def main():
 
     print(f"  总 Token 数：{stats.total_tokens:,}")
     print(f"  Prompt 数量：{stats.prompt_count:,}")
-    print(f"  GLM-4.7 使用率：{metrics.glm_4_7_ratio * 100:.1f}%")
+    print(f"  {TARGET_MODEL} 使用率：{metrics.glm_4_7_ratio * 100:.1f}%")
     print(f"  重复读取率：{metrics.duplicate_read_ratio * 100:.1f}%")
 
     print("\n" + "=" * 80)

@@ -978,13 +978,24 @@ class L7Cognitive:
 
 # ── 全局单例 ──
 
+import threading as _threading
+
 _global: L7Cognitive | None = None
+_global_lock = _threading.Lock()
 
 
 def get_cognitive() -> L7Cognitive:
+    """全局单例访问点（双检锁）。
+
+    2026-09-11: 竞态修复 — 原版裸双检，两线程同时见 None 会各建一个
+    L7Cognitive；败者的 store 是独立 sqlite 句柄，写点双写/P3.3 指标
+    会静默分裂到两个 DB。__init__ 开 sqlite 连接属重副作用，必须锁。
+    """
     global _global
     if _global is None:
-        _global = L7Cognitive()
+        with _global_lock:
+            if _global is None:  # double-check
+                _global = L7Cognitive()
     return _global
 
 
