@@ -62,6 +62,11 @@ class TestGLMModel(unittest.TestCase):
         self.assertAlmostEqual(GLMModel.GLM_4_7.get_cost_multiplier(), 1.0)
         self.assertAlmostEqual(GLMModel.GLM_5_1.get_cost_multiplier(), 2.0)
         self.assertAlmostEqual(GLMModel.GLM_5.get_cost_multiplier(), 3.0)
+        # 2026-09-11: 生产模型 glm-5.3-flash 已入枚举, 成本介于 4.7 与 5.1 之间
+        self.assertAlmostEqual(GLMModel.GLM_5_3_FLASH.get_cost_multiplier(), 1.5)
+
+    def test_glm_5_3_flash_enum_value(self):
+        self.assertEqual(GLMModel.GLM_5_3_FLASH.value, "glm-5.3-flash")
 
 
 class TestRoutingStats(unittest.TestCase):

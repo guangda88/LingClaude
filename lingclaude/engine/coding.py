@@ -75,6 +75,30 @@ class CodingRuntime(
         self.session_id = getattr(self.config, "session_id", "default")
         self._session_runtime = SessionRuntime(self)
 
+    def close(self) -> None:
+        """释放资源（进程退出/会话结束调用）。
+
+        - LSP provider 子进程（若已惰性初始化）
+        - BackgroundTaskManager 线程池（background.py:141 shutdown 已存在但从未被调用 —
+          导致解释器 shutdown 阶段 _python_exit join 线程池时抛 KeyboardInterrupt）
+        """
+        # LSP provider: 异步 shutdown，尽力而为
+        lsp = getattr(self, "_lsp_provider", None)
+        if lsp is not None:
+            try:
+                import asyncio
+
+                asyncio.run(lsp.shutdown())
+            except Exception:  # noqa: BLE001 — LSP 关闭失败不影响主进程退出
+                pass
+        # 后台任务线程池
+        bg = getattr(self, "_background_manager", None)
+        if bg is not None:
+            try:
+                bg.shutdown()
+            except Exception:  # noqa: BLE001 — 线程池关闭失败不影响主进程退出
+                pass
+
     def _setup_tools(self) -> None:
         # T0-10: 沙箱策略 — LINGCLAUDE_SANDBOX_MODE=strict/paranoid 时 bwrap 不可用即 fail-closed
         import os
@@ -92,11 +116,11 @@ class CodingRuntime(
             timeout=self.config.optimizer.timeout_seconds,
             sandbox_policy=sandbox_policy,
         )
-        # Initialize BashlingxiExecutor with no restrictions (allow all commands)
+        # P0 安全对齐(2026-09-11): bash_lingxi 默认继承 bash.py 同源黑名单
+        # (见 bash_lingxi._DEFAULT_LINGXI_BLOCKED), handler 层另有 sensitive_path_gate。
+        # allowed_commands=None 表示不设白名单(黑名单制, 与 bash 通道同语义)。
         self.bash_lingxi = BashlingxiExecutor(
             timeout=self.config.optimizer.timeout_seconds,
-            blocked_commands=[],
-            allowed_commands=None,  # None means no whitelist restriction
         )
         self.file_ops = FileOps()
         self.file_edit = FileEditTool()
@@ -299,6 +323,64 @@ class CodingRuntime(
             return GuardDecision(decision="deny", reason=err)
         return GuardDecision(decision="abstain")
 
+    def _tool_blocked(self, tool_name: str, store: Any, active_mode: str) -> bool:
+        """权限判定（P0 主链统一 2026-09-12 提取，供 execute_tool 与 ToolExecutor 快路径共用）。
+
+        注意（harness fix 2026-09-02）：原 `store.blocks(tool_name)` 在
+        单例 store 与 runtime ctx 分离时会被模式污染或审批回灌吞掉。
+        改用「runtime 静态配置 ∪ store 运行时 ctx」并集作为唯一真源；
+        显式放行 (always_allow) 优先于 deny 翻转（业务约定）。
+        """
+        from lingclaude.core.permissions import READ_ONLY_TOOLS
+
+        effective_deny = self.permissions.deny_names | store.context.deny_names
+        allowed = store.explicitly_allowed(tool_name)
+        blocked = False
+        rule_id = "no_match"
+        if tool_name.lower() in effective_deny and not allowed:
+            blocked = True
+            rule_id = "config.deny_tools.exact" if tool_name.lower() in self.permissions.deny_names else "session.deny_tools.exact"
+        elif active_mode == "auto":
+            blocked = False
+        elif active_mode == "strict" and tool_name not in READ_ONLY_TOOLS:
+            blocked = not allowed
+            if blocked:
+                rule_id = "strict_mode.non_readonly"
+        # R2：把 denial 喂给 DataFlywheel（不造新文件），让"同类 denial"
+        # 统计可查（SYSTEMS_THEORY §一.4 摩擦台账 + R1 熔断前置）。
+        # 5b：按 rule_id 喂 _ToolLoopDetector 熔断（执行层硬规则,非推理层）。
+        if blocked and hasattr(self, "_session_runtime"):
+            try:
+                self._session_runtime.log_denial(
+                    denial_kind=rule_id,
+                    command_prefix=str(tool_name),
+                    reason=(
+                        f"mode={active_mode}; "
+                        f"in_deny={tool_name.lower() in effective_deny}; "
+                        f"explicitly_allowed={allowed}"
+                    ),
+                )
+                if hasattr(self, "_loop_detector"):
+                    # 5b：单次触发不烧轮次,与"denial key 2 次→暂停+升级用户"对齐
+                    verdict = self._loop_detector.observe_denial(rule_id, tool_name, threshold=2)
+                    if verdict == "denial_abort":
+                        # P0.2: 写实例属性（__init__ 已初始化），execute_tool
+                        # 返回前消费；原写 _loop_detector._denial_abort_log 全库无消费者。
+                        self._denial_abort_log = (
+                            f"denial_abort: rule_id={rule_id} tool={tool_name} "
+                            f"consecutive={self._loop_detector._denial_streak.get(rule_id, 0)}"
+                        )
+            except Exception:  # noqa: BLE001 — 飞轮/熔断写入失败不阻塞拦截语义
+                pass
+        return blocked
+
+    def _blocks(self, tool_name: str) -> bool:
+        """权限判定入口（ToolExecutor 快路径预检复用；模式/store 实时读取）。"""
+        from lingclaude.core.permissions import get_permission_mode, get_permission_store
+
+        store = get_permission_store(getattr(self.config, "session_id", "default"))
+        return self._tool_blocked(tool_name, store, get_permission_mode())
+
     def execute_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         # LINGKERNEL_v1 #2: 5 段 pipeline (pre-execute -> guards -> execute -> post -> finalize)
         def _pre_write_verify(tool_name: str, file_path: Any, content: Any) -> tuple[bool, str]:
@@ -342,50 +424,7 @@ class CodingRuntime(
         active_mode = get_permission_mode()
 
         def _blocks(tool_name: str) -> bool:
-            # 注意（harness fix 2026-09-02）：原 `store.blocks(tool_name)` 在
-            # 单例 store 与 runtime ctx 分离时会被模式污染或审批回灌吞掉。
-            # 改用「runtime 静态配置 ∪ store 运行时 ctx」并集作为唯一真源；
-            # 显式放行 (always_allow) 优先于 deny 翻转（业务约定）。
-            effective_deny = self.permissions.deny_names | store.context.deny_names
-            allowed = store.explicitly_allowed(tool_name)
-            blocked = False
-            rule_id = "no_match"
-            if tool_name.lower() in effective_deny and not allowed:
-                blocked = True
-                rule_id = "config.deny_tools.exact" if tool_name.lower() in self.permissions.deny_names else "session.deny_tools.exact"
-            elif active_mode == "auto":
-                blocked = False
-            elif active_mode == "strict" and tool_name not in READ_ONLY_TOOLS:
-                blocked = not allowed
-                if blocked:
-                    rule_id = "strict_mode.non_readonly"
-            # R2：把 denial 喂给 DataFlywheel（不造新文件），让"同类 denial"
-            # 统计可查（SYSTEMS_THEORY §一.4 摩擦台账 + R1 熔断前置）。
-            # 5b：按 rule_id 喂 _ToolLoopDetector 熔断（执行层硬规则,非推理层）。
-            if blocked and hasattr(self, "_session_runtime"):
-                try:
-                    self._session_runtime.log_denial(
-                        denial_kind=rule_id,
-                        command_prefix=str(tool_name),
-                        reason=(
-                            f"mode={active_mode}; "
-                            f"in_deny={tool_name.lower() in effective_deny}; "
-                            f"explicitly_allowed={allowed}"
-                        ),
-                    )
-                    if hasattr(self, "_loop_detector"):
-                        # 5b：单次触发不烧轮次,与"denial key 2 次→暂停+升级用户"对齐
-                        verdict = self._loop_detector.observe_denial(rule_id, tool_name, threshold=2)
-                        if verdict == "denial_abort":
-                            # P0.2: 写实例属性（__init__ 已初始化），execute_tool
-                            # 返回前消费；原写 _loop_detector._denial_abort_log 全库无消费者。
-                            self._denial_abort_log = (
-                                f"denial_abort: rule_id={rule_id} tool={tool_name} "
-                                f"consecutive={self._loop_detector._denial_streak.get(rule_id, 0)}"
-                            )
-                except Exception:  # noqa: BLE001 — 飞轮/熔断写入失败不阻塞拦截语义
-                    pass
-            return blocked
+            return self._tool_blocked(tool_name, store, active_mode)
 
         result = self.tool_pipeline.execute(
             name,

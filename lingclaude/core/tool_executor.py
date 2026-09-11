@@ -10,6 +10,11 @@ from lingclaude.core.context_compression import compress_messages, CompressionCo
 from lingclaude.core.task_aggregation import TaskPriority
 from lingclaude.core.behavior import detect_intent
 from lingclaude.core.layered_memory import Experience, EmotionIntensity
+from lingclaude.core.types import (
+    ToolErrorCode,
+    ToolResult,
+    parse_tool_result,
+)
 from lingclaude.engine import mcp_proxy
 
 logger = logging.getLogger(__name__)
@@ -65,27 +70,61 @@ class ToolExecutor:
         )
 
     def _execute_tool(self, name: str, arguments_json: str) -> str:
+        """执行工具，返回模型可见的 JSON 字符串（序列化边界）。"""
+        tr = self._execute_tool_typed(name, arguments_json)
+        return json.dumps(tr.to_dict(), ensure_ascii=False, default=str)
+
+    def _execute_tool_typed(self, name: str, arguments_json: str) -> ToolResult[Any]:
+        """强类型版本：返回 ToolResult（错误语义用 error.code，非字符串匹配）。
+
+        这是唯一工具执行入口的强类型面；_execute_tool 仅做序列化。
+        """
         self._engine._tool_call_count += 1
         limit = self._engine.config.max_tool_calls_per_session
         if limit > 0 and self._engine._tool_call_count > limit:
-            return json.dumps({"error": f"[安全限制] 会话工具调用次数已达上限 ({limit})"}, ensure_ascii=False)
+            return ToolResult.err(
+                f"[安全限制] 会话工具调用次数已达上限 ({limit})",
+                code=ToolErrorCode.TOOL_LIMIT_REACHED,
+                tool_name=name,
+            )
 
         try:
             kwargs = json.loads(arguments_json)
         except json.JSONDecodeError:
-            return json.dumps({"error": f"Invalid JSON arguments: {arguments_json}"}, ensure_ascii=False)
+            return ToolResult.err(
+                f"Invalid JSON arguments: {arguments_json}",
+                code=ToolErrorCode.INVALID_ARGS,
+                tool_name=name,
+            )
 
         # 防御：模型偶发把参数包成 list（如 [{"path": ...}]），解包首元素；
         # 仍非 mapping 则直接返回结构化错误，避免 **kwargs 展开时 TypeError 崩溃。
         if isinstance(kwargs, list) and kwargs and isinstance(kwargs[0], dict):
             kwargs = kwargs[0]
         if not isinstance(kwargs, dict):
-            return json.dumps(
-                {"error": f"Tool arguments must be a JSON object, got {type(kwargs).__name__}: {arguments_json[:200]}"},
-                ensure_ascii=False,
+            return ToolResult.err(
+                f"Tool arguments must be a JSON object, got {type(kwargs).__name__}: {arguments_json[:200]}",
+                code=ToolErrorCode.INVALID_ARGS,
+                tool_name=name,
             )
 
         if name == "read" and "path" in kwargs:
+            # P0 主链统一 (2026-09-12, codex 审计 #1): read 快路径此前完全绕过
+            # ToolPipeline（权限/守卫/敏感路径检查全部跳过，直接查 ContextCache）。
+            # 修复: 先过 pipeline 纯权限预检（不执行 handler），放行后才走 cache；
+            # cache 未命中/失败降级到完整 pipeline 执行。
+            runtime = getattr(self._engine, "_runtime", None)
+            pipeline = getattr(runtime, "tool_pipeline", None)
+            if pipeline is not None and hasattr(pipeline, "check_permission"):
+                preflight = pipeline.check_permission(
+                    name, kwargs,
+                    permissions_blocks=(
+                        getattr(runtime, "_blocks", None)  # CodingRuntime._blocks
+                        or getattr(self._engine, "_tool_blocked", None)
+                    ),
+                )
+                if preflight is not None:
+                    return parse_tool_result(preflight, tool_name=name)
             try:
                 content, cache_hit = self._engine._cache.read_file(kwargs["path"])
                 is_dup = self._engine._monitor.record_file_read(kwargs["path"], content)
@@ -93,8 +132,8 @@ class ToolExecutor:
                 if cache_hit:
                     self._engine._session_cache_hits += 1
                     logger.debug("ContextCache hit for %s (duplicate=%s)", kwargs["path"], is_dup)
-                result_str = json.dumps({"content": content, "cache_hit": cache_hit}, ensure_ascii=False, default=str)
-                return self._prune_output(result_str)
+                result_dict = {"content": content, "cache_hit": cache_hit}
+                return ToolResult.ok(result_dict)
             except FileNotFoundError:
                 pass
             except Exception as e:
@@ -102,31 +141,47 @@ class ToolExecutor:
 
         try:
             result = self._engine._runtime.execute_tool(name, **kwargs)
-            if hasattr(result, 'is_error'):
-                from lingclaude.core.types import Result as _R
-                if isinstance(result, _R):
-                    if result.is_error:
-                        return json.dumps({"error": result.error}, ensure_ascii=False)
-                    result = result.data if result.is_ok else {"error": result.error}
-            if "error" in result and result["error"] and "not found" in str(result["error"]).lower():
-                mcp_result = self._execute_mcp_tool(name, kwargs)
-                return self._prune_output(mcp_result)
-            result_str = json.dumps(result, ensure_ascii=False, default=str)
-            return self._prune_output(result_str)
+            tr = parse_tool_result(result, tool_name=name)
+            if tr.is_error:
+                # P1 安全对齐(2026-09-11, codex 审计): 仅当错误确属「本地工具未注册/未
+                # 找到」时才 fallback MCP。此前任何含 "not found" 的错误(含权限拒绝
+                # "tool not found/blocked" 文案)都会触发 MCP fallback —— 等于用 MCP
+                # 通道绕过 ToolPipeline 的权限/守卫/敏感路径检查, 是隐藏的旁路。
+                # 判据收紧为: error.code == TOOL_NOT_FOUND（未注册语义）才 fallback。
+                assert tr.error is not None
+                if tr.error.code == ToolErrorCode.TOOL_NOT_FOUND:
+                    mcp_tr = self._execute_mcp_tool_typed(name, kwargs)
+                    return mcp_tr
+                return tr
+            return tr
         except Exception as e:
             kw_desc = kwargs if isinstance(kwargs, dict) else str(kwargs)[:120]
             logger.warning("Tool execution failed: %s.%s -> %s", name, kw_desc, e)
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
+            return ToolResult.err(str(e), code=ToolErrorCode.EXECUTION_ERROR, tool_name=name)
 
     def _execute_mcp_tool(self, name: str, kwargs: dict[str, Any]) -> str:
+        """MCP 工具调用（序列化边界）。"""
+        tr = self._execute_mcp_tool_typed(name, kwargs)
+        return json.dumps(tr.to_dict(), ensure_ascii=False, default=str)
+
+    def _execute_mcp_tool_typed(self, name: str, kwargs: dict[str, Any]) -> ToolResult[Any]:
+        """强类型版本：MCP 工具调用。"""
         self._engine._ensure_mcp()
         result = mcp_proxy.call_tool(name, **kwargs)
         if result.is_error:
-            return json.dumps({"error": result.error}, ensure_ascii=False)
+            return ToolResult.err(
+                result.error or "MCP tool call failed",
+                code=ToolErrorCode.MCP_TOOL_NOT_FOUND,
+                tool_name=name,
+            )
         data = result.data
         if data.success:
-            return json.dumps(data.output if isinstance(data.output, dict) else {"result": data.output}, ensure_ascii=False, default=str)
-        return json.dumps({"error": data.error or "MCP tool call failed"}, ensure_ascii=False)
+            return ToolResult.ok(data.output if isinstance(data.output, dict) else {"result": data.output})
+        return ToolResult.err(
+            data.error or "MCP tool call failed",
+            code=ToolErrorCode.MCP_CALL_FAILED,
+            tool_name=name,
+        )
 
     def _compact_if_needed(self) -> None:
         msg_limit = self._engine.config.compact_after_turns * 2

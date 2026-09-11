@@ -118,8 +118,11 @@ def test_guard_abstain_passes():
     assert res == {"ok": True}
 
 
-def test_guard_exception_treated_as_abstain():
-    """dsh 规则: guard 异常 = abstain (let it through, 不阻塞)。"""
+def test_guard_exception_fail_closed():
+    """2026-09-11 (codex 审计): guard 异常由 abstain(fail-open) 改为 deny(fail-closed)。
+
+    安全守卫崩溃时宁可误拦(可人工放行), 不可误放(不可逆)。
+    """
     reg = ToolRegistry()
     reg.register(_mk_tool())
     p = ToolPipeline(reg)
@@ -129,7 +132,9 @@ def test_guard_exception_treated_as_abstain():
 
     p.add_guard(bad_guard)
     res = p.execute("t", {})
-    assert res == {"ok": True}
+    assert res.get("error")
+    assert "fail-closed" in res.get("error", "") or "guard" in res.get("error", "").lower()
+    assert res.get("pipeline_aborted") is True
 
 
 def test_guard_chain_deny_short_circuits():

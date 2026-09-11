@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from lingclaude.core.types import Result
+from lingclaude.core.types import Result, ToolError, ToolErrorCode, ToolResult
 from lingclaude.engine.tools import ToolDefinition, ToolRegistry
 
 
@@ -172,13 +172,13 @@ class ToolPipeline:
         if permissions_blocks is not None and permissions_blocks(name):
             ctx.aborted = True
             ctx.abort_reason = f"Tool blocked by permissions: {name}"
-            return self._error(ctx.abort_reason)
+            return self._error(ctx.abort_reason, ToolErrorCode.PERMISSION_DENIED)
         if rate_check is not None:
             passed, err = rate_check()
             if not passed:
                 ctx.aborted = True
                 ctx.abort_reason = f"[rate-limit] {err}"
-                return self._error(ctx.abort_reason)
+                return self._error(ctx.abort_reason, ToolErrorCode.RATE_LIMITED)
 
         # 危险命令检查 (从原 coding.py:618-624 迁移)
         if name in self._critical:
@@ -187,7 +187,7 @@ class ToolPipeline:
                 if pat in cmd:
                     ctx.aborted = True
                     ctx.abort_reason = f"[安全限制] 危险命令被阻止: 含有 '{pat}'"
-                    return self._error(ctx.abort_reason)
+                    return self._error(ctx.abort_reason, ToolErrorCode.DANGEROUS_COMMAND)
 
         # 写前 verify
         if name in self._write_scoped and pre_write_verify is not None:
@@ -197,7 +197,7 @@ class ToolPipeline:
             if not passed:
                 ctx.aborted = True
                 ctx.abort_reason = f"[verify-pre] {err}"
-                return self._error(ctx.abort_reason)
+                return self._error(ctx.abort_reason, ToolErrorCode.VERIFY_PRE_FAILED)
 
         for fn in self._pre_listeners:
             try:
@@ -210,7 +210,7 @@ class ToolPipeline:
         # === 2. monotonic guards ===
         tool = self._registry.get(name)
         if not tool.is_ok:
-            return self._error(f"Tool not found: {name}")
+            return self._error(f"Tool not found: {name}", ToolErrorCode.TOOL_NOT_FOUND)
         tool_def = tool.data
 
         for guard in self._guards:
@@ -219,11 +219,17 @@ class ToolPipeline:
                 if dec.decision == "deny":
                     ctx.aborted = True
                     ctx.abort_reason = f"[guard deny] {dec.reason}"
-                    return self._error(ctx.abort_reason)
+                    return self._error(ctx.abort_reason, ToolErrorCode.GUARD_DENIED)
                 # abstain = pass through
             except Exception as e:
-                logger.warning("guard raised: %s", e)
-                # guard 异常: 视为 abstain (dsh 规则)
+                # P0 安全对齐(2026-09-11, codex 审计): guard 异常此前 fail-open
+                # (视为 abstain 放行), 对安全 guard 意味着"守卫崩了 = 放行"。
+                # 改为 fail-closed: 守卫异常一律 deny, 除非守卫显式标记可降级。
+                # 安全优先: 误拦可人工放行, 误放不可逆。
+                logger.error("guard %r raised: %s (fail-closed: deny)", guard, e)
+                ctx.aborted = True
+                ctx.abort_reason = f"[guard exception-fail-closed] {getattr(guard, '__name__', repr(guard))} raised: {e}"
+                return self._error(ctx.abort_reason, ToolErrorCode.GUARD_EXCEPTION)
 
         # === 3. tools/execute (around-dispatch: timeout, retry, metrics) ===
         ctx.metrics["start_ts"] = time.time()
@@ -261,7 +267,7 @@ class ToolPipeline:
         if ctx.is_error:
             # T0-7: 触发错误监听器（query_engine 接 ON_ERROR hook）
             self._notify_error(name, ctx.error_msg)
-            return self._error(ctx.error_msg)
+            return self._error(ctx.error_msg, ToolErrorCode.EXECUTION_ERROR)
 
         # === 4. post-execute waterfall ===
         for fn in self._post_listeners:
@@ -279,7 +285,7 @@ class ToolPipeline:
             if not passed:
                 ctx.aborted = True
                 ctx.abort_reason = f"[verify-post] {err}"
-                return self._error(ctx.abort_reason)
+                return self._error(ctx.abort_reason, ToolErrorCode.VERIFY_POST_FAILED)
 
         # === P0-2: output size pruning (tool result spill) ===
         # 防止大输出（如 large grep / long ls）爆上下文
@@ -371,5 +377,96 @@ class ToolPipeline:
             logger.warning("output spill failed, returning original result")
             return result
 
-    def _error(self, msg: str) -> dict[str, Any]:
-        return {"error": msg, "pipeline_aborted": True}
+    def _error(self, msg: str, code: str = ToolErrorCode.EXECUTION_ERROR) -> dict[str, Any]:
+        return {
+            "error": msg,
+            "error_code": code,
+            "pipeline_aborted": True,
+        }
+
+    # ------------------------------------------------------------------
+    # P1 (2026-09-12): 强类型结果入口 — execute_typed
+    #
+    # execute() 保持 dict 返回（向后兼容存量调用方/测试）；
+    # execute_typed() 返回 ToolResult，错误语义用 error.code 判断
+    # （替代 '"error"' in json 字符串探测）。
+    # ------------------------------------------------------------------
+
+    def execute_typed(
+        self,
+        name: str,
+        args: dict[str, Any],
+        **kwargs: Any,
+    ) -> ToolResult[Any]:
+        """execute() 的强类型版本：返回 ToolResult，失败含结构化 error_code。"""
+        result = self.execute(name, args, **kwargs)
+        if isinstance(result, dict) and result.get("error") is not None:
+            raw_code = result.get("error_code") or ToolErrorCode.EXECUTION_ERROR
+            # Enum 成员取其 value（str(Enum) 会带类名前缀）
+            code = getattr(raw_code, "value", raw_code)
+            return ToolResult.err(
+                str(result["error"]),
+                code=str(code),
+                tool_name=name,
+                detail={k: v for k, v in result.items() if k not in ("error", "error_code", "pipeline_aborted")} or None,
+            )
+        return ToolResult.ok(result)
+
+    # ------------------------------------------------------------------
+    # P0 主链统一 (2026-09-12, codex 审计 #1): 纯权限预检
+    #
+    # check_permission 只跑 1-2 段（permissions/rate/dangerous/guards），
+    # **不执行 handler** — 供快路径（read ContextCache）在真正执行前判定
+    # 是否被 pipeline 拒绝，杜绝"快路径绕过权限/守卫"。
+    # 返回 None = 放行；返回 dict = 拒绝结果（error + error_code）。
+    # ------------------------------------------------------------------
+
+    def check_permission(
+        self,
+        name: str,
+        args: dict[str, Any],
+        *,
+        permissions_blocks: Callable[[str], bool] | None = None,
+        rate_check: Callable[[], tuple[bool, str]] | None = None,
+    ) -> dict[str, Any] | None:
+        """纯权限预检（不执行 handler）。返回 None 放行，dict 拒绝。"""
+        ctx = PipelineContext(name=name, args=args)
+
+        if permissions_blocks is not None and permissions_blocks(name):
+            ctx.aborted = True
+            ctx.abort_reason = f"Tool blocked by permissions: {name}"
+            return self._error(ctx.abort_reason, ToolErrorCode.PERMISSION_DENIED)
+        if rate_check is not None:
+            passed, err = rate_check()
+            if not passed:
+                ctx.aborted = True
+                ctx.abort_reason = f"[rate-limit] {err}"
+                return self._error(ctx.abort_reason, ToolErrorCode.RATE_LIMITED)
+
+        if name in self._critical:
+            cmd = args.get("command", "")
+            for pat in self._dangerous:
+                if pat in cmd:
+                    ctx.aborted = True
+                    ctx.abort_reason = f"[安全限制] 危险命令被阻止: 含有 '{pat}'"
+                    return self._error(ctx.abort_reason, ToolErrorCode.DANGEROUS_COMMAND)
+
+        tool = self._registry.get(name)
+        if not tool.is_ok:
+            return self._error(f"Tool not found: {name}", ToolErrorCode.TOOL_NOT_FOUND)
+        tool_def = tool.data
+
+        for guard in self._guards:
+            try:
+                dec = guard(tool_def, ctx)
+                if dec.decision == "deny":
+                    ctx.aborted = True
+                    ctx.abort_reason = f"[guard deny] {dec.reason}"
+                    return self._error(ctx.abort_reason, ToolErrorCode.GUARD_DENIED)
+            except Exception as e:  # noqa: BLE001 — 与 execute() 同一 fail-closed 语义
+                logger.error("guard %r raised in preflight: %s (fail-closed: deny)", guard, e)
+                ctx.aborted = True
+                ctx.abort_reason = f"[guard exception-fail-closed] {getattr(guard, '__name__', repr(guard))} raised: {e}"
+                return self._error(ctx.abort_reason, ToolErrorCode.GUARD_EXCEPTION)
+
+        return None  # 放行

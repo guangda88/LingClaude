@@ -306,3 +306,130 @@ def discover_and_register(
     finally:
         if isinstance(client, MCPStdioClient):
             client.close()
+
+
+# ---------------------------------------------------------------------------
+# P2 (2026-09-12, codex 审计 #4): MCP Provider Manager — 连接池
+#
+# 现状: mcp_proxy.call_tool 对 stdio/http 每次新建 client、用完即关，
+# 无连接复用（stdio 子进程 spawn 成本高 + 每次 initialize 握手）。
+# 本池按 server key 缓存 client，带失效重连：
+#   - get(key) 返回缓存 client，惰性连接
+#   - health check: stdio 用 proc.poll()，http 用轻量 tools/list 探测
+#   - 失效自动剔除并重建（重连一次，失败返回错误）
+# ---------------------------------------------------------------------------
+
+
+class MCPClientPool:
+    """按 server key 缓存 MCP client 的连接池（线程安全）。"""
+
+    def __init__(self, ttl_seconds: float = 300.0) -> None:
+        self._clients: dict[str, Any] = {}
+        self._created_at: dict[str, float] = {}
+        self._lock = threading.Lock()
+        self._ttl = ttl_seconds
+
+    def _new_client(
+        self,
+        transport: str,
+        *,
+        command: tuple[str, ...] | list[str] | None = None,
+        url: str | None = None,
+        cwd: str | None = None,
+        timeout: float = 30.0,
+    ) -> Any:
+        if transport == "stdio" and command:
+            return MCPStdioClient(command=list(command), cwd=cwd, timeout=timeout)
+        if transport == "http" and url:
+            return MCPHttpClient(url=url, timeout=timeout)
+        raise ValueError(f"Unsupported MCP transport for pool: {transport}")
+
+    def _is_healthy(self, client: Any) -> bool:
+        """轻量健康检查：stdio 查进程存活；http 查可连通（3s 超时探测）。"""
+        try:
+            if isinstance(client, MCPStdioClient):
+                proc = client._proc
+                return proc is not None and proc.poll() is None
+            if isinstance(client, MCPHttpClient):
+                # http: 用一次空 tools/list 探测（失败即认为失效）
+                res = client.list_tools()
+                return res.is_ok
+            return True
+        except Exception:  # noqa: BLE001 — 健康检查异常视为不健康
+            return False
+
+    def get(
+        self,
+        key: str,
+        transport: str,
+        *,
+        command: tuple[str, ...] | list[str] | None = None,
+        url: str | None = None,
+        cwd: str | None = None,
+        timeout: float = 30.0,
+    ) -> Result[Any]:
+        """获取（或创建）缓存 client。失效自动重连一次。"""
+        with self._lock:
+            client = self._clients.get(key)
+            now = time.monotonic()
+            stale = (now - self._created_at.get(key, 0)) > self._ttl if key in self._created_at else False
+
+            if client is not None and not stale and self._is_healthy(client):
+                return Result.ok(client)
+
+            # 失效/过期 → 剔除重建
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._clients.pop(key, None)
+                self._created_at.pop(key, None)
+                logger.info("MCP pool: dropped stale client for %s", key)
+
+            try:
+                new_client = self._new_client(transport, command=command, url=url, cwd=cwd, timeout=timeout)
+            except ValueError as e:
+                return Result.fail(str(e), code="UNSUPPORTED_TRANSPORT")
+            if isinstance(new_client, MCPStdioClient):
+                conn = new_client.connect()
+                if conn.is_error:
+                    return conn
+            self._clients[key] = new_client
+            self._created_at[key] = time.monotonic()
+            logger.info("MCP pool: connected %s (%s)", key, transport)
+            return Result.ok(new_client)
+
+    def drop(self, key: str) -> None:
+        """主动剔除（server 重注册/关闭时调用）。"""
+        with self._lock:
+            client = self._clients.pop(key, None)
+            self._created_at.pop(key, None)
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+    def close_all(self) -> None:
+        with self._lock:
+            for key, client in list(self._clients.items()):
+                try:
+                    client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            self._clients.clear()
+            self._created_at.clear()
+
+    @property
+    def size(self) -> int:
+        with self._lock:
+            return len(self._clients)
+
+
+# 全局共享连接池（进程内唯一）
+_client_pool = MCPClientPool()
+
+
+def get_client_pool() -> MCPClientPool:
+    return _client_pool

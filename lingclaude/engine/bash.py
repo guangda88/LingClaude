@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import resource
 import shutil
@@ -119,6 +120,62 @@ _NETWORK_ALLOWED_COMMANDS = (
     "git remote",
 )
 
+# 透明前缀：这些包装命令本身不访问网络，剥离后不影响白名单判定。
+# 2026-09-12 修复：agent 习惯给 git 远程命令加 `timeout N`/`env` 前缀，
+# 导致全链白名单判定 False → 整条被 `--unshare-net` 隔离 → git 无法联网。
+# 仅剥离「纯包装」前缀；前缀后的实际命令仍逐个全链判定（保持 fail-closed）。
+_TRANSPARENT_PREFIXES = (
+    "timeout",
+    "env",
+    "nice",
+    "stdbuf",
+    "setsid",
+    "nohup",
+    "command",
+)
+
+
+def _strip_transparent_prefix(command: str) -> str:
+    """剥离 timeout/env 等透明包装前缀（含其参数），返回实际命令。
+
+    例：``timeout 15 git ls-remote ...`` → ``git ls-remote ...``
+    ``env GIT_TERMINAL_PROMPT=0 git fetch`` → ``git fetch``
+    ``nice -n 10 git pull`` → ``git pull``
+    非透明前缀（echo/head/grep 等）原样返回 → 整条隔离（fail-closed）。
+    """
+    cmd = command.strip()
+    while True:
+        tokens = cmd.split()
+        if not tokens:
+            return cmd
+        head = tokens[0].lower()
+        if head not in _TRANSPARENT_PREFIXES:
+            return cmd
+        # 剥离前缀本身
+        rest = " ".join(tokens[1:]).strip()
+        # 若前缀带独立参数（timeout 15 / env FOO=1 / nice -n 10），一并剥离
+        while rest:
+            rtoks = rest.split()
+            rhead = rtoks[0]
+            if head == "timeout" and rhead.isdigit():
+                rest = " ".join(rtoks[1:]).strip()
+                continue
+            if head == "timeout" and rhead in ("-k", "-s", "--signal", "-v"):
+                rest = " ".join(rtoks[2:]).strip() if len(rtoks) > 1 else ""
+                continue
+            if head == "nice" and rhead in ("-n", "--adjustment"):
+                rest = " ".join(rtoks[2:]).strip() if len(rtoks) > 1 else ""
+                continue
+            if head in ("env", "nohup", "setsid", "stdbuf", "command"):
+                # env FOO=1 BAR=2 cmd ... / stdbuf -oL cmd / command -v cmd
+                if rhead.startswith(("-", "=")) or "=" in rhead and not rhead.startswith("-"):
+                    rest = " ".join(rtoks[1:]).strip()
+                    continue
+            break
+        cmd = rest
+    return cmd
+
+
 def _is_network_allowed(command: str) -> bool:
     """判断命令是否命中网络白名单（全链判定，仅 git 远程/认证类操作）。
 
@@ -127,13 +184,18 @@ def _is_network_allowed(command: str) -> bool:
     ``_split_chain`` 拆分 ``&&/||/;/|/$()/``` `` 后逐个判定，
     要求**所有子命令都命中**白名单才返回 True（全链白名单，缺一即隔离）。
 
+    修复 2026-09-12（透明前缀误伤）：``timeout 15 git push`` / ``env FOO=1 git fetch``
+    因 timeout/env 不在白名单而被整条隔离 → git 无法联网。现先剥离透明包装前缀
+    再全链判定；剥离后仍含非白名单子命令（如 ``timeout 15 git push && wget x``）→
+    整条隔离（fail-closed 保持）。
+
     命中返回 True -> _sandbox_command 传 allow_network=True。
     """
     parts = BashExecutor._split_chain(command)
     if not parts:
         return False
     for sub in parts:
-        norm = sub.strip().lower().replace("'", "").replace('"', "")
+        norm = _strip_transparent_prefix(sub).lower().replace("'", "").replace('"', "")
         hit = any(
             norm == allowed or norm.startswith(allowed + " ")
             for allowed in _NETWORK_ALLOWED_COMMANDS
@@ -141,6 +203,36 @@ def _is_network_allowed(command: str) -> bool:
         if not hit:
             return False
     return True
+
+
+# 网络类错误特征（2026-09-12 自动降级判定）：DNS 解析失败 / 网络不可达 / 连接被拒。
+_NETWORK_FAILURE_PATTERNS = (
+    "could not resolve host",
+    "could not resolve",
+    "network is unreachable",
+    "network unreachable",
+    "no route to host",
+    "connection refused",
+    "connection timed out",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "getaddrinfo failed",
+    "device or resource busy",  # seccomp 拦 connect 的典型报错
+    "connection reset by peer",
+    "ssl: certificate verify failed",
+    "ssh: connect to host",
+    "fatal: unable to access",
+    "fatal: 无法访问",
+    "unable to resolve host",
+    "无法解析",
+    "解析失败",
+)
+
+
+def _looks_like_network_failure(text: str) -> bool:
+    """判断命令输出/错误是否属于网络类失败（供自动降级重试判定）。"""
+    lowered = text.lower()
+    return any(pattern in lowered for pattern in _NETWORK_FAILURE_PATTERNS)
 
 
 _DEFAULT_MEMORY_LIMIT = 512 * 1024 * 1024  # 512 MB
@@ -235,6 +327,31 @@ class BashExecutor:
                     preexec_fn=lambda: self._set_resource_limits(command),
                 )
             duration = time.monotonic() - start
+            # 2026-09-12：白名单网络命令失败自动降级重试。
+            # 若 bwrap 沙箱（--unshare-net 或共享 netns 但 DNS 失效）导致网络命令失败，
+            # 自动改用「主进程网络域」执行（剥离 bwrap 前缀，直接 subprocess），
+            # 消除 agent 手工切换管线的 token/轮次浪费。仅限白名单命令，且
+            # 仅在「网络类错误」时触发（DNS 解析失败 / 网络不可达 / 连接被拒）。
+            if (
+                result.returncode != 0
+                and cmd != command  # 确实走了 bwrap 包裹
+                and _is_network_allowed(command)
+                and _looks_like_network_failure(result.stdout + result.stderr)
+            ):
+                logging.getLogger(__name__).warning(
+                    "白名单网络命令失败(%s)，自动降级到主进程网络域重试: %s",
+                    result.returncode,
+                    command[:80],
+                )
+                result = subprocess.run(  # nosec B603 — 白名单 git 命令，_check_blocked 已前置校验
+                    ["/bin/bash", "-c", command],
+                    capture_output=True,
+                    text=True,
+                    timeout=effective_timeout,
+                    cwd=self.working_dir,
+                    preexec_fn=lambda: self._set_resource_limits(command),
+                )
+                duration = time.monotonic() - start
             return BashResult(
                 exit_code=result.returncode,
                 stdout=result.stdout,
@@ -314,8 +431,6 @@ class BashExecutor:
 
         if not bwrap_ok:
             # T0-10: 降级不再静默 — 无策略约束时 WARNING（策略约束路径上方已 fail-closed）
-            import logging
-
             logging.getLogger(__name__).warning(
                 "bwrap 不可用，bash 命令以非沙箱方式执行（黑名单+资源限制仍生效）: %s",
                 command[:80],

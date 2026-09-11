@@ -269,6 +269,19 @@ class SubmissionMixin:
     def load_session(self, session_id: str) -> bool:
         return self._session_persister.load_session(session_id)
 
+    # P1 rewind (2026-09-12): 快照回滚 — engine 级入口，供 CLI /rewind 调用
+    def list_checkpoints(self) -> list[dict[str, Any]]:
+        return self._session_persister.list_checkpoints()
+
+    def rewind_to(self, tag: str) -> Result[str]:
+        """回滚到指定 tag 的 checkpoint。成功返回回滚摘要。"""
+        from lingclaude.core.types import Result as _R
+
+        ok = self._session_persister.rewind_to(tag)
+        if not ok:
+            return _R.fail(f"Checkpoint tag not found: {tag}", code="NO_CHECKPOINT")
+        return _R.ok(f"已回滚到 {tag}（当前上下文 {len(self._messages)} 条消息）")
+
     def _clear_checkpoint(self) -> None:
         self._session_persister.clear_checkpoint()
 
@@ -280,8 +293,15 @@ class SubmissionMixin:
         used_tools: bool,
         total_input: int,
         total_output: int,
+        tag: str | None = None,
     ) -> None:
-        self._session_persister.save_checkpoint(messages, round_idx, prompt, used_tools, total_input, total_output)
+        # P1 rewind: 每轮工具轮保存带 round 标签的版本（tag=None 时兼容旧语义覆盖写）
+        if tag is None:
+            tag = f"round{round_idx}"
+        self._session_persister.save_checkpoint(
+            messages, round_idx, prompt, used_tools, total_input, total_output,
+            tag=tag,
+        )
 
     def _load_checkpoint(self) -> dict[str, Any] | None:
         return self._session_persister.load_checkpoint()

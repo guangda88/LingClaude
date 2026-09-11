@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,11 +137,22 @@ class SessionStore:
         total_input: int,
         total_output: int,
         conversation: list[Any],
+        tag: str | None = None,
     ) -> Path | None:
-        """序列化并落盘。失败返回 None (checkpoint 是 best-effort)。"""
+        """序列化并落盘。失败返回 None (checkpoint 是 best-effort)。
+
+        P1 rewind (2026-09-12): 支持多版本 —
+          - tag 为 None: 覆盖写 `{session_id}.json`（兼容旧语义：中断恢复用）
+          - tag 非 None: 写 `{session_id}@{tag}.json`（可回滚的历史版本）
+        两种文件都保留，互不覆盖。
+        """
         try:
             self._checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            cp_path = self._checkpoint_dir / f"{self.session_id}.json"
+            if tag:
+                safe_tag = re.sub(r"[^A-Za-z0-9_.-]", "_", tag)
+                cp_path = self._checkpoint_dir / f"{self.session_id}@{safe_tag}.json"
+            else:
+                cp_path = self._checkpoint_dir / f"{self.session_id}.json"
             serialized = [msg.to_dict() for msg in messages]
             data = {
                 "session_id": self.session_id,
@@ -152,16 +164,65 @@ class SessionStore:
                 "messages": serialized,
                 "conversation": list(conversation),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "tag": tag,
             }
             cp_path.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
             self._active_checkpoint = cp_path
-            logger.info("Checkpoint saved: session=%s round=%d", self.session_id, round_idx)
+            logger.info("Checkpoint saved: session=%s round=%d tag=%s", self.session_id, round_idx, tag)
             return cp_path
         except Exception as e:
             logger.warning("Checkpoint save failed: %s", e)
+            return None
+
+    def list_checkpoints(self) -> list[dict[str, Any]]:
+        """列出当前会话全部 checkpoint 版本（含时间戳/轮次/条数）。"""
+        if not self._checkpoint_dir.exists():
+            return []
+        results: list[dict[str, Any]] = []
+        prefix = f"{self.session_id}"
+        for p in sorted(self._checkpoint_dir.glob(f"{prefix}*.json")):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if data.get("session_id") != self.session_id:
+                    continue
+                results.append({
+                    "file": p.name,
+                    "tag": data.get("tag"),
+                    "round_idx": data.get("round_idx", 0),
+                    "message_count": len(data.get("messages", [])),
+                    "timestamp": data.get("timestamp", ""),
+                })
+            except Exception:
+                continue
+        return sorted(results, key=lambda r: r["timestamp"], reverse=True)
+
+    def load_checkpoint_by_tag(self, tag: str) -> CheckpointData | None:
+        """按 tag 加载指定版本 checkpoint（rewind 用）。"""
+        safe_tag = re.sub(r"[^A-Za-z0-9_.-]", "_", tag)
+        cp_path = self._checkpoint_dir / f"{self.session_id}@{safe_tag}.json"
+        if not cp_path.exists():
+            return None
+        try:
+            data = json.loads(cp_path.read_text(encoding="utf-8"))
+            if data.get("session_id") != self.session_id:
+                return None
+            logger.info("Checkpoint loaded by tag: session=%s tag=%s round=%d",
+                        self.session_id, tag, data.get("round_idx", 0))
+            return CheckpointData(
+                session_id=data["session_id"],
+                prompt=data["prompt"],
+                round_idx=data["round_idx"],
+                used_tools=data["used_tools"],
+                total_input=data.get("total_input", 0),
+                total_output=data.get("total_output", 0),
+                raw_messages=data.get("messages", []),
+                saved_conversation=data.get("conversation", []),
+            )
+        except Exception as e:
+            logger.warning("Checkpoint load by tag failed: %s", e)
             return None
 
     def load_checkpoint(self) -> CheckpointData | None:

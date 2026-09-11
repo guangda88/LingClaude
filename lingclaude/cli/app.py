@@ -118,6 +118,14 @@ def _load_keys_env() -> None:
             os.environ[name] = value
 
 
+def _close_runtime(runtime: "CodingRuntime") -> None:
+    """atexit 回调：优雅释放 runtime 资源，避免解释器 shutdown 阶段线程池 join 异常。"""
+    try:
+        runtime.close()
+    except Exception:  # noqa: BLE001 — 退出路径不抛异常
+        pass
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     # 审计#4 修复:--bash-executor 必须在 CodingRuntime 创建前生效
@@ -168,6 +176,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
         _bus_responder_stop = start_bus_responder_background()
         import atexit
         atexit.register(_bus_responder_stop.set)
+
+    # 退出时清理 runtime 资源（LSP 子进程 + BackgroundTaskManager 线程池）。
+    # 修复:BackgroundTaskManager.shutdown() 存在但从未被调用 — 解释器 shutdown 阶段
+    # _python_exit join 线程池 worker 时被 KeyboardInterrupt 打断 → 退出噪音 traceback。
+    import atexit
+
+    atexit.register(_close_runtime, runtime)
 
     # P0-2: 输出格式 + 会话续接（--continue 最近会话 / --resume <id>）
     set_output_format(getattr(args, "output_format", "plain") or "plain")

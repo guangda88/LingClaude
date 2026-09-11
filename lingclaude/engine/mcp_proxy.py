@@ -78,10 +78,27 @@ def register_server(
 
 
 def find_server(tool_name: str) -> MCPServerInfo | None:
+    """按工具名找 server（第一个匹配；冲突时返回第一个，见 find_server_with_conflicts）。"""
     for info in _SERVERS.values():
         if tool_name in info.tools:
             return info
     return None
+
+
+def find_server_with_conflicts(tool_name: str) -> tuple[MCPServerInfo | None, list[str]]:
+    """查找工具归属 + 冲突报告（P2）。
+
+    Returns:
+        (primary, conflicts)
+        - primary: 第一个注册该工具的 server（与 find_server 语义一致）
+        - conflicts: 其它也声明该工具的 server key 列表（空 = 无冲突）
+    """
+    matches: list[MCPServerInfo] = [
+        info for info in _SERVERS.values() if tool_name in info.tools
+    ]
+    if not matches:
+        return None, []
+    return matches[0], [m.key for m in matches[1:]]
 
 
 def list_all_tools() -> tuple[str, ...]:
@@ -97,16 +114,34 @@ def list_servers() -> tuple[MCPServerInfo, ...]:
 
 
 def get_stats() -> dict[str, Any]:
+    """MCP 运行时统计（P2 扩展：连接池 + 冲突报告 + schema cache）。"""
+    from lingclaude.engine.mcp_client import get_client_pool
+
+    # 工具冲突报告：同一工具被多个 server 声明
+    tool_owners: dict[str, list[str]] = {}
+    for info in _SERVERS.values():
+        for t in info.tools:
+            tool_owners.setdefault(t, []).append(info.key)
+    conflicts = {
+        t: owners for t, owners in tool_owners.items() if len(owners) > 1
+    }
+
+    pool = get_client_pool()
     return {
         "total_servers": len(_SERVERS),
         "total_tools": len(list_all_tools()),
         "by_agent": {
             info.name: len(info.tools) for info in _SERVERS.values()
         },
+        "pool_size": pool.size,
+        "schema_cache_entries": len(_schema_cache),
+        "tool_conflicts": conflicts,
     }
 
 
 _cache = _ModuleCache()
+# P2 (2026-09-12): 进程级 schema 缓存 — tool_name → (properties, required)
+_schema_cache: dict[str, tuple[dict[str, Any], list[str]]] = {}
 
 
 def _ensure_path(working_dir: str) -> None:
@@ -227,17 +262,25 @@ def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
     t0 = time.monotonic()
 
     # T1-5: 标准 MCP client 路径（stdio/http transport）
+    # P2 (2026-09-12): 连接池复用 — 不再每次新建/关闭 client
     if server.transport in ("stdio", "http"):
-        from lingclaude.engine.mcp_client import MCPHttpClient, MCPStdioClient
+        from lingclaude.engine.mcp_client import get_client_pool
 
         try:
-            if server.transport == "stdio":
-                client: Any = MCPStdioClient(command=list(server.command), cwd=server.working_dir)
-                conn = client.connect()
-                if conn.is_error:
-                    return Result.fail(conn.error or "stdio connect failed", code="CONNECT_FAILED")
-            else:
-                client = MCPHttpClient(url=server.url or "")
+            pool = get_client_pool()
+            client_result = pool.get(
+                server.key,
+                server.transport,
+                command=server.command,
+                url=server.url,
+                cwd=server.working_dir,
+            )
+            if client_result.is_error:
+                return Result.fail(
+                    client_result.error or f"{server.transport} connect failed",
+                    code="CONNECT_FAILED",
+                )
+            client = client_result.data
             result = client.call_tool(tool_name, kwargs)
             elapsed = (time.monotonic() - t0) * 1000
             if result.is_error:
@@ -266,9 +309,6 @@ def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
                 error=str(e),
                 duration_ms=elapsed,
             ))
-        finally:
-            if server.transport == "stdio":
-                client.close()  # type: ignore[attr-defined] — stdio client 才有 close
 
     fn = _get_tool_function(server, tool_name)
     if fn is None:
@@ -355,10 +395,15 @@ def get_tool_schema(tool_name: str) -> tuple[dict[str, Any], list[str]]:
     """取 MCP 工具参数 schema，返回 (properties_map, required_list)。
 
     优先级：
-    1. FastMCP Tool.parameters（module transport）
-    2. tools/list 发现的 inputSchema（stdio/http transport，T1-5 深化）
-    3. 函数签名推导
+    1. 进程级 schema cache（P2 新增，避免重复走 FastMCP 私有结构）
+    2. server.tool_schemas（tools/list 发现的 inputSchema，stdio/http）
+    3. FastMCP Tool.parameters（module transport）
+    4. 函数签名推导
     """
+    cache_key = f"schema:{tool_name}"
+    if cache_key in _schema_cache:
+        return _schema_cache[cache_key]
+
     server = find_server(tool_name)
     if server is None:
         return {}, []
@@ -369,7 +414,9 @@ def get_tool_schema(tool_name: str) -> tuple[dict[str, Any], list[str]]:
         properties = tool_schema.get("properties", {})
         required = tool_schema.get("required", [])
         if properties:
-            return dict(properties), list(required)
+            result = (dict(properties), list(required))
+            _schema_cache[cache_key] = result
+            return result
 
     module = _load_module(server)
     if module is not None and hasattr(module, "mcp"):
@@ -380,17 +427,22 @@ def get_tool_schema(tool_name: str) -> tuple[dict[str, Any], list[str]]:
             # FastMCP Tool.parameters 属性即完整 JSON Schema
             schema = getattr(tool_obj, "parameters", None)
             if isinstance(schema, dict) and schema.get("properties"):
-                return dict(schema["properties"]), list(schema.get("required") or [])
+                result = (dict(schema["properties"]), list(schema.get("required") or []))
+                _schema_cache[cache_key] = result
+                return result
 
     fn = _get_tool_function(server, tool_name)
     if fn is None:
         return {}, []
-    return _schema_from_signature(fn)
+    result = _schema_from_signature(fn)
+    _schema_cache[cache_key] = result
+    return result
 
 
 def clear_cache() -> None:
     _cache._modules.clear()
     _cache._functions.clear()
+    _schema_cache.clear()
 
 
 def init_from_lingflow_registry() -> int:

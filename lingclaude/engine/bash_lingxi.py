@@ -8,6 +8,21 @@ from typing import Optional
 
 from lingclaude.mcp.lingxi_client import lingxiClient
 
+# P0 安全对齐(2026-09-11): bash_lingxi 此前默认无任何黑名单(allowed=None,
+# blocked=[]), 等于给模型开了一条绕过 bash.py 全部安全基线的旁路。
+# 现复用 bash.py 的 _ALWAYS_BLOCKED + _BLOCKED_BASE_COMMANDS 作为默认黑名单,
+# 保证两条 bash 通道的安全边界一致; 显式传 blocked_commands 可覆盖(合并而非替换)。
+try:
+    from lingclaude.engine.bash import (
+        _ALWAYS_BLOCKED as _BASH_ALWAYS_BLOCKED,
+        _BLOCKED_BASE_COMMANDS as _BASH_BLOCKED_BASE_COMMANDS,
+    )
+except ImportError:  # pragma: no cover — bash.py 结构性改名时兜底
+    _BASH_ALWAYS_BLOCKED = frozenset({"sudo", "su", "mkfs", "curl", "wget", "ssh", "scp"})
+    _BASH_BLOCKED_BASE_COMMANDS = frozenset({"sudo", "su", "mkfs"})
+
+_DEFAULT_LINGXI_BLOCKED: tuple[str, ...] = tuple(sorted(_BASH_ALWAYS_BLOCKED | _BASH_BLOCKED_BASE_COMMANDS))
+
 
 @dataclass(frozen=True)
 class BashResult:
@@ -43,7 +58,9 @@ class BashlingxiExecutor:
         self.server_path = server_path
         self.node_path = node_path
         self.allowed_commands = allowed_commands
-        self.blocked_commands = blocked_commands or []
+        # P0 安全对齐: 默认使用 bash.py 同源黑名单(合并, 不可被调用方清空)。
+        # 显式传入 blocked_commands 仅在默认集合之上追加, 不替换。
+        self.blocked_commands = list(_DEFAULT_LINGXI_BLOCKED) + list(blocked_commands or [])
 
         # Lazy initialization - client is created when first command is run
         self._client: Optional[lingxiClient] = None

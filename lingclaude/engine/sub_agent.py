@@ -134,32 +134,45 @@ class SubAgent:
         )
 
     def _execute_tool(self, name: str, arguments_json: str) -> str:
+        tr = self._execute_tool_typed(name, arguments_json)
+        return json.dumps(tr.to_dict(), ensure_ascii=False, default=str)
+
+    def _execute_tool_typed(self, name: str, arguments_json: str) -> ToolResult[Any]:
+        """强类型版本：sub-agent 工具执行（错误语义用 error.code）。"""
+        from lingclaude.core.types import ToolErrorCode, ToolResult, parse_tool_result
+
         try:
             kwargs = json.loads(arguments_json)
         except json.JSONDecodeError:
-            return json.dumps({"error": f"Invalid JSON: {arguments_json}"}, ensure_ascii=False)
+            return ToolResult.err(
+                f"Invalid JSON: {arguments_json}",
+                code=ToolErrorCode.INVALID_ARGS,
+                tool_name=name,
+            )
 
         # P1-2: 敏感路径隔离（对标 AtomCode task.rs hard deny）
         from lingclaude.engine.sensitive_path_gate import check_sensitive_path
         for key, value in kwargs.items():
             if isinstance(value, str) and check_sensitive_path(value)[0]:
-                return json.dumps({
-                    "error": f"Tool '{name}' rejected: argument '{key}' references sensitive path"
-                }, ensure_ascii=False)
+                return ToolResult.err(
+                    f"Tool '{name}' rejected: argument '{key}' references sensitive path",
+                    code=ToolErrorCode.GUARD_DENIED,
+                    tool_name=name,
+                )
             elif isinstance(value, dict):
                 for v in value.values():
                     if isinstance(v, str) and check_sensitive_path(v)[0]:
-                        return json.dumps({
-                            "error": f"Tool '{name}' rejected: nested argument references sensitive path"
-                        }, ensure_ascii=False)
+                        return ToolResult.err(
+                            f"Tool '{name}' rejected: nested argument references sensitive path",
+                            code=ToolErrorCode.GUARD_DENIED,
+                            tool_name=name,
+                        )
 
         try:
             result = self._runtime.execute_tool(name, **kwargs)
-            if isinstance(result, dict):
-                return json.dumps(result, ensure_ascii=False, default=str)
-            return json.dumps({"result": result}, ensure_ascii=False, default=str)
+            return parse_tool_result(result, tool_name=name)
         except Exception as e:
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
+            return ToolResult.err(str(e), code=ToolErrorCode.EXECUTION_ERROR, tool_name=name)
 
     def _build_tools_spec(self) -> list[dict[str, Any]]:
         if self._runtime is None:

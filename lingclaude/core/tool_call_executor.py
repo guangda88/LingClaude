@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from lingclaude.core.image_content import extract_image_content, image_tool_text
+from lingclaude.core.types import is_tool_error
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class ToolCallExecutor:
         for tc in tool_calls:
             engine._dementia_detector.record_tool_call(tc.name, tc.arguments)
             tool_output = engine._execute_tool_with_retry(tc.name, tc.arguments)
-            if '"error"' in tool_output:
+            if is_tool_error(tool_output):
                 engine._behavior = engine._behavior.record_tool_calls(count=0, errors=1)
                 engine._log_to_flywheel(
                     pattern_type="tool_error",
@@ -104,7 +105,7 @@ class ToolCallExecutor:
                 results.append((tc, tool_output))
 
         for tc, tool_output in results:
-            if '"error"' in tool_output:
+            if is_tool_error(tool_output):
                 engine._behavior = engine._behavior.record_tool_calls(count=0, errors=1)
                 engine._log_to_flywheel(
                     pattern_type="tool_error",
@@ -127,7 +128,7 @@ class ToolCallExecutor:
         engine._dementia_detector.record_tool_call(tc.name, tc.arguments)
         with engine._write_lock:
             tool_output = engine._execute_tool_with_retry(tc.name, tc.arguments)
-        if '"error"' in tool_output:
+        if is_tool_error(tool_output):
             engine._behavior = engine._behavior.record_tool_calls(count=0, errors=1)
             engine._log_to_flywheel(
                 pattern_type="tool_error",

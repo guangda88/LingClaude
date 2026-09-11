@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from lingclaude.core.models import UsageSummary
 from lingclaude.core.session import Session
 from lingclaude.core.types import Result
+
+logger = logging.getLogger(__name__)
 
 
 class SessionPersister:
@@ -65,6 +68,7 @@ class SessionPersister:
         used_tools: bool,
         total_input: int,
         total_output: int,
+        tag: str | None = None,
     ) -> None:
         engine = self._engine
         engine._sync_session_store()
@@ -76,9 +80,65 @@ class SessionPersister:
             total_input=total_input,
             total_output=total_output,
             conversation=engine._conversation,
+            tag=tag,
         )
         if cp is not None:
             engine._active_checkpoint = cp
+
+    def list_checkpoints(self) -> list[dict[str, Any]]:
+        engine = self._engine
+        engine._sync_session_store()
+        return engine.session_store.list_checkpoints()
+
+    def rewind_to(self, tag: str) -> bool:
+        """回滚到指定 tag 的 checkpoint（P1 rewind）。
+
+        恢复 engine._messages / _conversation / _transcript 到该版本，
+        不动 session_store 里其它版本（可再前进）。
+        """
+        engine = self._engine
+        engine._sync_session_store()
+        cd = engine.session_store.load_checkpoint_by_tag(tag)
+        if cd is None:
+            return False
+        from lingclaude.model.types import ModelMessage, MessageRole, ToolCall
+
+        messages: list[ModelMessage] = []
+        for rm in cd.raw_messages:
+            role = MessageRole(rm.get("role", "user"))
+            tool_calls = None
+            if rm.get("tool_calls"):
+                tool_calls = tuple(
+                    ToolCall(
+                        id=tc["function"].get("id", ""),
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
+                    )
+                    for tc in rm["tool_calls"]
+                    if "function" in tc
+                )
+            messages.append(ModelMessage(
+                role=role,
+                content=rm.get("content", ""),
+                name=rm.get("name"),
+                tool_call_id=rm.get("tool_call_id"),
+                tool_calls=tool_calls,
+            ))
+        engine._messages = messages
+        if cd.saved_conversation:
+            engine._conversation = [
+                (tuple(item) if isinstance(item, (list, tuple)) and len(item) == 2 else item)
+                for item in cd.saved_conversation
+            ]
+        engine._transcript = [m.content for m in messages if isinstance(m.content, str)]
+        # 回滚后 journal 清空（回滚点之后的事件全部作废，防副作用幂等误判）
+        try:
+            engine._get_journal().clear()
+            engine._journal_cache = None
+        except Exception:
+            pass
+        logger.info("Session rewound to tag=%s (round=%d, msgs=%d)", tag, cd.round_idx, len(messages))
+        return True
 
     def load_checkpoint(self) -> dict[str, Any] | None:
         engine = self._engine

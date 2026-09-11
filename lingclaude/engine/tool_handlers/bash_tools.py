@@ -31,6 +31,19 @@ class BashToolsMixin:
         }
 
     def _bash_lingxi_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
+        # P0 安全对齐(2026-09-11): 此前 bash_lingxi handler 无 sensitive_path_gate
+        # 也无默认黑名单, 是全工具面最明显的安全旁路(codex 审计命中)。
+        # 现与 _bash_handler 走同一套敏感路径检查(credential exfiltration 防御)。
+        from lingclaude.engine.sensitive_path_gate import check_sensitive_path
+        import re
+
+        paths_in_cmd = re.findall(r'(?:~|(?<![\\w])/|\\.\\.?/)[\\w./~-]+', command)
+        for p in paths_in_cmd:
+            if len(p) > 1:
+                is_sensitive, reason = check_sensitive_path(p, command=command)
+                if is_sensitive:
+                    return {"error": f"Path blocked by sensitive_path_gate in command: {p} ({reason})"}
+
         result = self.bash_lingxi.run(command)
         return {
             "exit_code": result.exit_code,

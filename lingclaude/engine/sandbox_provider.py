@@ -141,6 +141,12 @@ class BwrapSandboxProvider:
             # git/pytest 等 EACCES——2026-09-06 会话"权限不足"主根因)。
             # --dev-bind 独立于 ro-bind 重新以读写挂载该设备节点。
             "--dev-bind", "/dev/null", "/dev/null",
+            # /dev/urandom|random 同样必须可写: git add/commit 需取随机字节
+            # 创建临时对象, 只读 /dev 导致 "unable to get random bytes" EACCES
+            # (2026-09-12 会话 git 全挂根因——仅修 null 漏修 urandom 的副损伤)。
+            # 可写绑定不泄露数据: 字符设备只提供熵, 无文件系统访问面。
+            "--dev-bind", "/dev/urandom", "/dev/urandom",
+            "--dev-bind", "/dev/random", "/dev/random",
             "--bind", wd, wd,
             "--bind", "/tmp", "/tmp",
             "--die-with-parent",

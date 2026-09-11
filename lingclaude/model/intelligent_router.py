@@ -106,6 +106,9 @@ class GLMModel(str, Enum):
     GLM_4_7 = "GLM-4.7"
     GLM_5_1 = "GLM-5.1"
     GLM_5 = "GLM-5"
+    # 2026-09-11 (claudecode 审计): 生产模型已是 glm-5.3-flash,
+    # 枚举此前缺位导致 token_monitor/评分 SQL 只能靠 TARGET_MODEL 字符串兜底。
+    GLM_5_3_FLASH = "glm-5.3-flash"
 
     def get_cost_multiplier(self) -> float:
         """获取成本倍数
@@ -117,6 +120,7 @@ class GLMModel(str, Enum):
             GLMModel.GLM_4_7: 1.0,
             GLMModel.GLM_5_1: 2.0,  # 非高峰期可能 1 倍
             GLMModel.GLM_5: 3.0,
+            GLMModel.GLM_5_3_FLASH: 1.5,  # flash 档: 介于 4.7 与 5.1 之间
         }[self]
 
 

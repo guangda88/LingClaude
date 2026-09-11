@@ -28,6 +28,7 @@ from lingclaude.core.task_aggregation import TaskAggregator
 from lingclaude.core.token_monitor import TokenMonitor
 from lingclaude.core.dementia_detector import DementiaDetector
 from lingclaude.core.tool_call_executor import ToolCallExecutor
+from lingclaude.core.types import is_tool_error
 from lingclaude.core.model_call import ModelCallMixin
 # 显式 re-export（消费方：test_agent_loop 等）— T3-3 瘦身后 query_engine 仍是对外兼容面
 from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS as AGENT_MAX_TOOL_ROUNDS  # noqa: F401
@@ -648,7 +649,7 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
 
     def _execute_tool_with_retry(self, name: str, arguments_json: str) -> str:
         result = self._execute_tool(name, arguments_json)
-        if '"error"' not in result:
+        if not is_tool_error(result):
             return result
 
         retry_args = self._fix_tool_arguments(name, arguments_json, result)

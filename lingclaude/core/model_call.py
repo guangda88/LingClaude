@@ -10,6 +10,7 @@ from typing import Any, Generator
 
 from lingclaude.core.behavior import detect_intent, is_tool_intent
 from lingclaude.core.session_journal import SessionJournal
+from lingclaude.core.types import is_tool_error
 from lingclaude.model.types import MessageRole, ModelMessage
 
 logger = logging.getLogger(__name__)
@@ -250,7 +251,7 @@ class ModelCallMixin:
 
             round_error_count = sum(
                 1 for tc in response.tool_calls
-                if '"error"' in self._get_last_tool_output(messages, tc.id)
+                if is_tool_error(self._get_last_tool_output(messages, tc.id))
             )
             # 打转检测：全旧调用轮先警告注入、连续两次才熔断（区分原地打转与正常推进）。
             # 全错误轮不参与打转计数——那是连续失败熔断（硬中断）的辖域，语义优先。
@@ -521,7 +522,7 @@ class ModelCallMixin:
                 })
                 yield {"type": "tool_call_start", "name": tc.name, "arguments": tc.arguments}
                 tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
-                is_error = '"error"' in tool_output
+                is_error = is_tool_error(tool_output)
                 if is_error:
                     round_error_count += 1
                     self._behavior = self._behavior.record_tool_calls(count=0, errors=1)

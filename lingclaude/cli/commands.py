@@ -13,7 +13,7 @@ from lingclaude.cli.repl_turn import _record_long_task_metrics
 # Step 3: Tab 补全清单（F2 修复:删 /undo — handler 缺失不得留在补全里误导用户）
 SLASH_COMPLETER_WORDS = [
     "/help", "/clear", "/compact", "/model", "/schedule", "/lsp",
-    "/resume", "/continue", "/checkpoint", "/recover", "/quit",
+    "/resume", "/continue", "/checkpoint", "/recover", "/rewind", "/quit",
 ]
 
 
@@ -63,6 +63,9 @@ class SlashCommandProcessor:
         if name == "/recover":
             self._cmd_recover()
             return True
+        if name == "/rewind":
+            self._cmd_rewind(arg)
+            return True
         if name in ("/resume", "/continue"):
             self._cmd_resume(name, arg)
             return True
@@ -81,6 +84,7 @@ class SlashCommandProcessor:
         print("  /lsp add|remove [参数]  LSP 服务器注册/删除（不带参数列出）")
         print("  /checkpoint             手动保存 checkpoint（R5 阶段1）")
         print("  /recover                恢复最近中断的工具轮 checkpoint")
+        print("  /rewind [tag]           列出/回滚到历史 checkpoint 快照（P1 rewind）")
         print("  /resume [ID]           恢复指定会话（不带 ID 列出全部；ID 支持短前缀）")
         print("  /continue              恢复最近一次会话（等价启动参数 --continue）")
         print("  /quit、/exit           退出")
@@ -304,6 +308,46 @@ class SlashCommandProcessor:
             print("[无可恢复任务] 当前会话没有中断 checkpoint")
         else:
             print(f"[恢复失败] {result.error}")
+
+    def _cmd_rewind(self, arg: str) -> None:
+        engine = self.engine
+        arg = arg.strip()
+        # /rewind 无参 = 列出全部历史 checkpoint 快照
+        if not arg:
+            cps = engine.list_checkpoints()
+            if not cps:
+                print("[rewind] 当前会话没有历史 checkpoint 快照")
+                print("[提示] 工具轮执行中会自动保存 roundN 快照；/checkpoint 可手动保存")
+                return
+            print(f"[rewind] 共 {len(cps)} 个快照（最新在前）：")
+            for i, c in enumerate(cps):
+                tag = c.get("tag") or "(latest)"
+                print(f"  [{i}] {tag} | round={c.get('round_idx')} "
+                      f"| msgs={c.get('message_count')} | {c.get('timestamp')}")
+            print("[用法] /rewind <tag 或序号> 回滚到指定快照")
+            return
+        # 支持序号或 tag 两种定位
+        target = arg
+        cps = engine.list_checkpoints()
+        if arg.isdigit():
+            idx = int(arg)
+            if 0 <= idx < len(cps):
+                target = cps[idx].get("tag") or "latest"
+            else:
+                print(f"[rewind] 序号越界：{idx}（共 {len(cps)} 个，0-based）")
+                return
+        if target == "latest":
+            # 指向最新带 tag 的版本；没有 tag 版本则提示
+            tagged = [c for c in cps if c.get("tag")]
+            if not tagged:
+                print("[rewind] 无带 tag 的历史快照，无法回滚")
+                return
+            target = tagged[0]["tag"]
+        result = engine.rewind_to(target)
+        if result.is_ok:
+            print(f"[已回滚] {result.data}")
+        else:
+            print(f"[回滚失败] {result.error}")
 
     def _cmd_resume(self, name: str, arg: str) -> None:
         engine = self.engine
