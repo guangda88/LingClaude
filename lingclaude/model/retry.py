@@ -179,7 +179,10 @@ class GlmRetryPolicy:
         return len(self._rpm_timestamps)
 
     def configure_primary(self, model_name: str) -> None:
-        if not model_name or not any(m in model_name for m in ("glm-", "GLM-")):
+        # 2026-09-11: 守卫放宽 — 非 glm 系列也允许 configure_primary，
+        # 修复 /model deepseek-v4-flash 后 retry policy 不更新的问题
+        # （原守卫 any("glm-" in model_name) 导致只有 glm 模型能置主）
+        if not model_name:
             return
         if self.models and self.models[0] == model_name:
             return

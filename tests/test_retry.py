@@ -108,11 +108,14 @@ class TestGlmRetryPolicy(unittest.TestCase):
         p.configure_primary("glm-custom")
         self.assertEqual(p.models[0], "glm-custom")
 
-    def test_configure_primary_ignored(self):
+    def test_configure_primary_non_glm(self):
+        """2026-09-11: 守卫放宽后非 glm 模型也可置主（修复 /model deepseek-v4-flash）"""
         p = GlmRetryPolicy()
-        old = p.models[:]
+        old_first = p.models[0]
         p.configure_primary("not-glm")
-        self.assertEqual(p.models, old)
+        # 行为已变更: 非 glm 也可成为主模型
+        self.assertEqual(p.models[0], "not-glm")
+        self.assertNotEqual(p.models[0], old_first)
 
     def test_get_snapshot(self):
         p = GlmRetryPolicy()
