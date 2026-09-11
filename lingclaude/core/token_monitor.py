@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import tempfile
 import threading
@@ -28,8 +29,10 @@ logger = logging.getLogger(__name__)
 # 目标「优选模型」— 建议/评分/趋势 SQL 的过滤名。
 # 2026-09-11: 原 19 处硬编码 "GLM-4.7" 收敛到此常量(config.yaml 生产模型
 # 已是 glm-5.3-flash, 旧报告的"提升 GLM-4.7 到 80%"建议已误导)。
-# 更名改值后各报表文案随常量联动。
-TARGET_MODEL = "GLM-4.7"
+# W5+1: 默认值跟进 config.yaml 生产模型, LINGCLAUDE_TARGET_MODEL env 可覆盖
+# (换模型/供应商时无需改代码); 匹配处用 casefold 大小写不敏感, 兼容库内既有键形态。
+# 注意: 历史库数据中旧模型名的聚合口径会随本值迁移, 属预期语义(「当前目标模型」)。
+TARGET_MODEL = os.environ.get("LINGCLAUDE_TARGET_MODEL", "glm-5.3-flash")
 
 
 def _default_report_path(name: str) -> Path:
@@ -357,8 +360,11 @@ class TokenMonitor:
         avg_input_tokens = stats.input_tokens / stats.prompt_count if stats.prompt_count > 0 else 0
         avg_output_tokens = stats.output_tokens / stats.prompt_count if stats.prompt_count > 0 else 0
 
-        # 目标模型使用率
-        glm_4_7_tokens = stats.model_distribution.get(TARGET_MODEL, 0)
+        # 目标模型使用率（casefold: 库内历史键可能为任意大小写形态）
+        glm_4_7_tokens = sum(
+            tokens for name, tokens in stats.model_distribution.items()
+            if name.casefold() == TARGET_MODEL.casefold()
+        )
         glm_4_7_ratio = glm_4_7_tokens / stats.total_tokens if stats.total_tokens > 0 else 0.0
 
         # 重复读取率
@@ -526,7 +532,7 @@ class TokenMonitor:
 
         for model, tokens in sorted(stats.model_distribution.items(), key=lambda x: x[1], reverse=True):
             ratio = tokens / stats.total_tokens if stats.total_tokens > 0 else 0
-            status = "status-good" if model == TARGET_MODEL else "status-warning"
+            status = "status-good" if model.casefold() == TARGET_MODEL.casefold() else "status-warning"
             html += f"""
             <tr>
                 <td>{model}</td>
@@ -643,7 +649,7 @@ class TokenMonitor:
                 cursor.execute("""
                     SELECT SUM(total_tokens)
                     FROM usage_records
-                    WHERE DATE(timestamp) = ? AND model = ?
+                    WHERE DATE(timestamp) = ? AND LOWER(model) = LOWER(?)
                 """, (date, TARGET_MODEL))
                 glm_4_7 = cursor.fetchone()[0] or 0
                 ratio = glm_4_7 / result[0] if result[0] > 0 else 0
@@ -728,7 +734,7 @@ class TokenMonitor:
 
         for model, tokens in sorted(stats.model_distribution.items(), key=lambda x: x[1], reverse=True):
             ratio = tokens / stats.total_tokens if stats.total_tokens > 0 else 0
-            status = "✓" if model == TARGET_MODEL else "⚠️"
+            status = "✓" if model.casefold() == TARGET_MODEL.casefold() else "⚠️"
             markdown += f"| {model} | {tokens:,} | {ratio * 100:.1f}% | {status} |\n"
 
         markdown += f"""
@@ -809,7 +815,7 @@ class TokenMonitor:
                 cursor.execute("""
                     SELECT SUM(total_tokens)
                     FROM usage_records
-                    WHERE DATE(timestamp) = ? AND model = ?
+                    WHERE DATE(timestamp) = ? AND LOWER(model) = LOWER(?)
                 """, (date, TARGET_MODEL))
                 glm_4_7 = cursor.fetchone()[0] or 0
                 ratio = glm_4_7 / result[0] if result[0] > 0 else 0

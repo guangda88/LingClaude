@@ -655,11 +655,57 @@ def _call_llm(system_prompt: str, user_msg: str) -> str:
     return _call_llm_direct(system_prompt, user_msg)
 
 
-_LLM_PROVIDERS = [
+# W5+1 (2026-09-11): 直连兜底链动态化 — 原静态表硬编码 glm-4.7/普通端点,
+# 与 config.yaml 生产模型(coding 端点)脱节, 且 key 链不含 ZHIPU_API_KEY
+# 导致生产环境实际全空。现在:
+#   1) 首选项读 config.yaml 的 model/base_url + _resolve_api_key (与主链同源);
+#   2) LINGCLAUDE_BYPASS_MODEL/BYPASS_BASE_URL/BYPASS_API_KEY_ENV 可整体覆盖;
+#   3) 保留原静态表为末级兜底 (config 读取失败时降级, 不抛异常)。
+_STATIC_LLM_FALLBACK = [
     {"key_env": "GLM_CODING_PLAN_KEY", "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions", "model": "glm-4.7"},
     {"key_env": "GLM_API_KEY", "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions", "model": "glm-4.7"},
     {"key_env": "DEEPSEEK_API_KEY", "url": "https://api.deepseek.com/v1/chat/completions", "model": "deepseek-chat"},
 ]
+
+
+def _resolve_llm_chain() -> list[dict[str, str]]:
+    """构造直连兜底链: config 优先 → env 覆盖 → 静态表兜底。
+
+    返回项形如 {"key_env": <环境变量名>, "url": <端点>, "model": <模型名>};
+    key_env 指向的 env 变量为空时该项被 _call_llm_direct 跳过。
+    """
+    # 显式覆盖: 测试/临时切流不落盘
+    m = os.environ.get("LINGCLAUDE_BYPASS_MODEL", "")
+    if m:
+        return [{
+            "key_env": os.environ.get("LINGCLAUDE_BYPASS_API_KEY_ENV", "ZHIPU_API_KEY"),
+            "url": os.environ.get("LINGCLAUDE_BYPASS_BASE_URL",
+                                  "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
+            "model": m,
+        }]
+    try:
+        from lingclaude.core.config import _resolve_api_key, load_config, find_config_path
+        mc = load_config(find_config_path()).model
+        key = _resolve_api_key(mc.api_key)
+        if mc.base_url and key:
+            url = mc.base_url.rstrip("/")
+            if not url.endswith("/chat/completions"):
+                url += "/chat/completions"
+            return [{
+                # _resolve_api_key 与 .env 解析同源, 复用其结果; key_env 仅作日志标识
+                "key_env": "ZHIPU_API_KEY(config)",
+                "url": url,
+                "model": mc.model,
+                "_key": key,
+            }]
+    except Exception as e:  # config 损坏/不可读 → 降级静态表, 兜底链不可因配置崩
+        logger.warning(f"_resolve_llm_chain config fallback: {e}")
+    return list(_STATIC_LLM_FALLBACK)
+
+
+# 兼容旧引用: 动态链的惰性快照 (仅测试/调试用, 调用路径一律走 _resolve_llm_chain())
+def _llm_providers_snapshot() -> list[dict[str, str]]:
+    return _resolve_llm_chain()
 
 
 def _call_llm_direct(system_prompt: str, user_msg: str) -> str:
@@ -676,8 +722,10 @@ def _call_llm_direct(system_prompt: str, user_msg: str) -> str:
         "max_tokens": 1024,
     }, ensure_ascii=False).encode("utf-8")
 
-    for provider in _LLM_PROVIDERS:
-        api_key = env_keys.get(provider["key_env"], "")
+    for provider in _resolve_llm_chain():
+        # config 链项自带 _key; 静态兜底项查 os.environ → .env 文件
+        api_key = provider.get("_key") or os.environ.get(provider["key_env"], "") \
+            or env_keys.get(provider["key_env"], "")
         if not api_key:
             continue
         payload = json.loads(body)
