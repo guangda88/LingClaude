@@ -1,0 +1,587 @@
+"""交互主循环（P4.1 从 cli/app.py 拆出）— REPL 装配 + turn 调度 + 优雅退出。
+
+原实现是 app.py 内 713 行巨函数 `_interactive_loop`（radon F(69)，嵌套闭包
+复杂度聚合进宿主）。拆为四模块：
+  repl.py        本模块（装配+调度；嵌套闭包外提为 ctx 传参的模块级函数）
+  commands.py    SlashCommandProcessor（斜杠命令，nonlocal→实例属性）
+  repl_turn.py   回合执行与可观测性收尾（N5/N6 守卫挂点）
+  repl_io.py     流式渲染 + Esc 监听
+app.py 保留 argparse 门面 + 历史符号 re-export（测试兼容）。
+所有函数体自 app.py 原样机械迁移（2026-09-11），闭包变量经 _ReplCtx 显式传递。
+"""
+
+import os
+import sys
+import logging
+import threading
+import time
+from pathlib import Path
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from lingclaude.cli.commands import SLASH_COMPLETER_WORDS, SlashCommandProcessor
+from lingclaude.cli.display import SessionSummary, print_session_summary
+from lingclaude.cli.input_queue import InputQueue
+from lingclaude.cli.interface import (
+    create_session,
+    FallbackSession,
+    PromptSessionInterface,
+    PromptToolkitSession,
+)
+from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
+from lingclaude.cli.repl_io import (
+    _esc_listen_loop,
+    _flush_stream_line,
+    _handle_stream_event,
+    get_output_format,
+)
+from lingclaude.cli.repl_turn import (
+    _feed_behavior_to_daemon,
+    _maybe_run_daemon_cycle,
+    _record_long_task_metrics,
+)
+
+if TYPE_CHECKING:
+    from lingclaude.core.query_engine import QueryEngine
+
+_logger = logging.getLogger(__name__)
+
+try:  # F12e: termios 平台兼容 — 模块级 try-import 不入 G3 函数内计数
+    import termios
+except ImportError:  # pragma: no cover
+    termios = None  # type: ignore[assignment]
+
+def _get_version() -> str:
+    # 修复(2026-09-05):此前只查包目录 VERSION(不存在)→ 恒显示硬编码 0.2.1,
+    # 仓库根 VERSION 已升 0.5.0 却不生效。现两级查找:包目录 → 仓库根。
+    candidates = (
+        Path(__file__).resolve().parent.parent / "VERSION",
+        Path(__file__).resolve().parents[2] / "VERSION",
+    )
+    for version_file in candidates:
+        try:
+            if version_file.exists():
+                return version_file.read_text().strip()
+        except OSError as e:
+            _logger.debug("version file read failed: %s", e)
+    return "0.5.0"
+
+
+
+def _is_local_base(base_url: str) -> bool:
+    """本地服务不需要 api_key — 与 task_router._is_local_base 同语义(F12a)。"""
+    if not base_url:
+        return False
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(base_url).hostname or ""
+        return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0")
+    except Exception:  # noqa: BLE001 — 解析失败按非本地处理
+        return False
+
+
+
+def _provider_status(engine: "QueryEngine") -> str:
+    """F12a:启动横幅诚实化 — 不再对缺 key 的云端 provider 谎报「已连接」。"""
+    if engine._provider is None:
+        return "未配置（回退模式）"
+    cfg = getattr(engine._provider, "_config", None)
+    api_key = str(getattr(cfg, "api_key", "") or "")
+    base = str(getattr(cfg, "base_url", "") or "")
+    if not api_key and not _is_local_base(base):
+        return "已配置但缺 API key（云端调用将失败，请检查 config.yaml model.api_key）"
+    return "已连接"
+
+
+
+# H17-TUI post-turn 队列消费的退出哨兵（EOF/quit 视为退出请求）
+_TURN_QUIT = "\x00__TURN_QUIT__\x00"
+
+
+@dataclass
+class _ReplCtx:
+    """交互会话运行时上下文（原 _interactive_loop 闭包捕获变量的显式化）。"""
+
+    engine: "QueryEngine"
+    status: Any
+    session: PromptSessionInterface
+    input_queue: Any = None
+    input_pump: Any = None
+    processor: SlashCommandProcessor | None = None
+    pump_mode: bool = False
+    status_bar_active: bool = False
+    saved_termios: Any = None
+    queued_next: str | None = None
+
+
+def _restore_tty(ctx: _ReplCtx) -> None:
+    _saved_termios = ctx.saved_termios
+    if _saved_termios is None:
+        return
+    try:
+        import termios
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _saved_termios)
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001 — fd 已关等场景静默
+        pass
+
+
+def _status_prompt(ctx: _ReplCtx) -> str:
+    """prompt 渲染回调：plain 模式显示简短的"灵克>"（保留可读性），
+    状态信息走 bottom_toolbar（已有 toolbar_fragments 实现）。
+
+    为什么不在 prompt 里塞 [model|ctx|task|q]？实测发现：
+    1) prompt 文本变长后 PT 计算光标位置会偏移 → 输入位置错位
+    2) 多余方括号与 | 字符 → 显示多余空格 + 换行错位
+    3) 上下文 window=0 时 ctx 总是 ? → 失去常驻感
+    把状态信息下沉到底部 toolbar 后,prompt 简短可读,光标稳定。
+    """
+    engine = ctx.engine
+    status = ctx.status
+    input_queue = ctx.input_queue
+    if get_output_format() != "plain":
+        return "灵克> "
+    # 即便 prompt 简短,仍要刷新 ctx_tokens（每次 session.prompt 都重算）——
+    # 否则状态栏比例永远停在上次 _blocks 触发时的旧值
+    try:
+        from lingclaude.core.tool_executor import _estimate_message_tokens
+
+        status.set_ctx(
+            _estimate_message_tokens(engine._messages),
+            int(getattr(engine.config, "context_window_tokens", None)
+                or getattr(engine.config, "max_budget_tokens", 0) or 0),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    status.refresh_cwd()
+    status.set_pending(input_queue.pending())
+    return "灵克> "
+
+
+def _read_input(ctx: _ReplCtx) -> str:
+    session = ctx.session
+    try:
+        text = session.prompt(_status_prompt(ctx))
+        # 审计#11 修复:prompt_toolkit 的 PromptSession 已自动写 FileHistory,
+        # 这里再 push 一次导致 ~/.lingclaude/history 每条重复。
+        # push_to_history 语义改为「仅兜底实现需要手动记」→ 见 interface.py。
+        if text.strip():
+            session.push_to_history(text)
+        return text
+    except UnicodeDecodeError:
+        sys.stdin.buffer.readline()
+        print("[输入编码错误，请检查终端编码设置]")
+        return ""
+
+
+def _drain_pending_notice(ctx: _ReplCtx) -> None:
+    """H17-TUI:退出前清空挂起队列并列出被丢弃项（半成品不执行、不落盘）。"""
+    input_queue = ctx.input_queue
+    dropped = input_queue.drain()
+    if dropped:
+        print(f"[退出] 丢弃 {len(dropped)} 条挂起输入：")
+        for d in dropped[:5]:
+            print(f"  - {d[:60]}")
+        if len(dropped) > 5:
+            print(f"  … 等共 {len(dropped)} 条")
+
+
+def _next_input(ctx: _ReplCtx) -> str:
+    """pump 模式取输入：唯一来源是队列（EOF 哨兵转 EOFError）。
+    pump 线程死亡时永久降级为阻塞直读。"""
+    input_pump = ctx.input_pump
+    _pump_mode = ctx.pump_mode
+    input_queue = ctx.input_queue
+    while True:
+        if input_pump.dead or not _pump_mode:
+            return _read_input(ctx)
+        item = input_queue.get(timeout=0.3)
+        if item is None:
+            # 队列空且 pump 线程已退出（未置 dead）→ EOF 已入队/线程异常退出
+            if not input_pump.is_alive():
+                item = input_queue.get(timeout=0.5)
+                if item is None:
+                    raise EOFError
+            continue
+        if InputQueue.is_eof(item):
+            raise EOFError
+        return item
+
+
+def _status_refresh(ctx: _ReplCtx) -> None:
+    status = ctx.status
+    engine = ctx.engine
+    input_queue = ctx.input_queue
+    status.refresh_cwd()
+    _prov_cfg = getattr(engine._provider, "_config", None) if engine._provider else None
+    if _prov_cfg is not None:
+        m = getattr(_prov_cfg, "model", "")
+        if m:
+            status.set_model(str(m))
+    # Update pinned status
+    pinned = engine.get_pinned_model_name()
+    if pinned:
+        status.set_model(f"{pinned} [PINNED]")
+        status.set_pinned(True)
+    else:
+        status.set_pinned(False)
+    try:
+        from lingclaude.core.tool_executor import _estimate_message_tokens
+
+        status.set_ctx(
+            _estimate_message_tokens(engine._messages),
+            int(getattr(engine.config, "context_window_tokens", None)
+                or getattr(engine.config, "max_budget_tokens", 0) or 0),
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    status.set_pending(input_queue.pending())
+
+
+def _shutdown_pump(ctx: _ReplCtx) -> None:
+    """会话收尾：优雅退出 pump（唯一 stdin 读者）。
+
+    事故背景（2026-09-09）：pump 是 daemon 线程且阻塞在 prompt() 里，
+    解释器 finalize 阶段 daemon 线程持有 stdout 缓冲锁 →
+    「Fatal Python error: _enter_buffered_busy」核心转储。
+    此处通过 PT 的 app.exit(EOFError) 让阻塞中的 prompt() 抛 EOF 返回，
+    线程干净退出后再 join；优雅失败兜底 os._exit 跳过 finalize。
+    """
+    _pump_mode = ctx.pump_mode
+    input_pump = ctx.input_pump
+    session = ctx.session
+    if not _pump_mode:
+        return
+    input_pump.stop()
+    try:
+        app = getattr(session._session, "app", None)  # noqa: SLF001
+        if app is not None and getattr(app, "is_running", False):
+            app.exit(exception=EOFError)
+    except Exception:  # noqa: BLE001 — PT 版本差异时不阻塞退出
+        pass
+    t = input_pump._thread  # noqa: SLF001
+    if t is not None and t.is_alive():
+        t.join(timeout=2.0)
+        if t.is_alive():
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
+
+
+def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
+    """执行一轮流式 turn（Esc 打断/watchdog/逐轮落盘/指标收尾）。
+
+    返回 _TURN_QUIT（退出请求）或 ""（继续主循环）。原 _interactive_loop
+    if engine._provider: 分支原样迁移。"""
+    engine = ctx.engine
+    status = ctx.status
+    session = ctx.session
+    _pump_mode = ctx.pump_mode
+    input_pump = ctx.input_pump
+    _status_bar_active = ctx.status_bar_active
+    # Step 4: 流式 spinner + Esc 真打断（后台线程 → interrupt_event）
+    response_content = ""
+    got_first_token = False
+    interrupted = False
+    observed_tool_calls = 0
+    observed_tool_errors = 0
+    observed_text_deltas = 0
+    observed_stream_error = False
+    turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
+    turn_t0 = time.monotonic()  # P1.1: turn 级耗时计时起点
+    usage_t0 = dict(engine.get_stats().get("usage") or {})  # P1.1: delta 基线
+    status.set_task("生成中")
+    # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成；
+    # 仅 TTY 启动，且用 _esc_stop 保证回合结束线程必退（审计#6）
+    _esc_stop = threading.Event()
+    _esc_thread = None
+    # H17-TUI 架构定稿: pump 会话级运行（循环前已 start），生成期继续
+    # 收文本入队，中断由 Ctrl+C 承担（pump 线程内 KeyboardInterrupt 清行）。
+    # 仅当 pump 不可用（非 PT/非 TTY/pump 已死）时降级 Esc 监听线程。
+    if (_pump_mode and input_pump.dead or not _pump_mode) and sys.stdin.isatty():
+        _esc_thread = threading.Thread(
+            target=_esc_listen_loop, args=(session, _esc_stop), daemon=True,
+        )
+        _esc_thread.start()
+    # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
+    _wd = StreamWatchdog()
+    _wd.start()
+    try:
+        for event in engine.stream_call_model(prompt):
+            _wd.touch(str(event.get("type", "")))
+            if session.interrupt_event().is_set():
+                interrupted = True
+                print("\n[已打断]")
+                break
+            if not got_first_token and event.get("type") in ("text_delta", "error"):
+                got_first_token = True
+                sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
+                sys.stdout.flush()
+            _handle_stream_event(event)
+            if event.get("type") == "tool_call_start":
+                observed_tool_calls += 1
+                status.set_task(f"工具:{event.get('name', '?')}")
+            if event.get("type") == "tool_call_end" and event.get("is_error"):
+                observed_tool_errors += 1
+            if event.get("type") == "text_delta":
+                observed_text_deltas += 1
+                response_content += event.get("text", "")
+            if event.get("type") == "error":
+                observed_stream_error = True
+            elif event.get("type") == "done":
+                response_content = event.get("content", response_content)
+                turn_output_tokens = int(
+                    (event.get("usage") or {}).get("output_tokens", 0) or 0
+                )
+    except KeyboardInterrupt:
+        # pump 模式下 Ctrl+C 承担中断语义（Esc 让位给输入框）
+        interrupted = True
+        print("\n[已打断]")
+    finally:
+        # H17-TUI 修复: 清理入 finally — 流中非 KeyboardInterrupt 异常（网络错等）
+        # 也不泄漏监听线程。审计#6: 先停线程再清 interrupt。
+        # pump 会话级运行，此处不再 stop（唯一 stdin 读者地位不变）。
+        _wd.stop()  # N5b: 流收尾（正常/打断/异常），watchdog 停表
+        _flush_stream_line()
+        if _esc_thread is not None:
+            _esc_stop.set()
+        session.interrupt_event().clear()
+        if _status_bar_active:
+            status.bump_turns()
+            status.set_task("空闲")
+    if response_content and not interrupted:
+        engine._messages.append(prompt)
+        engine._messages.append(response_content)
+        engine._compact_if_needed()
+        # R5-fix: history 由 engine.stream_call_model 的 done 分支写入
+        # (model_call.py)，CLI 层不重复调用 _append_to_session_history
+        # P0-2+: 逐轮落盘（crush 式增量持久化）— 中途被杀不再丢会话。
+        # 此前仅退出时 persist，57109 被 kill 即全丢（2026-09-06 事故）。
+        persist_result = engine._session_persister.persist_session()
+        if persist_result.is_error and get_output_format() == "plain":
+            print(f"[警告] 会话逐轮落盘失败: {persist_result.error}")
+    _record_long_task_metrics(
+        engine,
+        event="interrupted_turn" if interrupted else "turn_complete",
+        outcome=(
+            "interrupted" if interrupted
+            else "error" if observed_stream_error
+            else "ok"
+        ),
+        tool_calls=observed_tool_calls,
+        tool_errors=observed_tool_errors,
+        text_deltas=observed_text_deltas,
+        turn_output_tokens=turn_output_tokens,
+        turn_input_delta=max(
+            0,
+            int((engine.get_stats().get("usage") or {}).get("input_tokens", 0) or 0)
+            - int(usage_t0.get("input_tokens", 0) or 0),
+        ),
+        turn_duration_s=round(time.monotonic() - turn_t0, 3),
+    )
+    return ""
+
+
+
+def _consume_queue(ctx: _ReplCtx) -> str:
+    """H17-TUI: 消费生成期挂起队列（斜杠命令即时执行；首个文本成为下一轮输入，
+    余下重新排队保持顺序；EOF/quit 视为退出请求）。原 _interactive_loop
+    尾部队列消费段原样迁移。"""
+    from lingclaude.cli.input_queue import InputQueue
+
+    processor = ctx.processor
+    input_queue = ctx.input_queue
+    # H17-TUI: 消费生成期挂起队列（斜杠命令即时执行；首个文本成为下一轮输入，
+    # 余下重新排队保持顺序；EOF/quit 视为退出请求）
+    # 修复: 余项不可边 drain 边回填同一队列 — get 永远取回回填项，循环永不
+    # break（2026-09-08 死循环事故）。先收集，循环结束后再回填。
+    queued_next = None
+    extras: list[str] = []
+    # 修复: 不再以 not input_pump.dead 为循环条件 — pump 死亡时挂起队列
+    # 里的输入仍须消费（2026-09-09: pump 静默死亡 → 6 条挂起全部滞留丢弃）。
+    # 队列空时 get 超时返回 None 自然 break。
+    while True:
+        item = input_queue.get(timeout=0.2)
+        if item is None:
+            break
+        if InputQueue.is_eof(item):
+            for _x in reversed(extras):
+                ctx.input_queue.put(_x)
+            return _TURN_QUIT
+        if processor.handle(item):
+            if processor.quit_requested:
+                for _x in reversed(extras):
+                    ctx.input_queue.put(_x)
+                return _TURN_QUIT
+            continue
+        if queued_next is None:
+            queued_next = item
+        else:
+            extras.append(item)
+    for _x in reversed(extras):
+        ctx.input_queue.put(_x)
+    ctx.queued_next = queued_next
+    if processor.quit_requested:
+        return _TURN_QUIT
+    return queued_next if queued_next is not None else ""
+
+
+def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
+    version = _get_version()
+    if get_output_format() == "plain":
+        print(f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，Ctrl+C 清行）")
+        print(f"Provider: {_provider_status(engine)}")
+        print()
+
+    ctx = _ReplCtx(engine=engine, status=None, session=None)  # type: ignore[arg-type]
+    # F12e:TTY 终端状态保护 — 进入时保存 termios,退出时恢复(_restore_tty)。
+    ctx.saved_termios = None
+    if sys.stdin.isatty():
+        try:
+            ctx.saved_termios = termios.tcgetattr(sys.stdin.fileno())
+        except Exception:  # noqa: BLE001 — 无 termios 平台静默跳过
+            ctx.saved_termios = None
+
+    # RFC §3.3: I/O 抽象层 — LINGCLAUDE_CLI_MODE=plain 或非 TTY → FallbackSession
+    # Step 3: Tab 补全（prompt_toolkit WordCompleter）
+    _completer: Any = None
+    try:
+        from prompt_toolkit.completion import WordCompleter
+
+        _completer = WordCompleter(SLASH_COMPLETER_WORDS, ignore_case=True)
+    except ImportError:
+        _completer = None
+    session: PromptSessionInterface = create_session(completer=_completer)
+    ctx.session = session
+
+    # H17-TUI: 状态栏 + 挂起队列接线 — 设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md
+    # 组件（status.py/input_queue.py/interface.py）此前已就绪但从未被接线。
+    # 三件套在此构造；仅 TTY+plain 生效，json/jsonl/Fallback 自动降级。
+    from lingclaude.cli.input_queue import InputPump, InputQueue
+    from lingclaude.cli.status import StatusModel, toolbar_fragments
+
+    status = StatusModel()
+    ctx.status = status
+    status.refresh_cwd()
+    _prov_cfg0 = getattr(engine._provider, "_config", None) if engine._provider else None
+    status.set_model(str(getattr(_prov_cfg0, "model", "") or "?"))
+    try:
+        from lingclaude.core.tool_executor import _estimate_message_tokens
+
+        status.set_ctx(
+            _estimate_message_tokens(engine._messages),
+            int(getattr(engine.config, "context_window_tokens", None)
+                or getattr(engine.config, "max_budget_tokens", 0) or 0),
+        )
+    except Exception:  # noqa: BLE001 — token 估算失败不阻塞交互启动
+        pass
+    ctx.input_queue = InputQueue()
+    ctx.processor = SlashCommandProcessor(engine, status)
+    ctx.input_pump = InputPump(session, ctx.input_queue, prompt_text=lambda: _status_prompt(ctx))
+    ctx.pump_mode = False
+
+    # H17-TUI 步骤2: 安装状态栏（PT 实现生效；Fallback no-op 自动降级）。
+    # TUI_ONLY_SNAPSHOT: json/jsonl 输出模式禁用；每轮 refresh_cwd 对齐 /cd 场景。
+    ctx.status_bar_active = False
+    if get_output_format() == "plain":
+        try:
+            session.install_bottom_toolbar(lambda: toolbar_fragments(status.snapshot()))
+            ctx.status_bar_active = not isinstance(session, FallbackSession)
+        except Exception:  # noqa: BLE001 — 状态栏安装失败不阻塞交互
+            ctx.status_bar_active = False
+
+        # H17-TUI: pump 会话级启动 — 唯一 stdin 读者（H17 架构：PT Application
+        # 并发运行 → AssertionError，2026-09-08 事故）。
+        if (
+            ctx.status_bar_active
+            and isinstance(session, PromptToolkitSession)
+            and sys.stdin.isatty()
+        ):
+            ctx.pump_mode = True
+            ctx.input_pump.start()
+
+    prompt = first_prompt or ""
+    while True:
+        if not prompt:
+            try:
+                prompt = _next_input(ctx).strip()
+            except (EOFError, KeyboardInterrupt):
+                _drain_pending_notice(ctx)
+                print("\n再见！")
+                break
+        if prompt.lower() in ("exit", "quit", "q"):
+            _drain_pending_notice(ctx)
+            print("再见！")
+            break
+        if not prompt:
+            continue
+        # T1-7: 斜杠命令优先消费
+        if ctx.processor.handle(prompt):
+            if ctx.processor.quit_requested:
+                _drain_pending_notice(ctx)
+                print("再见！")
+                break
+            prompt = ""
+            continue
+
+        if engine._provider:
+            action = _run_stream_turn(ctx, prompt)
+            if action == _TURN_QUIT:
+                _drain_pending_notice(ctx)
+                print("\n再见！")
+                break
+        else:
+            result = engine.submit(prompt)
+            print(f"\n{result.output}\n")
+            if result.stop_reason.value == "max_turns_reached":
+                print(f"[会话结束: {result.stop_reason.value}]")
+            _record_long_task_metrics(
+                engine,
+                event="turn_complete",
+                outcome=result.stop_reason.value,
+            )
+
+        # H17-TUI: 消费生成期挂起队列
+        action = _consume_queue(ctx)
+        if action == _TURN_QUIT:
+            _drain_pending_notice(ctx)
+            print("\n再见！")
+            break
+
+        _feed_behavior_to_daemon(engine, None)
+
+        if ctx.queued_next is not None:
+            prompt = ctx.queued_next
+            next_prompt_hint = f"[排队执行] {prompt[:40]}"
+            if get_output_format() == "plain":
+                print(next_prompt_hint)
+        else:
+            prompt = ""
+            try:
+                prompt = _next_input(ctx).strip()
+            except (EOFError, KeyboardInterrupt):
+                _drain_pending_notice(ctx)
+                print("\n再见！")
+                break
+
+    _shutdown_pump(ctx)
+
+    # P0-2: 退出时持久化会话（--continue/--resume 的数据来源）。
+    if engine._conversation and get_output_format() == "plain":
+        result = engine._session_persister.persist_session()
+        if result.is_ok:
+            print(f"[会话已保存] {result.data}")
+
+    stats = engine.get_stats()
+    # F12e:先恢复终端状态,再打统计 — 统计输出落在干净的行首。
+    _restore_tty(ctx)
+    print()
+    print_session_summary(SessionSummary(
+        turns=stats["turns"],
+        session_id=stats["session_id"],
+        usage=stats["usage"],
+        behavior={},
+    ))
+    _maybe_run_daemon_cycle()
+    return 0

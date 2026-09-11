@@ -61,7 +61,9 @@ def test_input_pump_supports_dynamic_prompt() -> None:
 
 def test_cli_wires_recover_and_metrics() -> None:
     app = Path("lingclaude/cli/app.py").read_text(encoding="utf-8")
+    turn = Path("lingclaude/cli/repl_turn.py").read_text(encoding="utf-8")
+    cmds = Path("lingclaude/cli/commands.py").read_text(encoding="utf-8")
     assert '"--recover"' in app
     assert "_maybe_recover_on_startup(engine, args)" in app
-    assert "append_long_task_metrics" in app
-    assert "event=\"slash_recover\"" in app
+    assert "append_long_task_metrics" in turn
+    assert "event=\"slash_recover\"" in cmds

@@ -161,6 +161,6 @@ class TestCliScheduleCommand:
     def test_slash_schedule_exists(self):
         """cli/app.py 有 /schedule 命令处理。"""
         # 锚定仓库根，不依赖进程 cwd（全量跑时其他测试会改 cwd 不还原 → 相对路径偶发炸）
-        app_py = (Path(__file__).resolve().parents[1] / "lingclaude" / "cli" / "app.py").read_text()
-        assert "/schedule" in app_py
-        assert "get_schedule_manager" in app_py
+        cmds_py = (Path(__file__).resolve().parents[1] / "lingclaude" / "cli" / "commands.py").read_text()
+        assert "/schedule" in cmds_py
+        assert "get_schedule_manager" in cmds_py

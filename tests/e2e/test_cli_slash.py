@@ -50,7 +50,7 @@ class TestF2UndoRemoval:
 
     def test_undo_not_in_completer_source(self):
         from pathlib import Path
-        app_py = Path("/home/ai/lingclaude/lingclaude/cli/app.py").read_text(encoding="utf-8")
+        app_py = Path("/home/ai/lingclaude/lingclaude/cli/repl.py").read_text(encoding="utf-8")
         idx = app_py.find("WordCompleter(")
         assert idx > 0
         block = app_py[idx:idx + 500]
@@ -58,7 +58,8 @@ class TestF2UndoRemoval:
 
     def test_undo_no_handler_in_source(self):
         from pathlib import Path
-        app_py = Path("/home/ai/lingclaude/lingclaude/cli/app.py").read_text(encoding="utf-8")
+        app_py = (Path("/home/ai/lingclaude/lingclaude/cli/app.py").read_text(encoding="utf-8")
+                  + Path("/home/ai/lingclaude/lingclaude/cli/commands.py").read_text(encoding="utf-8"))
         assert 'name == "/undo"' not in app_py
 
 
@@ -78,7 +79,7 @@ class TestRecoverWiring:
     """R5 checkpoint 核心能力必须有 CLI 入口；否则误杀后用户无法恢复工具轮。"""
 
     def test_recover_has_completer_and_handler(self):
-        app_py = Path("/home/ai/lingclaude/lingclaude/cli/app.py").read_text(encoding="utf-8")
+        app_py = Path("/home/ai/lingclaude/lingclaude/cli/commands.py").read_text(encoding="utf-8")
         assert '"/recover"' in app_py
         assert 'name == "/recover"' in app_py
         assert "resume_interrupted()" in app_py

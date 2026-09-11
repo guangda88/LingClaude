@@ -69,9 +69,9 @@ class TestPerTurnPersist:
             _session_persister = FakePersister()
 
         # 直接验证 app.py 源码包含逐轮持久化调用（行为级测试见集成）
-        import lingclaude.cli.app as app_mod
+        import lingclaude.cli.repl as repl_mod
 
-        src = Path(app_mod.__file__).read_text(encoding="utf-8")
+        src = Path(repl_mod.__file__).read_text(encoding="utf-8")
         assert "persist_session()" in src
         assert "逐轮落盘" in src
         # 模拟调用计数器可用
