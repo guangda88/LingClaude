@@ -132,6 +132,7 @@ _TRANSPARENT_PREFIXES = (
     "setsid",
     "nohup",
     "command",
+    "cd",
 )
 
 
@@ -151,6 +152,11 @@ def _strip_transparent_prefix(command: str) -> str:
         head = tokens[0].lower()
         if head not in _TRANSPARENT_PREFIXES:
             return cmd
+        if head == "cd":
+            # cd 是纯导航（shell 内置、无网络副作用）。_split_chain 已把
+            # `cd /x && git push` 拆成独立段，这里只需吃掉 `cd /path` 并返回空段
+            # （空段在 _is_network_allowed 中被 continue 跳过）。
+            return ""
         # 剥离前缀本身
         rest = " ".join(tokens[1:]).strip()
         # 若前缀带独立参数（timeout 15 / env FOO=1 / nice -n 10），一并剥离
@@ -196,6 +202,8 @@ def _is_network_allowed(command: str) -> bool:
         return False
     for sub in parts:
         norm = _strip_transparent_prefix(sub).lower().replace("'", "").replace('"', "")
+        if not norm:
+            continue  # cd /path 等纯导航段剥离后为空，跳过（不参与白名单判定）
         hit = any(
             norm == allowed or norm.startswith(allowed + " ")
             for allowed in _NETWORK_ALLOWED_COMMANDS
