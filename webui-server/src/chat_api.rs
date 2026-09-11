@@ -113,7 +113,9 @@ pub(crate) async fn chat_sse(State(state): State<AppState>, body: axum::body::By
                             }
                         }
                         Err(e) => {
-                            yield Ok(error_event(format!("stream read failed: {e}")));
+                            let msg = format!("stream read failed: {e}");
+                            state.audit.log_event("error", &msg, None);
+                            yield Ok(error_event(msg));
                             break;
                         }
                     }
@@ -122,12 +124,14 @@ pub(crate) async fn chat_sse(State(state): State<AppState>, body: axum::body::By
             Ok(resp) => {
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
-                yield Ok(error_event(format!(
-                    "lingclaude engine HTTP {status}: {text}"
-                )));
+                let msg = format!("lingclaude engine HTTP {status}: {text}");
+                state.audit.log_event("error", &msg, None);
+                yield Ok(error_event(msg));
             }
             Err(e) => {
-                yield Ok(error_event(format!("lingclaude engine unreachable: {e}")));
+                let msg = format!("lingclaude engine unreachable: {e}");
+                state.audit.log_event("error", &msg, None);
+                yield Ok(error_event(msg));
             }
         }
     };

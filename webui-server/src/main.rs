@@ -6,7 +6,7 @@
 //! - `chat_api.rs` — `/chat` SSE + `/chat/permission` + `/chat/stop`
 //! - `live_api.rs` — `/live` SSE（snapshot + 增量轮询 + 心跳）
 //! - `auth.rs` — TokenStore + `/mint` + 鉴权中间件
-//! - `audit.rs` — AuditLogger（JSONL，尚未接线）
+//! - `audit.rs` — AuditLogger（JSONL；P4.2 接线：中间件请求审计 + SSE error/done 事件）
 
 mod audit;
 mod auth;
@@ -34,6 +34,7 @@ const _: () = assert!(
 #[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) tokens: Arc<TokenStore>,
+    pub(crate) audit: Arc<audit::AuditLogger>,
     pub(crate) port: u16,
     pub(crate) enforce_token: bool,
     pub(crate) lingclaude_base: String,
@@ -89,8 +90,22 @@ async fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(13458);
 
+    // P4.2: 审计日志接线 — JSONL 落盘（P4 前仅在 audit.rs 定义、零调用）。
+    // 路径: LINGCLAUDE_WEBUI_AUDIT_LOG 覆盖, 默认项目 .lingclaude/webui-audit.jsonl。
+    let audit_path = std::env::var("LINGCLAUDE_WEBUI_AUDIT_LOG")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            cwd.join(".lingclaude").join("webui-audit.jsonl")
+        });
+    if let Some(dir) = audit_path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    println!("audit log: {}", audit_path.display());
+
     let state = AppState {
         tokens: Arc::new(TokenStore::default()),
+        audit: Arc::new(audit::AuditLogger::new(audit_path)),
         port,
         enforce_token: true,
         lingclaude_base: std::env::var("LINGCLAUDE_BASE")
@@ -121,6 +136,7 @@ mod tests {
     fn test_state() -> AppState {
         AppState {
             tokens: Arc::new(TokenStore::default()),
+            audit: Arc::new(audit::AuditLogger::new(std::env::temp_dir().join("lingclaude-webui-test-audit.jsonl"))),
             port: 13458,
             enforce_token: true,
             lingclaude_base: "http://127.0.0.1:1".to_string(), // 测试中不应被真实访问

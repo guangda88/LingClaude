@@ -1,0 +1,19 @@
+[Unit]
+Description=lingclaude token monitor (local telemetry service, port 13470)
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ai/lingclaude
+ExecStart=/usr/bin/python3 /home/ai/lingclaude/token_monitor_service.py
+Restart=always
+RestartSec=30s
+Nice=10
+OOMScoreAdjust=-500
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,21 +1,20 @@
 //! Harness 审计日志 — JSONL 格式，对齐 DSH datalog。
 //!
-//! ⚠️ 尚未接线到请求路径。接线属后续工作：在 axum 中间件里对每请求
-//! 调 `log_request`、SSE error/done 处调 `log_event`。
+//! P4.2 已接线：`auth_middleware` 对每请求调 `log_request`（含 401 拒绝），
+//! `chat_sse` 引擎错误处调 `log_event`。落盘路径:
+//! `LINGCLAUDE_WEBUI_AUDIT_LOG` 或默认 `.lingclaude/webui-audit.jsonl`。
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-#[allow(dead_code)] // 尚未接线 — 见模块级注释
 #[derive(Clone)]
 pub(crate) struct AuditLogger {
     log_path: PathBuf,
     handle: Arc<Mutex<File>>,
 }
 
-#[allow(dead_code)] // 尚未接线 — 见模块级注释
 impl AuditLogger {
     pub(crate) fn new(log_path: PathBuf) -> Self {
         let file = OpenOptions::new()

@@ -180,8 +180,12 @@ pub(crate) async fn auth_middleware(
 ) -> Response {
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
+    let method = req.method().to_string();
     if !state.enforce_token || path == "/mint" || is_static_asset(&path) {
-        return next.run(req).await;
+        let resp = next.run(req).await;
+        // P4.2: 免鉴权路径同样记审计（status + 4 段字段）。
+        state.audit.log_request(&method, &path, None, resp.status().as_u16(), None);
+        return resp;
     }
 
     // `/` 上的 handoff：一次性 token 换会话 cookie。token 无效不直接拒 —
@@ -204,8 +208,12 @@ pub(crate) async fn auth_middleware(
         .map(|v| state.tokens.validate_session(&v))
         .unwrap_or(false);
     if cookie_ok {
-        return next.run(req).await;
+        let resp = next.run(req).await;
+        state.audit.log_request(&method, &path, None, resp.status().as_u16(), None);
+        return resp;
     }
+    // P4.2: 鉴权失败审计（error 字段标记 auth_failed）
+    state.audit.log_request(&method, &path, None, 401, Some("auth_failed"));
 
     // handoff 尝试失败且无会话：302 回干净的 / 让用户看到 401 页（而非把
     // token 留在地址栏反复重试）。
