@@ -21,7 +21,7 @@ CORE_ENGINE_WHITELIST = [
     "core/mcp_tools.py:12",
     "core/mcp_tools.py:64",
     "core/mcp_tools.py:122",
-    "core/wiring.py:147",
+    "core/wiring.py:148",
     "core/tool_call_executor.py:77",
     "core/tool_executor.py:13",
 ]

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
@@ -79,11 +80,14 @@ class EfficiencyMetrics:
 class TokenMonitor:
     """Token 使用监控器"""
 
-    def __init__(self, db_path: str | Path | None = None):
+    def __init__(self, db_path: str | Path | None = None,
+                 legacy_sink: Any | None = None):
         """初始化监控器
 
         Args:
             db_path: SQLite 数据库路径，默认为 ~/.lingclaude/token_monitor.db
+            legacy_sink: P3.4 灵忆双写旁观者（LingMemoryTokenSink，可选）。
+                主路权威不变；sink 故障只降级 warning，不影响本路。
         """
         if db_path is None:
             db_path = Path.home() / ".lingclaude" / "token_monitor.db"
@@ -91,6 +95,9 @@ class TokenMonitor:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        self._legacy_sink = legacy_sink
+        # P3.4 自指卫兵（thread-local）：重入=同调用栈概念，跨线程并发不是重入
+        self._emit_tls = threading.local()
 
         # 文件读取缓存（检测重复读取）
         self._file_cache: dict[str, tuple[str, str]] = {}  # path -> (content, last_read_time)
@@ -167,6 +174,40 @@ class TokenMonitor:
 
         safe_commit(conn)
         conn.close()
+        self._last_model = model
+        self._last_task_type = task_type
+        self._last_input_tokens = input_tokens
+        self._last_output_tokens = output_tokens
+        self._last_total_tokens = total_tokens
+        self._last_metadata = metadata
+        self._emit_legacy_sink()
+
+    def _emit_legacy_sink(self) -> None:
+        """P3.4 旁路镜像（best-effort）：永不抛、永不递归、永不影响主路。
+
+        逐字段调用 on_usage（主路权威结构，桥侧自行判定缺省）；
+        任何异常吞掉只留 warning —— 可观测组件不得破坏主流程（库纪律）。
+        """
+        sink = getattr(self, "_legacy_sink", None)
+        if sink is None or getattr(self._emit_tls, "on", False):
+            return
+        self._emit_tls.on = True
+        try:
+            # 单次完整 dict：三个 token 字段在 record_usage 签名层必填，
+            # 逐字段 emit 无真实场景且让自定义 sink 收到 3 次回调
+            sink.on_usage({
+                "model": self._last_model,
+                "task_type": self._last_task_type,
+                "input_tokens": self._last_input_tokens,
+                "output_tokens": self._last_output_tokens,
+                "total_tokens": self._last_total_tokens,
+                "metadata": self._last_metadata,
+            })
+        except Exception as e:  # noqa: BLE001 — 旁路纪律，见 _emit_legacy_sink
+            logging.getLogger(__name__).warning(
+                "[token_monitor] legacy_sink 镜像失败（已忽略）: %s", e)
+        finally:
+            self._emit_tls.on = False
 
     def record_file_read(self, file_path: str, file_content: str) -> bool:
         """记录文件读取

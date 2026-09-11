@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable
 from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled  # P3.2
 from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink  # P3.3 模块级（g3 守卫基线 351 内化，勿放函数内）
+from lingclaude.core.lingmemory_token_bridge import LingMemoryTokenSink  # P3.4 模块级（g3 基线内化，勿放函数内）
 
 
 @dataclass(frozen=True)
@@ -169,7 +170,11 @@ def _make_aggregator(ctx: WiringContext) -> Any:
 def _make_monitor(ctx: WiringContext) -> Any:
     from lingclaude.core.token_monitor import TokenMonitor
 
-    return TokenMonitor()
+    # P3.4 双写：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
+    # （与 P3.2/P3.3 同一开关、同一纪律；主路默认零依赖）
+    # LingMemoryTokenSink 已在模块级导入（g3 纪律）
+    sink = LingMemoryTokenSink() if dualwrite_enabled() else None
+    return TokenMonitor(legacy_sink=sink)
 
 
 def _make_prior_verifier(ctx: WiringContext) -> Any:

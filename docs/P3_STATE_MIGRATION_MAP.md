@@ -91,3 +91,23 @@
 
 - 本表产出会话的上一会话因 `max_tokens: 4096` 被推理模型烧光而中断（已修 16384，技术债 N5 已入册）
 - P3 长推理场景高发，观察期内核对 observe 插片的 text_deltas 守卫是否需要前置实现
+
+## 六、P3.4 落地实录（2026-09-11）
+
+**范围定版**：#14 core/token_monitor.py 双写镜像 + parity 对照回路。
+阈值事件（analyze/breach 流转）留待回路上线后按状态机补齐。
+
+| 件 | 落点 | 要点 |
+|---|---|---|
+| 新桥 | `lingclaude/core/lingmemory_token_bridge.py` | type=token_usage_record（registry P3-14 已预扩，零 YAML 改动）；**追加型 telemetry**（与前四桥状态实体语义相反：事实流不去重，重复 record 两侧都追加，守恒不破坏） |
+| 主路缝 | `token_monitor.py` `__init__(legacy_sink=)` + `record_usage` 尾 `_emit_legacy_sink()` | 主路权威零改动；emit 永不抛/永不递归（`_emit_tls` thread-local 卫兵） |
+| 装配点 | `wiring.py` `_make_monitor` | 与 P3.2/P3.3 同开关同纪律；LingMemoryTokenSink 模块级 import（g3 基线内化） |
+| 对照回路 | `scripts/p34_parity_check.py` | 守恒量=主路 sum(total_tokens) vs 镜像 kind=total 合计；三态判定：对齐窗口守恒强制 / 混合窗口弱判定（历史无锚）/ 空窗 PASS；e2e 四场景全过 |
+
+**实测抓出的三个真 bug**（单跑绿≠无罪的活案例）：
+1. `_emit_legacy_sink` 首版 `getattr(self, "_"+kind)` 与赋值名 `_last_*` 不一致——行为级烟测抓出，ast.parse/编译检查全程绿灯
+2. 并发首连竞态：`LingMemory.__init__` 每实例跑 `_maybe_migrate_v0_3`，三线程同开一库 → 迁移竞态炸共享 `_broken` 熔断 → `_init_lock` 串行化根治
+3. 重入卫兵误伤并发：实例共享 `_emitting` 布尔把跨线程并发 emit 误判为重入静默丢弃 → thread-local 重写（重入=同调用栈概念）
+
+**测试**：`tests/test_lingmemory_token_bridge.py` 11 用例（闭环/追加/缺省/开关/BombSink/熔断/双卫兵/线程隔离/向后兼容）。
+**镜像语义限制**（与 P3.2 同源）：prompt_count/metadata 深字段不镜像（schema 未定义该轴）；阈值流转 analyze/breach 未接（后续件）。
