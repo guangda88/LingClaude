@@ -498,10 +498,18 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
 
         target = model_name.strip()
         base = self._model_config or ModelConfig()
-        # F12h:优先从 TaskRouter 按模型名反查 provider — 连 base_url/key 一起换。
-        # 旧行为只换模型名、沿用旧端点:用户 /model minimax-m3 后实际拿 minimax
-        # 名字请求 zhipu 端点,必 404(假切换)。
-        _pname, _pinfo = self._task_router.find_provider_by_model(target)
+        # F12h+selector:优先显式 provider@model / provider/model 选择器（对齐
+        # opencode/crush/atomcode）；无显式 provider 时按模型名反查（保留旧行为）。
+        _pname, _pinfo = None, None
+        _sel_err = None
+        if "/" in target or "@" in target:
+            _pname, _pinfo, _sel_err = self._task_router.resolve_selector(target)
+            if _sel_err is not None:
+                return Result.fail(_sel_err, code="BAD_MODEL_SELECTOR")
+            if _pinfo is not None:
+                target = self._task_router.parse_selector(target)[1]
+        if _pinfo is None:
+            _pname, _pinfo = self._task_router.find_provider_by_model(target)
         if _pinfo is not None:
             new_cfg = ModelConfig(
                 model=target,
@@ -555,7 +563,17 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
 
         target = model_name.strip()
         base = self._model_config or ModelConfig()
-        _pname, _pinfo = self._task_router.find_provider_by_model(target)
+        # selector 支持：显式 provider@model / provider/model 优先（对齐三工具）
+        _pname, _pinfo = None, None
+        _sel_err = None
+        if "/" in target or "@" in target:
+            _pname, _pinfo, _sel_err = self._task_router.resolve_selector(target)
+            if _sel_err is not None:
+                return Result.fail(_sel_err, code="BAD_MODEL_SELECTOR")
+            if _pinfo is not None:
+                target = self._task_router.parse_selector(target)[1]
+        if _pinfo is None:
+            _pname, _pinfo = self._task_router.find_provider_by_model(target)
         if _pinfo is not None:
             pinned_cfg = ModelConfig(
                 model=target,

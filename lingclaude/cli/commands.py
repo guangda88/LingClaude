@@ -133,6 +133,7 @@ class SlashCommandProcessor:
                 base = getattr(pinned_cfg, "base_url", "?") or "?"
                 ttl_str = f" (TTL {ttl}s)" if ttl > 0 else " (会话级永久)"
                 print(f"[已钉住模型] {result.data} @ {base}{ttl_str}")
+                print("[提示] 支持选择器格式: /model model@provider 或 /model provider/model（对齐 opencode/crush）")
                 print("[提示] 后续请求将强制使用此模型，忽略 TaskRouter 路由表；用 /model --unpin 解除")
                 status.set_pinned(True)
             else:
@@ -164,7 +165,8 @@ class SlashCommandProcessor:
                     print(f"  {pname} [{key_mark}] ({pinfo.base_url}):")
                     for m in pinfo.models:
                         default_tag = " ←默认" if m == pinfo.default_model else ""
-                        print(f"    {m}{default_tag}")
+                        sel = f"{m}@{pname}"
+                        print(f"    {m}{default_tag}  [{sel}]")
             else:
                 print("[可用模型] TaskRouter 未加载或无 provider")
 

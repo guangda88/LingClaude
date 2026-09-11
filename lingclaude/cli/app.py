@@ -142,6 +142,21 @@ def _cmd_run(args: argparse.Namespace) -> int:
         else:
             print(f"[模型] 切换失败: {result.error}（继续用配置默认）")
 
+    # --provider 单独指定：保持当前模型名，仅切换 provider（atomcode 风格解耦）
+    if getattr(args, "provider", None) and not getattr(args, "model", None):
+        prov = args.provider.strip()
+        cur_cfg = getattr(engine, "_model_config", None)
+        cur_model = getattr(cur_cfg, "model", "") if cur_cfg else ""
+        if cur_model:
+            sel = f"{cur_model}@{prov}"
+            r2 = engine.switch_model(sel)
+            if r2.is_ok:
+                print(f"[默认模型] 切到 provider {prov}，模型 {cur_model}")
+            else:
+                print(f"[模型] provider 切换失败: {r2.error}")
+        else:
+            print("[模型] 无法确定当前模型名，--provider 需与 --model 联用")
+
     # RFC v0.1 §3 A1-1: 启动后台 BusResponder 监听 LingBus 任务
     # 族长 2026-08-27 决议:默认 = 1(生产开),pytest 环境通过 conftest.py 设为 0
     # 优先级:LINGCLAUDE_BUS_LISTENER 显式 = 0 > 默认开 > 显式 = 1(冗余兼容)
@@ -727,7 +742,9 @@ def main() -> int:
     run_parser.add_argument("prompt", nargs="?", help="Prompt to process")
     run_parser.add_argument("--interactive", "-i", action="store_true", help="Interactive mode")
     run_parser.add_argument("--verbose", "-v", action="store_true", help="Show usage stats")
-    run_parser.add_argument("--model", "-m", help="Override model name")
+    run_parser.add_argument("--model", "-m",
+                            help="Override model: name | model@provider | provider/model (对齐 opencode/crush)")
+    run_parser.add_argument("--provider", help="Override provider only (atomcode 风格, 与 --model 解耦)")
     run_parser.add_argument("--bash-executor", choices=["native", "lingxi"], help="Bash executor type (native or lingxi)")
     # P0-2: 会话续接 + 机器可读输出
     run_parser.add_argument("--continue", dest="continue_", action="store_true",

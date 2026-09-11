@@ -284,6 +284,74 @@ class TaskRouter:
                 return name, pinfo
         return None, None
 
+    def find_all_providers_by_model(self, model_name: str) -> list[tuple[str, _ProviderInfo]]:
+        """返回所有声明该模型的 provider（歧义检测用）。"""
+        target = (model_name or "").strip()
+        if not target:
+            return []
+        found: list[tuple[str, _ProviderInfo]] = []
+        for name, pinfo in self._providers.items():
+            if pinfo.default_model == target or target in pinfo.models:
+                found.append((name, pinfo))
+        return found
+
+    def parse_selector(self, selector: str) -> tuple[str, str]:
+        """解析模型选择器，返回 (provider_name, model_name)。
+
+        支持三种格式（对齐 opencode/crush/atomcode）：
+        - "model@provider"   -> (provider, model)        [推荐，@ 右侧为 provider]
+        - "provider/model"   -> (provider, model)        [opencode 兼容]
+        - "model"            -> ("", model)              [裸名，由调用方反查/歧义处理]
+
+        规则：model 内部允许含 @（如 glm-5.2@zhipu 代理名），
+        因此 @ 取**最后一个**；/ 取**第一个**。
+        """
+        s = (selector or "").strip()
+        if not s:
+            return "", ""
+        if "@" in s:
+            model, provider = s.rsplit("@", 1)
+            return provider.strip(), model.strip()
+        if "/" in s:
+            provider, model = s.split("/", 1)
+            return provider.strip(), model.strip()
+        return "", s
+
+    def resolve_selector(self, selector: str) -> tuple[str | None, _ProviderInfo | None, str | None]:
+        """解析模型选择器 -> (provider_name, provider_info, error)。
+
+        - "model@provider" / "provider/model"：provider 必须存在，否则报错
+        - 裸名：查注册表，唯一命中返回；多命中返回歧义错误；未命中返回 None（由调用方降级）
+
+        Returns:
+            (provider_name, pinfo, None)      成功
+            (None, None, error_msg)           失败（provider 不存在 / 歧义）
+            (None, None, None)                裸名未命中（调用方自行降级）
+        """
+        provider_name, model_name = self.parse_selector(selector)
+        if provider_name:
+            pinfo = self._providers.get(provider_name)
+            if pinfo is None:
+                avail = ", ".join(sorted(self._providers.keys())) or "(无)"
+                return None, None, f"provider '{provider_name}' 不存在。可用: {avail}"
+            # provider 存在即成功（模型透传，provider 层动态校验）
+            return provider_name, pinfo, None
+        # 裸名
+        if not model_name:
+            return None, None, None
+        matches = self.find_all_providers_by_model(model_name)
+        if len(matches) == 1:
+            return matches[0][0], matches[0][1], None
+        if len(matches) > 1:
+            candidates = ", ".join(f"{model_name}@{p}" for p, _ in matches)
+            return None, None, (
+                f"模型 '{model_name}' 在多个 provider 中存在: {candidates}。"
+                f"请用 model@provider 或 provider/model 显式指定。"
+            )
+        return None, None, None
+
+
+
     def get_provider_name(self, api_key: str, base_url: str) -> str | None:
         for name, pinfo in self._providers.items():
             if pinfo.api_key == api_key and pinfo.base_url == base_url:
