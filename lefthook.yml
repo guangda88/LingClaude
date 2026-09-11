@@ -19,6 +19,12 @@ pre-push:
     pre-push-security:
       run: bash .git/hooks/pre-push-security
       priority: 10
+    # T2（opencode 架构演进期补充闸）：豁免提交（LING_AUDIT_FAST）的后台全量
+    # 复核 FAIL 未消化时拒绝 push。full-pytest 只验当前工作区，挡不住历史豁免
+    # 提交带病上远程。旁路：LINGCLAUDE_SKIP_REVIEW_GATE=1（显式留痕）。
+    exempt-review-gate:
+      run: python3 scripts/exempt_review_gate.py
+      priority: 15
     # 2026-09-10 测试分层（第3步）: 全量 pytest 移到 pre-push 门禁（无 exclude）。
     # pre-commit 只跑快子集（.audit/exclude_tests.txt 排除慢测试），全量兜底在此。
     full-pytest:

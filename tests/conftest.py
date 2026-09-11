@@ -7,8 +7,15 @@ import lingclaude.core.devnull_compat  # noqa: F401
 
 import os
 import tempfile
+import warnings
 
 import pytest
+
+# T3 handler 解耦迁移期：存量测试直传 ToolDefinition(handler=...) 产生
+# DeprecationWarning，在此静默（按 message 前缀匹配 — 测试常用 exec/eval
+# 构造，栈帧 module 不落在 tools.py）。新代码一律走 handler_name。
+warnings.filterwarnings("ignore", category=DeprecationWarning,
+                        message=r"ToolDefinition\(handler=\.\.\.\) 已废弃.*")
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +36,14 @@ def _isolate_git_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(_var, raising=False)
 
 
+
+
+@pytest.fixture(autouse=True)
+def _isolate_tool_vocab(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """T5: ToolRouter 学习词表持久化 — 测试一律重定向到 tmp_path，
+    不触碰项目 .lingclaude/tool_vocab.json（持久化代码路径仍被真实执行）。"""
+    monkeypatch.setenv("LINGCLAUDE_TOOL_VOCAB_PATH",
+                       str(tmp_path / "tool_vocab.json"))
 # RFC v0.1 §3 A1-1 修订:pytest 环境默认禁用 BusResponder 后台线程
 # 灵克 cli 默认 = 1(生产开),pytest 通过 conftest 设 = 0 防卡死
 # 用户主动 export LINGCLAUDE_BUS_LISTENER=1 可强制开(覆盖 conftest)

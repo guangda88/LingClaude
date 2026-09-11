@@ -15,6 +15,7 @@ finalizeContent -> finalize_content, presentCall/Result -> present_call/result).
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -73,6 +74,22 @@ class ToolDefinition:
     # 而是通过 HandlerRegistry 按名查找；这样定义（schema）与实现解耦。
     # 优先级：handler (Callable, 向后兼容) > handler_name (按名查找) > None
     handler_name: str | None = None
+
+
+    def __post_init__(self) -> None:
+        # T3 强制化（opencode 架构演进项）：handler 直传已废弃 — 定义（schema）
+        # 与实现（Callable）解耦后，直传使 ToolDefinition 不可序列化/复用。
+        # 迁移路径：register_handler(name, fn) + handler_name=name。
+        # 存量测试/边缘调用方允许 LINGCLAUDE_ALLOW_DIRECT_HANDLER=1 豁免。
+        if self.handler is not None:
+            import os
+            if not os.environ.get("LINGCLAUDE_ALLOW_DIRECT_HANDLER"):
+                warnings.warn(
+                    f"ToolDefinition(handler=...) 已废弃: '{self.name}' 应改用 "
+                    f"register_handler() + handler_name（T3 解耦纪律）",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
 
     def to_dict(self) -> dict[str, Any]:
         d = {

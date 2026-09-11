@@ -38,6 +38,11 @@ include = ["lingclaude*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    # T3 handler 解耦迁移期：存量测试直传 ToolDefinition(handler=...) 的
+    # DeprecationWarning 在此静默（新代码一律 register_handler + handler_name）
+    "ignore:ToolDefinition.*已废弃.*:DeprecationWarning",
+]
 
 [tool.mypy]
 python_version = "3.10"

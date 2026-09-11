@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -113,6 +115,7 @@ class ToolRouter:
         self._vocab: dict[ToolCategory, set[str]] = defaultdict(set, {
             cat: set(seeds) for cat, seeds in self._CATEGORY_SEEDS.items()
         })
+        self._load_vocab()
 
     def set_always_include(self, *names: str) -> None:
         self._always_include.update(names)
@@ -161,6 +164,52 @@ class ToolRouter:
         cat = self._infer_category(tool.name, tool.description)
         tokens = re.findall(r'[a-z]{2,}', f"{tool.name} {tool.description}".lower())
         self._vocab[cat].update(tokens)
+        self._vocab[cat].update(tokens)
+        self._save_vocab()
+
+    # T5（opencode 架构演进项）：学习词表持久化 — 默认项目 .lingclaude/ 下，
+    # 测试经 LINGCLAUDE_TOOL_VOCAB_PATH 重定向（conftest autouse 夹具）。
+    VOCAB_PATH_ENV = "LINGCLAUDE_TOOL_VOCAB_PATH"
+    VOCAB_DEFAULT = ".lingclaude/tool_vocab.json"
+
+    def _vocab_path(self):  # -> Path
+        from pathlib import Path
+        env = os.environ.get(self.VOCAB_PATH_ENV)
+        if env:
+            return Path(env)
+        return Path(self.VOCAB_DEFAULT)
+
+    def _load_vocab(self) -> None:
+        """启动时合并历史词表（seeds 先装，learned 增量并入）。"""
+        try:
+            data = json.loads(self._vocab_path().read_text(encoding="utf-8"))
+            for cat, words in data.get("learned", {}).items():
+                try:
+                    c = ToolCategory(cat)
+                except ValueError:
+                    continue  # 枚举演进后旧词表存在已删除类别 — 跳过
+                self._vocab[c].update(words)
+        except (OSError, ValueError):
+            pass  # 首次运行/损坏文件 — seeds 起步
+
+    def _save_vocab(self) -> None:
+        """学习后原子落盘。任何 I/O 失败静默（词表丢失只影响路由精度，不阻断）。"""
+        import tempfile
+        from pathlib import Path
+        try:
+            p = self._vocab_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=".vocab_", suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"learned": {c.value: sorted(w) for c, w in self._vocab.items()
+                                       if c not in (ToolCategory.CORE, ToolCategory.UNKNOWN)}},
+                          f, ensure_ascii=False)
+            os.replace(tmp, p)
+        except OSError:
+            try:
+                os.unlink(tmp)  # type: ignore[possibly-undefined]
+            except (OSError, UnboundLocalError):
+                pass
 
     def _detect_categories(self, query: str) -> list[ToolCategory]:
         q = query.lower()

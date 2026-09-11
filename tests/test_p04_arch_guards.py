@@ -144,3 +144,39 @@ def test_g5_no_truncated_write_artifacts():
         if _parse(f) is None:
             broken.append(f"{_label(f)} (SyntaxError)")
     assert not broken, f"疑似截断写入: {broken}"
+
+
+def test_g8_no_inline_tool_registration():
+    """T4（opencode 架构演进项）锁定：coding.py 主干零内联注册。
+
+    工具注册统一走 engine/tool_registration.py 的 specs 表 +
+    register_all_tools()。主干再出现 ToolDefinition( 或
+    registry.register( 即违规 —— 变更应改 specs 表（manifest 只加行）。
+    """
+    text = (SRC / "engine" / "coding.py").read_text(encoding="utf-8")
+    violations = [
+        f"行{i+1}: {line.strip()[:60]}"
+        for i, line in enumerate(text.splitlines())
+        if ("ToolDefinition(" in line or "registry.register(" in line)
+        and not line.lstrip().startswith("#")
+    ]
+    assert not violations, (
+        "coding.py 出现内联工具注册（应改 tool_registration.py specs 表）: "
+        f"{violations}"
+    )
+
+
+def test_g9_all_tools_decoupled_handlers():
+    """T3 锁定：主注册表全部工具走 handler_name 插片（定义/实现解耦）。
+
+    生产注册表内直传 handler=Callable 或缺失 handler_name 即违规；
+    测试内构造 ToolDefinition 不受此限（conftest 已静默 Deprecation）。
+    """
+    from lingclaude.engine.coding import CodingRuntime
+
+    rt = CodingRuntime()
+    offenders = [
+        t.name for t in rt.registry.list_tools()
+        if t.handler is not None or t.handler_name is None
+    ]
+    assert not offenders, f"以下工具未走 handler_name 解耦: {offenders}"
