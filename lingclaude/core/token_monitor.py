@@ -29,10 +29,28 @@ logger = logging.getLogger(__name__)
 # 目标「优选模型」— 建议/评分/趋势 SQL 的过滤名。
 # 2026-09-11: 原 19 处硬编码 "GLM-4.7" 收敛到此常量(config.yaml 生产模型
 # 已是 glm-5.3-flash, 旧报告的"提升 GLM-4.7 到 80%"建议已误导)。
-# W5+1: 默认值跟进 config.yaml 生产模型, LINGCLAUDE_TARGET_MODEL env 可覆盖
+# W5+1: 默认值动态跟进 config.yaml 生产模型, LINGCLAUDE_TARGET_MODEL env 可覆盖
 # (换模型/供应商时无需改代码); 匹配处用 casefold 大小写不敏感, 兼容库内既有键形态。
 # 注意: 历史库数据中旧模型名的聚合口径会随本值迁移, 属预期语义(「当前目标模型」)。
-TARGET_MODEL = os.environ.get("LINGCLAUDE_TARGET_MODEL", "glm-5.3-flash")
+# 2026-09-11 晚: 默认值改从 config.yaml 读取(此前注释说"跟进"但实为静态写死,
+# 换 deepseek-v4-flash 后报告会再次误导)。fail-soft: config 不可读时退静态兜底。
+
+
+def _default_target_model() -> str:
+    try:
+        from lingclaude.core.config import find_config_path, load_config
+
+        path = find_config_path()
+        if path:
+            name = getattr(load_config(path).model, "model", "") or ""
+            if name:
+                return name
+    except Exception:  # noqa: BLE001 — config 损坏/只读环境不阻断 token_monitor
+        pass
+    return "glm-5.3-flash"
+
+
+TARGET_MODEL = os.environ.get("LINGCLAUDE_TARGET_MODEL") or _default_target_model()
 
 
 def _default_report_path(name: str) -> Path:

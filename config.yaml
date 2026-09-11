@@ -14,10 +14,10 @@ intel:
   relay_target: ''
   session_history_path: data/session_history.json
 model:
-  api_key: ''
-  base_url: https://open.bigmodel.cn/api/coding/paas/v4
+  api_key: ${VOLC_CODING_API_KEY}
+  base_url: https://ark.cn-beijing.volces.com/api/plan/v3
   max_tokens: 16384
-  model: glm-5.3-flash
+  model: deepseek-v4-flash
   provider: openai
   system_prompt: '你是灵克，一个会自我进化的开源 AI 编程助手。
 

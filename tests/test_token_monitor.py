@@ -309,10 +309,13 @@ class TestTokenMonitor:
     def test_get_efficiency_metrics_with_records(self, monitor):
         """Test getting efficiency metrics with records"""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # 2026-09-11 晚: 记录改用 TARGET_MODEL 自身(W5P1 改默认值后本测试
+        # 已断裂: 硬编码 GLM-4.7 与默认 glm-5.3-flash 永不匹配)。
+        from lingclaude.core.token_monitor import TARGET_MODEL
 
         # Record some usage
         monitor.record_usage(
-            model="GLM-4.7",
+            model=TARGET_MODEL,
             task_type="code_generation",
             total_tokens=1000,
             input_tokens=500,

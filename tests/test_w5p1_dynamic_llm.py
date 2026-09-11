@@ -27,9 +27,13 @@ class TestResolveLlmChain:
         chain = _resolve_llm_chain()
         assert len(chain) >= 1
         first = chain[0]
-        assert first["model"] == "glm-5.3-flash"
-        assert first["url"].startswith("https://open.bigmodel.cn/api/coding/paas/v4")
-        assert first["url"].endswith("/chat/completions")
+        # 2026-09-11 晚: 断言与 config.yaml 同源, 不再硬编码型号名/端点
+        # (否则每次换模型/供应商都要改测试, 违背「换模型零代码改动」哲学)。
+        from lingclaude.core.config import find_config_path, load_config
+
+        cfg = load_config(find_config_path())
+        assert first["model"] == cfg.model.model
+        assert first["url"] == cfg.model.base_url.rstrip("/") + "/chat/completions"
         # config 链项必须自带 _key (否则运行时会被跳过)
         assert first.get("_key"), "config 链项缺 _key"
 
