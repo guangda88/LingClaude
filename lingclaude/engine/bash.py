@@ -182,6 +182,44 @@ def _strip_transparent_prefix(command: str) -> str:
     return cmd
 
 
+# 输出修饰段（无网络副作用）：管道消费命令与重定向。
+# 判定原则（fail-closed）：只有「明确无网络面」的段才豁免网络白名单；
+# 任何有潜在网络面的命令（xargs/tee/ssh/curl/wget/nc/telnet/...）一律不豁免
+# → 整条仍被 --unshare-net 隔离。
+# 2026-09-12 修复：agent 实际命令几乎都带 `2>&1 | head` 输出裁剪，`_split_chain`
+# 把 `2>&1`（按 & 拆）、`| head`（按 | 拆）切成独立段 → 不匹配 git 白名单 →
+# 全链 False → git 远程操作被误隔离（白名单形同虚设）。输出修饰本身不发起网络，
+# 豁免后仅对「实际网络命令段」做白名单判定，fail-closed 语义不损失。
+_OUTPUT_MODIFIER_PREFIXES = frozenset({
+    # 管道消费：纯 stdin→stdout 处理，无网络能力
+    "head", "tail", "grep", "egrep", "fgrep", "cat", "sed", "awk", "wc",
+    "sort", "uniq", "cut", "tr", "column", "fold", "nl", "od", "xxd",
+    "hexdump", "diff", "cmp", "comm", "paste", "fmt",
+    "md5sum", "sha1sum", "sha256sum", "cksum", "base64",
+    # shell 内置 / 状态卫兵：无网络面（`git fetch ... || true` 场景）。
+    # 注意：刻意不含 echo —— echo 常作命令开头，豁免会导致「非网络命令也放行
+    # 网络」的语义污染（echo hello → allow_network=True）。true/false/: 仅作
+    # `|| true` 状态卫兵，且不会出现在命令首部，豁免安全。
+    "true", "false", ":",
+})
+# 重定向段：2>&1 / >/dev/null / >>log / <file / 2>file（本地读写，无网络面）。
+# _split_chain 按 & 拆分会把 `2>&1` 切成 `2` + `>1` 两段：`2` 是纯数字段、
+# `>1` 是纯重定向段，各自匹配；`_is_output_modifier("2>&1")` 直接调用时
+# 也需匹配完整形态（含中间 &）。
+_REDIRECT_SEG_RE = re.compile(r"^(?:[0-9]*[<>]+[^\s|;]*|[0-9]+)$")
+
+
+def _is_output_modifier(sub: str) -> bool:
+    """判断子命令段是否为纯输出修饰（重定向 / 纯消费管道），无网络副作用。"""
+    s = sub.strip()
+    if not s:
+        return True  # 空段（cd 剥离后）跳过，不参与判定
+    if _REDIRECT_SEG_RE.match(s):
+        return True
+    head = s.split()[0].lower()
+    return head in _OUTPUT_MODIFIER_PREFIXES
+
+
 def _is_network_allowed(command: str) -> bool:
     """判断命令是否命中网络白名单（全链判定，仅 git 远程/认证类操作）。
 
@@ -195,15 +233,27 @@ def _is_network_allowed(command: str) -> bool:
     再全链判定；剥离后仍含非白名单子命令（如 ``timeout 15 git push && wget x``）→
     整条隔离（fail-closed 保持）。
 
+    修复 2026-09-12b（输出修饰段误伤）：``git push 2>&1 | head`` 的 ``2>&1``/``head``
+    段不匹配 git 白名单 → 整条隔离（白名单形同虚设）。现先过滤纯输出修饰段
+    （重定向 + 纯消费管道），仅对实际网络命令段判定；含网络面命令（curl/wget/
+    xargs/tee/nc 等）不豁免 → fail-closed 保持。
+
     命中返回 True -> _sandbox_command 传 allow_network=True。
     """
     parts = BashExecutor._split_chain(command)
     if not parts:
         return False
+    first_real_seen = False
     for sub in parts:
+        # 输出修饰段（2>&1 / >/dev/null / | head / | grep ...）无网络面 → 豁免。
+        # 但「命令首部」的修饰命令（`head -3 && git push`）不豁免——它是独立
+        # 命令而非输出消费，豁免会让非网络命令放行网络（fail-closed 保持）。
+        if first_real_seen and _is_output_modifier(sub):
+            continue
         norm = _strip_transparent_prefix(sub).lower().replace("'", "").replace('"', "")
         if not norm:
             continue  # cd /path 等纯导航段剥离后为空，跳过（不参与白名单判定）
+        first_real_seen = True
         hit = any(
             norm == allowed or norm.startswith(allowed + " ")
             for allowed in _NETWORK_ALLOWED_COMMANDS

