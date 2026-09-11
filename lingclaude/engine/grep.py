@@ -100,7 +100,16 @@ class GrepTool:
             search_root = Path(path).resolve() if path else self.base_dir
         except (OSError, RuntimeError) as e:
             return Result.fail(f"无效搜索路径: {e}")
-        if not search_root.is_dir():
+        # 修复 2026-09-11（四位监督审计 P0-1）：path 支持单文件。
+        # 此前仅接受目录，模型把 grep 的 path 传成单个文件路径时 15 次/会话级失败
+        # （"搜索路径不存在或不是目录"）——高频低级错误，浪费大量轮次。
+        if search_root.is_file():
+            file_iter = [search_root]
+            root_for_rel = search_root.parent
+        elif search_root.is_dir():
+            file_iter = search_root.rglob(glob_pattern)
+            root_for_rel = search_root
+        else:
             return Result.fail(f"搜索路径不存在或不是目录: {search_root}")
 
         try:
@@ -117,7 +126,6 @@ class GrepTool:
         files_matched_set: set[str] = set()
         truncated = False
 
-        file_iter = search_root.rglob(glob_pattern)
         for file_path in file_iter:
             if not file_path.is_file():
                 continue
@@ -170,7 +178,7 @@ class GrepTool:
 
                     matches.append(
                         GrepMatch(
-                            file=str(file_path.relative_to(search_root)),
+                            file=str(file_path.relative_to(root_for_rel)),
                             line=i,
                             column=m.start() + 1,
                             content=display_line,

@@ -201,8 +201,8 @@ def register_default_providers() -> None:
             return _sandbox.wrap(*args, **kwargs)
         def available(self) -> bool:
             return _sandbox.available()
-        def wrap(self, command: str, working_dir: Any = None) -> str:
-            return _sandbox.wrap(command, working_dir=working_dir)
+        def wrap(self, command: str, working_dir: Any = None, allow_network: bool = False) -> str:
+            return _sandbox.wrap(command, working_dir=working_dir, allow_network=allow_network)
 
     SANDBOX_SEAM.register_provider(SandboxProviderAdapter(), default=True)
 

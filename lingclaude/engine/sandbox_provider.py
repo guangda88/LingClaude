@@ -1,4 +1,5 @@
-"""Sandbox Provider Protocol — bash 沙箱后端抽象（灵元尺子：变化变成插片）。
+"""
+沙箱后端解耦层（灵元：插片可换）。
 
 解耦前：bash.py._sandbox_command 直接调用 bwrap（焊死单后端）。
 解耦后：SandboxProvider Protocol + BwrapSandboxProvider（默认）/ NoopSandboxProvider，
@@ -6,6 +7,12 @@
 
 对应 DSH sandbox 三态/四后端：本实现为 bwrap 单后端 + noop 降级，
 扩展点留给 firejail / gVisor 等自定义 Provider。
+
+网络策略（2026-09-11 白名单化）：
+- 默认：--unshare-net 网络隔离（fail-closed）
+- 例外：wrap(allow_network=True) 时不注入 --unshare-net，保留文件系统沙箱，
+  仅用于白名单内的可信 git 远程操作（git push/pull/fetch/clone/ls-remote）。
+  白名单判定在 bash.py._NETWORK_ALLOWED_COMMANDS，本层只负责按标记组装 bwrap 参数。
 """
 from __future__ import annotations
 
@@ -17,15 +24,18 @@ from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
-# bwrap 可用性探测结果缓存（None=未探测，False=本环境不可用）
-_bwrap_probe_cache: bool | None = None
+# bwrap 可用性探测结果缓存：(None=未探测, (bool, reason))
+_bwrap_probe_cache: tuple[bool, str] | None = None
 
 
-def _bwrap_probe(bwrap: str) -> bool:
+def _bwrap_probe(bwrap: str) -> tuple[bool, str]:
     """探测 bwrap 在本环境是否真正可用（一次性，结果缓存）。
 
     bwrap 依赖 user namespaces / network namespaces，容器或受限环境即使有
     二进制也无法运行——必须探测，不能反复失败。
+
+    返回 (available, reason)：reason 为 None 表示可用，否则为不可用原因
+    （如 "user namespace 受限: Read-only file system"），供上层诊断/告警。
     """
     global _bwrap_probe_cache
     if _bwrap_probe_cache is not None:
@@ -34,21 +44,30 @@ def _bwrap_probe(bwrap: str) -> bool:
 
     # 韧性:探测失败重试一次(会话启动期 MCP/后台线程抢资源,超时可能是瞬时的)。
     # 只有连续两次失败才缓存 False,避免单次抖动让整个会话永久降级非沙箱。
+    last_err = "未知错误"
     for _attempt in range(2):
-      try:
-        # 修复:原探测命令在 merged-usr 系统(/bin -> usr/bin 符号链接)上自毁——
-        # 先绑 /usr 再绑 /bin 会用符号链接目标覆盖 /usr 内路径,execvp /bin/true
-        # 必然 ENOENT,导致沙箱被永远误判不可用。改为整根只读绑定。
-        proc = subprocess.run(  # nosec B603 — 探测固定白名单命令
-            [bwrap, "--ro-bind", "/", "/", "--", "/bin/true"],
-            capture_output=True,
-            timeout=15,
-        )
-        _bwrap_probe_cache = proc.returncode == 0
-        if _bwrap_probe_cache:
-            break
-      except Exception:  # noqa: BLE001 — 探测失败视为不可用
-          _bwrap_probe_cache = False
+        try:
+            # 修复(2026-09-11 codex 审计):探测必须使用与真实执行一致的 flag 组合——
+            # 真实 wrap 默认注入 --unshare-net。此前探测不带 --unshare-net，在
+            # 网络 namespace 受限环境会「探测通过、真实执行失败」(echo hello 都挂)。
+            # 同时兼容 merged-usr 系统(/bin -> usr/bin 符号链接)整根只读绑定。
+            proc = subprocess.run(  # nosec B603 — 探测固定白名单命令
+                [
+                    bwrap,
+                    "--ro-bind", "/", "/",
+                    "--unshare-net",
+                    "--", "/bin/true",
+                ],
+                capture_output=True,
+                timeout=15,
+            )
+            if proc.returncode == 0:
+                _bwrap_probe_cache = (True, None)
+                return _bwrap_probe_cache
+            last_err = (proc.stderr or b"").decode(errors="replace").strip() or f"exit={proc.returncode}"
+        except Exception as e:  # noqa: BLE001 — 探测失败视为不可用
+            last_err = str(e)
+    _bwrap_probe_cache = (False, last_err)
     return _bwrap_probe_cache
 
 
@@ -59,7 +78,8 @@ class SandboxProvider(Protocol):
     实现方需提供：
     - name: 后端名（如 bwrap / noop / firejail）
     - available() -> bool: 后端是否可用（探测）
-    - wrap(command: str, working_dir: Path | None) -> str: 返回包裹后的命令
+    - wrap(command: str, working_dir: Path | None, allow_network: bool) -> str:
+      返回包裹后的命令
     """
 
     name: str
@@ -68,13 +88,18 @@ class SandboxProvider(Protocol):
         """后端是否可用（bwrap 探测 / noop 恒真）。"""
         ...
 
-    def wrap(self, command: str, working_dir: Path | None = None) -> str:
-        """包裹命令（原样返回 = 无沙箱；加前缀 = 沙箱）。"""
+    def wrap(
+        self, command: str, working_dir: Path | None = None, allow_network: bool = False
+    ) -> str:
+        """包裹命令（原样返回 = 无沙箱；加前缀 = 沙箱）。
+
+        allow_network=True 时保留文件系统沙箱但开放网络（仅限白名单 git 远程操作）。
+        """
         ...
 
 
 class BwrapSandboxProvider:
-    """默认实现：bwrap 沙箱包裹（只读系统路径 + 可写工作目录 + 网络隔离）。"""
+    """默认实现：bwrap 沙箱包裹（只读系统路径 + 可写工作目录 + 网络白名单例外）。"""
 
     name = "bwrap"
 
@@ -82,16 +107,33 @@ class BwrapSandboxProvider:
         self._bwrap = shutil.which("bwrap")
 
     def available(self) -> bool:
-        return self._bwrap is not None and _bwrap_probe(self._bwrap)
+        return self._bwrap is not None and _bwrap_probe(self._bwrap)[0]
 
-    def wrap(self, command: str, working_dir: Path | None = None) -> str:
-        """bwrap 包裹命令（策略对标 DSH read-only/workspace-write）。"""
+    def probe_reason(self) -> str | None:
+        """返回 bwrap 不可用原因（None=可用/未探测到问题）。"""
+        if self._bwrap is None:
+            return "bwrap 二进制不在 PATH"
+        ok, reason = _bwrap_probe(self._bwrap)
+        return None if ok else reason
+
+    def wrap(
+        self, command: str, working_dir: Path | None = None, allow_network: bool = False
+    ) -> str:
+        """bwrap 包裹命令（策略对标 DSH read-only/workspace-write）。
+
+        allow_network=True → 不注入 --unshare-net（网络白名单例外，仅限可信 git
+        远程操作；白名单判定在 bash.py._NETWORK_ALLOWED_COMMANDS，不在白名单内一律隔离）。
+        """
         if not self.available():
             return command
         wd = str(working_dir or Path.cwd())
         parts = [
             self._bwrap,
-            "--unshare-net",
+        ]
+        # 网络策略：默认隔离（fail-closed）；allow_network=True 时才开放（白名单例外）。
+        if not allow_network:
+            parts.append("--unshare-net")
+        parts += [
             # merged-usr 安全绑定:整根只读(/bin 是 usr/bin 的符号链接,
             # 逐目录绑定会自毁路径),再按需放开工作目录与 /tmp。
             "--ro-bind", "/", "/",
@@ -116,7 +158,9 @@ class NoopSandboxProvider:
     def available(self) -> bool:
         return True
 
-    def wrap(self, command: str, working_dir: Path | None = None) -> str:
+    def wrap(
+        self, command: str, working_dir: Path | None = None, allow_network: bool = False
+    ) -> str:
         return command
 
 

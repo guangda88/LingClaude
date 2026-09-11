@@ -69,6 +69,16 @@ class VerificationGate:
             )
         checks.append(path_check)
 
+        # 修复 2026-09-11（四位监督审计 P0-2）：edit/file_insert/ast_replace 的
+        # content 是「片段」（new_text / 插入文本 / 函数体），不是完整文件——
+        # 此前被 ast.parse 当完整 Python 文件解析，合法补丁也误报
+        # "unexpected indent at line 1"（实测 3 次 edit 全被拦）。
+        # 片段无法独立通过 AST，应校验「合并后的完整文件」；完整文件校验
+        # 由 verify_post_write（pipeline post-write 阶段）兜底，此处跳过片段。
+        _FRAGMENT_TOOLS = frozenset({"edit", "file_insert", "ast_replace", "file_delete_lines"})
+        if tool_name in _FRAGMENT_TOOLS:
+            return VerificationResult(passed=True, checks=tuple(checks))
+
         if self.syntax_check and content is not None:
             syn = self._check_syntax(content, str(path))
             checks.append(syn)

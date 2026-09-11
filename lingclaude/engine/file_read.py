@@ -74,11 +74,17 @@ class FileReadTool:
         max_file_size: int = 5 * 1024 * 1024,
         max_line_length: int = 2000,
         default_encoding: str = "utf-8",
+        allowed_read_roots: tuple[str, ...] = (),
     ) -> None:
         self.base_dir = Path(base_dir).resolve()
         self.max_file_size = max_file_size
         self.max_line_length = max_line_length
         self.default_encoding = default_encoding
+        # 修复 2026-09-11（codex 审计 P1）：允许项目外只读诊断路径（systemd unit、
+        # 服务配置等）。默认空元组 = 保持原硬边界；配置后仅放行列出的根。
+        self.allowed_read_roots: tuple[Path, ...] = tuple(
+            Path(r).resolve() for r in allowed_read_roots if r
+        )
 
     def read(
         self,
@@ -224,12 +230,28 @@ class FileReadTool:
 
         base_resolved = self.base_dir.resolve()
 
+        # 修复 2026-09-11：allowed_read_roots 内的路径放行（只读诊断），
+        # 其余仍保持 base_dir 硬边界（fail-closed）。
+        if self.allowed_read_roots and any(
+            self._within(root, resolved) for root in self.allowed_read_roots
+        ):
+            return Result.ok(resolved)
+
         try:
             resolved.relative_to(base_resolved)
         except ValueError:
             return Result.fail(f"拒绝访问路径 {path}（超出基础目录 {self.base_dir}）")
 
         return Result.ok(resolved)
+
+    @staticmethod
+    def _within(root: Path, target: Path) -> bool:
+        """target 是否在 root 内（含 root 自身）。"""
+        try:
+            target.relative_to(root)
+            return True
+        except ValueError:
+            return False
 
     def _check_size(self, target: Path) -> Result[None]:
         try:

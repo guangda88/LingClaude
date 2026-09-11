@@ -63,24 +63,58 @@ def is_sensitive_path(path_str: str) -> bool:
     :returns: True 如果路径包含敏感标记
     """
     path_lower = path_str.lower()
-    for marker in SENSITIVE_MARKERS:
-        if marker == ".env":
-            # .env 特殊处理：仅匹配路径中的 .env（非文件名）
-            if _ENV_PATH_PATTERN.search(path_lower):
+    # 修复 2026-09-11：无前导 / 的相对路径（.ssh/config、.aws/credentials）此前
+    # 因标记含前导 "/" 漏判。统一补 "/" 前缀后匹配，同时保留原样匹配。
+    has_leading_slash = len(path_lower) > 0 and path_lower[0] == "/"
+    candidates = (path_lower, f"/{path_lower.lstrip('/')}") if not has_leading_slash else (path_lower,)
+    for cand in candidates:
+        for marker in SENSITIVE_MARKERS:
+            if marker == ".env":
+                if _ENV_PATH_PATTERN.search(cand):
+                    return True
+            elif marker in cand:
                 return True
-        elif marker in path_lower:
-            return True
     return False
 
 
-def check_sensitive_path(path_str: str) -> tuple[bool, str | None]:
+# 访问模式（2026-09-11 分级，四位监督审计 P0-3）：
+# - metadata：仅判断存在性/属性（test -f、ls 等）→ 默认放行，不读内容
+# - read：读取内容（cat/less/tail 等）→ 需审批
+_METADATA_ACCESS_CMDS = frozenset({
+    "test", "[", "[[", "ls", "stat", "find", "realpath", "readlink",
+    "dirname", "basename", "file", "du", "df",
+})
+# 明确读取内容的命令（其余未知命令按 fail-closed 保守拦截）
+_READ_ACCESS_CMDS = frozenset({
+    "cat", "less", "more", "tail", "head", "grep", "sed", "awk",
+    "vi", "vim", "nano", "cp", "rsync", "tar", "zip", "unzip",
+    "base64", "xxd", "od", "strings", "md5sum", "sha256sum",
+})
+
+
+def check_sensitive_path(
+    path_str: str,
+    command: str | None = None,
+) -> tuple[bool, str | None]:
     """检查路径并返回 (is_sensitive, reason)。
 
-    :returns: (True, reason) 如果敏感；(False, None) 如果安全
+    :param path_str: 路径字符串
+    :param command: 完整 bash 命令（可选）——用于区分 metadata vs read 访问。
+                    无 command 时（read/grep/glob 等 Safe 工具）保持 fail-closed。
+    :returns: (True, reason) 如果敏感/需审批；(False, None) 如果安全
     """
-    if is_sensitive_path(path_str):
-        return True, "访问敏感路径，需要审批"
-    return False, None
+    if not is_sensitive_path(path_str):
+        return False, None
+
+    # 有命令上下文时分级：metadata 操作（test -f / ls）放行，不读内容
+    if command:
+        cmd_stripped = command.strip()
+        lead = cmd_stripped.split()[0] if cmd_stripped.split() else ""
+        lead_name = lead.replace("/", "").split(" ")[0]
+        if lead_name in _METADATA_ACCESS_CMDS:
+            return False, None
+
+    return True, "访问敏感路径，需要审批"
 
 
 class SensitivePathGate:

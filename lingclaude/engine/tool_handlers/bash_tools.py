@@ -17,7 +17,9 @@ class BashToolsMixin:
         paths_in_cmd = re.findall(r'(?:~|(?<![\w])/|\.\.?/)[\w./~-]+', command)
         for p in paths_in_cmd:
             if len(p) > 1:
-                is_sensitive, reason = check_sensitive_path(p)
+                # 修复 2026-09-11（四位监督审计 P0-3）：传入完整 command，
+                # 让 gate 区分 metadata（test -f / ls → 放行）vs read（cat → 拦）
+                is_sensitive, reason = check_sensitive_path(p, command=command)
                 if is_sensitive:
                     return {"error": f"Path blocked by sensitive_path_gate in command: {p} ({reason})"}
         result = self.bash.run(command)
