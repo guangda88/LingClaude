@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
 pub(crate) struct AuditLogger {
-    log_path: PathBuf,
     handle: Arc<Mutex<File>>,
 }
 
@@ -26,7 +25,6 @@ impl AuditLogger {
                 File::create("/dev/null").unwrap()
             });
         AuditLogger {
-            log_path,
             handle: Arc::new(Mutex::new(file)),
         }
     }

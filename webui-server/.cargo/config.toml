@@ -1,0 +1,4 @@
+# 本沙箱 ulimit -v 512MB 硬限：默认 lld 链接器虚拟内存占用超限（SIGABRT）。
+# 改用 BFD ld（低虚拟内存占用），实测可通过。见 docs/HANDOFF_P4_P5_20260911.md。
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=bfd"]
