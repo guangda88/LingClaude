@@ -111,10 +111,10 @@ class ToolExecutor:
             # P0 主链统一 (2026-09-12, codex 审计 #1): read 快路径此前完全绕过
             # ToolPipeline（权限/守卫/敏感路径检查全部跳过，直接查 ContextCache）。
             # 修复: 先过 pipeline 纯权限预检（不执行 handler），放行后才走 cache；
-            # cache 未命中/失败降级到完整 pipeline 执行。
+            # cache 未命中/失败降级到完整 pipeline。类模块判定(非 hasattr)防 MagicMock 伪 runtime 误判吞 handler。
             runtime = getattr(self._engine, "_runtime", None)
             pipeline = getattr(runtime, "tool_pipeline", None)
-            if pipeline is not None and hasattr(pipeline, "check_permission"):
+            if type(pipeline).__name__ == "ToolPipeline" and type(pipeline).__module__ == "lingclaude.engine.tool_pipeline":
                 preflight = pipeline.check_permission(
                     name, kwargs,
                     permissions_blocks=(

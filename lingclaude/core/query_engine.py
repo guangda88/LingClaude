@@ -82,7 +82,7 @@ try:
     from experiments.r5_kb_conflict import R5KBConflictSource as _R5KBConflictSource
 except ImportError:
     _R5KBConflictSource = None  # type: ignore[assignment]
-from lingclaude.model.types import ModelConfig
+from lingclaude.model.types import ModelConfig, ModelMessage, MessageRole
 
 from lingclaude.core.types import Result, StopReason
 
@@ -168,7 +168,10 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         # T0-7: 工具错误 → ON_ERROR hook（ToolPipeline error listener 接线，原先定义无触发点）
         if self._runtime is not None:
             _pipeline = getattr(self._runtime, "tool_pipeline", None)
-            if _pipeline is not None and hasattr(_pipeline, "add_error_listener"):
+            # 类模块判定(避免 core→engine 循环导入与新增懒 import):
+            # 不向 MagicMock/伪造 runtime 注册无效 listener
+            if type(_pipeline).__module__ == "lingclaude.engine.tool_pipeline" \
+                    and type(_pipeline).__name__ == "ToolPipeline":
                 def _on_tool_error(tool_name: str, error_msg: str) -> None:
                     self._hooks.trigger(HookContext(
                         hook_type=HookType.ON_ERROR,
@@ -230,7 +233,6 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
     def from_config_file(cls, config_path: str | None = None) -> Result[QueryEngine]:
         from lingclaude.core.config import load_config, find_config_path
         from lingclaude.model.factory import create_provider
-        from lingclaude.model.types import ModelConfig
         from pathlib import Path as _Path
 
         try:
@@ -417,8 +419,6 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
             self._meta_cognition.record_success(Domain.GENERAL_KNOWLEDGE)
 
     def _build_messages(self, prompt: str) -> list:
-        from lingclaude.model.types import ModelMessage, MessageRole
-
         messages: list[ModelMessage] = []
         system_prompt = self._build_adaptive_system_prompt()
         if system_prompt:
