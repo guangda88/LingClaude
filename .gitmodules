@@ -1,0 +1,3 @@
+[submodule "workspace/better-harness"]
+	path = workspace/better-harness
+	url = https://github.com/guangda88/better-harness.git
