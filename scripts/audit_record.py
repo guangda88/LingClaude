@@ -96,8 +96,10 @@ def main() -> int:
         save_audit_record(rec)
         print("[audit_record] saved to .audit/last_commit_audit.json")
     except Exception as e:
-        print(f"[audit_record] save failed: {e}", file=sys.stderr)
-        return 1
+        # 全局目录 /home/ai/.ling-audit 只读时 save 抛错，但本地
+        # .audit/last_commit_audit.json 已写入（post-commit 读这个）。
+        # 全局写失败不阻断提交。
+        print(f"[audit_record] global save failed (non-fatal): {e}", file=sys.stderr)
 
     if args.json_out:
         try:
