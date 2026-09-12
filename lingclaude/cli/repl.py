@@ -187,14 +187,84 @@ def _drain_pending_notice(ctx: _ReplCtx) -> None:
             print(f"  … 等共 {len(dropped)} 条")
 
 
+def _stdin_readable(timeout: float = 0.0) -> bool:
+    """stdin 是否有数据可读（非阻塞探测）。
+
+    select 在非 TTY（管道/文件重定向）下对常规文件 fd 恒报可读 ——
+    但 pump 模式只会在 TTY 下启用，这里仅作兜底；探测失败一律视为
+    「不可读」（宁可误判空闲，不可误判卡死打断正常输入）。
+    """
+    try:
+        import select
+
+        r, _, _ = select.select([sys.stdin], [], [], timeout)
+        return bool(r)
+    except Exception:  # noqa: BLE001 — 平台差异/无效 fd 兜底
+        return False
+
+
+def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> int:
+    """pump 失活复合判定 + 逃生门（2026-09-12 事故:输入假死/Ctrl+D 失效）。
+
+    核心难题：pump「正常等输入」与「病态卡死」两者 is_alive() 皆 True、
+    队列皆空，原逻辑无法区分 → 主循环无限空转。突破口是 stdin 可读性：
+
+      空闲正常：stdin 不可读（无输入）→ 心跳停滞属正常，不干预
+      用户打字 : stdin 可读 → 正常 pump 瞬间消费；若连续多轮仍可读
+                 且队列空、心跳无推进 → pump 未消费，判定失活
+      （pump 仅 TTY 启用，管道 EOF 场景由 is_alive()==False 分支覆盖）
+
+    判定为失活后：set interrupt_event 尝试唤醒 prompt_toolkit 阻塞读；
+    然后 stop() 停掉 pump 线程（若被唤醒则干净退出），确保主线程成为
+    唯一 stdin 读者后再降级为阻塞直读 —— 逃生门（此前这类假死只能
+    kill -9，会话靠逐轮落盘兜底）。绝不在 pump 线程仍存活时直接直读，
+    否则构成双读者（PT 并发 AssertionError，2026-09-08 事故）。
+    """
+    input_pump = ctx.input_pump
+    # 心跳停滞时长（prompt 返回即打拍，卡死则停滞）
+    beat_idle = time.monotonic() - input_pump.last_beat()
+    readable = _stdin_readable(0.0)
+    if beat_idle >= 8.0 and readable:
+        # 连续两轮（间隔约 1s）确认，避免瞬时误判
+        if last_check_t < 0 or time.monotonic() - last_check_t >= 1.0:
+            if idle_loops >= 1:
+                input_pump.dead = True
+                input_pump.death_reason = "失活:stdin 可读但心跳停滞(输入泵卡死)"
+                print("\n[输入泵失活] 已降级为阻塞输入模式（可继续使用；Ctrl+D 退出）", file=sys.stderr)
+                try:
+                    ctx.session.interrupt_event().set()
+                except Exception:  # noqa: BLE001
+                    pass
+                # 关键：停掉 pump 线程（唤醒则干净退出），主线程独占 stdin
+                # 后再降级 —— 避免双读者（PT 并发 AssertionError 事故）。
+                try:
+                    input_pump.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+                return 0
+            return time.monotonic()
+    # 未触发:打点重置探测窗口
+    return last_check_t if last_check_t >= 0 and beat_idle >= 8.0 else -1.0
+
+
 def _next_input(ctx: _ReplCtx) -> str:
     """pump 模式取输入：唯一来源是队列（EOF 哨兵转 EOFError）。
-    pump 线程死亡时永久降级为阻塞直读。"""
+    pump 线程死亡/失活时永久降级为阻塞直读。"""
     input_pump = ctx.input_pump
     _pump_mode = ctx.pump_mode
     input_queue = ctx.input_queue
+    # 失活探测游标（2026-09-12）:小于 0 表示未进入疑区
+    _stall_check_t = -1.0
+    _idle_loops = 0
     while True:
         if input_pump.dead or not _pump_mode:
+            # 失活/死亡降级为阻塞直读前，先给 pump 线程 1s 退出窗口
+            # （stop() 的 join(timeout=2) 唤醒失败时线程仍存活）。interrupt_event
+            # 已 set，正常会被唤醒；1s 后仍未退说明唤醒失败 —— 不再死等
+            # （极端卡死时死等=用户彻底无法输入），直接降级直读。
+            _t0 = time.monotonic()
+            while input_pump.dead and input_pump.is_alive() and time.monotonic() - _t0 < 1.0:
+                time.sleep(0.05)
             return _read_input(ctx)
         item = input_queue.get(timeout=0.3)
         if item is None:
@@ -203,7 +273,19 @@ def _next_input(ctx: _ReplCtx) -> str:
                 item = input_queue.get(timeout=0.5)
                 if item is None:
                     raise EOFError
+            else:
+                # pump 活着但队列空:区分「正常等输入」与「病态卡死」
+                _stall_check_t = _maybe_stall_escape(ctx, _idle_loops, _stall_check_t)
+                if _stall_check_t > 0:
+                    _idle_loops += 1
+                elif _stall_check_t == 0:
+                    _stall_check_t = -1.0
+                    _idle_loops = 0
+                    continue
             continue
+        # 有输入:清除疑区游标
+        _stall_check_t = -1.0
+        _idle_loops = 0
         if InputQueue.is_eof(item):
             raise EOFError
         return item

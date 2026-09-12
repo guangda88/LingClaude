@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 
 from lingclaude.cli.input_queue import (
     EOF_SENTINEL,
@@ -158,3 +157,31 @@ class TestInputPump:
             time.sleep(0.02)
         assert pump.dead
         pump.stop()
+
+    def test_pump_heartbeat_advances_on_prompt_return(self) -> None:
+        """心跳语义：prompt 正常返回即打拍（含空行）—— 线程在轮转的硬证据。"""
+        q = InputQueue()
+        session = _FakeSession(lines=["", "  ", "real"])
+        pump = InputPump(session, q)
+        pump.start()
+        for _ in range(50):
+            if q.pending() >= 1:
+                break
+            time.sleep(0.02)
+        assert q.get() == "real"
+        # prompt 成功返回过（含空行过滤前）→ 心跳应显著晚于启动时刻
+        assert pump.last_beat() >= pump._start_t - 1e-9  # noqa: SLF001
+        pump.stop()
+
+    def test_heartbeat_stagnates_while_blocked(self) -> None:
+        """心跳停滞语义：prompt 阻塞等输入期间心跳不推进 —— 主循环不得单凭心跳判死。"""
+        q = InputQueue()
+        session = _FakeSession(block=True)
+        pump = InputPump(session, q)
+        pump.start()
+        b0 = pump.last_beat()
+        time.sleep(0.15)
+        assert pump.is_alive()          # 活着
+        assert pump.last_beat() == b0   # 但心跳停滞（阻塞中）
+        pump.stop()
+

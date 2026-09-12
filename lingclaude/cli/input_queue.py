@@ -15,6 +15,7 @@ from collections.abc import Callable
 
 import queue
 import threading
+import time
 
 EOF_SENTINEL = "\x00EOF"
 
@@ -83,6 +84,11 @@ class InputPump:
         self._thread: threading.Thread | None = None
         self.dead = False  # 线程异常死亡标记（主循环健康检查用）
         self.death_reason: str = ""  # 死因（诊断用，2026-09-09 静默死亡事故）
+        # 心跳（2026-09-12 失活检测）:最近一次「prompt 成功返回」时刻。
+        # 语义:仅反映 pump 线程是否在正常轮转,不反映用户是否打字 ——
+        # prompt() 阻塞等输入期间心跳也会停滞,故主循环不得单凭心跳判死,
+        # 必须结合 stdin 可读性（repl._maybe_stall_escape 的复合判定）。
+        self._last_beat = time.monotonic()
 
     def start(self) -> None:
         # H17-TUI 修复:stop() 置位 _stop 后若直接再 start(),新线程第一轮
@@ -98,6 +104,7 @@ class InputPump:
                 self.dead = True
                 return
         self._stop = threading.Event()
+        self._start_t = time.monotonic()  # 诊断/测试:启动时刻基线
         self._thread = threading.Thread(target=self._run, daemon=True, name="input-pump")
         self._thread.start()
 
@@ -116,6 +123,14 @@ class InputPump:
 
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def last_beat(self) -> float:
+        """最近一次正常轮转时刻（monotonic 秒）。主循环失活判定用。"""
+        return self._last_beat
+
+    def _beat(self) -> None:
+        """prompt 成功返回后打拍 —— 线程仍在正常轮转的最强证据。"""
+        self._last_beat = time.monotonic()
 
     def _run(self) -> None:
         while not self._stop.is_set() and not self.dead:
@@ -140,5 +155,7 @@ class InputPump:
                 print(f"[输入泵异常退出] {self.death_reason}", file=sys.stderr)
                 self.dead = True
                 return
+            # 心跳:prompt 正常返回（含空行）即打拍 —— 线程在轮转的硬证据
+            self._beat()
             if text.strip():
                 self._q.put(text)
