@@ -141,7 +141,13 @@ class SlashCommandProcessor:
                 print("[提示] 后续请求将强制使用此模型，忽略 TaskRouter 路由表；用 /model --unpin 解除")
                 status.set_pinned(True)
             else:
+                # 钉住失败必须清 toolbar 状态,否则老 pinned 显示残留
+                # (用户以为新 pin 生效,但 toolbar 还显示旧 model + [PINNED])
+                old_pinned = engine.get_pinned_model_name()
+                status.set_pinned(False)
                 print(f"[钉住失败] {result.error}")
+                if old_pinned:
+                    print(f"[!] 注意: 原钉住 {old_pinned} 仍然有效; 输入 /model --unpin 显式解除")
             return
         # /model (无参数): 显示当前/钉住状态
         pinned = engine.get_pinned_model_name()
