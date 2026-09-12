@@ -148,8 +148,8 @@ git push --no-verify --force gitea master
 
 | 远程 | HEAD | 说明 |
 |------|------|------|
-| Gitea | `ee53a28` | ✅ 权威，内容最新（含 codex providers、子模块指针、红测修复） |
+| Gitea | `a3d7c77` | ✅ 权威，内容最新（含本手册、熔断指引、porcelain-z、红测修复等） |
 | GitHub | `48eef43` | ⏮ 旧版，因 tree fsck 未更新 |
-| 本地 | `ee53a28` | 与 Gitea 一致 |
+| 本地 | `a3d7c77` | 与 Gitea 一致 |
 
 **在本手册第 4–5 步完成前，"双远程"以 Gitea 为准；GitHub 仅历史镜像。**
