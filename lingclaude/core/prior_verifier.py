@@ -50,6 +50,14 @@ _CODE_CLAIM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:调用了?|imports?)\s+\w+", re.IGNORECASE), "call_reference"),
 ]
 
+_TOOL_ACTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # 工具动作完成式声明 — 本次幻觉重灾区（编造 commit/测试/落盘/写入）
+    (re.compile(r"(?:已提交|已 commit|committed|commit\s+到?|commit\s+[0-9a-f]{7,40}|已推送|pushed)"), "commit_claim"),
+    (re.compile(r"(?:已测试|测试全绿|全部通过|pytest\\s+通过|tests?\\s+passed|\\d+\\s*passed)"), "test_claim"),
+    (re.compile(r"(?:已落盘|已写入|已保存|已创建|已生成|written|created|saved)"), "file_write_claim"),
+    (re.compile(r"(?:已运行|已执行|已安装|已修改|已删除|已修复|ran|executed|installed|deleted|fixed)"), "action_claim"),
+]
+
 _INFERENCE_MARKERS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:应该|probably|likely|大概|可能|也许|估计)", re.IGNORECASE), "probability"),
     (re.compile(r"(?:我认为|I think|我觉得|猜测|推测)", re.IGNORECASE), "subjective"),
@@ -81,6 +89,18 @@ class PriorVerifier:
                     if self.strict_mode:
                         warnings.append(f"未经验证的代码断言: {match.group()}")
 
+        # 工具动作声明校验：commit/测试/落盘等完成式声明，无工具证据即标记
+        for pattern, kind in _TOOL_ACTION_PATTERNS:
+            for match in pattern.finditer(text):
+                assertions.append(Assertion(
+                    text=match.group(),
+                    level=AssertionLevel.HARD_FACT,
+                    reason=f"Tool action claim ({kind}) without tool verification",
+                    source="prior_verifier",
+                ))
+                if not used_tools or self.strict_mode:
+                    warnings.append(f"工具动作声明未验证: {match.group()} ({kind})")
+
         for pattern, kind in _INFERENCE_MARKERS:
             for match in pattern.finditer(text):
                 assertions.append(Assertion(
@@ -104,6 +124,14 @@ class PriorVerifier:
         verified = len(hard_unverified) == 0 and len(unsupported) == 0
 
         corrected = text
+        # 工具动作声明无证据 → 标记 ⚠ [工具结果未验证]
+        tool_unverified = [a for a in assertions
+                           if a.level == AssertionLevel.HARD_FACT
+                           and "Tool action claim" in a.reason]
+        if tool_unverified and not used_tools:
+            tag = "⚠ [工具结果未验证]"
+            for a in tool_unverified:
+                corrected = corrected.replace(a.text, f"{tag} {a.text}", 1)
         if hard_unverified and not used_tools:
             tag = "⚠ [未验证]"
             for a in hard_unverified:

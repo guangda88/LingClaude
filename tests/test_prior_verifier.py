@@ -72,6 +72,33 @@ class TestPriorVerifier(unittest.TestCase):
         hard = [a for a in r.assertions if a.level == AssertionLevel.HARD_FACT]
         self.assertGreater(len(hard), 0)
 
+    def test_tool_action_commit_claim_without_tools(self):
+        """编造 commit 声明（无工具）→ 警告 + 标记"""
+        r = self.pv.analyze("已完成修复，commit 到 e11b9ce")
+        self.assertIn("工具动作声明未验证", " ".join(r.warnings))
+        self.assertIn("⚠ [工具结果未验证]", r.corrected_text)
+
+    def test_tool_action_test_claim_without_tools(self):
+        """编造测试全绿声明（无工具）→ 警告"""
+        r = self.pv.analyze("测试全部通过，14/14 passed")
+        self.assertIn("工具动作声明未验证", " ".join(r.warnings))
+
+    def test_tool_action_file_write_claim_without_tools(self):
+        """编造落盘声明（无工具）→ 警告"""
+        r = self.pv.analyze("报告已写入 docs/audit/")
+        self.assertIn("工具动作声明未验证", " ".join(r.warnings))
+
+    def test_tool_action_claim_with_tools_strict_warns(self):
+        """即使 used_tools=True，strict 模式仍警告（工具存在≠动作发生）"""
+        pv = PriorVerifier(strict_mode=True)
+        r = pv.analyze("commit 到 abc1234", used_tools=True)
+        self.assertIn("工具动作声明未验证", " ".join(r.warnings))
+
+    def test_tool_action_no_claim_no_warning(self):
+        """无工具动作声明 → 无工具相关警告"""
+        r = self.pv.analyze("当前目录文件列表如下")
+        self.assertEqual(len(r.warnings), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
