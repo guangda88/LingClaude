@@ -129,7 +129,17 @@ class SubmissionMixin:
         self._compact_if_needed()
         self._total_messages_sent += 1
         self._check_degradation(prompt, output)
-        output = self._apply_l5_audit(prompt, output)
+        # L5 治理：should_trigger 命中（高风险关键词）时升级为完整审视
+        # （run_l5_audit_full 用真实 tool_call_log 做声明-行为一致性校验）；
+        # 未命中则保持轻量 placeholder（零额外 LLM 调用）。
+        try:
+            if self._l5_loop.should_trigger(prompt):
+                output = self.run_l5_audit_full(prompt, output)
+            else:
+                output = self._apply_l5_audit(prompt, output)
+        except Exception as e:  # noqa: BLE001 — L5 失败不阻塞主流程
+            logger.warning("L5 audit failed (non-blocking): %s", e)
+            output = self._apply_l5_audit(prompt, output)
         # T3: 实体冲突检查 (输出后)
         output = self._check_entity_conflict(prompt, output)
         self._check_l1_handover()

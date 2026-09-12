@@ -251,7 +251,14 @@ class L5Auditor:
         ]
 
     def collect_tool_call_log(self) -> list:
-        """从_degradation_alerts收集本轮工具调用记录 (L5 audit白箱证据)"""
+        """收集本轮工具调用记录 (L5 audit白箱证据)
+
+        优先读真实工具调用日志 _tool_call_log（wiring 注册，tool_executor 写入）；
+        fallback 到 _degradation_alerts（旧实现，仅覆盖退化场景）。
+        """
+        real = getattr(self._engine, "_tool_call_log", None)
+        if real:
+            return list(real[-64:])
         return [
             f"{a.signal.value}: {a.detail}"
             for a in self._engine._degradation_alerts[-10:]

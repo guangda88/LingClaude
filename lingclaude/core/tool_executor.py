@@ -79,6 +79,17 @@ class ToolExecutor:
         这是唯一工具执行入口的强类型面；_execute_tool 仅做序列化。
         """
         self._engine._tool_call_count += 1
+        # L5 白箱证据：记录真实工具调用（name + args 摘要），供声明-行为一致性校验。
+        # 只保留最近 N 条，防内存无限增长。
+        try:
+            _log = getattr(self._engine, "_tool_call_log", None)
+            if _log is not None:
+                _brief = arguments_json[:120] if arguments_json else ""
+                _log.append(f"{name}({_brief})")
+                if len(_log) > 64:
+                    del _log[: len(_log) - 64]
+        except Exception:  # noqa: BLE001 — 日志失败不阻断工具执行
+            pass
         limit = self._engine.config.max_tool_calls_per_session
         if limit > 0 and self._engine._tool_call_count > limit:
             return ToolResult.err(

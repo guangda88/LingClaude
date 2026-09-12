@@ -109,3 +109,57 @@ class TestGovernanceIntegration:
         chain_path = Path(result["chain_path"])
         data = json.loads(chain_path.read_text())
         assert data["self_interest_flagged"] is True
+
+
+class TestL5ToolCallLogWiring:
+    """L5 治理接入主链路 — 真实工具日志闭环（P1）"""
+
+    def _bare_engine(self):
+        """裸引擎：绕过 __init__，手工装配"""
+        from lingclaude.core.query_engine import QueryEngine
+        from lingclaude.core.session import SessionManager
+        from lingclaude.core.wiring import WiringContext, assemble
+
+        engine = QueryEngine.__new__(QueryEngine)
+        from lingclaude.core.query_engine import QueryEngineConfig
+        engine.config = QueryEngineConfig(max_tool_calls_per_session=1000)
+        engine.session_manager = SessionManager()
+        engine.session_id = "l5_tool_log_test"
+        assemble(WiringContext(engine=engine, session_manager=engine.session_manager,
+                               provider=object(), runtime=None))
+        return engine
+
+    def test_tool_call_log_slot_wired(self):
+        """wiring 装配后 _tool_call_log 是空列表"""
+        engine = self._bare_engine()
+        assert hasattr(engine, "_tool_call_log")
+        assert engine._tool_call_log == []
+
+    def test_tool_executor_records_real_calls(self):
+        """tool_executor 执行工具时写入真实调用日志"""
+        engine = self._bare_engine()
+        # 直接调用 _execute_tool（绕过模型），验证日志写入
+        result = engine._tool_executor._execute_tool(
+            "read", '{"path": "README.md"}'
+        )
+        assert result  # 工具执行有返回
+        assert len(engine._tool_call_log) == 1
+        assert "read" in engine._tool_call_log[0]
+        assert "README.md" in engine._tool_call_log[0]
+
+    def test_collect_tool_call_log_reads_real_log(self):
+        """collect_tool_call_log 读真实工具日志（非退化警报）"""
+        engine = self._bare_engine()
+        engine._tool_call_log.append("git(commit -m 'x')")
+        collected = engine._collect_tool_call_log()
+        assert "git(commit -m 'x')" in collected
+
+    def test_tool_call_log_capped_at_64(self):
+        """日志上限 64 条，防内存无限增长"""
+        engine = self._bare_engine()
+        for i in range(70):
+            engine._tool_executor._execute_tool(
+                "read", '{"path": "f%d.md"}' % i
+            )
+        assert len(engine._tool_call_log) <= 64
+        assert "f69.md" in engine._tool_call_log[-1]

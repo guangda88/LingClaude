@@ -267,6 +267,7 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     WiringSpec("_active_checkpoint", lambda ctx: None, phase="state", note="活动 checkpoint 路径"),
     WiringSpec("_session_cache_hits", lambda ctx: 0, phase="state", note="缓存命中计数"),
     WiringSpec("_tool_call_count", lambda ctx: 0, phase="state", note="工具调用计数"),
+    WiringSpec("_tool_call_log", lambda ctx: [], phase="state", note="工具调用日志(L5白箱证据)"),
     WiringSpec("_total_messages_sent", lambda ctx: 0, phase="state", note="消息发送计数"),
     WiringSpec("_l1_last_triggered_at", lambda ctx: -1, phase="state", note="L1 上次触发轮次"),
     WiringSpec("_l1_handover_checksum", lambda ctx: "", phase="state", note="L1 交接校验和"),
