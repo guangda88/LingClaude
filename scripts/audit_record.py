@@ -23,11 +23,14 @@ Dry-run:
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 # Reuse the lingzu auditing library (lives in .git/hooks).
-HOOKS_DIR = Path(__file__).resolve().parents[2] / ".git" / "hooks"
+# 2026-09-12: parents[2] 是 /home/ai（仓库上一级），应为 parents[1]（仓库根）。
+# 路径 bug 导致 ling_audit_lib 找不到 → post-commit 审计链断 → 提交被撤销。
+HOOKS_DIR = Path(__file__).resolve().parents[1] / ".git" / "hooks"
 sys.path.insert(0, str(HOOKS_DIR))
 
 try:
@@ -54,6 +57,10 @@ def main() -> int:
         "--tests-passed", action="store_true", default=True,
         help="tests_passed flag (post-commit only checks tree+signature)",
     )
+    p.add_argument(
+        "--json-out", default="",
+        help="额外把审计记录写到该文件（供 lefthook 后续命令读取）",
+    )
     args = p.parse_args()
 
     try:
@@ -62,15 +69,15 @@ def main() -> int:
         file_hashes = compute_file_hashes(files) if files else {}
         key = ensure_signing_key()
         rec = generate_audit_record(
-            files=files,
-            warnings=[],
-            missing_tests=[],
-            findings=[],
+            staged_files=files,
+            l0=[],
+            l1=[],
+            l2=[],
             tests_passed=args.tests_passed,
-            repo=repo,
+            repo_name=repo,
             file_hashes=file_hashes,
-            signing_key=key,
-            status=args.status,
+            key=key,
+            pytest_output_tail="",
         )
     except Exception as e:
         print(f"[audit_record] generate failed: {e}", file=sys.stderr)
@@ -91,6 +98,16 @@ def main() -> int:
     except Exception as e:
         print(f"[audit_record] save failed: {e}", file=sys.stderr)
         return 1
+
+    if args.json_out:
+        try:
+            Path(args.json_out).write_text(
+                json.dumps(rec, indent=2, ensure_ascii=False)
+            )
+            print(f"[audit_record] json-out saved to {args.json_out}")
+        except Exception as e:
+            print(f"[audit_record] json-out failed: {e}", file=sys.stderr)
+            return 1
 
     return 0
 
