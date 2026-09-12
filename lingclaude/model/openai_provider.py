@@ -107,7 +107,7 @@ class OpenAIProvider(ModelProvider):
                 yield event
 
             if not got_429:
-                self._retry_policy.record_success()
+                self._retry_policy.record_success(actual_model=retry_cfg.model)
                 return
 
             if attempt < max_retries:
@@ -295,7 +295,7 @@ class OpenAIProvider(ModelProvider):
             result = self._call_api_sync(messages, retry_cfg, tools)
 
             if result.is_ok:
-                self._retry_policy.record_success()
+                self._retry_policy.record_success(actual_model=retry_cfg.model)
                 return result
 
             error = result.error or ""

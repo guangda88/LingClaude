@@ -84,14 +84,33 @@ class GlmRetryPolicy:
             return self.models[next_idx]
         return None
 
-    def record_success(self) -> None:
+    def record_success(self, actual_model: str | None = None) -> None:
         self._circuit_consecutive_429 = 0
         if self.is_primary:
             if self._primary_retry_count > 0:
                 logger.info("主模型 %s 恢复成功，重置重试计数器", self.current_model)
             self._primary_retry_count = 0
         else:
-            logger.info("降级模型 %s 调用成功", self.current_model)
+            # P0-A: 日志使用真实请求模型名（actual_model），而非 policy 内部
+            # 状态名（current_model）。对非 glm 主模型，_config_for_model 不替换
+            # 请求模型，current_model 只是降级列表的索引名（如 glm-5.1），
+            # 用它打日志会误导："降级模型 glm-5.1 调用成功" 而真实请求是
+            # deepseek-v4-flash。
+            display = actual_model or self.current_model
+            logger.info("降级模型 %s 调用成功", display)
+            # P0-B: 记录降级状态下的成功调用（原实现只在 record_failure 递增，
+            # 导致 should_retry_primary 的 call_count 阈值永远无法由成功路径
+            # 触发——降级后若一直成功，状态卡死只能等 60s 时间阈值）。
+            self._degraded_call_count += 1
+            if self._degraded_since == 0.0:
+                self._degraded_since = time.time()
+            # P0-B: 无 429 的连续成功也允许自动切回主模型。
+            # 原实现只在 429 分支里触发 reset_to_primary，导致降级状态
+            # 在没有新限流的情况下永不恢复（真实请求可能一直是主模型，
+            # 但日志/policy 状态却卡在降级模型名上）。
+            if self.should_retry_primary():
+                logger.info("降级模型连续成功，自动切回主模型")
+                self.reset_to_primary()
 
     def record_failure(self, is_rate_limit: bool = False) -> None:
         if is_rate_limit:

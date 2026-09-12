@@ -570,9 +570,27 @@ class TestGlmRetryPolicy:
         policy = GlmRetryPolicy()
         policy._model_index = 2
         assert policy.is_degraded
+        # 未达自动切回阈值时，record_success 保持降级状态
         policy.record_success()
-        # Should not reset counters when degraded
         assert policy._model_index == 2
+
+    def test_record_success_degraded_auto_reset(self) -> None:
+        # P0-B: 降级后连续成功（超过 degraded_call_threshold）自动切回主模型
+        policy = GlmRetryPolicy(degraded_call_threshold=2)
+        policy._model_index = 2
+        assert policy.is_degraded
+        policy.record_success()
+        assert policy.is_degraded  # 1 < 2，未达阈值
+        policy.record_success()
+        assert policy.is_primary    # 达阈值，自动切回
+        assert policy._model_index == 0
+
+    def test_record_success_actual_model_log(self) -> None:
+        # P0-A: 传 actual_model 时，降级日志应使用真实请求模型名。
+        # 这里只验证策略状态行为不因 extra 参数改变。
+        policy = GlmRetryPolicy()
+        policy.record_success(actual_model="deepseek-v4-flash")
+        assert policy.is_primary
 
     def test_record_failure_primary(self) -> None:
         policy = GlmRetryPolicy()
