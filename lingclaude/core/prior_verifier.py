@@ -43,7 +43,7 @@ class VerificationResult:
 
 _CODE_CLAIM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:在第|行号?\s*)\d+", re.IGNORECASE), "line_number"),
-    (re.compile(r"(?:函数|方法|类|class|def|func)\s+\w+", re.IGNORECASE), "code_reference"),
+    (re.compile(r"(?:函数|方法|类|class|def|func)\s+\w+|(?:函数|方法)(?:接收|返回|使用|调用)\S*", re.IGNORECASE), "code_reference"),
     (re.compile(r"(?:文件|file|模块|module)\s+[\w./]+\.\w+", re.IGNORECASE), "file_reference"),
     (re.compile(r"(?:变量|variable)\s+\w+\s*(?:的值是|equals?|=)", re.IGNORECASE), "variable_value"),
     (re.compile(r"(?:返回|returns?)\s+\w+", re.IGNORECASE), "return_value"),
@@ -52,9 +52,9 @@ _CODE_CLAIM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 _TOOL_ACTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # 工具动作完成式声明 — 本次幻觉重灾区（编造 commit/测试/落盘/写入）
-    (re.compile(r"(?:已提交|已 commit|committed|commit\s+到?|commit\s+[0-9a-f]{7,40}|已推送|pushed)"), "commit_claim"),
+    (re.compile(r"(?:已提交|提交\s*[0-9a-f]{7,40}|已入库|commit\s+到?|commit\s+[0-9a-f]{7,40}|已推送|pushed|committed)"), "commit_claim"),
     (re.compile(r"(?:已测试|测试全绿|全部通过|pytest\\s+通过|tests?\\s+passed|\\d+\\s*passed)"), "test_claim"),
-    (re.compile(r"(?:已落盘|已写入|已保存|已创建|已生成|written|created|saved)"), "file_write_claim"),
+    (re.compile(r"(?:已落盘|已写入|已保存|已创建|已生成|创建完成|写入完成|生成完毕|written|created|saved)"), "file_write_claim"),
     (re.compile(r"(?:已运行|已执行|已安装|已修改|已删除|已修复|ran|executed|installed|deleted|fixed)"), "action_claim"),
 ]
 
