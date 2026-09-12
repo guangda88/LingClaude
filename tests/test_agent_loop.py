@@ -821,3 +821,44 @@ class TestHardInterrupt:
         engine = QueryEngine(config=config, model_provider=provider)
         result = engine.submit("测试自定义阈值")
         assert "[硬中断]" in result.output
+
+class TestLoopRecoverGuide:
+    """熔断后的继续指引（2026-09-12）：_LOOP_ABORT_MSG 携带恢复指引。"""
+
+    def test_abort_msg_contains_recover_guide(self) -> None:
+        from lingclaude.core.model_call import _LOOP_ABORT_MSG, _LOOP_RECOVER_GUIDE
+        # 保留既有关键词（回归：老断言依赖）
+        assert "原地打转" in _LOOP_ABORT_MSG
+        assert "熔断" in _LOOP_ABORT_MSG
+        # 新增指引内容
+        assert "继续指引" in _LOOP_ABORT_MSG
+        assert "会话与输入通道完好" in _LOOP_ABORT_MSG
+        assert "打转计数已清零" in _LOOP_ABORT_MSG
+        assert "无需重启进程" in _LOOP_ABORT_MSG
+        assert "重新提问" in _LOOP_ABORT_MSG
+        # 指引是拼接进熔断消息的
+        assert _LOOP_RECOVER_GUIDE in _LOOP_ABORT_MSG
+
+    def test_abort_flow_outputs_guide(self) -> None:
+        """端到端：熔断输出包含继续指引。"""
+        tool_call = ModelResponse(
+            content="",
+            model="test",
+            usage=ModelUsage(),
+            tool_calls=(ToolCall(id="c_loop", name="bash", arguments='{"command": "echo x"}'),),
+        )
+        provider = FakeProvider([tool_call] * 4)
+        runtime = MagicMock()
+        runtime.registry.list_tools.return_value = ()
+        runtime.execute_tool.return_value = {"exit_code": 0, "stdout": "x", "stderr": "", "duration": 0.01}
+        engine = QueryEngine(model_provider=provider)
+        engine.set_runtime(runtime)
+        result = engine.submit("测试熔断指引")
+        assert "熔断停止" in result.output
+        assert "继续指引" in result.output
+        assert "重新提问" in result.output
+
+    def test_warn_hint_mentions_abort_consequence(self) -> None:
+        """warn 阶段预告熔断后果（行为变化点）。"""
+        from lingclaude.core.model_call import _LOOP_WARN_HINT
+        assert "熔断中止" in _LOOP_WARN_HINT
