@@ -1,0 +1,429 @@
+{
+  "engine": {
+    "max_turns": 10,
+    "max_budget_tokens": 100000,
+    "compact_after_turns": 5,
+    "enable_tools": true,
+    "debug_mode": false
+  },
+  "model": "${LINGCODE_API_KEY}",
+  "session": {
+    "save_dir": "~/.lingcode/sessions/",
+    "max_history": 100,
+    "auto_save": true
+  },
+  "log": {
+    "level": "INFO",
+    "output_file": ""
+  },
+  "tools": {
+    "enabled": [],
+    "disabled": [],
+    "timeout_sec": 30
+  },
+  "git": {
+    "remote_url": "https://zhinenggitea.iepose.cn/guangda/LingCode.git",
+    "default_branch": "main"
+  },
+  "advisor": {
+    "enabled": false,
+    "model": "glm-5.1",
+    "max_advice_tokens": 700,
+    "trigger_on_fail": 3,
+    "trigger_on_ambiguous": true,
+    "budget_ratio": 0.2
+  },
+  "routing": {
+    "enabled": true,
+    "default_target": "glm",
+    "peer_proxy_url": "http://127.0.0.1:8765",
+    "providers": {
+      "local": {
+        "type": "local",
+        "base_url": "http://localhost:8100/v1",
+        "model": "lingai-1.5b",
+        "rate_limit": {
+          "rpm": 60,
+          "burst": 20
+        },
+        "probing_disabled": true
+      },
+      "glm": "${GLM_API_KEY}",
+      "minimax": "${MINIMAX_API_KEY}",
+      "nvidia": "${NVIDIA_API_KEY}",
+      "hunyuan": "${HUNYUAN_API_KEY}",
+      "volcengine": {
+        "base_url": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "api_key": "",
+        "default_model": "Doubao-Seed-2.0-lite",
+        "models": [
+          "Doubao-Seed-2.0-lite",
+          "Kimi-K2.7-Code",
+          "MiniMax-M3",
+          "Doubao-Seed-Evolving",
+          "Kimi-K3",
+          "Doubao-Seed-2.1-turbo",
+          "DeepSeek-V4-Flash",
+          "GLM-5.3",
+          "GLM-5.3-Flash",
+          "DeepSeek-V4-Pro"
+        ],
+        "model": "Doubao-Seed-2.0-lite",
+        "rate_limit": {
+          "rpm": 10,
+          "burst": 3
+        }
+      },
+      "siliconflow_disabled": {
+        "note": "SiliconFlow account has no balance, do not use",
+        "models": [
+          "deepseek-ai/DeepSeek-V4-Flash"
+        ],
+        "rotation_disabled": true
+      },
+      "deepseek": "${DEEPSEEK_API_KEY}",
+      "waterfall": {
+        "type": "openai",
+        "api_key": "",
+        "base_url": "http://127.0.0.1:8775/v1",
+        "model": "waterfall",
+        "models": [
+          "waterfall"
+        ],
+        "rate_limit": {
+          "rpm": 60,
+          "burst": 4
+        }
+      },
+      "agnes": "${AGNES_API_KEY}",
+      "qwen3.8": {
+        "type": "openai",
+        "api_key": "",
+        "base_url": "http://127.0.0.1:8142/v1",
+        "model": "Qwen3.8-9B-Distill",
+        "models": [
+          "Qwen3.8-9B-Distill"
+        ],
+        "rate_limit": {
+          "rpm": 60,
+          "burst": 4
+        }
+      },
+      "kimi": {
+        "type": "openai",
+        "api_key": "",
+        "base_url": "https://api.moonshot.cn/v1",
+        "models": [
+          "k3",
+          "k3-256k",
+          "kimi-for-coding",
+          "kimi-for-coding-highspeed"
+        ]
+      },
+      "mimo": {
+        "type": "openai",
+        "api_key": "",
+        "base_url": "https://api.mimo.ai/v1",
+        "models": [
+          "mimo-v2.5-pro",
+          "mimo-v2.5",
+          "mimo-v2.5-asr",
+          "mimo-v2.5-tts-voiceclone",
+          "mimo-v2.5-tts-voicedesign",
+          "mimo-v2.5-tts"
+        ]
+      }
+    },
+    "task_routes": {
+      "chinese_reasoning": {
+        "description": "中文深度推理、分析、写作",
+        "models": [
+          {
+            "provider": "nvidia",
+            "model": "z-ai/glm-5.1"
+          },
+          {
+            "provider": "nvidia",
+            "model": "deepseek-ai/deepseek-v4-pro"
+          },
+          {
+            "provider": "nvidia",
+            "model": "qwen/qwen3.5-397b-a17b"
+          },
+          {
+            "provider": "nvidia",
+            "model": "moonshotai/kimi-k2.6"
+          },
+          {
+            "provider": "nvidia",
+            "model": "z-ai/glm5"
+          },
+          {
+            "provider": "minimax",
+            "model": "MiniMax-M2.7"
+          },
+          {
+            "provider": "nvidia",
+            "model": "qwen/qwen3.5-122b-a10b"
+          },
+          {
+            "provider": "volcengine",
+            "model": "doubao-seed-2-0-pro-260215"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      },
+      "coding": {
+        "description": "代码生成、调试、重构",
+        "models": [
+          {
+            "provider": "nvidia",
+            "model": "qwen/qwen3-coder-480b-a35b-instruct"
+          },
+          {
+            "provider": "nvidia",
+            "model": "deepseek-ai/deepseek-v4-pro"
+          },
+          {
+            "provider": "nvidia",
+            "model": "z-ai/glm-5.1"
+          },
+          {
+            "provider": "nvidia",
+            "model": "moonshotai/kimi-k2.6"
+          },
+          {
+            "provider": "minimax",
+            "model": "MiniMax-M2.7"
+          },
+          {
+            "provider": "volcengine",
+            "model": "doubao-seed-2-0-pro-260215"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      },
+      "english_general": {
+        "description": "英文通用对话、知识问答",
+        "models": [
+          {
+            "provider": "nvidia",
+            "model": "openai/gpt-oss-120b"
+          },
+          {
+            "provider": "nvidia",
+            "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+          },
+          {
+            "provider": "nvidia",
+            "model": "meta/llama-3.3-70b-instruct"
+          },
+          {
+            "provider": "nvidia",
+            "model": "mistralai/mistral-large-3-675b-instruct-2512"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      },
+      "fast_response": {
+        "description": "轻量快速响应，简单任务",
+        "models": [
+          {
+            "provider": "waterfall",
+            "model": "waterfall"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "qwen3.8",
+            "model": "Qwen3.8-9B-Distill"
+          },
+          {
+            "provider": "minimax",
+            "model": "MiniMax-M3"
+          },
+          {
+            "provider": "agnes",
+            "model": "agnes-2.5-flash"
+          }
+        ]
+      },
+      "long_context": {
+        "description": "长文本分析、文档处理",
+        "models": [
+          {
+            "provider": "nvidia",
+            "model": "deepseek-ai/deepseek-v4-pro"
+          },
+          {
+            "provider": "nvidia",
+            "model": "qwen/qwen3.5-397b-a17b"
+          },
+          {
+            "provider": "nvidia",
+            "model": "mistralai/mistral-large-3-675b-instruct-2512"
+          },
+          {
+            "provider": "nvidia",
+            "model": "nvidia/nemotron-4-340b-instruct"
+          },
+          {
+            "provider": "nvidia",
+            "model": "moonshotai/kimi-k2.6"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      },
+      "vision": {
+        "description": "图像理解、视觉分析",
+        "models": [
+          {
+            "provider": "nvidia",
+            "model": "meta/llama-3.2-90b-vision-instruct"
+          },
+          {
+            "provider": "nvidia",
+            "model": "meta/llama-3.2-11b-vision-instruct"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      },
+      "safety": {
+        "description": "内容安全检测、审核",
+        "models": [
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      },
+      "embedding": {
+        "description": "向量化、语义检索",
+        "models": [
+          {
+            "provider": "nvidia",
+            "model": "nvidia/nv-embed-v1"
+          },
+          {
+            "provider": "nvidia",
+            "model": "baai/bge-m3"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      },
+      "thinking": {
+        "description": "深度思考、复杂推理、Chain-of-Thought",
+        "models": [
+          {
+            "provider": "nvidia",
+            "model": "moonshotai/kimi-k2-thinking"
+          },
+          {
+            "provider": "nvidia",
+            "model": "deepseek-ai/deepseek-v4-pro"
+          },
+          {
+            "provider": "nvidia",
+            "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+          },
+          {
+            "provider": "nvidia",
+            "model": "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+          },
+          {
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash"
+          },
+          {
+            "provider": "hunyuan",
+            "model": "hunyuan-lite"
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "enabled": true,
+    "default": "lingclaude",
+    "definitions": [
+      {
+        "id": "lingclaude",
+        "name": "灵克",
+        "system_prompt": "你是灵克(LingClaude)，灵族十二子之一。代码读写、搜索、Git、分析、优化。自知→自觉→自决→进化。用中文回答。",
+        "preferred_key": "glm"
+      },
+      {
+        "id": "lingflow",
+        "name": "灵通",
+        "system_prompt": "你是灵通(LingFlow)，灵族十二子之一。AI生态平台，工作流编排。擅长流程设计、任务调度、系统协调。用中文回答。",
+        "preferred_key": "glm"
+      },
+      {
+        "id": "lingresearch",
+        "name": "灵研",
+        "system_prompt": "你是灵研(LingResearch)，灵族十二子之一。AI自主科研框架，擅长深度分析、文献研究、实验设计、数据挖掘。用中文回答。",
+        "preferred_key": "glm"
+      },
+      {
+        "id": "lingzhi",
+        "name": "灵知",
+        "system_prompt": "你是灵知(LingZhi)，灵族十二子之一。知识管理系统，擅长信息整合、知识图谱、文档管理、语义检索。用中文回答。",
+        "preferred_key": "glm"
+      },
+      {
+        "id": "lingxi",
+        "name": "灵犀",
+        "system_prompt": "你是灵犀(LingXi)，灵族十二子之一。MCP终端服务器，擅长通信协议、系统集成、消息传递。用中文回答。",
+        "preferred_key": "glm"
+      }
+    ]
+  }
+}
