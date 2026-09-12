@@ -134,3 +134,35 @@ class TestDetectLang:
     def test_detect_lang(self, fresh_home, path, expected):
         """按扩展名映射语言。"""
         assert detect_lang(path) == expected
+
+
+# ---------- P0-D: LSP check_server 握手验证 ----------
+
+class TestCheckServer:
+    """cc P0: /lsp 只注册不验证 → check_server 最小握手。"""
+
+    def test_unregistered_lang_graceful(self, fresh_home):
+        """无 server 配置时 graceful 降级。"""
+        from lingclaude.engine.lsp_registry import check_server
+        r = check_server("nonexistent_lang_xyz")
+        assert r["ok"] is False
+        assert "未注册" in r["error"]
+
+    def test_command_not_installed(self, fresh_home, tmp_path):
+        """server 命令不存在 → 明确报未安装（不卡死）。"""
+        from lingclaude.engine.lsp_registry import check_server, register
+        # 注册一个不存在的命令
+        register("phantom", "/nonexistent/definitely-not-a-real-binary-xyz")
+        r = check_server("phantom", workspace_root=str(tmp_path))
+        assert r["ok"] is False
+        assert "未安装" in r["error"]
+
+    def test_fake_server_handshake_fails_cleanly(self, fresh_home, tmp_path):
+        """假 server（启动即退出）→ 握手失败但 graceful 返回错误。"""
+        import sys
+        from lingclaude.engine.lsp_registry import check_server, register
+        # 用 python 当"假 server"：读一行就退出（不响应 LSP 协议）
+        register("fake", sys.executable, ["-c", "import sys; sys.stdin.readline()"])
+        r = check_server("fake", workspace_root=str(tmp_path))
+        assert r["ok"] is False
+        assert r["error"]  # 有错误信息（超时/EOF）

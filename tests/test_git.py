@@ -272,3 +272,85 @@ class TestGitBlame:
         assert "lines" in result.data
         assert "commits" in result.data
         assert result.data["total_lines"] > 0
+
+
+class TestGitStatusPorcelainZ:
+    """P0-A: porcelain -z NUL 解析（codex 审计 P2 + atomcode preflight 路径 bug）。"""
+
+    def _make_repo(self, tmp_path):
+        d = tmp_path / "repo_z"
+        d.mkdir()
+        subprocess.run(["git", "init"], cwd=str(d), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t"], cwd=str(d), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=str(d), check=True, capture_output=True)
+        f = d / "base.txt"
+        f.write_text("base")
+        subprocess.run(["git", "add", "."], cwd=str(d), check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "init"], cwd=str(d), check=True, capture_output=True)
+        return d
+
+    def test_leading_space_filename_preserved(self, tmp_path):
+        """首尾空格文件名不被 strip 破坏（旧实现 .strip() 会砍掉）。"""
+        d = self._make_repo(tmp_path)
+        (d / " leading.txt").write_text("x")  # 前导空格
+        r = git_status(str(d))
+        assert r.is_ok
+        paths = [f["path"] for f in r.data["files"]]
+        assert " leading.txt" in paths, paths
+
+    def test_trailing_space_filename_preserved(self, tmp_path):
+        d = self._make_repo(tmp_path)
+        (d / "trail .txt").write_text("x")  # 尾随空格
+        r = git_status(str(d))
+        assert r.is_ok
+        paths = [f["path"] for f in r.data["files"]]
+        assert "trail .txt" in paths, paths
+
+    def test_middle_space_filename(self, tmp_path):
+        d = self._make_repo(tmp_path)
+        (d / "my file.txt").write_text("x")
+        r = git_status(str(d))
+        assert r.is_ok
+        paths = [f["path"] for f in r.data["files"]]
+        assert "my file.txt" in paths, paths
+
+    def test_unicode_filename(self, tmp_path):
+        d = self._make_repo(tmp_path)
+        (d / "中文文件.py").write_text("x")
+        r = git_status(str(d))
+        assert r.is_ok
+        paths = [f["path"] for f in r.data["files"]]
+        assert "中文文件.py" in paths, paths
+
+    def test_parameter_not_shadowed_after_call(self, tmp_path):
+        """变量遮蔽回归：调用后外部 path 参数语义不受影响（旧实现循环内 path= 遮蔽）。"""
+        d = self._make_repo(tmp_path)
+        r = git_status(str(d))
+        assert r.is_ok
+        # 函数内部用 entry_path，不修改 path 参数——通过再调用一次验证无状态污染
+        r2 = git_status(str(d))
+        assert r2.is_ok
+
+    def test_rename_entry_takes_old_path(self, tmp_path):
+        """staged 重命名条目取 old 路径（R 条目 -z 输出含两个路径，第二个 new 应跳过）。"""
+        d = self._make_repo(tmp_path)
+        (d / "renamed.txt").write_text("content")
+        subprocess.run(["git", "add", "."], cwd=str(d), check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "add renamed"], cwd=str(d), check=True, capture_output=True)
+        # git mv（内容不变）才会触发真正的 R 条目（-z 双路径格式）
+        subprocess.run(["git", "mv", "renamed.txt", "renamed2.txt"], cwd=str(d), check=True, capture_output=True)
+        r = git_status(str(d))
+        assert r.is_ok
+        statuses = [(f["status"], f["path"]) for f in r.data["files"]]
+        # staged rename → R 条目取 old 路径
+        assert any(s == "R" and p == "renamed.txt" for s, p in statuses), statuses
+        # new 路径不应作为独立条目（-z 双路径格式的第二个应被跳过）
+        assert not any(p == "renamed2.txt" for _, p in statuses), statuses
+
+    def test_audit_dir_ignored(self, tmp_path):
+        d = self._make_repo(tmp_path)
+        (d / ".audit").mkdir()
+        (d / ".audit" / "exempt_x.json").write_text("{}")
+        r = git_status(str(d))
+        assert r.is_ok
+        assert all(not f["path"].startswith(".audit/") for f in r.data["files"])

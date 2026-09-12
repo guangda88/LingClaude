@@ -217,7 +217,7 @@ class SlashCommandProcessor:
 
     def _cmd_lsp(self, arg: str) -> None:
         # lsp add/list/remove — 注册 LSP server 配置（对标 Crush `lsp add`）
-        from lingclaude.engine.lsp_registry import list_servers, register, remove
+        from lingclaude.engine.lsp_registry import check_server, list_servers, register, remove
 
         if not arg:
             print("[LSP 服务器] 内置 + 自定义：")
@@ -270,8 +270,23 @@ class SlashCommandProcessor:
                 print(f"[已删除] {lang}")
             else:
                 print(f"[无法删除] {lang}（内置默认不可删，或不存在）")
+        elif arg.startswith("check "):
+            # cc P0: /lsp check <lang> — 握手验证 server 协议可用性
+            lang = arg[6:].strip()
+            if not lang:
+                print("[用法] /lsp check <lang> — 验证 LSP server 握手")
+            else:
+                print(f"[LSP 检查] {lang} ...")
+                result = check_server(lang)
+                if result.get("ok"):
+                    caps = result.get("capabilities", {})
+                    print(f"[OK] {lang} → {result['command']} 握手成功")
+                    if caps:
+                        print(f"      capabilities: {list(caps)[:6]}")
+                else:
+                    print(f"[失败] {lang}: {result.get('error', '未知错误')}")
         else:
-            print("[用法] /lsp add <lang> --command <cmd> | /lsp remove <lang> | /lsp 列出")
+            print("[用法] /lsp add <lang> --command <cmd> | /lsp remove <lang> | /lsp check <lang> | /lsp 列出")
 
     def _cmd_checkpoint(self) -> None:
         engine = self.engine

@@ -81,3 +81,4 @@ api_keys.json
 
 # Codex 多套餐配置含明文 token，仅提交 .example
 codex-providers/config.toml
+.repobench/

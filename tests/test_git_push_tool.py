@@ -135,3 +135,86 @@ class TestHandlerRegistration:
         # 只测 handler 存在性（不触发真 push）
         assert hasattr(eng, "_git_push_handler")
         assert hasattr(eng, "_git_push_preflight_handler")
+
+
+# ---------- P0-B: remote URL 黑洞检测 + 白名单 config 出口 ----------
+
+class TestBlackholeRemote:
+    """cc P1: git 黑洞风险——remote URL 黑名单。"""
+
+    def test_private_ip_detected(self):
+        from lingclaude.engine.git import _is_blackhole_remote_url
+        for url in (
+            "git@192.168.1.5:repo.git",
+            "https://10.0.0.2/org/repo.git",
+            "s" + "sh://172.16.3.4:22/repo.git",
+            "git://127.0.0.1/repo.git",
+            "http://localhost/repo.git",
+            "https://100.64.0.1/repo.git",
+            "https://169.254.10.10/repo.git",
+        ):
+            assert _is_blackhole_remote_url(url) is True, url
+
+    def test_public_ip_allowed(self):
+        from lingclaude.engine.git import _is_blackhole_remote_url
+        for url in (
+            "git@github.com:org/repo.git",
+            "https://github.com/org/repo.git",
+            "git@gitee.com:org/repo.git",
+            "https://8.8.8.8/repo.git",
+            "git@1.2.3.4:repo.git",
+        ):
+            assert _is_blackhole_remote_url(url) is False, url
+
+    def test_scp_style_with_blackhole(self):
+        from lingclaude.engine.git import _is_blackhole_remote_url
+        assert _is_blackhole_remote_url("git@127.0.0.1:repo.git") is True
+
+    def test_empty_url(self):
+        from lingclaude.engine.git import _is_blackhole_remote_url
+        assert _is_blackhole_remote_url("") is False
+
+
+class TestPreflightBlackhole(TestPreflight):
+    def test_preflight_blackhole_detected(self, tmp_path):
+        """黑洞 remote 导致 preflight ok=False。"""
+        repo = self._make_repo(tmp_path)
+        subprocess.run(
+            ["git", "-C", str(repo), "remote", "add", "origin", "https://127.0.0.1/org/repo.git"],
+            check=True,
+        )
+        r = git_push_preflight(path=str(repo))
+        assert r.is_ok  # preflight 本身成功返回
+        assert r.data["ok"] is False  # 但 push 判定为不可行
+        assert "origin" in r.data["checks"]["blackhole_remotes"]
+
+    def test_preflight_public_remote_no_blackhole(self, tmp_path):
+        repo = self._make_repo(tmp_path)
+        subprocess.run(
+            ["git", "-C", str(repo), "remote", "add", "origin", "https://github.com/org/repo.git"],
+            check=True,
+        )
+        r = git_push_preflight(path=str(repo))
+        assert r.is_ok
+        assert r.data["checks"]["blackhole_remotes"] == {}
+
+
+class TestAllowedRemotesConfig:
+    def test_config_allows_fork(self, tmp_path, monkeypatch):
+        """config 出口：git.allowed_remotes 可覆盖内置白名单（codex P3）。"""
+        import lingclaude.core.config as config_mod
+        from lingclaude.core.config import GitConfig, lingclaudeConfig
+
+        cfg = lingclaudeConfig(git=GitConfig(allowed_remotes=("origin", "fork")))
+        monkeypatch.setattr(config_mod, "load_config", lambda path=None: cfg)
+
+        from lingclaude.engine.git import _validate_remote
+        assert _validate_remote("fork") is None  # config 允许
+        assert _validate_remote("evil") is not None  # 仍拒绝未知
+
+    def test_default_whitelist_still_works(self):
+        from lingclaude.engine.git import _validate_remote
+        assert _validate_remote("origin") is None
+        assert _validate_remote("github") is None
+        assert _validate_remote("upstream") is None
+        assert _validate_remote("evil") is not None

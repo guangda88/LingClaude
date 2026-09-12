@@ -119,6 +119,59 @@ def list_servers() -> list[dict[str, Any]]:
     return result
 
 
+def check_server(lang: str, workspace_root: str | None = None) -> dict[str, Any]:
+    """LSP server 最小握手验证（cc P0: /lsp 只注册不验证协议可用性）。
+
+    对已注册 server 执行 initialize 握手，返回:
+      {ok, lang, command, error?, capabilities?}
+    - ok=False 且 error 含"未安装"时: 命令不存在
+    - ok=False 且 error 含"超时"时: server 启动但未响应协议
+    - 无 server 配置时 graceful 降级（ok=False, error="未注册"）
+    """
+    cfg = get_server(lang)
+    if cfg is None:
+        return {"ok": False, "lang": lang, "command": "", "error": f"未注册 LSP server: {lang!r}"}
+
+    cmd = [cfg["command"], *cfg.get("args", [])]
+    if not cmd:
+        return {"ok": False, "lang": lang, "command": "", "error": "server 命令为空"}
+
+    import asyncio
+    import shutil
+
+    if shutil.which(cmd[0]) is None:
+        return {
+            "ok": False,
+            "lang": lang,
+            "command": cmd[0],
+            "error": f"命令未安装: {cmd[0]}（请先安装或 /lsp add 替换）",
+        }
+
+    from lingclaude.engine.lsp_provider import StdioLspProvider
+
+    root = workspace_root or str(Path.cwd())
+
+    async def _handshake() -> dict[str, Any]:
+        provider = StdioLspProvider(cmd, workspace_root=Path(root))
+        try:
+            caps = await provider.initialize(Path(root))
+            return {"ok": True, "lang": lang, "command": cmd[0], "capabilities": caps}
+        except Exception as e:
+            return {"ok": False, "lang": lang, "command": cmd[0], "error": str(e)[:300]}
+        finally:
+            try:
+                await provider.shutdown()
+            except Exception:
+                pass
+
+    try:
+        # 总握手超时 8s：server 未响应视为失败，避免验证命令长时间卡住
+        return asyncio.run(asyncio.wait_for(_handshake(), timeout=8))
+    except (asyncio.TimeoutError, Exception) as e:  # 兜底：事件循环/启动/超时异常
+        msg = str(e)[:300] if str(e) else "握手超时"
+        return {"ok": False, "lang": lang, "command": cmd[0], "error": msg}
+
+
 def detect_lang(file_path: str) -> str | None:
     """按文件扩展名检测语言（dispatcher 自动路由）。"""
     from pathlib import Path

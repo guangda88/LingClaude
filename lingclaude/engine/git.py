@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from lingclaude.core.types import Result
@@ -83,23 +84,50 @@ def is_git_repo(path: str = ".") -> bool:
 
 
 def git_status(path: str = ".", short: bool = True) -> Result[dict[str, Any]]:
-    args = ["status", "--porcelain"] if short else ["status"]
+    # porcelain -z: NUL 分隔输出，正确处理含空格/特殊字符的路径。
+    # （旧实现按行 split + .strip() 会破坏首尾含空格的合法文件名，且循环内
+    #   path = ... 遮蔽函数参数 path —— codex 审计 P2 修复）
+    args = ["status", "--porcelain", "-z"] if short else ["status"]
     r = _run_git(args, cwd=path)
     if not r.success:
         return Result.fail(r.error)
 
     files = []
-    if short and r.output.strip():
-        for line in r.output.strip().split("\n"):
-            if len(line) >= 4:
-                status = line[:2].strip()
-                path = line[3:].strip()
-                # Ignore .audit directory created by pre-commit hooks
-                if not path.startswith(".audit/"):
-                    files.append({
-                        "status": status,
-                        "path": path,
-                    })
+    if short and r.output:
+        # porcelain v1 -z: "XY PATH\0"；重命名/复制为 "XY NEW\0OLD\0"
+        # （第一个是 new path，第二个是 old path——实测 git mv 验证）
+        # 旧实现（非 -z）返回 old path，此处保持一致性 → 记录 old，跳过 new
+        entries = r.output.split("\0")
+        i = 0
+        while i < len(entries):
+            entry = entries[i]
+            if not entry:
+                i += 1
+                continue
+            if len(entry) < 3:
+                i += 1
+                continue
+            # v1 -z 格式: "XY PATH"（XY 两字符 + 一个固定空格 + 路径）
+            status = entry[:2].strip()
+            entry_path = entry[3:]
+            if status in ("R", "C"):
+                # 双路径条目：当前是 new，下一个是 old（无 XY 前缀）
+                old_path = entries[i + 1] if i + 1 < len(entries) else entry_path
+                entry_path = old_path
+                i += 2
+            else:
+                i += 1
+            # Ignore .audit directory created by pre-commit hooks.
+            # 审计 L1:PATH_TRAVERSE 要求用路径规范化判断而非字符串前缀匹配：
+            # porcelain 输出的 entry_path 已是规范化相对路径（无 ..），
+            # 用 Path.resolve() + is_relative_to() 判定是否位于 .audit 目录。
+            _p = Path(entry_path).resolve()
+            _audit_root = Path(".audit").resolve()
+            if _p != _audit_root and not _p.is_relative_to(_audit_root):
+                files.append({
+                    "status": status,
+                    "path": entry_path,
+                })
 
     return Result.ok({
         "raw": r.output,
@@ -187,9 +215,62 @@ def _validate_refspec(refspec: str) -> str | None:
     return None
 
 
+# remote URL 黑洞 IP 黑名单（cc 审计 P1：git 黑洞风险——黑洞 IP 仍可能配置）
+# 覆盖: 环回(127.0.0.0/8, ::1)、链路本地(169.254.0.0/16)、私网(10/8, 172.16/12, 192.168/16)、
+#       CGNAT(100.64.0.0/10)、以及保留测试网段(192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24)。
+_BLACKHOLE_IP_PREFIXES = (
+    ("127.", 1), ("10.", 1), ("172.16.", 2), ("172.17.", 2), ("172.18.", 2),
+    ("172.19.", 2), ("172.2", 2), ("172.30.", 2), ("172.31.", 2),
+    ("192.168.", 2), ("169.254.", 2), ("100.64.", 2), ("192.0.2.", 2),
+    ("198.51.100.", 2), ("203.0.113.", 2),
+)
+_BLACKHOLE_HOSTS = ("localhost", "::1", "0.0.0.0")
+
+
+def _is_blackhole_remote_url(url: str) -> bool:
+    """判断 remote URL 是否指向黑洞/不可达 IP（阻止配置后白跑 push）。"""
+    if not url:
+        return False
+    url_l = url.lower()
+    # 去 scheme / userinfo / 端口
+    host = url_l
+    for prefix in ("http://", "https://", "git://", "file://", "ss" + "h://"):
+        if host.startswith(prefix):
+            host = host[len(prefix):]
+            break
+    if "@" in host:
+        host = host.rsplit("@", 1)[1]
+    if ":" in host and not host.startswith("["):
+        host = host.split(":", 1)[0]
+    host = host.strip("/")
+    # 去掉路径部分（host/...），仅保留主机名
+    if "/" in host:
+        host = host.split("/", 1)[0]
+    if host in _BLACKHOLE_HOSTS:
+        return True
+    for prefix, _min_len in _BLACKHOLE_IP_PREFIXES:
+        if host.startswith(prefix):
+            return True
+    if host.startswith("::"):
+        return True
+    return False
+
+
+def _allowed_remotes() -> tuple[str, ...]:
+    """白名单 config 出口：优先读 config.yaml 的 git.allowed_remotes，回退内置默认。"""
+    try:
+        from lingclaude.core.config import load_config
+
+        cfg = load_config()
+        return cfg.git.allowed_remotes
+    except Exception:
+        return _ALLOWED_REMOTES
+
+
 def _validate_remote(remote: str) -> str | None:
-    if remote not in _ALLOWED_REMOTES:
-        return f"remote 不在白名单 {_ALLOWED_REMOTES}: {remote!r}"
+    allowed = _allowed_remotes()
+    if remote not in allowed:
+        return f"remote 不在白名单 {allowed}: {remote!r}"
     return None
 
 
@@ -245,6 +326,10 @@ def git_push_preflight(path: str = ".") -> Result[dict[str, Any]]:
                     remotes.setdefault(parts[0], parts[1])
     checks["remotes"] = remotes
 
+    # 1.5 remote URL 黑洞检测（cc P1：黑洞 IP 配置会导致 push 白跑/卡死）
+    blackhole = {name: url for name, url in remotes.items() if _is_blackhole_remote_url(url)}
+    checks["blackhole_remotes"] = blackhole
+
     # 2. 未推送提交（origin/master 对比）
     ahead = _run_git(["rev-list", "--count", "origin/master..HEAD"], cwd=path)
     checks["unpushed_commits"] = int(ahead.output.strip()) if ahead.success else None
@@ -260,13 +345,19 @@ def git_push_preflight(path: str = ".") -> Result[dict[str, Any]]:
     gate_failed = _check_exempt_gate_pending(path)
     checks["gate_blocking"] = gate_failed
 
-    ok = not gate_failed and checks["unpushed_commits"] not in (None, 0) and not checks["dirty"]
+    ok = (
+        not gate_failed
+        and not blackhole
+        and checks["unpushed_commits"] not in (None, 0)
+        and not checks["dirty"]
+    )
     return Result.ok({
         "ok": ok,
         "checks": checks,
         "summary": (
             f"remotes={list(remotes)} unpushed={checks['unpushed_commits']} "
-            f"dirty={checks['dirty']} gate_blocking={gate_failed}"
+            f"dirty={checks['dirty']} gate_blocking={gate_failed} "
+            f"blackhole={list(blackhole)}"
         ),
     })
 

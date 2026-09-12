@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,6 +29,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 DEFAULT_JOURNAL_DIR = Path(".lingclaude/journals")
+# 归档阈值（cc P1: journal 1K turn 增 1000 倍无上限）
+# - _MAX_ARCHIVE_BYTES: 单 journal 超过该字节数触发归档（默认 2MB）
+# - _MAX_ARCHIVES: 归档目录保留最近 N 份（默认 5）
+# 可用环境变量覆盖（测试用小阈值）:
+#   LINGCLAUDE_JOURNAL_MAX_BYTES / LINGCLAUDE_JOURNAL_MAX_ARCHIVES
+_DEFAULT_MAX_BYTES = int(os.environ.get("LINGCLAUDE_JOURNAL_MAX_BYTES", str(2 * 1024 * 1024)))
+_DEFAULT_MAX_ARCHIVES = int(os.environ.get("LINGCLAUDE_JOURNAL_MAX_ARCHIVES", "5"))
 
 
 class SessionJournal:
@@ -35,14 +43,28 @@ class SessionJournal:
 
     线程安全: 内部 _lock 保护文件写入。
     每条事件是一个 dict，序列化为一行 JSON 追加到 <journal_dir>/<session_id>.jsonl。
+
+    归档（rotate）: 超过 _max_bytes 字节时，append 会把当前 journal 移到
+    <journal_dir>/archive/<session_id>.<ts>.jsonl，并新建空 journal 继续写。
+    归档目录保留最近 _max_archives 份（超量删除最旧的）。
     """
 
-    def __init__(self, session_id: str, journal_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        journal_dir: Path | None = None,
+        *,
+        max_bytes: int | None = None,
+        max_archives: int | None = None,
+    ) -> None:
         self.session_id = session_id
         self._dir = journal_dir or DEFAULT_JOURNAL_DIR
         self._path = self._dir / f"{session_id}.jsonl"
         self._lock = threading.Lock()
         self._fh = None  # 持久化文件句柄（R5 性能优化：消除每次 open/close）
+        self._max_bytes = max_bytes if max_bytes is not None else _DEFAULT_MAX_BYTES
+        self._max_archives = max_archives if max_archives is not None else _DEFAULT_MAX_ARCHIVES
+        self._archive_dir = self._dir / "archive"
 
     @property
     def path(self) -> Path:
@@ -65,12 +87,60 @@ class SessionJournal:
                 if self._fh is None or self._fh.closed:
                     self._dir.mkdir(parents=True, exist_ok=True)
                     self._fh = open(self._path, "a", encoding="utf-8")
+                self._maybe_rotate_locked()
+                if self._fh is None or self._fh.closed:
+                    self._dir.mkdir(parents=True, exist_ok=True)
+                    self._fh = open(self._path, "a", encoding="utf-8")
                 self._fh.write(line)
                 self._fh.flush()  # 确保对其他 reader 立即可见（多进程/测试场景）
             return True
         except OSError as e:
             logger.warning("SessionJournal append failed: %s", e)
             return False
+
+    def _maybe_rotate_locked(self) -> None:
+        """（持锁调用）当前 journal 超阈值 → 归档并重建。"""
+        try:
+            if self._fh is None or self._fh.closed:
+                return
+            size = self._fh.tell()
+            if size < self._max_bytes:
+                return
+            self._fh.close()
+            self._fh = None
+        except OSError:
+            return
+        # 归档: 移到 archive/<session_id>.<ts>.jsonl
+        try:
+            self._archive_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+            archived = self._archive_dir / f"{self.session_id}.{ts}.jsonl"
+            self._path.rename(archived)
+            logger.info("SessionJournal rotated: %s -> %s", self._path.name, archived.name)
+        except OSError as e:
+            logger.warning("SessionJournal rotate failed: %s", e)
+        # 清理旧归档（保留最近 N 份）
+        self._prune_archives_locked()
+
+    def _prune_archives_locked(self) -> None:
+        """（持锁调用）删除最旧的归档，只保留最近 _max_archives 份。"""
+        try:
+            if not self._archive_dir.exists():
+                return
+            files = sorted(
+                self._archive_dir.glob(f"{self.session_id}.*.jsonl"),
+                key=lambda p: p.name,
+            )
+            for f in files[:-self._max_archives] if self._max_archives > 0 else files:
+                f.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def archived_count(self) -> int:
+        """归档目录中本 session 的归档数量。"""
+        if not self._archive_dir.exists():
+            return 0
+        return len(list(self._archive_dir.glob(f"{self.session_id}.*.jsonl")))
 
     def close(self) -> None:
         """关闭持久化文件句柄（R5 性能优化配套）。"""

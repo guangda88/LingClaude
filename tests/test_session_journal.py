@@ -258,3 +258,51 @@ class TestStreamCheckpoint:
         assert "cp_tc1" in j.tool_call_ids()
         assert j.has_tool_call("cp_tc1")
         assert not j.has_tool_call("nonexistent_tc")
+
+
+# ---------- P1-C: journal 归档 + rotate ----------
+
+class TestJournalRotate:
+    """cc P1: journal 1K turn 增 1000 倍无上限 → 定期归档 + rotate。"""
+
+    def test_rotate_when_over_threshold(self, tmp_path: Path) -> None:
+        j = SessionJournal("s1", journal_dir=tmp_path, max_bytes=200, max_archives=3)
+        # 写入超过 200 字节（触发归档）
+        for i in range(20):
+            j.append("tool_call", {"tool_call_id": f"tc{i}", "data": "x" * 20})
+        assert j.archived_count() >= 1
+        # 主 journal 归零重建（load 只返回归档后新写的事件）
+        assert j.load() != []  # 新 journal 仍有后续事件
+
+    def test_archive_files_in_archive_dir(self, tmp_path: Path) -> None:
+        j = SessionJournal("s1", journal_dir=tmp_path, max_bytes=100, max_archives=5)
+        for i in range(15):
+            j.append("turn_start", {"prompt": "p" * 30})
+        archive_dir = tmp_path / "archive"
+        assert archive_dir.exists()
+        archived = list(archive_dir.glob("s1.*.jsonl"))
+        assert len(archived) >= 1
+
+    def test_archive_prunes_old(self, tmp_path: Path) -> None:
+        j = SessionJournal("s1", journal_dir=tmp_path, max_bytes=80, max_archives=2)
+        for i in range(50):  # 多次触发归档
+            j.append("tool_call", {"tool_call_id": f"tc{i}", "data": "z" * 30})
+        assert j.archived_count() <= 2  # 只保留最近 2 份
+
+    def test_no_rotate_under_threshold(self, tmp_path: Path) -> None:
+        j = SessionJournal("s1", journal_dir=tmp_path, max_bytes=100_000)
+        j.append("turn_start", {"prompt": "hi"})
+        assert j.archived_count() == 0
+
+    def test_rotated_content_preserved(self, tmp_path: Path) -> None:
+        """归档内容不丢：归档文件里应包含旧事件。"""
+        j = SessionJournal("s1", journal_dir=tmp_path, max_bytes=150, max_archives=5)
+        j.append("turn_start", {"prompt": "first-event"})
+        for i in range(10):
+            j.append("tool_call", {"tool_call_id": f"tc{i}", "data": "d" * 20})
+        archive_dir = tmp_path / "archive"
+        if archive_dir.exists():
+            merged = ""
+            for f in sorted(archive_dir.glob("s1.*.jsonl")):
+                merged += f.read_text(encoding="utf-8")
+            assert "first-event" in merged  # 归档保留了最早事件

@@ -119,6 +119,20 @@ class VerificationConfig:
 
 
 @dataclass(frozen=True)
+class GitConfig:
+    """git 工具配置（codex P3: _ALLOWED_REMOTES 白名单 config 出口）。
+
+    默认值与 git.py 内置一致；用户可在 config.yaml 中覆盖：
+      git:
+        allowed_remotes: [origin, github, upstream, fork, mirror]
+        blackhole_remote_check: true   # 关闭则跳过黑洞 IP 检测
+    """
+
+    allowed_remotes: tuple[str, ...] = ("origin", "github", "upstream")
+    blackhole_remote_check: bool = True
+
+
+@dataclass(frozen=True)
 class lingclaudeConfig:
     engine: EngineConfig = field(default_factory=EngineConfig)
     permissions: PermissionConfig = field(default_factory=PermissionConfig)
@@ -129,6 +143,7 @@ class lingclaudeConfig:
     model_router: ModelRouterConfig = field(default_factory=ModelRouterConfig)
     intel: IntelConfig = field(default_factory=IntelConfig)
     verification: VerificationConfig = field(default_factory=VerificationConfig)
+    git: GitConfig = field(default_factory=GitConfig)
     log_level: str = "INFO"
 
     @classmethod
@@ -143,6 +158,7 @@ class lingclaudeConfig:
 
         intel_raw = raw.get("intel", {})
         ver_raw = raw.get("verification", {})
+        git_raw = raw.get("git", {})
 
         return cls(
             engine=EngineConfig(
@@ -216,6 +232,10 @@ class lingclaudeConfig:
                 blocked_extensions=tuple(ver_raw.get("blocked_extensions", [".py"])),
                 allowed_write_roots=tuple(ver_raw.get("allowed_write_roots", [])),
                 max_tool_calls_per_session=ver_raw.get("max_tool_calls_per_session", 0),
+            ),
+            git=GitConfig(
+                allowed_remotes=tuple(git_raw.get("allowed_remotes", ["origin", "github", "upstream"])),
+                blackhole_remote_check=git_raw.get("blackhole_remote_check", True),
             ),
             log_level=raw.get("system", {}).get("log_level", "INFO"),
         )
