@@ -2,6 +2,7 @@
 
 > 复核对象: /home/ai/bench/runs/20260912/ (atomcode 评测产物, 只读)
 > 复核结论: FINAL_REPORT.md 中 lingclaude 的 TB 结论存在**重复计数 bug**, 已修正。
+> 状态更新 (2026-09-12 修复后): P0/P1 已实施 — token 遥测兜底 (cf6261f) + cost_table 去重版本化 (3e13425)。
 
 ---
 
@@ -56,9 +57,11 @@
    - 底层 deepseek-v4-flash 短上下文精确补全弱于 claude 系 → 补全特化 prompt 或更强模型
    - 与 RepoBench 评测代码接入 (lingclaude/benchmarks/ 已有 harness) 做专项回归
 
-2. **token 遥测缺失** (journal 无 token 字段, token_scope=not_in_journal):
-   - 成本/效率审计无依据 → 在 long_task_metrics 加 token 字段
-   - 与治理框架的"事实校验"同源: 遥测缺失 = 状态幻觉温床
+2. **token 遥测缺失** — ✅ 已修复 (cf6261f + 3e13425):
+   - P0 (cf6261f): model_call 新增 `_estimate_tokens` 兜底, usage 缺失时估算 (0.28 token/字, 中文适配), journal `turn_end` 非 0
+   - P1 (3e13425): `cost_table.py` 的 `_lingclaude_journal_tokens()` 从 journal `turn_end` 提取 `total_input/total_output`
+   - 设计: 真实 usage 优先 (`_accumulate_usage` 只累真实值), 估算仅在 provider 未回传时生效, 不污染真实数据
+   - 残留: 估算口径为近似值, 需更大样本验证估算偏差
 
 3. **终端任务并列第一, 保持但不依赖**:
    - TB 1/6 与 claude/codex 并列, 需更多任务样本才能确认相对优势
@@ -69,6 +72,10 @@
 ## 四、复核方法与可复现性
 
 - 复核脚本逻辑: 从 cost_ledger.jsonl 过滤 bench, 按 (agent, task) 去重取最后一条, 统计 pass/wall
+- ✅ 已由正式实现闭环: `benchmarks/results/cost_table.py` (3e13425, 215 行) 版本化入库
+  - 去重: `passed_tasks = {task for r in br if r.passed}` + `n_unique_tasks` 字段 (可审计, 非 len(br))
+  - lingclaude token: `_lingclaude_journal_tokens()` 从 journal `turn_end` 提取 (P0 修复后非 0)
+  - window token: 取 max 代表值不逐 run 累加 (防虚高 N 倍)
+  - 兼容: P0 修复前 journal 恒 0 → 返回 (0,0) 标注 not_in_journal
 - 原始数据: /home/ai/bench/runs/20260912/cost_ledger.jsonl (158 行, 只读保留)
-- 修正产物: 本文件 (docs/audit/BENCHMARK_REVIEW_20260912.md, lingclaude 仓库内可版本化)
-- 遗留: cost_table.py 未修改 (产物目录只读); 若需重生成, 应把 cost_table.py 复制到可写区加去重逻辑再跑
+- 修正产物: 本文件 (docs/audit/BENCHMARK_REVIEW_20260912.md) + benchmarks/results/cost_table.py
