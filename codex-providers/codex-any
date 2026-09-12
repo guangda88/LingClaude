@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# codex-any — 灵克 Codex 多套餐调度器
+# 用法:
+#   codex-any volc  "写个快排"                 # Volc Coding Plan (默认模型)
+#   codex-any volc  deepseek-v4-pro "..."     # Volc + 指定模型
+#   codex-any mm    "..."                     # MiniMax 直连 (MiniMax-M3)
+#   codex-any kimi  "..."                     # Kimi 直连 (k3)
+#   codex-any kimi  k3-256k "..."             # Kimi + 指定模型
+#   codex-any zai   "..."                     # 回 ZAI 默认
+set -euo pipefail
+CODEX_BIN="${CODEX_BIN:-/home/ai/.npm-global/bin/codex}"
+prov="${1:-}"; shift || true
+
+case "$prov" in
+  volc|v)
+    PROVIDER=volcengine-coding-plan; MODEL_DEFAULT=ark-code-latest; KEY_ENV=VOLC_CODING_API_KEY ;;
+  mm|minimax)
+    PROVIDER=minimax; MODEL_DEFAULT=MiniMax-M3; KEY_ENV=MINIMAX_API_KEY ;;
+  kimi|k)
+    PROVIDER=kimi; MODEL_DEFAULT=k3; KEY_ENV=KIMI_API_KEY ;;
+  zai|z)
+    PROVIDER=ZAI; MODEL_DEFAULT=glm-5.3-flash; KEY_ENV= ;;
+  *)
+    echo "✗ 未知套餐: '$prov'  (支持: volc|mm|kimi|zai)" >&2
+    sed -n '2,10p' "$0"; exit 1 ;;
+esac
+
+model="$MODEL_DEFAULT"
+# 若第 1 个位置参数像 model slug，则当作 model
+if [[ $# -ge 2 && "$1" =~ ^[A-Za-z0-9.+-]+$ ]]; then
+  model="$1"; shift
+fi
+prompt="${*:-}"
+
+[[ -n "$KEY_ENV" ]] && [[ -z "${!KEY_ENV:-}" ]] && { echo "✗ 缺 $KEY_ENV 环境变量" >&2; exit 1; }
+
+mkdir -p /home/ai/.codex-test && cd /home/ai/.codex-test
+
+"$CODEX_BIN" exec \
+  -c "model_provider=\"$PROVIDER\"" \
+  -c "model=\"$model\"" \
+  -c 'wire_api="responses"' \
+  "$prompt"

@@ -1,0 +1,49 @@
+# =====================================================================
+# 灵克 Codex 多套餐配置 — ZAI(默认) + Volc Coding Plan + MiniMax + Kimi
+# 生成：lingclaude · 2026-09-12
+# 应用：复制到 ~/.codex/config.toml（或 CODEX_HOME 指向本目录父级）
+# =====================================================================
+model_provider = "ZAI"
+model = "glm-5.3-flash"
+model_reasoning_effort = "low"
+model_catalog_json = "~/.codex/models.json"
+approvals_reviewer = "auto_review"
+
+[model_providers.ZAI]
+name = "ZAI"
+base_url = "https://api.z.ai/api/v1"
+experimental_bearer_token = "$ZAI_API_KEY"
+wire_api = "responses"
+
+# --- Volcengine Coding Plan（个人版）---
+# 基础 URL 勿改为 /api/v3（会走按量计费而非套餐额度）
+[model_providers.volcengine-coding-plan]
+name = "volcengine-coding-plan"
+base_url = "https://ark.cn-beijing.volces.com/api/coding/v3"
+env_key = "VOLC_CODING_API_KEY"     # ← 当前环境已注入
+wire_api = "responses"
+
+# --- MiniMax 直连（官方套餐，非 Volc 内的 minimax-m3）---
+# 模型名用官方 "MiniMax-M3"（注意大写），与 Volc 内的小写 minimax-m3 区分
+[model_providers.minimax]
+name = "MiniMax"
+base_url = "https://api.minimax.cn/v1"
+env_key = "MINIMAX_API_KEY"         # ← 当前环境已注入（JWT 风格 key）
+wire_api = "responses"
+
+# --- Kimi Code 直连（官方套餐，非 Volc 内的 kimi-k3）---
+# 模型名用官方 "k3" / "k3-256k"，与 Volc 内的小写 kimi-k3 区分
+[model_providers.kimi]
+name = "Kimi"
+base_url = "https://api.kimi.com/coding/v1"
+env_key = "KIMI_API_KEY"            # ← 当前环境已注入
+wire_api = "responses"
+
+[projects."/home/ai"]
+trust_level = "trusted"
+
+[projects."/home/ai/lingclaude"]
+trust_level = "trusted"
+
+[projects."/home/ai/lingxi"]
+trust_level = "trusted"

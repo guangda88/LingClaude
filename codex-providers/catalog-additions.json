@@ -1,0 +1,81 @@
+{
+  "models": [
+    {
+      "slug": "MiniMax-M3",
+      "display_name": "MiniMax-M3 (直连)",
+      "description": "MiniMax 官方直连 M3，1M 上下文",
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        { "effort": "none", "description": "Think-Off" },
+        { "effort": "high", "description": "Deep (Adaptive Thinking)" }
+      ],
+      "shell_type": "shell_command",
+      "visibility": "list",
+      "supported_in_api": true,
+      "priority": 0,
+      "base_instructions": "You are Codex, a coding agent based on MiniMax-M3.",
+      "supports_reasoning_summaries": true,
+      "default_reasoning_summary": "none",
+      "support_verbosity": false,
+      "truncation_policy": { "mode": "bytes", "limit": 10000 },
+      "context_window": 1000000,
+      "max_context_window": 1000000,
+      "effective_context_window_percent": 95,
+      "supports_parallel_tool_calls": true,
+      "experimental_supported_tools": [],
+      "input_modalities": ["text", "image"]
+    },
+    {
+      "slug": "k3",
+      "display_name": "K3 (Kimi 直连)",
+      "description": "Kimi K3 官方直连，1M 上下文",
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Light reasoning" },
+        { "effort": "high", "description": "Enhanced reasoning" },
+        { "effort": "max", "description": "Deep reasoning" }
+      ],
+      "shell_type": "shell_command",
+      "visibility": "list",
+      "supported_in_api": true,
+      "priority": 0,
+      "base_instructions": "",
+      "supports_reasoning_summaries": true,
+      "default_reasoning_summary": "none",
+      "support_verbosity": false,
+      "truncation_policy": { "mode": "bytes", "limit": 10000 },
+      "context_window": 1048576,
+      "max_context_window": 1048576,
+      "effective_context_window_percent": 95,
+      "supports_parallel_tool_calls": true,
+      "experimental_supported_tools": [],
+      "input_modalities": ["text", "image"]
+    },
+    {
+      "slug": "k3-256k",
+      "display_name": "K3 256K (Kimi 直连)",
+      "description": "Kimi K3 256K 官方直连",
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        { "effort": "low", "description": "Light reasoning" },
+        { "effort": "high", "description": "Enhanced reasoning" },
+        { "effort": "max", "description": "Deep reasoning" }
+      ],
+      "shell_type": "shell_command",
+      "visibility": "list",
+      "supported_in_api": true,
+      "priority": 1,
+      "base_instructions": "",
+      "supports_reasoning_summaries": true,
+      "default_reasoning_summary": "none",
+      "support_verbosity": false,
+      "truncation_policy": { "mode": "bytes", "limit": 10000 },
+      "context_window": 262144,
+      "max_context_window": 262144,
+      "effective_context_window_percent": 95,
+      "supports_parallel_tool_calls": true,
+      "experimental_supported_tools": [],
+      "input_modalities": ["text", "image"]
+    }
+  ]
+}

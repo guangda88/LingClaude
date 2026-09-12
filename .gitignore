@@ -78,3 +78,6 @@ api_keys.json
 
 # 审计记录重定向目录(根FS只读后的项目内存储)
 .audit-records/
+
+# Codex 多套餐配置含明文 token，仅提交 .example
+codex-providers/config.toml
