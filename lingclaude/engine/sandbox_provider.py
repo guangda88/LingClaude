@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shlex
 import shutil
 from pathlib import Path
@@ -117,7 +118,11 @@ class BwrapSandboxProvider:
         return None if ok else reason
 
     def wrap(
-        self, command: str, working_dir: Path | None = None, allow_network: bool = False
+        self,
+        command: str,
+        working_dir: Path | None = None,
+        allow_network: bool = False,
+        extra_writable_dirs: list[str] | None = None,
     ) -> str:
         """bwrap 包裹命令（策略对标 DSH read-only/workspace-write）。
 
@@ -149,6 +154,14 @@ class BwrapSandboxProvider:
             "--dev-bind", "/dev/random", "/dev/random",
             "--bind", wd, wd,
             "--bind", "/tmp", "/tmp",
+        ]
+        # 额外可写目录白名单（策略层 allowed_paths 对齐）：仅显式列出的协作
+        # 路径放开写（如 /home/ai/lingcode），其余保持只读。安全边界=白名单。
+        for d in (extra_writable_dirs or []):
+            rp = os.path.realpath(d)
+            if rp != os.path.realpath(wd) and rp != "/tmp":
+                parts += ["--bind", rp, rp]
+        parts += [
             "--die-with-parent",
             "--",
             "/bin/bash", "-c", command,

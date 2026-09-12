@@ -585,11 +585,27 @@ class BashExecutor:
             self._last_degraded = True
             return command
         allow_network = _is_network_allowed(command)
-        return provider.wrap(
-            command,
-            working_dir=self.working_dir,
-            allow_network=allow_network,
-        )
+        # 额外可写目录白名单：从环境变量读取（逗号分隔），策略层 allowed_paths
+        # 允许的协作路径在此放开写。未设置=空（保持现状：仅 wd+/tmp 可写）。
+        extra_dirs: list[str] = []
+        env_extra = os.environ.get("LINGCLAUDE_EXTRA_WRITABLE_DIRS", "")
+        if env_extra:
+            extra_dirs = [d.strip() for d in env_extra.split(",") if d.strip()]
+        # 兼容旧 wrap 签名（无 extra_writable_dirs 参数的 provider，如测试 Fake）：
+        # 尝试传 extra_writable_dirs，TypeError 则回退旧参数（能力降级不报错）。
+        try:
+            return provider.wrap(
+                command,
+                working_dir=self.working_dir,
+                allow_network=allow_network,
+                extra_writable_dirs=extra_dirs or None,
+            )
+        except TypeError:
+            return provider.wrap(
+                command,
+                working_dir=self.working_dir,
+                allow_network=allow_network,
+            )
 
     def set_sandbox_provider(self, provider: Any) -> None:
         """注入沙箱后端插片（SandboxProvider Protocol：name/available/wrap）。

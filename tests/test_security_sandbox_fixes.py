@@ -262,3 +262,85 @@ def test_p13_register_module_transport_ok():
     info = mcp_proxy.find_server("tool_y")
     assert info is not None
     assert info.status == "available"
+
+
+# --- 2026-09-13: extra_writable_dirs 能力分级修复 ---
+
+def test_extra_writable_dirs_injected_in_bwrap():
+    """BwrapSandboxProvider.wrap(extra_writable_dirs=...) 应注入 --bind 放开写。"""
+    import shlex
+    from lingclaude.engine import sandbox_provider as sp
+
+    orig = sp.BwrapSandboxProvider.available
+    sp.BwrapSandboxProvider.available = lambda self: True
+    try:
+        p = sp.BwrapSandboxProvider()
+        p._bwrap = "/usr/bin/bwrap"
+        cmd = p.wrap(
+            "echo hi",
+            working_dir=Path("/home/ai/lingclaude"),
+            extra_writable_dirs=["/home/ai/lingcode"],
+        )
+    finally:
+        sp.BwrapSandboxProvider.available = orig
+    parts = shlex.split(cmd)
+    binds = [
+        (parts[i], parts[i + 1], parts[i + 2])
+        for i in range(len(parts) - 2)
+        if parts[i] in ("--bind", "--ro-bind", "--dev-bind")
+    ]
+    assert ("--bind", "/home/ai/lingcode", "/home/ai/lingcode") in binds, "额外可写目录未注入"
+    assert ("--bind", "/home/ai/lingclaude", "/home/ai/lingclaude") in binds, "wd 可写绑定丢失"
+    assert ("--bind", "/tmp", "/tmp") in binds, "/tmp 可写绑定丢失"
+
+
+def test_extra_writable_dirs_dedup_wd_and_tmp():
+    """extra_writable_dirs 中与 wd//tmp 重复的目录不应重复 bind。"""
+    import shlex
+    from lingclaude.engine import sandbox_provider as sp
+
+    orig = sp.BwrapSandboxProvider.available
+    sp.BwrapSandboxProvider.available = lambda self: True
+    try:
+        p = sp.BwrapSandboxProvider()
+        p._bwrap = "/usr/bin/bwrap"
+        cmd = p.wrap(
+            "echo hi",
+            working_dir=Path("/home/ai/lingclaude"),
+            extra_writable_dirs=["/home/ai/lingclaude", "/tmp", "/home/ai/lingcode"],
+        )
+    finally:
+        sp.BwrapSandboxProvider.available = orig
+    parts = shlex.split(cmd)
+    assert parts.count("/home/ai/lingcode") == 2  # ro-bind / 内隐含 + 自身 bind
+    assert parts.count("/home/ai/lingclaude") == 2  # 不重复
+    assert parts.count("/tmp") == 2  # ro-bind / 内隐含 + 自身 bind
+
+
+def test_bash_extra_writable_dirs_from_env():
+    """bash.py 应从 LINGCLAUDE_EXTRA_WRITABLE_DIRS 读取额外可写目录并传给 wrap。"""
+    import os
+    from unittest.mock import patch
+    from lingclaude.engine.bash import BashExecutor
+
+    captured = {}
+
+    class FakeProvider:
+        def available(self):
+            return True
+
+        def wrap(self, command, working_dir=None, allow_network=False, extra_writable_dirs=None):
+            captured["extra"] = extra_writable_dirs
+            return command
+
+    b = BashExecutor()
+    b._sandbox_provider = FakeProvider()
+    with patch.dict(os.environ, {"LINGCLAUDE_EXTRA_WRITABLE_DIRS": "/home/ai/lingcode,/tmp"}):
+        b._sandbox_command("echo hi")
+    assert captured["extra"] == ["/home/ai/lingcode", "/tmp"], f"got {captured.get('extra')}"
+
+    captured.clear()
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("LINGCLAUDE_EXTRA_WRITABLE_DIRS", None)
+        b._sandbox_command("echo hi")
+    assert captured["extra"] is None, "未设置时应为 None"
