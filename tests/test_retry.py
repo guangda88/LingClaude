@@ -52,23 +52,23 @@ class TestGlmRetryPolicy(unittest.TestCase):
         self.assertTrue(p.is_degraded)
 
     def test_degrade_exhausted(self):
-        p = GlmRetryPolicy(models=["a", "b"], primary_retry_limit=1)
+        p = GlmRetryPolicy(models=["glm-5.3-flash", "glm-5.1"], primary_retry_limit=1)
         p.record_failure()
         p.degrade()
         self.assertIsNone(p.get_next_model())
 
     def test_reset_to_primary(self):
-        p = GlmRetryPolicy(models=["a", "b", "c"], primary_retry_limit=1)
+        p = GlmRetryPolicy(models=["glm-5.3-flash", "glm-5.1", "glm-5"], primary_retry_limit=1)
         p.record_failure()
         p.degrade()
         self.assertTrue(p.is_degraded)
         model = p.reset_to_primary()
-        self.assertEqual(model, "a")
+        self.assertEqual(model, "glm-5.3-flash")
         self.assertTrue(p.is_primary)
 
     def test_should_retry_primary_by_count(self):
         p = GlmRetryPolicy(
-            models=["a", "b"],
+            models=["glm-5.3-flash", "glm-5.1"],
             primary_retry_limit=1,
             degraded_call_threshold=3,
         )
@@ -132,10 +132,40 @@ class TestGlmRetryPolicy(unittest.TestCase):
 
 
 class TestHandle429(unittest.TestCase):
+    def test_degrade_blocked_for_non_glm_primary(self):
+        """P0-C: 非 GLM 主模型禁止假降级（deepseek 平台无 glm fallback）"""
+        p = GlmRetryPolicy()
+        p.configure_primary("deepseek-v4-flash")
+        p.record_failure()
+        p.record_failure()
+        p.record_failure()
+        result = p.degrade()
+        self.assertIsNone(result)
+        self.assertTrue(p.is_primary)
+        self.assertEqual(p.current_model, "deepseek-v4-flash")
+
+    def test_degrade_allowed_for_glm_primary(self):
+        """P0-C: GLM 主模型正常降级"""
+        p = GlmRetryPolicy()
+        p.configure_primary("glm-5.3-flash")
+        p.record_failure()
+        p.record_failure()
+        p.record_failure()
+        result = p.degrade()
+        self.assertIsNotNone(result)
+        self.assertFalse(p.is_primary)
+        self.assertEqual(p.current_model, "glm-5.1")
+
+    def test_primary_model_tracked(self):
+        """P0-C: configure_primary 记录 primary_model 供 degrade 判定"""
+        p = GlmRetryPolicy()
+        p.configure_primary("deepseek-v4-flash")
+        self.assertEqual(p.primary_model, "deepseek-v4-flash")
+
     def test_degrade_on_primary(self):
-        p = GlmRetryPolicy(models=["a", "b"], primary_retry_limit=1)
+        p = GlmRetryPolicy(models=["glm-5.3-flash", "glm-5.1"], primary_retry_limit=1)
         result = handle_429(p, 0)
-        self.assertEqual(result, "b")
+        self.assertEqual(result, "glm-5.1")
         self.assertTrue(p.is_degraded)
 
     def test_circuit_open_returns_none(self):
@@ -146,14 +176,14 @@ class TestHandle429(unittest.TestCase):
 
     def test_retry_primary_from_degraded(self):
         p = GlmRetryPolicy(
-            models=["a", "b"],
+            models=["glm-5.3-flash", "glm-5.1"],
             primary_retry_limit=1,
             degraded_call_threshold=0,
         )
         p.record_failure()
         p.degrade()
         result = handle_429(p, 0)
-        self.assertEqual(result, "a")
+        self.assertEqual(result, "glm-5.3-flash")
 
 
 if __name__ == "__main__":

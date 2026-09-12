@@ -58,6 +58,7 @@ class GlmRetryPolicy:
     rpm_window: float = DEFAULT_RPM_WINDOW
 
     _model_index: int = field(default=0, init=False)
+    primary_model: str = field(default="", init=False)
     _primary_retry_count: int = field(default=0, init=False)
     _primary_last_retry: float = field(default=0.0, init=False)
     _degraded_call_count: int = field(default=0, init=False)
@@ -146,7 +147,26 @@ class GlmRetryPolicy:
     def should_degrade(self) -> bool:
         return self.is_primary and self._primary_retry_count >= self.primary_retry_limit
 
+    def _is_primary_glm(self) -> bool:
+        """P0-C: 主模型是否属于 GLM 家族。
+
+        降级列表 GLM_FALLBACK_MODELS 是 GLM 专用（retry.py:10-21）。
+        对非 GLM 主模型（如 deepseek-v4-flash），降级到列表内的 glm-5.1
+        是『假降级』——_config_for_model 的 is_glm 守卫（openai_provider.py:329）
+        会拦截替换，真实请求仍是主模型，但 policy 状态/日志却显示降级名。
+        此判定用于 degrade() 源头拦截：非 GLM 主模型不允许降级。
+        """
+        base = self.primary_model or self.models[0]
+        return any(m in base for m in ("glm-", "GLM-"))
+
     def degrade(self) -> str | None:
+        # P0-C: 非 GLM 主模型禁止假降级（无同平台 fallback，降级列表是 GLM 专用）。
+        if self._is_primary_glm() is False and self.is_primary:
+            logger.warning(
+                "主模型 %s 非 GLM 家族，无同平台 fallback，禁止降级",
+                self.primary_model or self.models[0],
+            )
+            return None
         next_model = self.get_next_model()
         if next_model:
             old = self.current_model
@@ -203,6 +223,7 @@ class GlmRetryPolicy:
         # （原守卫 any("glm-" in model_name) 导致只有 glm 模型能置主）
         if not model_name:
             return
+        self.primary_model = model_name
         if self.models and self.models[0] == model_name:
             return
         if model_name in self.models:
