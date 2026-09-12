@@ -174,3 +174,27 @@ class TestPinFailureClearsStaleStatus:
         engine._pinned_model_expires = float("inf")
         proc.handle("/model deepseek-v4-flash")
         status.set_pinned.assert_called_with(True)
+
+    def test_pin_success_updates_model_in_toolbar(self, capsys):
+        """核心修复: pin 成功后 status.set_model 必须被调用,否则 toolbar 仍显示 stale model.
+
+        根因: commands.py:142 原实现只调 status.set_pinned(True),
+        toolbar 渲染 f"{s.model} [PINNED]" 时 s.model 是旧值 → 用户看到 'deepseek-v4-flash [PINNED]'.
+        修复: 在 set_pinned(True) 之前调 status.set_model(str(result.data)).
+        """
+        from unittest.mock import MagicMock
+        from lingclaude.core.types import Result
+        cfg = MagicMock()
+        cfg.base_url = "https://api.minimaxi.com/v1"
+        cfg.model = "MiniMax-M3"
+        proc, engine, status = self._make(
+            pin_result=Result.ok("MiniMax-M3"),
+            pinned_name=None,
+        )
+        engine._pinned_model_config = cfg
+        engine._pinned_model_expires = float("inf")
+        proc.handle("/model MiniMax-M3")
+        # ★ 核心断言: set_model 被以新 model name 调用
+        status.set_model.assert_called_with("MiniMax-M3")
+        # 回归: pinned 仍要设 True
+        status.set_pinned.assert_called_with(True)

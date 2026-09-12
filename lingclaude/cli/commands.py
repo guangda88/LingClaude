@@ -139,6 +139,8 @@ class SlashCommandProcessor:
                 print(f"[已钉住模型] {result.data} @ {base}{ttl_str}")
                 print("[提示] 支持选择器格式: /model model@provider 或 /model provider/model（对齐 opencode/crush）")
                 print("[提示] 后续请求将强制使用此模型，忽略 TaskRouter 路由表；用 /model --unpin 解除")
+                # ★ 修复: 同步写 model 字段,否则 toolbar 仍显示 stale model (L90 拼接旧 s.model + [PINNED])
+                status.set_model(str(result.data))
                 status.set_pinned(True)
             else:
                 # 钉住失败必须清 toolbar 状态,否则老 pinned 显示残留
