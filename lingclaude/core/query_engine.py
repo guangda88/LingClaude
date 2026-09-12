@@ -440,6 +440,11 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         vr = self._prior_verifier.analyze(content, used_tools=used_tools)
         final_content = vr.corrected_text if vr.corrected_text else content
         self._track_behavior(prompt, final_content, used_tools=used_tools)
+        # P0: usage 遥测兜底 — provider 未回传 usage(全 0) 时估算, 保证 journal 非 0
+        if total_input == 0 and total_output == 0 and final_content:
+            from lingclaude.core.model_call import _estimate_tokens
+            total_input = max(1, _estimate_tokens(prompt))
+            total_output = _estimate_tokens(final_content)
         self._usage = self._usage.add_usage(total_input, total_output)
         self._monitor.record_usage(
             model=str(resolved_config.model) if resolved_config else "unknown",

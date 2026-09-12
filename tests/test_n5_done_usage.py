@@ -86,12 +86,13 @@ class TestDoneEventUsage:
         assert done[0]["content"] == "回答正文"
 
     def test_provider_without_finish_usage_degrades_to_zero(self) -> None:
-        """基类式 stream(finish 无 usage): done.usage 归零, 不抛异常。"""
+        """基类式 stream(finish 无 usage): done.usage 估算兜底, 不抛异常 (P0)。"""
         engine = _make_engine(_UsageStreamProvider(finish_with_usage=False))
         events = list(engine.stream_call_model("问题"))
 
         done = [e for e in events if e["type"] == "done"]
-        assert done[0]["usage"] == {"input_tokens": 0, "output_tokens": 0}
+        assert done[0]["usage"]["input_tokens"] > 0  # P0: 估算兜底, 非 0
+        assert done[0]["usage"]["output_tokens"] > 0
 
     def test_abandoned_generator_does_not_leak_usage(self) -> None:
         """生成器被弃置(未消费到 finish)后, 新一轮 usage 不含幽灵累计。"""
@@ -206,7 +207,7 @@ class TestNoneUsageRobustness:
     """
 
     def test_finish_with_none_usage_does_not_crash(self) -> None:
-        """finish 事件 usage=None → 不抛 AttributeError, done.usage 归零。"""
+        """finish 事件 usage=None → 不抛 AttributeError, done.usage 估算兜底 (P0)。"""
 
         class _NoneUsageProvider(_UsageStreamProvider):
             def stream_complete(self, messages, config=None, tools=None):
@@ -218,7 +219,8 @@ class TestNoneUsageRobustness:
 
         done = [e for e in events if e["type"] == "done"]
         assert len(done) == 1
-        assert done[0]["usage"] == {"input_tokens": 0, "output_tokens": 0}
+        assert done[0]["usage"]["input_tokens"] > 0  # P0: 估算兜底, 非 0
+        assert done[0]["usage"]["output_tokens"] > 0
 
     def test_cli_extraction_survives_none_usage(self) -> None:
         """CLI done 分支取数表达式 (app.py:284-286) 对 usage=None 健壮。

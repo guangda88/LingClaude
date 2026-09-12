@@ -21,6 +21,33 @@ logger = logging.getLogger(__name__)
 AGENT_MAX_TOOL_ROUNDS = 40
 
 
+def _estimate_tokens(text: str, per_char: float = 0.28) -> int:
+    """估算文本 token 数（usage 缺失时的兜底，不替代真实值）。
+
+    - 中文为主时 ~0.28 token/字，英文 ~0.25 token/词（4 字符/词）。
+    - 返回 int，空文本返回 0。
+    """
+    if not text:
+        return 0
+    return max(1, int(len(text) * per_char))
+
+
+def _accumulate_usage(total_input: int, total_output: int, response: Any, text: str) -> tuple[int, int]:
+    """累加 usage；只累加真实值，缺失（全 0）保持 0，不估算。
+
+    response 可以是带 .usage 的 response（_call_model），也可以是 ModelUsage 本身
+    （stream finish 事件已解析过）。两种情况都正确读取真实值。
+    估算兜底在 _finalize_turn 层做（保证 journal 遥测非 0），不动 done/CLI 契约。
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        # 传入对象本身可能已是 ModelUsage（stream 路径已解析）
+        usage = response
+    if hasattr(usage, "input_tokens"):
+        return total_input + (usage.input_tokens or 0), total_output + (usage.output_tokens or 0)
+    return total_input, total_output
+
+
 _CFG_MTIME_CACHE: dict[str, float] = {}
 _HOT_RELOAD_INTERVAL = 30.0  # 秒；节流，避免每轮读盘
 _last_hot_reload_check = [0.0]
@@ -232,8 +259,10 @@ class ModelCallMixin:
                 continue
 
             response = result.data
-            total_input += response.usage.input_tokens
-            total_output += response.usage.output_tokens
+            round_text = getattr(response, "content", "") or ""
+            total_input, total_output = _accumulate_usage(
+                total_input, total_output, response, round_text,
+            )
             if resolved_config:
                 pname = self._task_router.get_provider_name(resolved_config.api_key, resolved_config.base_url)
                 if pname:
@@ -435,8 +464,10 @@ class ModelCallMixin:
                         # N5a-v2: usage key 存在但值为 None 时 .get 默认值不生效,
                         # 显式 or 兜底, 防 provider 异常流炸穿整个 turn
                         usage = event.get("usage") or ModelUsage()
-                        total_input += usage.input_tokens
-                        total_output += usage.output_tokens
+                        total_input, total_output = _accumulate_usage(
+                            total_input, total_output, usage,
+                            "".join(round_text_parts),
+                        )
                     elif event["type"] == "error":
                         stream_error = event["error"]
 
@@ -509,12 +540,17 @@ class ModelCallMixin:
                 self._learn_from_turn(prompt, final_content)
                 # R5 阶段1: turn 正常完成 → 清 checkpoint + journal turn_end
                 self._clear_checkpoint()
+                # P0: journal 兜底 — usage 全 0 时估算, 保证遥测非 0
+                j_in, j_out = total_input, total_output
+                if j_in == 0 and j_out == 0:
+                    j_in = max(1, _estimate_tokens(prompt))
+                    j_out = _estimate_tokens(final_content)
                 self._journal_append("turn_end", {
                     "final_content_preview": final_content[:200],
-                    "total_input": total_input, "total_output": total_output,
+                    "total_input": j_in, "total_output": j_out,
                 })
                 yield {"type": "done", "content": final_content,
-                       "usage": {"input_tokens": total_input, "output_tokens": total_output}}
+                       "usage": {"input_tokens": j_in, "output_tokens": j_out}}
                 return
 
             used_tools = True
