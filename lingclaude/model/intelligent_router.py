@@ -19,6 +19,64 @@ from pathlib import Path
 from typing import Any
 
 
+
+_POLICY_PATH = Path(__file__).parent.parent / "core" / "policies" / "router_keywords.yaml"
+
+
+def _load_policy() -> dict:
+    """从策略文件加载关键词（灵元：策略是 data，不是结构）。
+
+    读失败（文件缺失/解析错误）回退空 dict → 调用方用内置默认。
+    """
+    try:
+        import yaml
+        with open(_POLICY_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+_POLICY = _load_policy()
+
+
+def _task_keywords(task_key: str) -> list[str]:
+    """取某任务类型的关键词列表；策略缺失回退内置默认。"""
+    builtin = {
+        "code_generation": ["生成", "create", "write", "implement", "开发", "实现", "写", "编写", "编", "函数", "function"],
+        "code_analysis": ["代码分析", "code analyze", "code review", "analyze code", "review code", "检查代码", "explain code", "检查", "explain"],
+        "code_refactoring": ["重构", "refactor", "重写", "rewrite"],
+        "debugging": ["调试", "debug", "错误", "error", "bug", "fix", "修复"],
+        "documentation": ["文档", "document", "documentation", "注释", "comment", "说明", "readme"],
+        "search": ["搜索", "search", "查找", "find", "grep"],
+        "analysis": ["分析", "analysis", "研究", "research"],
+        "optimization": ["优化", "optimize", "提升", "improve", "性能"],
+        "testing": ["测试", "test", "验证", "verify", "assert"],
+    }
+    try:
+        kws = _POLICY.get("task_keywords", {}).get(task_key)
+        if isinstance(kws, list) and kws:
+            return kws
+    except Exception:  # noqa: BLE001
+        pass
+    return builtin.get(task_key, [])
+
+
+def _complexity_keywords(level: str) -> list[str]:
+    """取复杂度关键词；策略缺失回退内置默认。"""
+    builtin = {
+        "complex": ["架构", "architecture", "设计模式", "design pattern", "分布式", "distributed", "并发", "concurrent", "性能优化", "performance optimization", "算法", "algorithm", "数据结构", "data structure"],
+        "medium": ["函数", "function", "类", "class", "模块", "module", "配置", "config", "调试", "debug"],
+    }
+    try:
+        kws = _POLICY.get("complexity_keywords", {}).get(level)
+        if isinstance(kws, list) and kws:
+            return kws
+    except Exception:  # noqa: BLE001
+        pass
+    return builtin.get(level, [])
+
+
 class TaskType(Enum):
     """任务类型"""
     CODE_GENERATION = auto()
@@ -44,40 +102,40 @@ class TaskType(Enum):
         """
         query_lower = query.lower()
 
-        # 代码生成
-        if any(kw in query_lower for kw in ["生成", "create", "write", "implement", "开发", "实现", "写", "编写", "编", "函数", "function"]):
+        # 代码生成（关键词来自策略文件 router_keywords.yaml）
+        if any(kw in query_lower for kw in _task_keywords("code_generation")):
             return cls.CODE_GENERATION
 
         # 代码分析
-        if any(kw in query_lower for kw in ["代码分析", "code analyze", "code review", "analyze code", "review code", "检查代码", "explain code", "检查", "explain"]):
+        if any(kw in query_lower for kw in _task_keywords("code_analysis")):
             return cls.CODE_ANALYSIS
 
         # 代码重构
-        if any(kw in query_lower for kw in ["重构", "refactor", "重写", "rewrite"]):
+        if any(kw in query_lower for kw in _task_keywords("code_refactoring")):
             return cls.CODE_REFACTORING
 
         # 调试
-        if any(kw in query_lower for kw in ["调试", "debug", "错误", "error", "bug", "fix", "修复"]):
+        if any(kw in query_lower for kw in _task_keywords("debugging")):
             return cls.DEBUGGING
 
         # 文档
-        if any(kw in query_lower for kw in ["文档", "document", "documentation", "注释", "comment", "说明", "readme"]):
+        if any(kw in query_lower for kw in _task_keywords("documentation")):
             return cls.DOCUMENTATION
 
         # 搜索
-        if any(kw in query_lower for kw in ["搜索", "search", "查找", "find", "grep"]):
+        if any(kw in query_lower for kw in _task_keywords("search")):
             return cls.SEARCH
 
         # 分析
-        if any(kw in query_lower for kw in ["分析", "analysis", "研究", "research"]):
+        if any(kw in query_lower for kw in _task_keywords("analysis")):
             return cls.ANALYSIS
 
         # 优化
-        if any(kw in query_lower for kw in ["优化", "optimize", "提升", "improve", "性能"]):
+        if any(kw in query_lower for kw in _task_keywords("optimization")):
             return cls.OPTIMIZATION
 
         # 测试
-        if any(kw in query_lower for kw in ["测试", "test", "验证", "verify", "assert"]):
+        if any(kw in query_lower for kw in _task_keywords("testing")):
             return cls.TESTING
 
         return cls.OTHER
@@ -229,24 +287,9 @@ class IntelligentRouter:
         elif query_len > 200:
             score += 1
 
-        # 关键词检测
-        complex_keywords = [
-            "架构", "architecture",
-            "设计模式", "design pattern",
-            "分布式", "distributed",
-            "并发", "concurrent",
-            "性能优化", "performance optimization",
-            "算法", "algorithm",
-            "数据结构", "data structure",
-        ]
-
-        medium_keywords = [
-            "函数", "function",
-            "类", "class",
-            "模块", "module",
-            "配置", "config",
-            "调试", "debug",
-        ]
+        # 关键词检测（关键词来自策略文件 router_keywords.yaml）
+        complex_keywords = _complexity_keywords("complex")
+        medium_keywords = _complexity_keywords("medium")
 
         for kw in complex_keywords:
             if kw in query.lower():
