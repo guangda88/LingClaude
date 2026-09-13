@@ -49,6 +49,10 @@ _MTIME_CACHE: dict[str, float] = {}
 # 数据缓存：{绝对路径: dict}
 _DATA_CACHE: dict[str, dict[str, Any]] = {}
 
+# 每策略最后检查时刻（节流按路径独立，避免跨策略/跨测试全局互踩）：
+# {绝对路径: monotonic 时间戳}
+_LAST_CHECK_BY_PATH: dict[str, float] = {}
+
 
 def policies_dir() -> Path:
     """策略目录（测试可 monkeypatch _POLICIES_DIR 覆盖）。"""
@@ -132,11 +136,11 @@ def get(name: str) -> dict[str, Any]:
     if key not in _MTIME_CACHE:
         return _load(name)
 
-    # 节流检查 mtime（与 model_call._maybe_hot_reload_config 同款节流）
+    # 节流检查 mtime（按路径独立节流：跨策略/跨测试不互踩）
     now = time.monotonic()
-    if now - _LAST_CHECK[0] < _WATCH_INTERVAL:
+    if now - _LAST_CHECK_BY_PATH.get(key, 0.0) < _WATCH_INTERVAL:
         return _DATA_CACHE.get(key, {})
-    _LAST_CHECK[0] = now
+    _LAST_CHECK_BY_PATH[key] = now
 
     if _changed(path):
         logger.info("PolicyLoader: 策略文件变更 %s，热重载", path)
@@ -150,18 +154,35 @@ def load(name: str) -> dict[str, Any]:
 
 
 def hot_update() -> bool:
-    """主动触发一次热更检查：遍历已缓存策略，mtime 变了就重载。
+    """主动触发热更：重读所有已缓存策略并更新缓存。
 
-    返回是否有任何策略被重载。供 wiring 装配前调用，让 manifest YAML
-    修改在下次装配生效（P1-2 接线点）。
+    返回是否有策略数据发生变化。语义：调用方明确要求刷新（wiring 装配前 /
+    测试热更），**不依赖 mtime 判定** —— 快速连续写入（<1ms 粒度）mtime
+    可能相同，漏检会让热更不可靠；主动刷新直接重读，变更即捕获。
     """
     reloaded = False
     for key in list(_MTIME_CACHE.keys()):
         path = Path(key)
-        if _changed(path):
-            logger.info("PolicyLoader: hot_update 命中 %s", path)
-            _load(Path(path).name.removesuffix(".yaml"))
-            reloaded = True
+        if not path.is_file():
+            _MTIME_CACHE.pop(key, None)
+            _DATA_CACHE.pop(key, None)
+            continue
+        new_data = _read_yaml(path)
+        old_data = _DATA_CACHE.get(key)
+        if new_data:
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            _MTIME_CACHE[key] = mtime
+            _DATA_CACHE[key] = new_data
+            _LAST_CHECK_BY_PATH.pop(key, None)
+            if new_data != old_data:
+                logger.info("PolicyLoader: hot_update 刷新 %s（内容变化）", path)
+                reloaded = True
+        else:
+            _MTIME_CACHE.pop(key, None)
+            _DATA_CACHE.pop(key, None)
     return reloaded
 
 
@@ -169,7 +190,4 @@ def reset() -> None:
     """清空全部缓存（仅测试用）。"""
     _MTIME_CACHE.clear()
     _DATA_CACHE.clear()
-
-
-# 模块级最后检查节流（get 用）
-_LAST_CHECK = [0.0]
+    _LAST_CHECK_BY_PATH.clear()

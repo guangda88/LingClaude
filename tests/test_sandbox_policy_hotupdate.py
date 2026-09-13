@@ -48,7 +48,7 @@ def test_network_allowed_runtime_hotupdate(tmp_path: Path, monkeypatch: pytest.M
         assert _is_network_allowed("git push origin main") is True
         assert _is_network_allowed("rsync -avz /tmp/x user@host:/tmp") is False
 
-        # 热更：新增 rsync 放行
+        # 热更：新增 rsync 放行（按路径独立节流 + 按缓存路径重读）
         policy.write_text(
             "network_allowed_commands:\n"
             "  - git push\n"
