@@ -585,12 +585,18 @@ class BashExecutor:
             self._last_degraded = True
             return command
         allow_network = _is_network_allowed(command)
-        # 额外可写目录白名单：从环境变量读取（逗号分隔），策略层 allowed_paths
-        # 允许的协作路径在此放开写。未设置=空（保持现状：仅 wd+/tmp 可写）。
+        # 额外可写目录白名单：策略层 allowed_paths 允许的协作路径在此放开写。
+        # 对齐 sandbox_policy.DEFAULT_POLICY.allowed_paths=["/home/ai","/tmp"]——
+        # 策略层已声明整个 /home/ai 可信，执行层不应与策略脱节。
+        # 可通过环境变量显式覆盖（逗号分隔）；默认注入 /home/ai（用户工作区根）。
         extra_dirs: list[str] = []
         env_extra = os.environ.get("LINGCLAUDE_EXTRA_WRITABLE_DIRS", "")
         if env_extra:
+            # 显式设置：全量采用用户指定目录（不隐式加 /home/ai，尊重覆盖意图）
             extra_dirs = [d.strip() for d in env_extra.split(",") if d.strip()]
+        else:
+            # 未显式设置：默认对齐策略层 allowed_paths —— /home/ai 下所有协作目录可写
+            extra_dirs = ["/home/ai"]
         # 兼容旧 wrap 签名（无 extra_writable_dirs 参数的 provider，如测试 Fake）：
         # 尝试传 extra_writable_dirs，TypeError 则回退旧参数（能力降级不报错）。
         try:
@@ -670,15 +676,49 @@ class BashExecutor:
         parts = re.split(r"[;|&]|\$\(|`", command)
         return [p.strip() for p in parts if p.strip()]
 
+    def _is_credential_search(self, command: str) -> bool:
+        """判断命令是否为「只读凭据搜索」（B3：安全工具自身合法操作）。
+
+        豁免条件（同时满足才豁免）：
+        1. 命令首 token 是搜索工具（grep/egrep/fgrep/rg/ack/ripgrep）
+        2. 存在 `-rn`/`-r`/`-R` 等递归参数（说明是搜文件，不是执行）
+        3. 命中凭据形态出现在「模式/参数」位置（非管道首、非重定向到外部）
+
+        不满足豁免 → 照常拦截（写入/传递类 curl/export/echo 仍 fail-closed）。
+        """
+        s = command.strip()
+        if not s:
+            return False
+        tokens = s.split()
+        head = Path(tokens[0]).name.lower()
+        if head not in ("grep", "egrep", "fgrep", "rg", "ack", "ripgrep"):
+            return False
+        # 必须含递归参数，才视为「文件搜索」而非其它用途
+        joined = " ".join(tokens)
+        if not any(flag in tokens for flag in ("-r", "-R", "-rn", "-rR", "-Rr")):
+            # 也接受合并形态如 -rn 已被拆词，这里直接查子串
+            if not re.search(r"-\w*[rR]\w*", joined):
+                return False
+        # 防止 `grep sk- | curl ...` 这类搜索后外泄：若命令含管道到网络/写入，
+        # 不豁免（保持 fail-closed）。仅当整条命令无写/网络副作用时放行。
+        if re.search(r"\|\s*(curl|wget|nc|ncat|ssh|scp|telnet|tee|>)", s):
+            return False
+        return True
+
     def _check_blocked(self, command: str) -> str | None:
         cmd_stripped = command.strip()
         cmd_normalized = self._normalize_command(cmd_stripped)
         cmd_lower = cmd_normalized.lower()
 
         # P0-1: 凭据模式检测（fail-closed）
-        for marker in _CREDENTIAL_MARKERS:
-            if marker.lower() in cmd_lower:
-                return f"命令包含凭据模式 '{marker}'，禁止通过 bash 传递凭据"
+        # B3 (2026-09-13): 只读搜索豁免 —— grep/egrep/fgrep/rg/ack 等搜索命令中
+        # 的凭据形态是「查找泄漏」的安全工具自身合法操作，不应误杀
+        # （此前连 `grep -rn "sk-"` 都被拦，安全工具无法工作=能力绞杀）。
+        # 但写入/传递类（curl/export/echo 到文件等）仍全量拦截（fail-closed）。
+        if not self._is_credential_search(cmd_stripped):
+            for marker in _CREDENTIAL_MARKERS:
+                if marker.lower() in cmd_lower:
+                    return f"命令包含凭据模式 '{marker}'，禁止通过 bash 传递凭据"
 
         # P0-1: 禁止直接调用外部 API host
         for host in _FORBIDDEN_API_HOSTS:

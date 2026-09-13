@@ -19,6 +19,12 @@ pre-commit:
     # （提交后审计签名验证）占用，且其源不在本仓库，lefthook 接管会覆盖它。
     workspace-snapshot:
       run: python3 scripts/prechange_snapshot.py record --label "pre-commit"
+    # C1 (2026-09-13): secret 扫描前置到 pre-commit —— 此前只挂在 pre-push，
+    # 历史 key 泄漏说明「已推才拦」太晚。提交前即拦截明文凭据（fail-closed）。
+    # 复用 scripts/secret_scan_hook.sh（扫描暂存区 json/yaml/env 等配置文件）。
+    secret-scan:
+      run: bash scripts/secret_scan_hook.sh
+      stage_fixed: false
 
 pre-push:
   commands:

@@ -152,15 +152,30 @@ class BwrapSandboxProvider:
             # 可写绑定不泄露数据: 字符设备只提供熵, 无文件系统访问面。
             "--dev-bind", "/dev/urandom", "/dev/urandom",
             "--dev-bind", "/dev/random", "/dev/random",
-            "--bind", wd, wd,
             "--bind", "/tmp", "/tmp",
         ]
         # 额外可写目录白名单（策略层 allowed_paths 对齐）：仅显式列出的协作
         # 路径放开写（如 /home/ai/lingcode），其余保持只读。安全边界=白名单。
+        # 顺序关键: 先绑父目录（/home/ai），再绑子目录（wd）——bwrap mount 堆叠，
+        # 后 bind 的更具体路径生效；若先绑 wd 再绑 /home/ai，父级会覆盖子级，
+        # 导致工作目录写权限丢失（2026-09-13 实测 B1 对齐时的坑）。
+        extra_paths: list[str] = []
         for d in (extra_writable_dirs or []):
             rp = os.path.realpath(d)
-            if rp != os.path.realpath(wd) and rp != "/tmp":
-                parts += ["--bind", rp, rp]
+            if rp not in ("", "/") and rp != os.path.realpath(wd) and rp != "/tmp":
+                extra_paths.append(rp)
+        # 先绑父目录（路径深度大的先），再绑子目录 —— bwrap mount 堆叠，
+        # 后 bind 的更具体路径生效；若父 bind 在子 bind 之后会覆盖子级写权限。
+        for rp in sorted(extra_paths, key=lambda p: p.count("/"), reverse=True):
+            parts += ["--bind", rp, rp]
+        # 工作目录：若已被某可写父目录覆盖（startswith），则无需重复 bind；
+        # 否则显式 bind（保证 wd 始终可写，且不得晚于父目录 bind——此处天然在父之后）。
+        wd_real = os.path.realpath(wd)
+        if wd_real != "/tmp" and not any(
+            wd_real.startswith(os.path.realpath(ep) + "/")
+            for ep in extra_paths
+        ):
+            parts += ["--bind", wd, wd]
         parts += [
             "--die-with-parent",
             "--",

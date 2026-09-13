@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from lingclaude.core.models import PermissionDenial, UsageSummary
 from lingclaude.core.session import SessionManager
+from lingclaude.core.redact import redact as _redact_text
 from lingclaude.core.mailbox_notify import MailboxNotifier
 from lingclaude.core.session_persist import SessionPersister
 from lingclaude.core.session_runtime import SessionRuntime
@@ -424,7 +425,9 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         if system_prompt:
             messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
         for role, content in self._conversation:
-            messages.append(ModelMessage(role=MessageRole(role), content=content))
+            # A1b (2026-09-13): 发送前脱敏保险 — 历史/当前会话若残留明文 key
+            # （升级前落盘的数据），防止再次回传给模型。幂等，正常文本不受影响。
+            messages.append(ModelMessage(role=MessageRole(role), content=_redact_text(content)))
         messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
         return messages
 
@@ -439,6 +442,11 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
     ) -> str:
         vr = self._prior_verifier.analyze(content, used_tools=used_tools)
         final_content = vr.corrected_text if vr.corrected_text else content
+        # A1b (2026-09-13): 输出收口脱敏 — 模型回复唯一出口统一 scrub。
+        # 在 append 进 conversation / layered_memory / 返回值（用户可见）之前打码，
+        # 从源头切断「key 出现在对话 → 明文落盘 → 全文回传」链路。
+        # 幂等：已脱敏文本不受影响；与落盘层（session_store/journal）脱敏互补。
+        final_content = _redact_text(final_content)
         self._track_behavior(prompt, final_content, used_tools=used_tools)
         # P0: usage 遥测兜底 — provider 未回传 usage(全 0) 时估算, 保证 journal 非 0
         if total_input == 0 and total_output == 0 and final_content:
@@ -726,8 +734,8 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
                     logger.warning("Session history corrupted, starting fresh")
                     history = []
             history.append({
-                "query": query[:200],
-                "title": query[:80],
+                "query": _redact_text(query[:200]),
+                "title": _redact_text(query[:80]),
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "session_id": self.session_id,

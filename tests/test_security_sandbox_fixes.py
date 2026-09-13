@@ -343,4 +343,6 @@ def test_bash_extra_writable_dirs_from_env():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("LINGCLAUDE_EXTRA_WRITABLE_DIRS", None)
         b._sandbox_command("echo hi")
-    assert captured["extra"] is None, "未设置时应为 None"
+    # B1 (2026-09-13): 未显式设置时默认对齐策略层 allowed_paths —— /home/ai 可写。
+    # 显式设置仍全量尊重用户指定（上方断言）。此断言从 None 改为默认目录。
+    assert captured["extra"] == ["/home/ai"], f"未设置时应默认 /home/ai，got {captured.get('extra')}"

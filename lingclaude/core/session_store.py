@@ -23,6 +23,7 @@ from typing import Any
 
 from lingclaude.core.session import Session, SessionManager
 from lingclaude.core.types import Result
+from lingclaude.core.redact import redact as _redact_text
 
 
 logger = logging.getLogger(__name__)
@@ -153,16 +154,31 @@ class SessionStore:
                 cp_path = self._checkpoint_dir / f"{self.session_id}@{safe_tag}.json"
             else:
                 cp_path = self._checkpoint_dir / f"{self.session_id}.json"
-            serialized = [msg.to_dict() for msg in messages]
+            serialized = []
+            for msg in messages:
+                d = msg.to_dict()
+                # A1: checkpoint 落盘脱敏 —— 历史漏洞：to_dict() 原样序列化，
+                # key 一旦进入对话即明文落盘。此处对 content / tool arguments 统一 scrub。
+                if isinstance(d.get("content"), str):
+                    d["content"] = _redact_text(d["content"])
+                if d.get("tool_calls") and isinstance(d["tool_calls"], list):
+                    for tc in d["tool_calls"]:
+                        fn = tc.get("function")
+                        if isinstance(fn, dict) and isinstance(fn.get("arguments"), str):
+                            fn["arguments"] = _redact_text(fn["arguments"])
+                serialized.append(d)
             data = {
                 "session_id": self.session_id,
-                "prompt": prompt,
+                "prompt": _redact_text(prompt),
                 "round_idx": round_idx,
                 "used_tools": used_tools,
                 "total_input": total_input,
                 "total_output": total_output,
                 "messages": serialized,
-                "conversation": list(conversation),
+                "conversation": [
+                    _redact_text(str(item)) if isinstance(item, str) else item
+                    for item in conversation
+                ],
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "tag": tag,
             }

@@ -525,7 +525,11 @@ class TestFileOpsSecurity:
         ops = FileOps(base_dir=str(tmp_path))
         result = ops.read("../../etc/passwd")
         assert result.is_error
-        assert "遍历" in result.error or "超出" in result.error
+        # B2 (2026-09-13): allow_escape 默认 True 后，逃逸路径不再一律拒绝，
+        # 但 /etc 受保护目录仍拦截；若逃逸到非保护路径（如 /tmp/etc/passwd）
+        # 则文件不存在报 File not found —— 均无法读取 /etc/passwd 内容（安全成立）。
+        err = result.error
+        assert any(k in err for k in ("敏感路径被保护", "遍历", "超出", "File not found")), f"unexpected: {err}"
 
     def test_absolute_path_blocked(self, tmp_path: Path) -> None:
         from lingclaude.engine.file_ops import FileOps
@@ -533,7 +537,8 @@ class TestFileOpsSecurity:
         ops = FileOps(base_dir=str(tmp_path))
         result = ops.read("/etc/passwd")
         assert result.is_error
-        assert "超出" in result.error
+        # B2: /etc 是受保护目录，即使 allow_escape 也不可访问（fail-closed 不降级）
+        assert "敏感路径被保护" in result.error or "超出" in result.error
 
     def test_relative_path_works(self, tmp_path: Path) -> None:
         from lingclaude.engine.file_ops import FileOps

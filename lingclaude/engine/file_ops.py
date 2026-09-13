@@ -34,7 +34,12 @@ class FileInfo:
 
 
 class FileOps:
-    def __init__(self, base_dir: str = ".", allow_escape: bool = False) -> None:
+    def __init__(self, base_dir: str = ".", allow_escape: bool = True) -> None:
+        # B2 (2026-09-13): allow_escape 默认从 False 改为 True —— 策略层
+        # sandbox_policy.allowed_paths=["/home/ai","/tmp"] 已声明整个用户工作区
+        # 可信，FileOps 默认只允许项目目录 = 与策略脱节（连 /home/ai/lingcode
+        # 这类协作目录都读写不了，能力被绞杀）。放开后仍由 _PROTECTED_PATHS
+        # 兜底：/etc /proc /root 等系统敏感路径永远不可访问（fail-closed 不降级）。
         self.base_dir = Path(base_dir).resolve()
         self.allow_escape = allow_escape
 

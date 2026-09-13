@@ -31,7 +31,6 @@ if [ -f "$SCANNER" ]; then
             exit 1
         fi
     fi
-    exit 0
 fi
 
 # 2) 兜底：独立正则扫描（不依赖仓库脚本）

@@ -26,9 +26,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.redact import redact as _redact_text
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_JOURNAL_DIR = Path(".lingclaude/journals")
+
+
+def _redact_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    """递归脱敏事件 dict 中的字符串字段（A1 输出侧防线）。"""
+    out: dict[str, Any] = {}
+    for k, v in entry.items():
+        if isinstance(v, str):
+            out[k] = _redact_text(v)
+        elif isinstance(v, dict):
+            out[k] = _redact_entry(v)
+        elif isinstance(v, list):
+            out[k] = [
+                _redact_entry(item) if isinstance(item, dict)
+                else _redact_text(item) if isinstance(item, str)
+                else item
+                for item in v
+            ]
+        else:
+            out[k] = v
+    return out
 # 归档阈值（cc P1: journal 1K turn 增 1000 倍无上限）
 # - _MAX_ARCHIVE_BYTES: 单 journal 超过该字节数触发归档（默认 2MB）
 # - _MAX_ARCHIVES: 归档目录保留最近 N 份（默认 5）
@@ -81,6 +103,9 @@ class SessionJournal:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             **(data or {}),
         }
+        # A1: journal 落盘脱敏 —— 递归 scrub 所有字符串字段（含 tool 参数/
+        # 输出预览/prompt 片段），密钥形态一旦进入事件即被替换为 [REDACTED]。
+        entry = _redact_entry(entry)
         line = json.dumps(entry, ensure_ascii=False, default=str) + "\n"
         try:
             with self._lock:

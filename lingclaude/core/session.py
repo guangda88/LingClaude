@@ -10,23 +10,11 @@ from pathlib import Path
 
 from lingclaude.core.types import Result
 from lingclaude.core.topic_stack import TopicStack
+from lingclaude.core.redact import redact as _redact_message
 
 import logging
 
 logger = logging.getLogger(__name__)
-
-_SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(api[_-]?key|apikey|token|secret|password|auth[_-]?header)\s*[:=]\s*\S+", re.IGNORECASE),
-    re.compile(r"sk-[a-zA-Z0-9]{20,}"),
-    re.compile(r"sk-ant-[a-zA-Z0-9]{20,}"),
-    re.compile(r"AKIA[A-Z0-9]{16}"),
-)
-
-
-def _redact_message(msg: str) -> str:
-    for pattern in _SENSITIVE_PATTERNS:
-        msg = pattern.sub("[REDACTED]", msg)
-    return msg
 
 
 @dataclass(frozen=True)
