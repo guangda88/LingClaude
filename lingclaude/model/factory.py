@@ -30,16 +30,19 @@ def create_provider(
                 system_prompt=cfg.system_prompt,
             )
 
-    if name == "openai":
-        from lingclaude.model.openai_provider import OpenAIProvider
-        return Result.ok(OpenAIProvider(cfg))
-    elif name == "anthropic":
-        from lingclaude.model.anthropic_provider import AnthropicProvider
-        return Result.ok(AnthropicProvider(cfg))
+    # P1-3 (灵元 R2): if/elif 硬编码链 → 注册表查表
+    # 加新 provider = provider_registry.register() 一行，不动本函数
+    from lingclaude.model.provider_registry import ProviderRegistry
 
+    result = ProviderRegistry.create(name, cfg)
+    if result.is_ok:
+        return result
+
+    # 保留原 fail 文案（含可用 provider 清单 + 使用提示）
+    supported = ", ".join(ProviderRegistry.registered_names())
     return Result.fail(
         f"未知的模型提供商: '{name}'。"
-        f"支持的提供商: openai, anthropic。"
+        f"支持的提供商: {supported}。"
         f"可通过 provider_name 参数指定，或在 config.yaml 的 model.provider 中设置"
     )
 
