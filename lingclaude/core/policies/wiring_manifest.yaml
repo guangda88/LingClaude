@@ -1,0 +1,235 @@
+# WIRING_MANIFEST 数据化（灵元 1.0：装配是 data，不是代码）
+# 生成自 lingclaude/core/wiring.py WIRING_MANIFEST（57 项，逐字对齐）
+# phase: state(26 永不下放插片) | collaborator(29 插片候选) | parameterized(2 构造注入)
+# factory 为工厂函数名，解析见 wiring.py _FACTORY_REGISTRY；空表示 lambda/内置构造
+# 改装配结构：优先改此文件；新增工厂函数才动代码
+
+manifest:
+  - attr: _messages
+    factory: 
+    phase: state
+    note: "对话消息缓冲 list[str]"
+  - attr: _conversation
+    factory: 
+    phase: state
+    note: "轮次记录 list[tuple]"
+  - attr: _denials
+    factory: 
+    phase: state
+    note: "PermissionDenial 累积"
+  - attr: _transcript
+    factory: 
+    phase: state
+    note: "转写缓冲"
+  - attr: _project_index
+    factory: 
+    phase: state
+    note: "项目索引缓存"
+  - attr: _model_config
+    factory: 
+    phase: state
+    note: "当前模型配置槽"
+  - attr: _journal_dir
+    factory: 
+    phase: state
+    note: "R5 journal 目录覆盖(测试注入点)"
+  - attr: _model_router
+    factory: 
+    phase: state
+    note: "模型路由槽"
+  - attr: _intel_relay
+    factory: 
+    phase: state
+    note: "情报中继槽"
+  - attr: _session_history_path
+    factory: 
+    phase: state
+    note: "会话历史落点"
+  - attr: _mcp_initialized
+    factory: 
+    phase: state
+    note: "MCP 初始化标志"
+  - attr: _active_checkpoint
+    factory: 
+    phase: state
+    note: "活动 checkpoint 路径"
+  - attr: _session_cache_hits
+    factory: 
+    phase: state
+    note: "缓存命中计数"
+  - attr: _tool_call_count
+    factory: 
+    phase: state
+    note: "工具调用计数"
+  - attr: _tool_call_log
+    factory: 
+    phase: state
+    note: "工具调用日志(L5白箱证据)"
+  - attr: _total_messages_sent
+    factory: 
+    phase: state
+    note: "消息发送计数"
+  - attr: _l1_last_triggered_at
+    factory: 
+    phase: state
+    note: "L1 上次触发轮次"
+  - attr: _l1_handover_checksum
+    factory: 
+    phase: state
+    note: "L1 交接校验和"
+  - attr: _degradation_alerts
+    factory: 
+    phase: state
+    note: "退化告警累积"
+  - attr: _memory_engine
+    factory: 
+    phase: state
+    note: "T0-4 死接线已移除，槽位保留"
+  - attr: _l5_orchestrator
+    factory: 
+    phase: state
+    note: "L5 编排器 lazy init 槽"
+  - attr: _pinned_model_config
+    factory: 
+    phase: state
+    note: "钉定模型槽"
+  - attr: _pinned_model_expires
+    factory: 
+    phase: state
+    note: "钉定模型过期时间戳"
+  - attr: _mv1_violations
+    factory: 
+    phase: state
+    note: "D8 MV1 违规记录(灵信 L-b seq 归因)"
+  - attr: _usage
+    factory: 
+    phase: state
+    note: "UsageSummary 累积"
+  - attr: _behavior
+    factory: _make_behavior
+    phase: collaborator
+    note: "行为指标"
+  - attr: _intel_collector
+    factory: _make_intel_collector
+    phase: collaborator
+    note: "情报收集"
+  - attr: _session_persister
+    factory: _make_session_persister
+    phase: collaborator
+    note: "会话持久化委托"
+  - attr: _session_runtime
+    factory: _make_session_runtime
+    phase: collaborator
+    note: "会话运行时委托"
+  - attr: _router
+    factory: _make_router
+    phase: collaborator
+    note: "智能路由"
+  - attr: _task_router
+    factory: _make_task_router
+    phase: collaborator
+    note: "任务路由"
+  - attr: _tool_router
+    factory: _make_tool_router
+    phase: collaborator
+    note: "工具路由(create_default_router)"
+  - attr: _cache
+    factory: _make_cache
+    phase: collaborator
+    note: "上下文缓存 100/24h"
+  - attr: _aggregator
+    factory: _make_aggregator
+    phase: collaborator
+    note: "任务聚合 max_group=5"
+  - attr: _monitor
+    factory: _make_monitor
+    phase: collaborator
+    note: "token 监控"
+  - attr: _prior_verifier
+    factory: _make_prior_verifier
+    phase: collaborator
+    note: "先验校验"
+  - attr: _meta_cognition
+    factory: _make_meta_cognition
+    phase: collaborator
+    note: "元认知"
+  - attr: _layered_memory
+    factory: _make_layered_memory
+    phase: collaborator
+    note: "分层记忆"
+  - attr: _dementia_detector
+    factory: _make_dementia_detector
+    phase: collaborator
+    note: "失智检测"
+  - attr: _cognitive_rhythm
+    factory: _make_cognitive_rhythm
+    phase: collaborator
+    note: "认知节律"
+  - attr: _hooks
+    factory: _make_hooks
+    phase: collaborator
+    note: "钩子管理"
+  - attr: _degradation_detector
+    factory: _make_degradation_detector
+    phase: collaborator
+    note: "退化检测"
+  - attr: _task_manager
+    factory: _make_task_manager
+    phase: collaborator
+    note: "任务管理"
+  - attr: _skill_index
+    factory: _make_skill_index
+    phase: collaborator
+    note: "T0-4 skill match 预处理"
+  - attr: _role_checker
+    factory: _make_role_checker
+    phase: collaborator
+    note: "角色分离"
+  - attr: _l5_loop
+    factory: _make_l5_loop
+    phase: collaborator
+    note: "L5 对话循环"
+  - attr: _notifier
+    factory: _make_notifier
+    phase: collaborator
+    note: "邮箱通知"
+  - attr: session_store
+    factory: _make_session_store
+    phase: collaborator
+    note: "D3 拆包注入(公开属性)"
+  - attr: state_store
+    factory: _make_state_store
+    phase: collaborator
+    note: "P3 状态存储接缝(JsonFileBackend/LingYiBackend)"
+  - attr: model_adapter
+    factory: _make_model_adapter
+    phase: collaborator
+    note: "D3 模型调用 seam"
+  - attr: audit_collector
+    factory: _make_audit_collector
+    phase: collaborator
+    note: "D3 审计收集"
+  - attr: model_request_log
+    factory: _make_model_request_log
+    phase: collaborator
+    note: "D3 请求日志"
+  - attr: _tool_executor
+    factory: _make_tool_executor
+    phase: collaborator
+    note: "T3-3 工具执行器"
+  - attr: _tool_call_executor
+    factory: _make_tool_call_executor
+    phase: collaborator
+    note: "T1-3 并行/顺序分流执行"
+  - attr: _write_lock
+    factory: 
+    phase: state
+    note: "T1-3 写工具序列化锁"
+  - attr: _provider
+    factory: 
+    phase: parameterized
+    note: "模型 provider"
+  - attr: _runtime
+    factory: 
+    phase: parameterized
+    note: "运行时"

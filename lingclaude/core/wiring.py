@@ -58,6 +58,72 @@ class WiringSpec:
     note: str = ""
 
 
+# manifest 数据文件路径（灵元：装配是 data，不是代码）
+_MANIFEST_YAML_PATH = Path(__file__).parent / "policies" / "wiring_manifest.yaml"
+
+# factory 名称 → 工厂函数注册表（collaborator 用；state 用 lambda 构造）
+# 新增协作者：在此注册 + manifest YAML 加一行，主干 diff 为 0
+_FACTORY_REGISTRY: dict[str, Callable[[WiringContext], Any]] = {}
+
+
+def _load_manifest_yaml() -> list[dict[str, Any]] | None:
+    """从 YAML 加载 manifest 条目（灵元：装配是 data）。
+
+    读失败（文件缺失/解析错误/缺 attr）返回 None → 调用方回退代码内
+    WIRING_MANIFEST（graceful degrade）。P1 接入 PolicyLoader 后支持热更。
+    """
+    try:
+        import yaml
+        with open(_MANIFEST_YAML_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        items = data.get("manifest", [])
+        if not isinstance(items, list) or not items:
+            return None
+        # 校验每项必须有 attr
+        for it in items:
+            if not isinstance(it, dict) or not it.get("attr"):
+                return None
+        return items
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _build_manifest_from_yaml() -> tuple[WiringSpec, ...] | None:
+    """由 YAML 构建 WiringSpec 元组。
+
+    collaborator 条目经 _FACTORY_REGISTRY 解析工厂；state/parameterized
+    条目由 _yaml_lambda_factory 按字符串构造（与代码内 WIRING_MANIFEST
+    的 lambda 语义一致）。
+    """
+    items = _load_manifest_yaml()
+    if items is None:
+        return None
+    specs: list[WiringSpec] = []
+    for it in items:
+        attr: str = it["attr"]
+        phase: str = it.get("phase", "collaborator")
+        note: str = it.get("note", "")
+        fname: str = it.get("factory", "") or ""
+        if phase == "collaborator" and fname in _FACTORY_REGISTRY:
+            factory = _FACTORY_REGISTRY[fname]
+        else:
+            # state/parameterized 或注册表缺失 → lambda 构造
+            factory = _yaml_lambda_factory(phase, attr, fname)
+        specs.append(WiringSpec(attr=attr, factory=factory, phase=phase, note=note))
+    return tuple(specs)
+
+
+def _yaml_lambda_factory(phase: str, attr: str, fname: str) -> Callable[[WiringContext], Any]:
+    """YAML 中无注册表工厂的条目 → 复用代码内 WIRING_MANIFEST 的对应 lambda。
+
+    从代码内 manifest 找同名 attr 的 factory，找不到则返回 None 工厂（装配时置 None）。
+    """
+    for spec in WIRING_MANIFEST:
+        if spec.attr == attr:
+            return spec.factory
+    return lambda ctx: None  # type: ignore[return-value]
+
+
 def _make_session_store(ctx: WiringContext) -> Any:
     # 原位：__init__ 内 D3 注入段（模块级导入，延迟到工厂调用时）
     from lingclaude.core.session_store import SessionStore
@@ -321,9 +387,60 @@ def _make_usage() -> Any:
     return UsageSummary()
 
 
+# ---------------------------------------------------------------------------
+# 工厂注册表填充（灵元：插片 = type registry，装配 = data）
+# 每个 collaborator 工厂在定义后注册；YAML manifest 经此解析 factory_name。
+# 新增协作者：定义 _make_xxx + 注册一行 + manifest YAML 加一行，主干 diff 0。
+# ---------------------------------------------------------------------------
+_FACTORY_REGISTRY.update(
+    {
+        f.__name__: f
+        for f in (
+            _make_behavior,
+            _make_intel_collector,
+            _make_session_persister,
+            _make_session_runtime,
+            _make_router,
+            _make_task_router,
+            _make_tool_router,
+            _make_cache,
+            _make_aggregator,
+            _make_monitor,
+            _make_prior_verifier,
+            _make_meta_cognition,
+            _make_layered_memory,
+            _make_dementia_detector,
+            _make_cognitive_rhythm,
+            _make_hooks,
+            _make_degradation_detector,
+            _make_task_manager,
+            _make_skill_index,
+            _make_role_checker,
+            _make_l5_loop,
+            _make_notifier,
+            _make_session_store,
+            _make_state_store,
+            _make_model_adapter,
+            _make_audit_collector,
+            _make_model_request_log,
+            _make_tool_executor,
+            _make_tool_call_executor,
+        )
+    }
+)
+
+
+def _manifest_or_yaml() -> tuple[WiringSpec, ...]:
+    """优先 YAML manifest，读失败回退代码内 WIRING_MANIFEST（graceful degrade）。"""
+    yaml_manifest = _build_manifest_from_yaml()
+    if yaml_manifest is not None:
+        return yaml_manifest
+    return WIRING_MANIFEST
+
+
 def assemble(
     ctx: WiringContext,
-    manifest: tuple[WiringSpec, ...] = WIRING_MANIFEST,
+    manifest: tuple[WiringSpec, ...] = None,  # type: ignore[assignment]
     overrides: dict[str, Any] | None = None,
 ) -> list[str]:
     """按 manifest 装配 engine 属性，返回实际装配的属性名列表。
@@ -336,6 +453,8 @@ def assemble(
     （attr -> 实例），命中条目跳过工厂构造 —— 全部协作者（含 state 条目）无需 patch
     内部即可替换，这是装配层暴露给测试/宿主的标准接缝。
     """
+    if manifest is None:
+        manifest = _manifest_or_yaml()
     wired: list[str] = []
     for spec in manifest:
         if overrides and spec.attr in overrides:
