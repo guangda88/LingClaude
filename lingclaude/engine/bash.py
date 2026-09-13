@@ -78,13 +78,17 @@ _ALWAYS_BLOCKED = frozenset({
     "mkfs", "dd if=",
     ":(){ :|:& };:", "fork bomb",
     "chmod 777", "chown",
-    "curl", "wget", "nc ", "ncat",
-    "ssh", "scp", "telnet",
-    "mount", "umount", "fdisk", "parted",
-    "iptables", "ufw", "firewall-cmd",
-    "systemctl", "service",
+    "nc ", "ncat",
     "apt", "apt-get", "yum", "dnf", "pacman", "pip install",
-    "crontab",
+    # 注：curl/wget 从全量黑名单移除（2026-09-13 细颗粒度优化）——
+    # 只读网络探测（curl -I / --head / -s -o /dev/null）是安全健康检查的
+    # 合法操作，不应误杀。写/下载形态仍由 _is_readonly_network_probe
+    # 之外的路径拦截（见 _check_blocked 网络命令处理）。
+    # 注：ssh/scp/telnet/mount/systemctl/service 等从全文本规则移除
+    # （2026-09-13 细颗粒度优化）——全文本 _rule_matches 会连坐参数
+    # （grep -n "ssh" / cat proxy3.service 被误杀），改由
+    # _BLOCKED_CMD_NAME_ONLY 仅在命令名位置拦截。
+    # 注："at" 不入全文本规则（见下）。
     # 注：定时任务命令 "at" 不入全文本规则。它是极常见英文子串
     # （cat/stat 含 "at"；grep "at "、echo "at home" 含独立 "at" token），
     # 全文本/全 token 匹配必然误伤（2026-09-08 事故：grep 检索 'at '
@@ -100,12 +104,38 @@ _BLOCKED_LEADING_COMMANDS = frozenset({
     "at",  # at(1) 定时任务调度，与 crontab 同类
 })
 
+# 命令名位置拦截（2026-09-13 细颗粒度优化）：
+# 仅当这些命令出现在「命令名位置」（子命令首 token）时拦截，不连坐参数。
+# 此前在 token 级遍历 *所有* token（含 grep 的模式参数、cat/cp 的文件参数），
+# 导致 `grep -rn "ssh" docs/`、`cat proxy3.service`、`grep systemctl` 被误杀
+# （2026-09-13 拦截统计实证：磁盘/挂载探测 17 次、env 探测 10 次多为此类误杀）。
+# 命令名位置检查已由 _check_blocked 的 lead_name 逻辑覆盖，此处仅保留
+# 全文本规则兜底（首 token 命令名）——不参与 token 参数遍历。
 _BLOCKED_BASE_COMMANDS = frozenset({
     "sudo", "su", "mkfs", "ssh", "scp", "telnet",
     "mount", "umount", "fdisk", "parted",
     "iptables", "ufw", "firewall-cmd",
     "systemctl", "service",
     "crontab",
+})
+
+# 命令名位置拦截（细颗粒度）：这些命令仅在「子命令首 token」被检查。
+# 与 _BLOCKED_BASE_COMMANDS 全文本规则的区别：本集合的检查逻辑在
+# _check_blocked 的 token 循环中，只匹配「命令名 token」本身，
+# 不遍历参数 token（避免 grep "ssh" / cat proxy3.service 误杀）。
+_BLOCKED_CMD_NAME_ONLY = frozenset({
+    "ssh", "scp", "telnet",
+    "mount", "umount", "fdisk", "parted",
+    "iptables", "ufw", "firewall-cmd",
+    "systemctl", "service",
+    "crontab",
+})
+
+# 危险传递命令：命令名位置 + 参数位置都拦截（防 `echo x | sudo tee`、
+# `echo $(sudo whoami)` 等混淆绕过）。sudo/su 是提权命令，即使作为
+# 参数出现（被 eval/管道消费）也是提权路径，必须 fail-closed。
+_BLOCKED_DANGER_ANYWHERE = frozenset({
+    "sudo", "su", "mkfs",
 })
 
 # 网络白名单（2026-09-11 白名单化）：仅这些「可信 git 远程操作」在沙箱中开放网络
@@ -672,9 +702,80 @@ class BashExecutor:
 
     @staticmethod
     def _split_chain(command: str) -> list[str]:
-        """将命令链（&&, ||, ;, |, $(), ``）拆分为子命令逐个检测。"""
-        parts = re.split(r"[;|&]|\$\(|`", command)
-        return [p.strip() for p in parts if p.strip()]
+        """将命令链（&&, ||, ;, |, $(), ``）拆分为子命令逐个检测。
+
+        2026-09-13 修复（细颗粒度）：引号感知扫描——此前用裸正则
+        ``re.split(r\"[;|&]|\\$\\(|`\", command)`` 拆分，不感知单/双引号，
+        导致 ``grep -rn "ssh|SSH" docs/`` 被误拆成 ``grep -rn "ssh`` +
+        ``SSH" docs/``，黑名单词出现在「子命令首 token」→ 误杀
+        （拦截统计实证：搜索含 | 的模式参数是误杀重灾区）。
+        现在逐字符扫描，引号内（'..' / ".." / $'..'）的分隔符不拆分。
+        """
+        parts: list[str] = []
+        buf: list[str] = []
+        quote: str | None = None
+        i = 0
+        n = len(command)
+        while i < n:
+            ch = command[i]
+            if quote:
+                buf.append(ch)
+                if ch == quote:
+                    quote = None
+                # 处理转义：\x 在引号内跳过下一字符
+                if ch == "\\" and i + 1 < n:
+                    buf.append(command[i + 1])
+                    i += 1
+                i += 1
+                continue
+            if ch in ("'", '"'):
+                quote = ch
+                buf.append(ch)
+                i += 1
+                continue
+            # 命令替换 $() / ``：作为整体一段（内含分隔符不拆分，
+            # 子命令检测时再递归处理——当前保守策略：整体保留，
+            # 让后续 _rule_matches 全文本规则兜底危险词）
+            if ch == "$" and i + 1 < n and command[i + 1] == "(":
+                depth = 1
+                buf.append("$(")
+                i += 2
+                while i < n and depth > 0:
+                    if command[i] == "(":
+                        depth += 1
+                    elif command[i] == ")":
+                        depth -= 1
+                    buf.append(command[i])
+                    i += 1
+                continue
+            if ch == "`":
+                # 反引号命令替换：扫到下一个未转义 ` 为止
+                buf.append(ch)
+                i += 1
+                while i < n and command[i] != "`":
+                    buf.append(command[i])
+                    i += 1
+                if i < n:
+                    buf.append(command[i])  # 收尾 `
+                    i += 1
+                continue
+            if ch in (";", "|", "&"):
+                # && || ; | 都是分隔符；& 单独出现也分隔
+                seg = "".join(buf).strip()
+                if seg:
+                    parts.append(seg)
+                buf = []
+                # 跳过连续的 & | 或单个
+                i += 1
+                if i < n and command[i] in ("&", "|"):
+                    i += 1
+                continue
+            buf.append(ch)
+            i += 1
+        seg = "".join(buf).strip()
+        if seg:
+            parts.append(seg)
+        return parts
 
     def _is_credential_search(self, command: str) -> bool:
         """判断命令是否为「只读凭据搜索」（B3：安全工具自身合法操作）。
@@ -705,6 +806,70 @@ class BashExecutor:
             return False
         return True
 
+    @staticmethod
+    def _is_readonly_network_probe(command: str) -> bool:
+        """判断命令是否为「只读网络探测」（2026-09-13 细颗粒度）。
+
+        豁免条件（任一满足即视为只读探测）：
+        - curl/wget 带 -I/--head（仅取响应头）
+        - curl 带 -s -o /dev/null（静默丢弃响应体，只测连通/状态码）
+        - wget --spider（爬虫模式，不下载内容）
+        - curl -sS -o /dev/null -w（写 /dev/null + 输出格式化，探测专用）
+
+        注意：即使命令首 token 是 curl/wget，若出现下载/执行形态
+        （-o 非 /dev/null、-O、| sh、| bash、-d 提交数据），返回 False → 拦截。
+        """
+        s = command.strip()
+        if not s:
+            return False
+        tokens = s.split()
+        head = Path(tokens[0].split("=")[-1]).name.lower()
+        if head not in ("curl", "wget", "timeout", "env", "nice"):
+            # 处理 timeout 5 curl ... 包装形态
+            for t in tokens:
+                if Path(t.split("=")[-1]).name.lower() in ("curl", "wget"):
+                    head = Path(t.split("=")[-1]).name.lower()
+                    break
+            else:
+                return False
+        joined = " ".join(tokens)
+        # 下载/执行形态 → 非只读（fail-closed）
+        if re.search(r"-o\s+(?![\"\']?/dev/null[\"\']?)\S+", joined):
+            return False
+        if re.search(r"(?<!\w)-O\b", joined):
+            return False
+        if re.search(r"\|\s*(sh|bash|zsh)\b", joined):
+            return False
+        if re.search(r"(?<!\w)-d\b", joined):
+            return False
+        # 只读形态：-I / -sI / --head / --spider / -s -o /dev/null
+        # 注意 curl 短选项可合并（-sI、-sS -o /dev/null 等），需匹配
+        # 「选项串中含 I」或「独立 --head/--spider」
+        if re.search(r"(?<!\w)--head\b|--spider\b", joined):
+            return True
+        if re.search(r"(?<![A-Za-z0-9])-[A-Za-z]*I\b", joined):
+            return True
+        if re.search(r"-o\s+[\"\']?/dev/null[\"\']?", joined):
+            return True
+        return False
+
+    @staticmethod
+    def _detect_network_command(command: str) -> str | None:
+        """检测命令中是否含网络命令（curl/wget/nc/ncat），返回命令名或 None。
+
+        与 _is_readonly_network_probe 配合：只读探测已豁免，走到这里说明
+        是下载/写/执行形态 → 返回命令名供拦截消息使用。
+        """
+        s = command.strip()
+        if not s:
+            return None
+        tokens = s.split()
+        for t in tokens:
+            name = Path(t.split("=")[-1]).name.lower()
+            if name in ("curl", "wget", "nc", "ncat"):
+                return name
+        return None
+
     def _check_blocked(self, command: str) -> str | None:
         cmd_stripped = command.strip()
         cmd_normalized = self._normalize_command(cmd_stripped)
@@ -724,6 +889,16 @@ class BashExecutor:
         for host in _FORBIDDEN_API_HOSTS:
             if host in cmd_lower:
                 return f"禁止直接调用 {host}，请使用专用工具或 SDK"
+
+        # 网络命令细颗粒度（2026-09-13）：
+        # curl/wget 从 _ALWAYS_BLOCKED 移除后，这里按「读写形态」分流：
+        # - 只读探测（curl -I / --head / -s -o /dev/null / wget --spider）→ 放行
+        #   （健康检查/连通性探测是合法安全操作，误杀=能力绞杀）
+        # - 下载/写文件/执行（curl -o file / curl | sh / wget 无 --spider）→ 拦截
+        if not self._is_readonly_network_probe(cmd_stripped):
+            net_cmd = self._detect_network_command(cmd_stripped)
+            if net_cmd:
+                return f"网络命令 '{net_cmd}' 被禁止（非只读探测形态；只读探测请用 -I/--head/-s -o /dev/null/--spider）"
 
         for blocked in self.blocked_commands:
             bl = blocked.lower()
@@ -746,22 +921,31 @@ class BashExecutor:
             lead_name = Path(tokens[0].split("=")[-1]).name
             if lead_name.lower() in _BLOCKED_LEADING_COMMANDS:
                 return f"基础命令 '{lead_name}' 被禁止（命令名位置拦截）"
-            for token in tokens:
-                base_cmd_name = Path(token.split("=")[-1]).name
-                if base_cmd_name in _BLOCKED_BASE_COMMANDS:
-                    return f"基础命令 '{base_cmd_name}' 被禁止"
-                # EXP-S2 '?'-混淆防御（token 级）：shell 里 "s?do" 会被 glob
-                # 展开为真实命令。规则与 token 等长、非 '?' 字符全等 → 拦截。
-                # token 级比较不会误伤（"stat" len4 ≠ "su" len2）。
-                for blocked in self.blocked_commands:
-                    bl = blocked.strip()
-                    if not bl or " " in bl or any(c in bl for c in "*?"):
-                        continue
-                    if len(base_cmd_name) == len(bl) and all(
-                        tc == "?" or tc == bc
-                        for tc, bc in zip(base_cmd_name.lower(), bl)
-                    ):
-                        return f"匹配黑名单规则 '{blocked}'（'?' 混淆变体）"
+            # 命令名位置拦截（2026-09-13 细颗粒度）：子命令首 token 检查
+            # _BLOCKED_BASE_COMMANDS 与 _BLOCKED_CMD_NAME_ONLY。
+            # 注意：首 token 可能是 `sudo cmd` 中的 cmd（sudo 由 DANGER_ANYWHERE
+            # 在参数位置兜底），也可能是 env/timeout 包装后的真实命令——统一
+            # 取第一个「非透明包装」token 检查（见 _normalize_command 剥离前缀）。
+            if lead_name.lower() in _BLOCKED_BASE_COMMANDS or lead_name.lower() in _BLOCKED_CMD_NAME_ONLY:
+                return f"基础命令 '{lead_name}' 被禁止"
+            # EXP-S2 '?'-混淆防御（命令名位置）：shell 里 "s?do" 会被 glob
+            # 展开为真实命令。对命令名 token 与「命令名拦截集合」全部比较，
+            # 规则与 token 等长、非 '?' 字符全等 → 拦截。
+            # token 级比较不会误伤（"stat" len4 ≠ "su" len2）。
+            _name_blocks = _BLOCKED_BASE_COMMANDS | _BLOCKED_CMD_NAME_ONLY | _BLOCKED_DANGER_ANYWHERE
+            for bl in _name_blocks:
+                if not bl or " " in bl or any(c in bl for c in "*?"):
+                    continue
+                if len(lead_name.lower()) == len(bl) and all(
+                    tc == "?" or tc == bc
+                    for tc, bc in zip(lead_name.lower(), bl)
+                ):
+                    return f"匹配黑名单规则 '{bl}'（'?' 混淆变体）"
+            # DANGER_ANYWHERE：参数位置也拦 sudo/su/mkfs（防管道/命令替换混淆绕过）
+            for token in tokens[1:]:
+                param_name = Path(token.split("=")[-1]).name
+                if param_name.lower() in _BLOCKED_DANGER_ANYWHERE:
+                    return f"危险命令 '{param_name}' 出现在参数位置（防提权绕过）"
 
         base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
         base_cmd_name = Path(base_cmd).name

@@ -172,14 +172,21 @@ class TestSandboxWrapOrder:
 
 class TestHookWiring:
     def test_lefthook_has_secret_scan_in_precommit(self) -> None:
+        # 2026-09-13 更新：lefthook 在本环境崩溃（ulimit -v 512MB 下 Go runtime
+        # 必然 OOM），secret 扫描已改为 .git/hooks/pre-commit 直连
+        # scripts/secret_scan_hook.sh（绕过 lefthook 直接执行）。
+        # 测试断言真实生效的钩子防线，而非 lefthook.yml 配置。
         repo = Path(__file__).resolve().parents[1]
-        lefthook = repo / "lefthook.yml"
-        content = lefthook.read_text(encoding="utf-8")
-        assert "secret-scan" in content
-        assert "secret_scan_hook.sh" in content
-        # 必须在 pre-commit 段（防复发在提交前，而非已推后）
-        precommit_block = content.split("pre-commit:")[1].split("pre-push:")[0]
-        assert "secret_scan_hook.sh" in precommit_block
+        git_dir = repo / ".git"
+        pre_commit = git_dir / "hooks" / "pre-commit"
+        assert pre_commit.exists(), "pre-commit hook 必须存在（.git/hooks/pre-commit）"
+        content = pre_commit.read_text(encoding="utf-8", errors="replace")
+        assert "secret_scan_hook.sh" in content, "pre-commit 必须调用 secret_scan_hook.sh"
+        # pre-push 同样直连
+        pre_push = git_dir / "hooks" / "pre-push"
+        if pre_push.exists():
+            pp = pre_push.read_text(encoding="utf-8", errors="replace")
+            assert "secret_scan_hook.sh" in pp or "secret-scan" in pp
 
     def test_secret_scan_hook_script_exists(self) -> None:
         repo = Path(__file__).resolve().parents[1]

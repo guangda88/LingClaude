@@ -22,7 +22,16 @@ except ImportError:  # pragma: no cover — bash.py 结构性改名时兜底
     _BASH_ALWAYS_BLOCKED = frozenset({"sudo", "su", "mkfs", "curl", "wget", "ssh", "scp"})
     _BASH_BLOCKED_BASE_COMMANDS = frozenset({"sudo", "su", "mkfs"})
 
-_DEFAULT_LINGXI_BLOCKED: tuple[str, ...] = tuple(sorted(_BASH_ALWAYS_BLOCKED | _BASH_BLOCKED_BASE_COMMANDS))
+# 2026-09-13 细颗粒度优化对齐：
+# bash.py 的 _ALWAYS_BLOCKED 已移除 curl/wget/ssh 等（改为命令名位置拦截 +
+# 只读探测豁免）。但 bash_lingxi 是简单全文本黑名单（无 token 级/只读豁免逻辑），
+# 若直接复用会导致 curl/wget/ssh 完全不拦——旁路风险。故在此**补回**危险网络
+# 命令到 lingxi 默认黑名单（保守 fail-closed；lingxi 后端无细颗粒度时宁拦勿放）。
+_NETWORK_BLOCKED_FALLBACK = frozenset({"curl", "wget", "nc", "ncat", "ssh", "scp", "telnet"})
+
+_DEFAULT_LINGXI_BLOCKED: tuple[str, ...] = tuple(
+    sorted(_BASH_ALWAYS_BLOCKED | _BASH_BLOCKED_BASE_COMMANDS | _NETWORK_BLOCKED_FALLBACK)
+)
 
 
 @dataclass(frozen=True)

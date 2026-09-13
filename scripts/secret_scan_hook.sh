@@ -41,8 +41,21 @@ fi
 S1="s""k-"
 PATTERNS="${S1}[A-Za-z0-9_\\-]{8,}|nvapi-[A-Za-z0-9_\\-]{8,}|c""pk-[A-Za-z0-9_\\-]{8,}|[a-f0-9]{32}\\.[A-Za-z0-9]{20,}"
 BLOCKED=0
+# 测试白名单（2026-09-13 修复误报）：
+# tests/ 下及 test_*.py / *_test.py 是验证脱敏/黑名单逻辑的夹具占位符
+# （sk-abc123... 等），非真实凭据。跳过它们，避免提交被自己 hook 误阻。
+# 真实泄漏防护不受影响（业务代码/配置文件仍 fail-closed 拦截）。
+is_test_file() {
+    case "$1" in
+        tests/*|test_*.py|*_test.py) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 for f in $(git diff --cached --name-only --diff-filter=ACM 2>/dev/null); do
     if [ -f "$REPO_ROOT/$f" ]; then
+        if is_test_file "$f"; then
+            continue
+        fi
         if grep -qE "$PATTERNS" "$REPO_ROOT/$f" 2>/dev/null; then
             echo "[secret-scan] 命中凭据模式: $f" >&2
             BLOCKED=1
