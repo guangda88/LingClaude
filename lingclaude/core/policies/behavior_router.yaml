@@ -1,0 +1,14 @@
+default_strategy: standard
+error_rate:
+  high_threshold: 0.4
+  medium_threshold: 0.2
+frustration:
+  high_threshold: 0.5
+  medium_threshold: 0.2
+hallucination:
+  high_threshold: 0.7
+  medium_threshold: 0.3
+model_priority:
+  error: 0.6
+  frustration: 0.8
+  hallucination: 1.0

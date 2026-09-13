@@ -12,7 +12,8 @@ Key Features:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
@@ -35,29 +36,108 @@ class BehaviorRouterStrategy(str, Enum):
     AGGRESSIVE = "aggressive"  # Prioritize efficiency over accuracy
 
 
+_POLICY_PATH = os.path.join(
+    os.path.dirname(__file__), "policies", "behavior_router.yaml"
+)
+
+
+def _load_policy() -> dict:
+    """从策略文件加载阈值（灵元：策略是 data，不是结构）。
+
+    读失败（文件缺失/解析错误）回退内置默认，保证 graceful degrade。
+    默认值与 YAML 完全一致，零行为变化。
+    """
+    try:
+        import yaml
+        with open(_POLICY_PATH, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _policy_float(policy: dict, section: str, key: str, default: float) -> float:
+    """从策略数据取 float，缺失回退默认。"""
+    try:
+        return float(policy[section][key])
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
 @dataclass
 class BehaviorRoutingConfig:
-    """Configuration for behavior-aware routing."""
+    """Configuration for behavior-aware routing.
 
-    # Hallucination thresholds
-    high_hallucination_threshold: float = 0.7  # Force GLM-5.1 when above
-    medium_hallucination_threshold: float = 0.3  # Adjust routing when above
+    阈值来自策略文件（lingclaude/core/policies/behavior_router.yaml）。
+    - 未显式传值的字段 → 读策略文件（缺失回退内置默认，graceful degrade）
+    - 显式传值的字段 → 保留调用方值，不被 YAML 覆盖
+    改阈值只改 YAML，不动代码。
+    """
 
-    # Frustration thresholds
-    high_frustration_threshold: float = 0.5  # Prioritize accuracy when above
-    medium_frustration_threshold: float = 0.2  # Adjust routing when above
+    # 字段默认 None 表示"未显式设置"，由 __post_init__ 从策略文件填充
+    high_hallucination_threshold: Optional[float] = None  # Force GLM-5.1 when above
+    medium_hallucination_threshold: Optional[float] = None  # Adjust routing when above
+    high_frustration_threshold: Optional[float] = None  # Prioritize accuracy when above
+    medium_frustration_threshold: Optional[float] = None  # Adjust routing when above
+    high_error_threshold: Optional[float] = None  # Reduce complexity when above
+    medium_error_threshold: Optional[float] = None  # Adjust routing when above
+    hallucination_model_priority: Optional[float] = None  # Weight for hallucination
+    frustration_model_priority: Optional[float] = None  # Weight for frustration
+    error_model_priority: Optional[float] = None  # Weight for error rate
+    default_strategy: Optional[BehaviorRouterStrategy] = None
 
-    # Error rate thresholds
-    high_error_threshold: float = 0.4  # Reduce complexity when above
-    medium_error_threshold: float = 0.2  # Adjust routing when above
+    # 策略数据（启动时加载一次；P1 接入 PolicyLoader 后支持热更）
+    _policy: dict = field(default_factory=_load_policy, repr=False, compare=False)
 
-    # Model selection priorities
-    hallucination_model_priority: float = 1.0  # Weight for hallucination risk
-    frustration_model_priority: float = 0.8  # Weight for frustration
-    error_model_priority: float = 0.6  # Weight for error rate
+    # 内置默认（YAML 缺失或未设置时回退，与 YAML 值一致）
+    _DEFAULTS: dict = field(
+        default_factory=lambda: {
+            "high_hallucination_threshold": 0.7,
+            "medium_hallucination_threshold": 0.3,
+            "high_frustration_threshold": 0.5,
+            "medium_frustration_threshold": 0.2,
+            "high_error_threshold": 0.4,
+            "medium_error_threshold": 0.2,
+            "hallucination_model_priority": 1.0,
+            "frustration_model_priority": 0.8,
+            "error_model_priority": 0.6,
+        },
+        repr=False,
+        compare=False,
+    )
 
-    # Default strategy
-    default_strategy: BehaviorRouterStrategy = BehaviorRouterStrategy.STANDARD
+    # YAML 路径映射（policy 文件 section/key → 字段名）
+    _POLICY_MAP: tuple = (
+        ("hallucination", "high_threshold", "high_hallucination_threshold"),
+        ("hallucination", "medium_threshold", "medium_hallucination_threshold"),
+        ("frustration", "high_threshold", "high_frustration_threshold"),
+        ("frustration", "medium_threshold", "medium_frustration_threshold"),
+        ("error_rate", "high_threshold", "high_error_threshold"),
+        ("error_rate", "medium_threshold", "medium_error_threshold"),
+        ("model_priority", "hallucination", "hallucination_model_priority"),
+        ("model_priority", "frustration", "frustration_model_priority"),
+        ("model_priority", "error", "error_model_priority"),
+    )
+
+    def __post_init__(self) -> None:
+        """填充未显式设置的字段：策略文件 → 内置默认。"""
+        p = self._policy or {}
+        for section, key, attr in self._POLICY_MAP:
+            # 已显式设置 → 保留
+            if getattr(self, attr) is not None:
+                continue
+            # 策略文件 → 内置默认
+            try:
+                setattr(self, attr, float(p[section][key]))
+            except (KeyError, TypeError, ValueError):
+                setattr(self, attr, self._DEFAULTS[attr])
+        # default_strategy 特殊处理（枚举）
+        if self.default_strategy is None:
+            try:
+                strat = str(p.get("default_strategy", "")).lower()
+                self.default_strategy = BehaviorRouterStrategy(strat)
+            except (ValueError, TypeError):
+                self.default_strategy = BehaviorRouterStrategy.STANDARD
 
 
 class BehaviorAwareRouter:
