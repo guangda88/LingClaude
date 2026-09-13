@@ -127,22 +127,18 @@ class DeclarationExtractor:
     灵极优不可用时回退到内置副本 (与灵极优保持 1:1 同步, 15 个).
     """
 
-    # 策略文件路径（灵元：策略是 data）
-    _POLICY_PATH = os.path.join(
-        os.path.dirname(__file__), "policies", "claim_patterns.yaml"
-    )
-
     @classmethod
     def _load_policy_patterns(cls) -> list[dict[str, Any]]:
-        """从策略文件加载模式（YAML），失败回退空列表。"""
-        try:
-            import yaml
-            with open(cls._POLICY_PATH, encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            patterns = data.get("patterns", [])
-            return [p for p in patterns if isinstance(p, dict) and "regex" in p]
-        except Exception:  # noqa: BLE001
-            return []
+        """从策略文件加载模式（YAML），失败回退空列表。
+
+        P1-1: 走 PolicyLoader 统一加载，改 claim_patterns.yaml 后
+        下次 L10-A 生效，进程不重启。
+        """
+        from lingclaude.core.policy_loader import get as policy_get
+
+        data = policy_get("claim_patterns")
+        patterns = data.get("patterns", [])
+        return [p for p in patterns if isinstance(p, dict) and "regex" in p]
 
     # 内置副本 (与灵极优 CLAIM_PATTERNS 1:1 同步, 灵极优不可用时回退)
 

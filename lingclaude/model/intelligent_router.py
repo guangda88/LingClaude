@@ -19,22 +19,16 @@ from pathlib import Path
 from typing import Any
 
 
-
-_POLICY_PATH = Path(__file__).parent.parent / "core" / "policies" / "router_keywords.yaml"
-
-
 def _load_policy() -> dict:
     """从策略文件加载关键词（灵元：策略是 data，不是结构）。
 
-    读失败（文件缺失/解析错误）回退空 dict → 调用方用内置默认。
+    走 PolicyLoader 统一加载（P1-1）：支持 mtime watch 热更，改
+    router_keywords.yaml 后下个 turn 生效，进程不重启。
+    读失败回退空 dict → 调用方用内置默认（graceful degrade）。
     """
-    try:
-        import yaml
-        with open(_POLICY_PATH, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return data
-    except Exception:  # noqa: BLE001
-        return {}
+    from lingclaude.core.policy_loader import get as policy_get
+
+    return policy_get("router_keywords")
 
 
 _POLICY = _load_policy()

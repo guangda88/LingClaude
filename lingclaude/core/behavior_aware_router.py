@@ -12,7 +12,6 @@ Key Features:
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -36,24 +35,16 @@ class BehaviorRouterStrategy(str, Enum):
     AGGRESSIVE = "aggressive"  # Prioritize efficiency over accuracy
 
 
-_POLICY_PATH = os.path.join(
-    os.path.dirname(__file__), "policies", "behavior_router.yaml"
-)
-
-
 def _load_policy() -> dict:
     """从策略文件加载阈值（灵元：策略是 data，不是结构）。
 
-    读失败（文件缺失/解析错误）回退内置默认，保证 graceful degrade。
-    默认值与 YAML 完全一致，零行为变化。
+    走 PolicyLoader 统一加载（P1-1）：支持 mtime watch 热更，改
+    behavior_router.yaml 后下个 turn 生效，进程不重启。
+    读失败回退内置默认（graceful degrade），默认值与 YAML 完全一致。
     """
-    try:
-        import yaml
-        with open(_POLICY_PATH, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        return data
-    except Exception:  # noqa: BLE001
-        return {}
+    from lingclaude.core.policy_loader import get as policy_get
+
+    return policy_get("behavior_router")
 
 
 def _policy_float(policy: dict, section: str, key: str, default: float) -> float:

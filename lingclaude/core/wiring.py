@@ -58,8 +58,8 @@ class WiringSpec:
     note: str = ""
 
 
-# manifest 数据文件路径（灵元：装配是 data，不是代码）
-_MANIFEST_YAML_PATH = Path(__file__).parent / "policies" / "wiring_manifest.yaml"
+# manifest 数据文件路径（灵元：装配是 data，不是代码；P1-1 起由 PolicyLoader
+# 统一管理 lingclaude/core/policies/*.yaml，见 policy_loader.py）
 
 # factory 名称 → 工厂函数注册表（collaborator 用；state 用 lambda 构造）
 # 新增协作者：在此注册 + manifest YAML 加一行，主干 diff 为 0
@@ -69,23 +69,22 @@ _FACTORY_REGISTRY: dict[str, Callable[[WiringContext], Any]] = {}
 def _load_manifest_yaml() -> list[dict[str, Any]] | None:
     """从 YAML 加载 manifest 条目（灵元：装配是 data）。
 
-    读失败（文件缺失/解析错误/缺 attr）返回 None → 调用方回退代码内
-    WIRING_MANIFEST（graceful degrade）。P1 接入 PolicyLoader 后支持热更。
+    走 PolicyLoader 统一加载（P1-1）：支持 mtime watch 热更，改
+    wiring_manifest.yaml 后下次装配生效，进程不重启。读失败（文件缺失/
+    解析错误/缺 attr）返回 None → 调用方回退代码内 WIRING_MANIFEST
+    （graceful degrade）。
     """
-    try:
-        import yaml
-        with open(_MANIFEST_YAML_PATH, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        items = data.get("manifest", [])
-        if not isinstance(items, list) or not items:
-            return None
-        # 校验每项必须有 attr
-        for it in items:
-            if not isinstance(it, dict) or not it.get("attr"):
-                return None
-        return items
-    except Exception:  # noqa: BLE001
+    from lingclaude.core.policy_loader import get as policy_get
+
+    data = policy_get("wiring_manifest")
+    items = data.get("manifest", [])
+    if not isinstance(items, list) or not items:
         return None
+    # 校验每项必须有 attr
+    for it in items:
+        if not isinstance(it, dict) or not it.get("attr"):
+            return None
+    return items
 
 
 def _build_manifest_from_yaml() -> tuple[WiringSpec, ...] | None:
