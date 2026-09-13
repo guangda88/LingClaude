@@ -1,0 +1,70 @@
+# L10-A 执行声明提取模式（灵元 1.0：策略是 data，不是结构）
+# 来源：与灵极优 lingyuan.l10_trust_anchor.CLAIM_PATTERNS 1:1 同步（15 个）
+# 原则：改正则只改此文件，不动代码。加载优先级：
+#   1. 调用方显式传入（测试用）
+#   2. 灵极优 CLAIM_PATTERNS（L10-B 可用时）
+#   3. 本 YAML（策略文件，灵极优不可用时）
+#   4. 代码内 _FALLBACK_PATTERNS（最终兜底，与 YAML 保持同步）
+# 生效时机：启动时读取；P1 接入 PolicyLoader 后支持 mtime watch 热更。
+
+patterns:
+  - pattern_id: notified
+    regex: '已(?:通知|告知|通告)\s*(.+?)(?:,|。|$)'
+    event_type: claim.notified
+    action: 通知
+  - pattern_id: sent
+    regex: '已(?:发送|投递|回复)\s*(.+?)(?:,|。|$)'
+    event_type: claim.sent
+    action: 发送
+  - pattern_id: created
+    regex: '已(?:创建|建立|发起)\s*(.+?)(?:,|。|$)'
+    event_type: claim.created
+    action: 创建
+  - pattern_id: modified
+    regex: '已(?:修改|更新|编辑|修正)\s*(.+?)(?:,|。|$)'
+    event_type: claim.modified
+    action: 修改
+  - pattern_id: verified
+    regex: '已(?:确认|核实|验证|校对)\s*(.+?)(?:,|。|$)'
+    event_type: claim.verified
+    action: 确认
+  - pattern_id: queried
+    regex: '已(?:查询|检索|读取|拉取)\s*(.+?)(?:,|。|$)'
+    event_type: claim.queried
+    action: 查询
+  - pattern_id: executed
+    regex: '已(?:执行|调用|运行|部署)\s*(.+?)(?:,|。|$)'
+    event_type: claim.executed
+    action: 执行
+  - pattern_id: emitted
+    regex: '已(?:写入|记录|emit)\s*(.+?)(?:,|。|$)'
+    event_type: claim.emitted
+    action: 写入
+  - pattern_id: completed
+    regex: '已(?:完成|落地|通过)\s*(.+?)(?:,|。|$)'
+    event_type: claim.completed
+    action: 完成
+  - pattern_id: deleted
+    regex: '已(?:删除|移除)\s*(.+?)(?:,|。|$)'
+    event_type: claim.deleted
+    action: 删除
+  - pattern_id: checked
+    regex: '已(?:检查|审查|审计)\s*(.+?)(?:,|。|$)'
+    event_type: claim.checked
+    action: 检查
+  - pattern_id: downloaded
+    regex: '已(?:下载|同步)\s*(.+?)(?:,|。|$)'
+    event_type: claim.downloaded
+    action: 下载
+  - pattern_id: uploaded
+    regex: '已(?:上传|推送)\s*(.+?)(?:,|。|$)'
+    event_type: claim.uploaded
+    action: 上传
+  - pattern_id: generated
+    regex: '已(?:生成|产出)\s*(.+?)(?:,|。|$)'
+    event_type: claim.generated
+    action: 生成
+  - pattern_id: installed
+    regex: '已(?:安装|配置|设置)\s*(.+?)(?:,|。|$)'
+    event_type: claim.installed
+    action: 安装

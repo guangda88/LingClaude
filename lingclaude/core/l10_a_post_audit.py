@@ -127,7 +127,25 @@ class DeclarationExtractor:
     灵极优不可用时回退到内置副本 (与灵极优保持 1:1 同步, 15 个).
     """
 
+    # 策略文件路径（灵元：策略是 data）
+    _POLICY_PATH = os.path.join(
+        os.path.dirname(__file__), "policies", "claim_patterns.yaml"
+    )
+
+    @classmethod
+    def _load_policy_patterns(cls) -> list[dict[str, Any]]:
+        """从策略文件加载模式（YAML），失败回退空列表。"""
+        try:
+            import yaml
+            with open(cls._POLICY_PATH, encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            patterns = data.get("patterns", [])
+            return [p for p in patterns if isinstance(p, dict) and "regex" in p]
+        except Exception:  # noqa: BLE001
+            return []
+
     # 内置副本 (与灵极优 CLAIM_PATTERNS 1:1 同步, 灵极优不可用时回退)
+
     _FALLBACK_PATTERNS: list[dict[str, Any]] = [
         {"pattern_id": "notified", "regex": r"已(?:通知|告知|通告)\s*(.+?)(?:,|。|$)",
          "event_type": "claim.notified", "action": "通知"},
@@ -173,8 +191,14 @@ class DeclarationExtractor:
         elif _L10B_AVAIL and _LMO_CLAIM_PATTERNS:
             self._patterns = _LMO_CLAIM_PATTERNS
         else:
-            self._patterns = self._FALLBACK_PATTERNS
-            logger.warning("灵极优不可用, L10-A 使用内置模式副本 (15 个, 与灵极优 1:1 同步)")
+            # 灵元：策略是 data —— 优先读策略文件 YAML，代码内副本仅作最终兜底
+            yaml_patterns = self._load_policy_patterns()
+            if yaml_patterns:
+                self._patterns = yaml_patterns
+                logger.info("灵极优不可用, L10-A 使用策略文件模式 (%d 个, claim_patterns.yaml)", len(yaml_patterns))
+            else:
+                self._patterns = self._FALLBACK_PATTERNS
+                logger.warning("灵极优与策略文件均不可用, L10-A 使用内置模式副本 (15 个)")
 
         # 预编译正则
         self._compiled = [
