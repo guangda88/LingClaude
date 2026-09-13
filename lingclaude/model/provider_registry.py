@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from lingclaude.core.seam import SeamRegistry, SeamType
 from lingclaude.core.types import Result
 from lingclaude.model.types import ModelConfig, ModelProvider
 
@@ -71,6 +72,9 @@ class ProviderRegistry:
             raise ValueError("provider name must not be empty")
         cls._registry[name] = factory or _default_provider_factory(provider_cls)
         cls._registry_classes[name] = provider_cls
+        # P5: 同步到进程内 SeamRegistry（统一查询视图 —— SeamRegistry.get(PROVIDER, name)）
+        # 覆盖语义一致：ProviderRegistry 同名覆盖，SeamRegistry 同名覆盖（热更语义）。
+        SeamRegistry.register(SeamType.PROVIDER, name, provider_cls)
         logger.debug("ProviderRegistry: registered '%s' -> %s", name, provider_cls.__name__)
 
     @classmethod
@@ -103,6 +107,9 @@ class ProviderRegistry:
     @classmethod
     def reset(cls) -> None:
         """清空注册表（仅测试用）。"""
+        # P5: 同步清空 SeamRegistry 的 PROVIDER 槽位（reset 成对出现，防跨测试泄漏）
+        for name in list(cls._registry.keys()):
+            SeamRegistry.unregister(SeamType.PROVIDER, name)
         cls._registry.clear()
         cls._registry_classes.clear()
 

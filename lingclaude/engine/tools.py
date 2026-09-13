@@ -19,6 +19,7 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from lingclaude.core.seam import SeamRegistry, SeamType
 from lingclaude.core.types import Result
 
 
@@ -106,6 +107,31 @@ class ToolDefinition:
         return d
 
 
+class _ToolSeamProxy:
+    """P5: SeamRegistry.TOOL 槽位的可执行代理 —— 满足 ToolPlugin 协议。
+
+    ToolDefinition 是 schema 定义（handler 由注册表按 handler_name 解析），
+    不直接可执行；本代理把 execute 委托回 ToolRegistry（含 handler 解析 + Result 语义），
+    使 SeamRegistry.get(TOOL, name) 返回的实体可直接调用。
+    """
+
+    __slots__ = ("_registry", "_name")
+
+    def __init__(self, registry: "ToolRegistry", name: str) -> None:
+        self._registry = registry
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def execute(self, **kwargs: Any) -> Any:
+        return self._registry.execute(self._name, **kwargs)
+
+    def __repr__(self) -> str:
+        return f"<ToolSeamProxy {self._name} on {id(self._registry):x}>"
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, ToolDefinition] = {}
@@ -115,9 +141,15 @@ class ToolRegistry:
 
     def register(self, tool: ToolDefinition) -> None:
         self._tools[tool.name] = tool
+        # P5: 同步到进程内 SeamRegistry（统一查询视图 —— SeamRegistry.get(TOOL, name)）
+        # 注册 _ToolSeamProxy：满足 ToolPlugin 协议（name + execute），execute 委托本注册表。
+        # 与 ProviderRegistry 相同覆盖语义（同名覆盖 = 热更）。
+        SeamRegistry.register(SeamType.TOOL, tool.name, _ToolSeamProxy(self, tool.name))
 
     def unregister(self, name: str) -> None:
         self._tools.pop(name, None)
+        # P5: 同步注销（热拔插 —— unregister 只影响后续 get，已持引用不受影响）
+        SeamRegistry.unregister(SeamType.TOOL, name)
 
     def get(self, name: str) -> Result[ToolDefinition]:
         tool = self._tools.get(name)
@@ -155,6 +187,17 @@ class ToolRegistry:
     def register_handler(self, handler_name: str, handler: Callable[..., Any]) -> None:
         """P1 解耦: 注册 handler Callable（按名）— 后续 ToolDefinition 可通过 handler_name 引用。"""
         self._handlers[handler_name] = handler
+
+    def reset(self) -> None:
+        """清空注册表（仅测试用）。
+
+        P5: 与 ProviderRegistry.reset 对称 —— ToolRegistry 实例是每 runtime 新建的，
+        但 SeamRegistry 是类级共享，若不在此同步清空，跨测试会泄漏工具名。
+        """
+        for name in list(self._tools.keys()):
+            SeamRegistry.unregister(SeamType.TOOL, name)
+        self._tools.clear()
+        self._handlers.clear()
 
     def get_handler(self, handler_name: str) -> Callable[..., Any] | None:
         """P1 解耦: 按名查询 handler。"""

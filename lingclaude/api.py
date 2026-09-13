@@ -21,6 +21,8 @@ from pydantic import BaseModel  # noqa: E402
 # T0-3: 会话级审批回路 — 决策经 record_permission_decision 写入会话 store，
 # CodingRuntime.execute_tool / sensitive_path_gate 通过 get_permission_store 读取（同一注册表）
 from lingclaude.core.permissions import record_permission_decision
+# P4: 引擎进程 LingBus 任务消费者（原仅 CLI 交互进程消费；env 门控启动，见 _start_bus_consumer_if_enabled）
+from lingclaude.coordination.bus_consumer import start_bus_consumer_background
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +110,33 @@ def _register_webui_seam_safe() -> None:
         )
 
 
+_BUS_CONSUMER_STOP: Any = None
+
+
+def _start_bus_consumer_if_enabled() -> None:
+    """P4: 引擎进程启用 LingBus 任务消费者（env 门控，RFC v0.1 §3 A1-1）。
+
+    cli 交互进程默认消费（repl_turn 兼容壳）；api 引擎进程原不消费 ——
+    灵通派给灵克的任务在引擎模式下无人应答。统一走 coordination/bus_consumer
+    模块，避免 repl_turn 的 CLI 专属接线被 API 复用。
+
+    门控与 conftest.py 对齐：LINGCLAUDE_BUS_LISTENER=0 显式关闭（测试默认），
+    未设置/1 时开启。注册失败只告警不阻断 API 启动（fail-soft）。
+    """
+    global _BUS_CONSUMER_STOP
+    if os.environ.get("LINGCLAUDE_BUS_LISTENER") == "0":
+        return
+    try:
+        _BUS_CONSUMER_STOP = start_bus_consumer_background(
+            thread_name="lingclaude-api-bus-consumer",
+        )
+        logger.info("LingBus consumer enabled for API engine (LINGCLAUDE_BUS_LISTENER)")
+    except Exception as e:  # noqa: BLE001 — 消费者启动失败不阻断 API
+        logger.warning("LingBus consumer 启动失败（不影响 API 启动）: %s: %s", type(e).__name__, e)
+
+
 _register_webui_seam_safe()
+_start_bus_consumer_if_enabled()
 
 
 class AskRequest(BaseModel):

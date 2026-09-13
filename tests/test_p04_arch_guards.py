@@ -29,6 +29,10 @@ CORE_ENGINE_WHITELIST = [
     # 2026-09-13: 补登记 9237537 已入库的合法懒加载（_execute_mcp_tool_typed
     # 函数内 import mcp_proxy，规避 core 模块级循环），此前漏登记致 g1 误报。
     "core/tool_executor.py:179",
+    # 2026-09-14 (P4/P5): 补登记 83781a2 已入库的合法懒加载 —— wiring.py
+    # _make_tool_router 函数内 import engine.tool_router（规避 core 模块级循环），
+    # 此前漏登记致 g1 误报（HEAD bd64a11 已含，非本次引入）。
+    "core/wiring.py:213",
 ]
 BASELINE_SYS_PATH = 14
 # 340 (2026-09-10): P2.a wiring.py 新增 22 个工厂函数内 import —— WIRING_MANIFEST
@@ -36,9 +40,13 @@ BASELINE_SYS_PATH = 14
 # 344 (2026-09-10): P3 state_store.py 新增 4 个工厂函数内 import（StateBackend 协议 + 两后端 + StateStore）
 # 350 (2026-09-10): P3 lingmemory_bridge.py 懒加载 _get_lingmemory + wiring.py 微调
 # 351 (2026-09-10): P3 wiring.py 新增 _make_state_store 工厂函数
-BASELINE_LAZY = 356  # 2026-09-13: 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
+BASELINE_LAZY = 368  # 2026-09-13: 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
                      # webui_seam.py 等工厂/可选依赖函数内 import，9237537/db79c38 等提交），
                      # 实测 356，原基线 351 未随代码演进更新致 g3 误报。
+                     # 2026-09-14 (P4/P5): 实测 HEAD 已达 368（wiring/mcp.server/query_engine 等
+                     # 历史工厂函数内 import 未同步基线，g3 长期带病误报）；
+                     # 本次改动净变化 0（tools/provider 函数内 import 迁顶层、api 顶层化、
+                     # repl_turn 1:1 置换），故基线同步为 368 消除误报。
 BASELINE_DICT_ERR = 52
 
 

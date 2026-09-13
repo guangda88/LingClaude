@@ -292,38 +292,17 @@ def _maybe_recover_on_startup(engine: "QueryEngine", args: Any) -> None:
 def start_bus_responder_background(interval: float = 30.0) -> threading.Event:
     """RFC v0.1 §3 A1-1: 后台线程启动 BusResponder 监听 LingBus 任务。
 
-    设计原则:
+    P4: 消费者循环已抽至 coordination/bus_consumer.py（供 CLI/API 复用），
+    本函数保留为兼容壳转发，行为不变（线程名沿用原 lingclaude-bus-responder）。
+
+    设计原则（沿用原实现）:
     - **不**用 BusResponder.run_loop()(它注册 SIGINT/SIGTERM,与主交互循环冲突)
     - **自定义 stop_event**,主进程退出前 .set() 触发线程停止
     - **catch 一切异常**,线程不能因为单次 poll 失败就退出
-    - 端口不可达/数据库锁 等临时性错误,记录后继续轮询
     """
-    from lingclaude.coordination.bus_responder import BusResponder
+    from lingclaude.coordination.bus_consumer import start_bus_consumer_background
 
-    stop_event = threading.Event()
-
-    def _background_loop() -> None:
-        try:
-            responder = BusResponder()
-        except Exception as e:  # noqa: BLE001 — 初始化失败不能阻塞主循环
-            _logger.error("BusResponder init failed, skip background polling: %s", e)
-            return
-
-        _logger.info("BusResponder background thread started (interval=%.0fs)", interval)
-        while not stop_event.is_set():
-            try:
-                responder.poll_and_respond()
-            except Exception as e:  # noqa: BLE001 — 单次失败不退出线程
-                _logger.error("BusResponder background poll error: %s", e)
-            # 周期 wait + 提前唤醒(可选)
-            if stop_event.wait(timeout=interval):
-                break
-        _logger.info("BusResponder background thread stopped")
-
-    thread = threading.Thread(
-        target=_background_loop,
-        name="lingclaude-bus-responder",
-        daemon=True,  # 主进程退出时强制终止,避免孤儿线程
+    return start_bus_consumer_background(
+        interval=interval,
+        thread_name="lingclaude-bus-responder",
     )
-    thread.start()
-    return stop_event
