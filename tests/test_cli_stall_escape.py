@@ -131,6 +131,32 @@ class TestStallEscape:
         _maybe_stall_escape(ctx, idle_loops=1, last_check_t=t1)
         assert ctx.session.interrupt_event().is_set()
 
+    def test_ultra_long_beat_stall_forces_rebuild(self) -> None:
+        """P0-③（2026-09-13 第 5/6 次假死根因）：心跳超长停滞（≥1800s）即使
+        stdin 判不可读（select 失效/上游输入断）也强制重建 pump，不再永久傻等。"""
+        with patch("lingclaude.cli.repl._stdin_readable", return_value=False):
+            ctx = _make_ctx(readable=False)
+            # 制造超长心跳停滞：直接改 _last_beat 到 2000s 前
+            ctx.input_pump._last_beat = time.monotonic() - 2000.0
+            # start() 模拟：记录被调用
+            ctx.input_pump.start = MagicMock()
+            result = _maybe_stall_escape(ctx, idle_loops=0, last_check_t=-1.0)
+            assert result == 0  # 逃生信号
+            assert "超长停滞" in ctx.input_pump.death_reason  # 死因留痕
+            ctx.input_pump.start.assert_called_once()  # 强制重建
+            # 重建成功 → dead 复位为 False（pump 恢复可用）
+            assert not ctx.input_pump.dead
+
+    def test_ultra_long_beat_not_triggered_under_1800(self) -> None:
+        """P0-③ 阈值保护：心跳停滞 30 分钟以内（正常等输入）不触发强制重建。"""
+        with patch("lingclaude.cli.repl._stdin_readable", return_value=False):
+            ctx = _make_ctx(readable=False)
+            # 心跳 1000s 前（<1800），stdin 不可读 → 正常空闲，不触发
+            ctx.input_pump._last_beat = time.monotonic() - 1000.0
+            result = _maybe_stall_escape(ctx, idle_loops=0, last_check_t=-1.0)
+            assert result < 0  # 未触发
+            assert not ctx.input_pump.dead
+
 
 class TestNextInputFallback:
     def test_dead_pump_falls_back_to_blocking_read(self) -> None:

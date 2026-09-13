@@ -53,9 +53,18 @@ _CODE_CLAIM_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 _TOOL_ACTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # 工具动作完成式声明 — 本次幻觉重灾区（编造 commit/测试/落盘/写入）
     (re.compile(r"(?:已提交|提交\s*[0-9a-f]{7,40}|已入库|commit\s+到?|commit\s+[0-9a-f]{7,40}|已推送|pushed|committed)"), "commit_claim"),
-    (re.compile(r"(?:已测试|测试全绿|全部通过|pytest\\s+通过|tests?\\s+passed|\\d+\\s*passed)"), "test_claim"),
+    # 注意：raw string 里写 \\s 是字面反斜杠+s，永远匹配不到空白 —— 必须单反斜杠
+    (re.compile(r"(?:已测试|测试全绿|测试通过|全部通过|pytest\s+通过|tests?\s+passed|\d+\s*passed)"), "test_claim"),
     (re.compile(r"(?:已落盘|已写入|已保存|已创建|已生成|创建完成|写入完成|生成完毕|written|created|saved)"), "file_write_claim"),
     (re.compile(r"(?:已运行|已执行|已安装|已修改|已删除|已修复|ran|executed|installed|deleted|fixed)"), "action_claim"),
+]
+
+# H17 闭环申报钩子（2026-09-13 k3 幻觉实例）：无工具调用时输出"验证报告"
+# —— 整表 ✅ + 「N 项验证全部通过 / 非幻觉」—— 属伪造验证，须置顶拦截。
+_VERIFICATION_REPORT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(?:验证|核查|复核)(?:结果|项)?(?:全部|均|全)?(?:通过|属实|无误)"), "verify_pass_claim"),
+    (re.compile(r"(?:验证|核查|复核)\s*[一二三四五六七八九十\d]+\s*项"), "verify_count_claim"),
+    (re.compile(r"(?:全部通过|全部属实|非幻觉|没有幻觉)"), "all_pass_claim"),
 ]
 
 _INFERENCE_MARKERS: list[tuple[re.Pattern[str], str]] = [
@@ -101,6 +110,22 @@ class PriorVerifier:
                 if not used_tools or self.strict_mode:
                     warnings.append(f"工具动作声明未验证: {match.group()} ({kind})")
 
+        # H17 伪造验证报告检测：无工具调用却输出整表"验证通过/非幻觉"，
+        # 属最高危幻觉形态（2026-09-13 k3 实例），命中即置顶横幅警告。
+        fake_report_hits: list[Assertion] = []
+        if not used_tools:
+            for pattern, kind in _VERIFICATION_REPORT_PATTERNS:
+                for match in pattern.finditer(text):
+                    a = Assertion(
+                        text=match.group(),
+                        level=AssertionLevel.UNSUPPORTED,
+                        reason=f"Fake verification report ({kind}) without tool verification",
+                        source="prior_verifier",
+                    )
+                    assertions.append(a)
+                    fake_report_hits.append(a)
+                    warnings.append(f"伪造验证报告声明: {match.group()} ({kind})")
+
         for pattern, kind in _INFERENCE_MARKERS:
             for match in pattern.finditer(text):
                 assertions.append(Assertion(
@@ -124,6 +149,15 @@ class PriorVerifier:
         verified = len(hard_unverified) == 0 and len(unsupported) == 0
 
         corrected = text
+        # H17 伪造验证报告 → 置顶横幅（比内联 ⚠ 醒目，用户第一眼可见）
+        if fake_report_hits:
+            banner = (
+                "⚠⚠⚠ [H17 伪造验证警告] 本回复声称验证通过，但本轮无任何工具调用记录，"
+                "以下声明未经实际执行，请勿采信："
+                + "；".join(sorted({a.text for a in fake_report_hits}))
+                + " ⚠⚠⚠\n\n"
+            )
+            corrected = banner + corrected
         # 工具动作声明无证据 → 标记 ⚠ [工具结果未验证]
         tool_unverified = [a for a in assertions
                            if a.level == AssertionLevel.HARD_FACT

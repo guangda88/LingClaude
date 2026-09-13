@@ -243,6 +243,28 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
                     pass
                 return 0
             return time.monotonic()
+    # 2026-09-13（灵安审计 P0-③，第 5/6 次假死根因）：超长心跳停滞兜底。
+    # 现象：无孤儿进程抢占 stdin、fd0 正常指向 pts，但 input-pump 线程卡在
+    # prompt_toolkit.prompt() 的 select()（selectors.py:468）永不返回——select
+    # 状态损坏时 _stdin_readable(0.0) 恒 False，上方「readable」逃生门永不触发，
+    # 主线程永久等 input_queue.get()，只能人肉 kill 重启。
+    # 兜底：即便 stdin 判为不可读，心跳若超长停滞（select 失效/上游输入断的
+    # 强信号）也强制重建 pump。阈值 1800s 远大于正常「等输入」态（用户 30 分钟
+    # 不打字也不会误伤）；触发前记录死因留痕。input_pump.start() 已有单读者
+    # 防重入 + 旧线程 join(2s) 兜底（H17-TUI 修复），可安全重建。
+    if beat_idle >= 1800:
+        input_pump.dead = True
+        input_pump.death_reason = "失活:心跳超长停滞(select 疑似失效或上游输入断)"
+        print("\n[输入泵失活] 心跳超长停滞，强制重建输入泵（可继续使用）", file=sys.stderr)
+        try:
+            input_pump.stop()
+            # 重建：dead 复位由 start() 内部处理（新线程独立 _stop 事件）；
+            # start() 单读者防重入，旧线程未退时 join(2s) 后放弃。
+            input_pump.dead = False
+            input_pump.start()
+        except Exception:  # noqa: BLE001 — 重建失败不致命，主循环仍降级直读
+            pass
+        return 0
     # 未触发:打点重置探测窗口
     return last_check_t if last_check_t >= 0 and beat_idle >= 8.0 else -1.0
 

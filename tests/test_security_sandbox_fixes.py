@@ -142,7 +142,9 @@ def test_p03_bash_probe_delegates_sandbox_provider():
         ("git push", True),
         ("git push github master", True),
         ("git push badremote master", False),
-        ("git log", False),
+        # P0-②（灵安审计）：git 家族整体放行网络，本地只读子命令（log/status/diff）
+        # 不再被 --unshare-net 隔离（它们本就不联网，放行无害且语义正确）。
+        ("git log", True),
     ],
 )
 def test_p04_network_allowlist(cmd: str, expected: bool):

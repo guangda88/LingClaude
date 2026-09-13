@@ -155,6 +155,9 @@ _NETWORK_ALLOWED_COMMANDS = (
 # 2026-09-12 修复：agent 习惯给 git 远程命令加 `timeout N`/`env` 前缀，
 # 导致全链白名单判定 False → 整条被 `--unshare-net` 隔离 → git 无法联网。
 # 仅剥离「纯包装」前缀；前缀后的实际命令仍逐个全链判定（保持 fail-closed）。
+# git 认证禁用，防 n_tty_read 抢占终端（灵安审计 P0-①）
+_GIT_NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "echo"}
+
 _TRANSPARENT_PREFIXES = (
     "timeout",
     "env",
@@ -269,6 +272,14 @@ _GIT_DANGEROUS_PARAMS = (
 _ALLOWED_GIT_REMOTES: frozenset[str] = frozenset({"origin", "github", "upstream", "gh"})
 # 明确允许的 git 子命令（其余 git 子命令不放行网络）
 _GIT_NETWORK_SUBCOMMANDS = frozenset({"push", "fetch", "pull", "clone", "ls-remote", "remote"})
+# P0-②（灵安审计）：git 本地只读子命令（status/log/diff/show 等）不访问网络，
+# 但 _is_network_allowed 判 False 会被 --unshare-net 隔离（无害但语义错误）。
+# 这些只读子命令放行网络是安全的——它们本来就不联网。
+_GIT_READONLY_SUBCOMMANDS = frozenset({
+    "status", "log", "diff", "show", "branch", "tag", "stash",
+    "rev-parse", "rev-list", "blame", "shortlog", "describe",
+    "ls-files", "ls-tree", "cat-file", "config", "remote",
+})
 
 
 def _git_network_safe(sub: str) -> bool:
@@ -290,6 +301,9 @@ def _git_network_safe(sub: str) -> bool:
     if len(toks) == 1:
         return True
     subcmd = toks[1]
+    # P0-②（灵安审计）：git 本地只读子命令不访问网络，直接放行（无害）
+    if subcmd in _GIT_READONLY_SUBCOMMANDS:
+        return True
     if subcmd not in _GIT_NETWORK_SUBCOMMANDS:
         return False
     # 参数级校验：危险参数一律拒绝
@@ -349,10 +363,14 @@ def _is_network_allowed(command: str) -> bool:
         if not norm:
             continue  # cd /path 等纯导航段剥离后为空，跳过（不参与白名单判定）
         first_real_seen = True
-        hit = any(
-            norm == allowed or norm.startswith(allowed + " ")
-            for allowed in _NETWORK_ALLOWED_COMMANDS
-        )
+        # P0-②（灵安审计）：git 整体放行网络（参数注入仍由 _git_network_safe 274 行兜底）
+        if norm == "git" or norm.startswith("git "):
+            hit = True
+        else:
+            hit = any(
+                norm == allowed or norm.startswith(allowed + " ")
+                for allowed in _NETWORK_ALLOWED_COMMANDS
+            )
         if not hit:
             return False
         # P0-4 增强 (2026-09-12): git 命中段再做参数级校验 —
@@ -394,8 +412,8 @@ def _looks_like_network_failure(text: str) -> bool:
     return any(pattern in lowered for pattern in _NETWORK_FAILURE_PATTERNS)
 
 
-_DEFAULT_MEMORY_LIMIT = 512 * 1024 * 1024  # 512 MB
-_DEFAULT_CPU_LIMIT = 30  # seconds
+_DEFAULT_MEMORY_LIMIT = 1024 * 1024 * 1024  # 1 GB（git 实测需 ~500MB，留余量）
+_DEFAULT_CPU_LIMIT = 120  # seconds（30s 误杀编译/大grep）
 # 修复 2026-09-11：白名单 git 远程操作内存限额放宽（git 需 ~500MB 堆，512MB 撞限）
 _NETWORK_ALLOWED_MEMORY_LIMIT = 1024 * 1024 * 1024  # 1 GB
 
@@ -417,6 +435,10 @@ _CREDENTIAL_MARKERS = frozenset({
 })
 
 # 禁止直接调用的外部 API host（强制走专用工具或 SDK）
+# 设计意图（灵安审计 P2-② 确认）：deepseek/bigmodel/dashscope 均已有专用
+# SDK 路由（task_router.py），bash 层拦截防止 agent 绕过 SDK 直接 curl 调用
+# （可能泄漏凭证或绕过鉴权）。atomgit.com 是安全参考来源，保留拦截。
+# 若未来某 host 需要直连，应从本集合移除并补充注释说明理由。
 _FORBIDDEN_API_HOSTS = frozenset({
     "api.atomgit.com",
     "api.deepseek.com",
@@ -429,7 +451,7 @@ class BashExecutor:
     def __init__(
         self,
         working_dir: str | None = None,
-        timeout: int = 60,
+        timeout: int = 300,   # P1（灵安审计）：git push 大传输可超 60s
         allowed_commands: list[str] | None = None,
         blocked_commands: list[str] | None = None,
         memory_limit: int = _DEFAULT_MEMORY_LIMIT,
@@ -476,6 +498,8 @@ class BashExecutor:
                     timeout=effective_timeout,
                     cwd=self.working_dir,
                     start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
+                    stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
+                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
                     preexec_fn=lambda: self._set_resource_limits(command),
                 )
             else:
@@ -488,6 +512,8 @@ class BashExecutor:
                     timeout=effective_timeout,
                     cwd=self.working_dir,
                     start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
+                    stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
+                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
                     preexec_fn=lambda: self._set_resource_limits(command),
                 )
             duration = time.monotonic() - start
@@ -514,6 +540,8 @@ class BashExecutor:
                     timeout=effective_timeout,
                     cwd=self.working_dir,
                     start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
+                    stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
+                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
                     preexec_fn=lambda: self._set_resource_limits(command),
                 )
                 duration = time.monotonic() - start
@@ -782,7 +810,9 @@ class BashExecutor:
 
         豁免条件（同时满足才豁免）：
         1. 命令首 token 是搜索工具（grep/egrep/fgrep/rg/ack/ripgrep）
+           或管道到搜索工具（如 `cat file | grep pattern`）
         2. 存在 `-rn`/`-r`/`-R` 等递归参数（说明是搜文件，不是执行）
+           或管道形态（cat/head/tail 等只读命令接 grep）
         3. 命中凭据形态出现在「模式/参数」位置（非管道首、非重定向到外部）
 
         不满足豁免 → 照常拦截（写入/传递类 curl/export/echo 仍 fail-closed）。
@@ -792,14 +822,24 @@ class BashExecutor:
             return False
         tokens = s.split()
         head = Path(tokens[0]).name.lower()
-        if head not in ("grep", "egrep", "fgrep", "rg", "ack", "ripgrep"):
+        # 形态1：grep/egrep/fgrep/rg/ack/ripgrep 直接开头
+        if head in ("grep", "egrep", "fgrep", "rg", "ack", "ripgrep"):
+            pass  # 继续检查递归参数
+        # 形态2：cat/head/tail/less 等只读命令管道到 grep（如 `cat config | grep api.deepseek.com`）
+        elif head in ("cat", "head", "tail", "less", "more"):
+            # 检查管道后是否是 grep
+            if not re.search(r"\|\s*(grep|egrep|fgrep|rg|ack|ripgrep)\b", s):
+                return False
+        else:
             return False
         # 必须含递归参数，才视为「文件搜索」而非其它用途
         joined = " ".join(tokens)
         if not any(flag in tokens for flag in ("-r", "-R", "-rn", "-rR", "-Rr")):
             # 也接受合并形态如 -rn 已被拆词，这里直接查子串
             if not re.search(r"-\w*[rR]\w*", joined):
-                return False
+                # 管道形态（cat file | grep pattern）不需要递归参数
+                if not re.search(r"\|\s*(grep|egrep|fgrep|rg|ack|ripgrep)\b", s):
+                    return False
         # 防止 `grep sk- | curl ...` 这类搜索后外泄：若命令含管道到网络/写入，
         # 不豁免（保持 fail-closed）。仅当整条命令无写/网络副作用时放行。
         if re.search(r"\|\s*(curl|wget|nc|ncat|ssh|scp|telnet|tee|>)", s):
@@ -851,6 +891,9 @@ class BashExecutor:
             return True
         if re.search(r"-o\s+[\"\']?/dev/null[\"\']?", joined):
             return True
+        # P0-④（灵安审计）：curl 直接输出到 stdout（无 -o 落盘、无 |sh 执行）属只读抓取
+        if head == "curl" and not re.search(r"-o\s+\S+", joined) and not re.search(r"\|\s*(sh|bash|zsh)\b", joined):
+            return True
         return False
 
     @staticmethod
@@ -886,9 +929,11 @@ class BashExecutor:
                     return f"命令包含凭据模式 '{marker}'，禁止通过 bash 传递凭据"
 
         # P0-1: 禁止直接调用外部 API host
-        for host in _FORBIDDEN_API_HOSTS:
-            if host in cmd_lower:
-                return f"禁止直接调用 {host}，请使用专用工具或 SDK"
+        # P2-②（灵安审计）：只读搜索（grep/cat 等）豁免——安全工具查找泄漏是合法操作
+        if not self._is_credential_search(cmd_stripped):
+            for host in _FORBIDDEN_API_HOSTS:
+                if host in cmd_lower:
+                    return f"禁止直接调用 {host}，请使用专用工具或 SDK"
 
         # 网络命令细颗粒度（2026-09-13）：
         # curl/wget 从 _ALWAYS_BLOCKED 移除后，这里按「读写形态」分流：
@@ -927,11 +972,25 @@ class BashExecutor:
             # 在参数位置兜底），也可能是 env/timeout 包装后的真实命令——统一
             # 取第一个「非透明包装」token 检查（见 _normalize_command 剥离前缀）。
             if lead_name.lower() in _BLOCKED_BASE_COMMANDS or lead_name.lower() in _BLOCKED_CMD_NAME_ONLY:
-                return f"基础命令 '{lead_name}' 被禁止"
+                # P2-①（灵安审计）：只读诊断形态豁免 — systemctl status/is-active 等 + mount 无参
+                if lead_name.lower() == "systemctl" and len(tokens) > 1 and tokens[1] in (
+                    "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
+                ):
+                    pass  # 只读，放行
+                elif lead_name.lower() == "mount" and len(tokens) == 1:
+                    pass  # 无参数=仅查看挂载，放行
+                else:
+                    return f"基础命令 '{lead_name}' 被禁止"
             # EXP-S2 '?'-混淆防御（命令名位置）：shell 里 "s?do" 会被 glob
             # 展开为真实命令。对命令名 token 与「命令名拦截集合」全部比较，
             # 规则与 token 等长、非 '?' 字符全等 → 拦截。
             # token 级比较不会误伤（"stat" len4 ≠ "su" len2）。
+            # P2-①：只读诊断形态豁免同样适用于 '?' 混淆检查
+            _is_readonly_diag = (
+                lead_name.lower() == "systemctl" and len(tokens) > 1 and tokens[1] in (
+                    "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
+                )
+            ) or (lead_name.lower() == "mount" and len(tokens) == 1)
             _name_blocks = _BLOCKED_BASE_COMMANDS | _BLOCKED_CMD_NAME_ONLY | _BLOCKED_DANGER_ANYWHERE
             for bl in _name_blocks:
                 if not bl or " " in bl or any(c in bl for c in "*?"):
@@ -940,7 +999,8 @@ class BashExecutor:
                     tc == "?" or tc == bc
                     for tc, bc in zip(lead_name.lower(), bl)
                 ):
-                    return f"匹配黑名单规则 '{bl}'（'?' 混淆变体）"
+                    if not _is_readonly_diag:
+                        return f"匹配黑名单规则 '{bl}'（'?' 混淆变体）"
             # DANGER_ANYWHERE：参数位置也拦 sudo/su/mkfs（防管道/命令替换混淆绕过）
             for token in tokens[1:]:
                 param_name = Path(token.split("=")[-1]).name
@@ -949,7 +1009,12 @@ class BashExecutor:
 
         base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
         base_cmd_name = Path(base_cmd).name
-        if base_cmd_name.lower() in _BLOCKED_BASE_COMMANDS:
+        # P2-①（灵安审计）：只读诊断形态豁免同样适用于循环外的基础命令检查
+        _is_readonly_diag_base = (
+            base_cmd_name.lower() == "systemctl" and len(cmd_stripped.split()) > 1
+            and cmd_stripped.split()[1] in ("status", "is-active", "is-enabled", "is-failed", "list-units", "show")
+        ) or (base_cmd_name.lower() == "mount" and len(cmd_stripped.split()) == 1)
+        if base_cmd_name.lower() in _BLOCKED_BASE_COMMANDS and not _is_readonly_diag_base:
             return f"基础命令 '{base_cmd_name}' 被禁止"
 
         if self.allowed_commands is not None:

@@ -35,7 +35,18 @@ class WebFetcher:
                 "User-Agent": "lingclaude/0.2 WebFetcher",
                 "Accept": "text/html,text/plain,application/json,*/*;q=0.1",
             })
-            with urllib.request.urlopen(req, timeout=self._timeout) as resp:  # nosec B310 — 用户指定 URL，WebFetcher 用途
+            # 2026-09-13（灵安审计 P0-④）：走 HTTP(S) 代理（若配置）——
+            # 此前 urllib 直连，抓 github 等外网时通时断（宿主代理如 9527/
+            # clash 已配但 lingclaude 未用）。若环境无代理则直连（原行为）。
+            proxy = os.environ.get("https_proxy") or os.environ.get("http_proxy")
+            if proxy:
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({"https": proxy, "http": proxy})
+                )
+                resp = opener.open(req, timeout=self._timeout)
+            else:
+                resp = urllib.request.urlopen(req, timeout=self._timeout)
+            with resp:
                 content_type = resp.headers.get("Content-Type", "")
                 raw = resp.read(self._max_size + 1)
                 if len(raw) > self._max_size:
@@ -104,6 +115,7 @@ class WebSearcher:
                 f"&format=json&language=zh-CN&safesearch=0"
             )
             req = urllib.request.Request(url, headers={"User-Agent": "lingclaude/0.3"})
+            # searxng 是本地实例（127.0.0.1），直连不走代理
             with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — 固定本地 SearXNG URL
                 data = json.loads(resp.read().decode("utf-8"))
 
@@ -123,7 +135,16 @@ class WebSearcher:
         try:
             url = f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1"
             req = urllib.request.Request(url, headers={"User-Agent": "lingclaude/0.2"})
-            with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — 固定 DuckDuckGo API URL
+            # 2026-09-13（灵安审计 P0-④）：duckduckgo 是外网 API，走代理（若配置）
+            proxy = os.environ.get("https_proxy") or os.environ.get("http_proxy")
+            if proxy:
+                opener = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({"https": proxy, "http": proxy})
+                )
+                resp = opener.open(req, timeout=15)
+            else:
+                resp = urllib.request.urlopen(req, timeout=15)
+            with resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
             results: list[dict[str, str]] = []

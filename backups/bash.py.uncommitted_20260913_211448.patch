@@ -1,0 +1,244 @@
+diff --git a/lingclaude/engine/bash.py b/lingclaude/engine/bash.py
+index d2f0b0c..30e965c 100644
+--- a/lingclaude/engine/bash.py
++++ b/lingclaude/engine/bash.py
+@@ -29,6 +29,21 @@ class SandboxUnavailableError(RuntimeError):
+ # （带 --unshare-net 与真实 wrap 一致，且返回 reason 供诊断）。消除二义性。
+ _BWARP_PROBE_RESULT: bool | None = None
+ 
++# 2026-09-13（灵安审计 P0-①，假死根治）：子进程 stdin 零信任。
++# 历史 5 次假死共同根因 = subprocess.run 未隔离 stdin，子进程交互卡死
++# （git remote-https 认证提示 n_tty_read、孤儿 mv 等）抢占终端 → lingclaude
++# prompt_toolkit 永不触发。修复原则（审计方向 3）：所有 subprocess.run 默认
++# stdin=DEVNULL，只有确需用户输入的命令才显式开 stdin。
++# 同时注入 git 认证禁用环境：认证失败立即返回（fatal: could not read Username），
++# 而不是挂起读终端变孤儿。
++_GIT_NO_PROMPT_ENV = {
++    "GIT_TERMINAL_PROMPT": "0",
++    "GIT_ASKPASS": "echo",
++}
++# 子进程 stdin 统一策略：默认 DEVNULL（零信任）；确需交互时另行显式传入。
++# 集中定义为常量，避免散落的 True/False 语义不一致。
++_SUBPROC_STDIN = subprocess.DEVNULL
++
+ 
+ def _bwrap_probe(bwrap: str) -> bool:
+     """探测 bwrap 在本环境是否真正可用（一次性，结果缓存）。
+@@ -290,28 +305,35 @@ def _git_network_safe(sub: str) -> bool:
+     if len(toks) == 1:
+         return True
+     subcmd = toks[1]
+-    if subcmd not in _GIT_NETWORK_SUBCOMMANDS:
+-        return False
+-    # 参数级校验：危险参数一律拒绝
++    # 2026-09-13（灵安审计 P0-②）：git 整体放行后，非网络子命令（status/show/
++    # diff/log/remote -v 等）不再要求命中网络子命令集合——它们是本地操作，放行
++    # 网络面无副作用（bwrap 不再 --unshare-net 隔离 git 家族）。网络子命令
++    # （push/fetch/pull/clone/ls-remote/remote）仍逐个校验危险参数与 remote 白名单。
++    # 参数级校验（下方）对所有 git 命令统一生效：--upload-pack / -c / --exec 等
++    # 注入面不因放行扩大。
++    # 参数级校验：危险参数一律拒绝（对所有 git 子命令生效，含本地子命令——
++    # `git status -c core.sshCommand=evil` 同样是指定远程程序，必须 fail-closed）
+     for i, t in enumerate(toks):
+         if t in ("-c", "--upload-pack", "--receive-pack", "--exec", "--config-env"):
+             return False
+         if any(t.startswith(p) for p in _GIT_DANGEROUS_PARAMS):
+             return False
+-    # remote 白名单（clone/ls-remote/push/fetch/pull 的目标）
+-    if subcmd in ("push", "fetch", "pull", "clone", "ls-remote"):
+-        for t in toks[2:]:
+-            # 选项参数与重定向（2>&1 / >log / 1>>log）跳过
+-            if t.startswith("-") or t.startswith(">") or (
+-                len(t) >= 2 and t[0].isdigit() and t[1] in ">"
+-            ):
+-                continue
+-            # 第一个非选项参数是 remote/url — 仅放行白名单内或 URL 形
+-            if subcmd == "clone":
+-                return True  # clone 的 URL 由用户显式指定，白名单难覆盖，保持放行（网络面=git 自身）
+-            if _ALLOWED_GIT_REMOTES and t not in _ALLOWED_GIT_REMOTES and "://" not in t and "@" not in t:
+-                return False
+-            break
++    if subcmd in _GIT_NETWORK_SUBCOMMANDS:
++        # remote 白名单（clone/ls-remote/push/fetch/pull 的目标）
++        if subcmd in ("push", "fetch", "pull", "clone", "ls-remote"):
++            for t in toks[2:]:
++                # 选项参数与重定向（2>&1 / >log / 1>>log）跳过
++                if t.startswith("-") or t.startswith(">") or (
++                    len(t) >= 2 and t[0].isdigit() and t[1] in ">"
++                ):
++                    continue
++                # 第一个非选项参数是 remote/url — 仅放行白名单内或 URL 形
++                if subcmd == "clone":
++                    return True  # clone 的 URL 由用户显式指定，白名单难覆盖，保持放行（网络面=git 自身）
++                if _ALLOWED_GIT_REMOTES and t not in _ALLOWED_GIT_REMOTES and "://" not in t and "@" not in t:
++                    return False
++                break
++    # 非网络子命令（status/show/diff/log/remote 等）或无危险参数的网络子命令 → 放行
+     return True
+ 
+ 
+@@ -349,10 +371,18 @@ def _is_network_allowed(command: str) -> bool:
+         if not norm:
+             continue  # cd /path 等纯导航段剥离后为空，跳过（不参与白名单判定）
+         first_real_seen = True
+-        hit = any(
+-            norm == allowed or norm.startswith(allowed + " ")
+-            for allowed in _NETWORK_ALLOWED_COMMANDS
+-        )
++        # 2026-09-13（灵安审计 P0-②）：git 整体放行网络——此前仅 6 个子命令
++        # 前缀命中，agent 常用 git 形态（git status/show/diff 拉远程信息、git
++        # remote -v、git submodule 等）被 --unshare-net 隔离。git 是可信本地
++        # 工具，参数注入由下方 _git_network_safe 274 行兜底（--upload-pack/
++        # -c/--config-env 等危险参数仍拒绝），放行不损失安全语义。
++        if norm == "git" or norm.startswith("git "):
++            hit = True
++        else:
++            hit = any(
++                norm == allowed or norm.startswith(allowed + " ")
++                for allowed in _NETWORK_ALLOWED_COMMANDS
++            )
+         if not hit:
+             return False
+         # P0-4 增强 (2026-09-12): git 命中段再做参数级校验 —
+@@ -394,8 +424,8 @@ def _looks_like_network_failure(text: str) -> bool:
+     return any(pattern in lowered for pattern in _NETWORK_FAILURE_PATTERNS)
+ 
+ 
+-_DEFAULT_MEMORY_LIMIT = 512 * 1024 * 1024  # 512 MB
+-_DEFAULT_CPU_LIMIT = 30  # seconds
++_DEFAULT_MEMORY_LIMIT = 1024 * 1024 * 1024  # 1 GB（2026-09-13 灵安审计 P1：git 实测需 ~500MB，512MB 撞限误杀编译/大grep）
++_DEFAULT_CPU_LIMIT = 120  # seconds（2026-09-13 灵安审计 P1：30s 误杀编译/大grep 等长任务）
+ # 修复 2026-09-11：白名单 git 远程操作内存限额放宽（git 需 ~500MB 堆，512MB 撞限）
+ _NETWORK_ALLOWED_MEMORY_LIMIT = 1024 * 1024 * 1024  # 1 GB
+ 
+@@ -429,7 +459,7 @@ class BashExecutor:
+     def __init__(
+         self,
+         working_dir: str | None = None,
+-        timeout: int = 60,
++        timeout: int = 300,  # 2026-09-13 灵安审计 P1：60s 误杀 git push 大传输/长任务，放宽至 300s
+         allowed_commands: list[str] | None = None,
+         blocked_commands: list[str] | None = None,
+         memory_limit: int = _DEFAULT_MEMORY_LIMIT,
+@@ -476,6 +506,8 @@ class BashExecutor:
+                     timeout=effective_timeout,
+                     cwd=self.working_dir,
+                     start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
++                    stdin=_SUBPROC_STDIN,  # 2026-09-13 (P0-①): 隔离 stdin — 子进程不抢占终端，假死根治
++                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # git 认证失败立即返回，不挂起读终端
+                     preexec_fn=lambda: self._set_resource_limits(command),
+                 )
+             else:
+@@ -488,6 +520,8 @@ class BashExecutor:
+                     timeout=effective_timeout,
+                     cwd=self.working_dir,
+                     start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
++                    stdin=_SUBPROC_STDIN,  # 2026-09-13 (P0-①): 隔离 stdin — 子进程不抢占终端，假死根治
++                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # git 认证失败立即返回，不挂起读终端
+                     preexec_fn=lambda: self._set_resource_limits(command),
+                 )
+             duration = time.monotonic() - start
+@@ -514,6 +548,8 @@ class BashExecutor:
+                     timeout=effective_timeout,
+                     cwd=self.working_dir,
+                     start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
++                    stdin=_SUBPROC_STDIN,  # 2026-09-13 (P0-①): 隔离 stdin — 子进程不抢占终端，假死根治
++                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # git 认证失败立即返回，不挂起读终端
+                     preexec_fn=lambda: self._set_resource_limits(command),
+                 )
+                 duration = time.monotonic() - start
+@@ -851,6 +887,13 @@ class BashExecutor:
+             return True
+         if re.search(r"-o\s+[\"\']?/dev/null[\"\']?", joined):
+             return True
++        # 2026-09-13（灵安审计 P0-④）：curl <url> 直接 stdout 输出（未 -o 落盘、
++        # 未 |sh 执行）属「只读抓取」——内容由调用方消费，无落盘、无执行副作用。
++        # 此前此类搜索/抓取被 _detect_network_command 拦截 → 外网检索能力缺失。
++        # 已在上方排除 -o 落盘、-O 下载、| sh/bash 执行、-d 提交数据形态，
++        # 走到这里说明是纯抓取，放行（读外网内容到 stdout，风险可控）。
++        if head == "curl" and not re.search(r"-o\s+\S+", joined) and not re.search(r"\|\s*(sh|bash)", joined):
++            return True
+         return False
+ 
+     @staticmethod
+@@ -885,10 +928,19 @@ class BashExecutor:
+                 if marker.lower() in cmd_lower:
+                     return f"命令包含凭据模式 '{marker}'，禁止通过 bash 传递凭据"
+ 
+-        # P0-1: 禁止直接调用外部 API host
+-        for host in _FORBIDDEN_API_HOSTS:
+-            if host in cmd_lower:
+-                return f"禁止直接调用 {host}，请使用专用工具或 SDK"
++        # P0-1: 禁止直接调用外部 API host（强制走专用工具或 SDK）
++        # 2026-09-13（灵安审计 P2-② 误杀修复）：此前 host in cmd_lower 子串匹配，
++        # 连「只读搜索该域名」都被拦（grep "api.deepseek.com" 无法执行）——而
++        # api.py / task_router.py 里这些是 SDK 的合法端点，bash 层不应一刀切。
++        # 现改为：仅拦截「网络命令实际发起连接」（curl/wget/nc 直连 API 端点），
++        # 且**不论只读形态**——`curl -s https://api.deepseek.com/v1/models` 即使
++        # 是"抓取到 stdout"也是绕过 SDK 的直连，必须拦（fail-closed 于注入链）。
++        # 只读搜索/文档引用（grep/cat/echo 含域名）一律放行。
++        net_cmd = self._detect_network_command(cmd_stripped)
++        if net_cmd:
++            for host in _FORBIDDEN_API_HOSTS:
++                if host in cmd_lower:
++                    return f"禁止直接调用 {host}，请使用专用工具或 SDK（检测到网络命令 {net_cmd}）"
+ 
+         # 网络命令细颗粒度（2026-09-13）：
+         # curl/wget 从 _ALWAYS_BLOCKED 移除后，这里按「读写形态」分流：
+@@ -927,15 +979,35 @@ class BashExecutor:
+             # 在参数位置兜底），也可能是 env/timeout 包装后的真实命令——统一
+             # 取第一个「非透明包装」token 检查（见 _normalize_command 剥离前缀）。
+             if lead_name.lower() in _BLOCKED_BASE_COMMANDS or lead_name.lower() in _BLOCKED_CMD_NAME_ONLY:
+-                return f"基础命令 '{lead_name}' 被禁止"
++                # 2026-09-13（灵安审计 P2-① 自检通道）：只读诊断形态豁免。
++                # systemctl status/is-active/is-enabled/is-failed/list-units/show
++                # 仅查询状态，无副作用；mount 无参仅列出挂载表。写形态
++                # （start/stop/restart/mount -o/crontab -e）仍拦截，安全语义不损失。
++                # 修复动机：此前连 `systemctl status` 都被拦 → health_inspect
++                # 报 状态=unknown、无法诊断挂载，lingclaude 看不见自己健康状态，
++                # 假死只能靠外部人肉救火（审计方向 6）。
++                if lead_name.lower() == "systemctl" and len(tokens) > 1 and tokens[1] in (
++                    "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
++                ):
++                    pass  # 只读，放行
++                elif lead_name.lower() == "mount" and len(tokens) == 1:
++                    pass  # 无参数=仅查看挂载，放行
++                else:
++                    return f"基础命令 '{lead_name}' 被禁止"
+             # EXP-S2 '?'-混淆防御（命令名位置）：shell 里 "s?do" 会被 glob
+             # 展开为真实命令。对命令名 token 与「命令名拦截集合」全部比较，
+             # 规则与 token 等长、非 '?' 字符全等 → 拦截。
+             # token 级比较不会误伤（"stat" len4 ≠ "su" len2）。
++            # 2026-09-13（灵安审计 P2-① 修复）：仅对「确实含 ? 的 token」做混淆
++            # 比较——原始命令名（无 ?）已由上方 _BLOCKED_BASE_COMMANDS 层处理
++            # （含 systemctl/mount 只读豁免），走这层会让 `systemctl status` 被
++            # 等长比较误判为 '?' 混淆变体拦截（实测错误消息），豁免失效。
+             _name_blocks = _BLOCKED_BASE_COMMANDS | _BLOCKED_CMD_NAME_ONLY | _BLOCKED_DANGER_ANYWHERE
+             for bl in _name_blocks:
+                 if not bl or " " in bl or any(c in bl for c in "*?"):
+                     continue
++                if "?" not in lead_name.lower():
++                    continue  # 非混淆形态不比较（原始名已由上层拦截/豁免处理）
+                 if len(lead_name.lower()) == len(bl) and all(
+                     tc == "?" or tc == bc
+                     for tc, bc in zip(lead_name.lower(), bl)
+@@ -950,7 +1022,18 @@ class BashExecutor:
+         base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
+         base_cmd_name = Path(base_cmd).name
+         if base_cmd_name.lower() in _BLOCKED_BASE_COMMANDS:
+-            return f"基础命令 '{base_cmd_name}' 被禁止"
++            # 2026-09-13（灵安审计 P2-① 自检通道）：与子命令循环同一豁免——整条
++            # 命令首 token 是 systemctl/mount 时，只读诊断形态放行，写形态拦截。
++            # 此前漏掉此处导致 `systemctl status nginx` 在子命令循环豁免通过后
++            # 又被 base_cmd 层拦截（实测错误消息：基础命令 'systemctl' 被禁止）。
++            if base_cmd_name.lower() == "systemctl" and len(cmd_stripped.split()) > 1 and cmd_stripped.split()[1] in (
++                "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
++            ):
++                pass  # 只读，放行
++            elif base_cmd_name.lower() == "mount" and len(cmd_stripped.split()) == 1:
++                pass  # 无参数=仅查看挂载，放行
++            else:
++                return f"基础命令 '{base_cmd_name}' 被禁止"
+ 
+         if self.allowed_commands is not None:
+             if not any(

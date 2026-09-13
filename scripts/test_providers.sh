@@ -7,10 +7,21 @@ source ~/.ling_keys.env
 set +a
 
 python3 - "$@" << 'PYEOF'
-import urllib.request, json, time, concurrent.futures, os
+import urllib.request, urllib.error, json, time, concurrent.futures, os
 
-cfg = json.load(open('/home/ai/lingcode/config.json'))
+cfg = json.load(open(os.environ.get('LINGCODE_CONFIG', '/home/ai/lingcode/config.json')))
 providers = cfg['routing']['providers']
+
+# 字符串简写 provider（config 里形如 "glm": "${ZAI_API_KEY}"）的 base_url 补全。
+# 与 lingclaude/model/task_router.py::_KNOWN_PROVIDER_DEFAULTS 同源维护。
+STR_SHORTHAND_BASE = {
+    "glm":      "https://open.bigmodel.cn/api/paas/v4",
+    "zhipu":    "https://open.bigmodel.cn/api/paas/v4",
+    "deepseek": "https://api.deepseek.com/v1",
+    "minimax":  "https://api.minimaxi.com/v1",
+    "nvidia":   "https://integrate.api.nvidia.com/v1",
+    "hunyuan":  "https://api.hunyuan.tencent.com/v1",
+}
 
 targets = [
     ("volcengine",  "Doubao-Seed-2.0-lite",       "volc_coding_plan / Doubao-Seed-2.0-lite"),
@@ -41,22 +52,26 @@ def test(pname, model, desc):
     prov = providers.get(pname)
     if not prov:
         return desc, "⏭ 无provider"
-    base = prov.get('base_url','').rstrip('/')
-    api_key = os.environ.get(key_map.get(pname,''), '')
+    # F12k 同源:字符串简写 provider 没有 base_url，用补全表兜底
+    if isinstance(prov, str):
+        base = STR_SHORTHAND_BASE.get(pname, '').rstrip('/')
+    else:
+        base = prov.get('base_url', '').rstrip('/')
+    api_key = os.environ.get(key_map.get(pname, ''), '')
     if not base or not api_key:
-        return desc, "SKIP no API key"
+        return desc, "SKIP no base_url/key"
     try:
         t0 = time.time()
         req = urllib.request.Request(
             base + "/chat/completions",
-            data=json.dumps({"model": model, "messages": [{"role":"user","content":"hi"}], "max_tokens": 3}).encode(),
+            data=json.dumps({"model": model, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 3}).encode(),
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=15) as r:
-            ms = round((time.time()-t0)*1000)
+            ms = round((time.time() - t0) * 1000)
             body = json.loads(r.read())
-            return desc, f"✅ HTTP {r.status} | {ms}ms | model={body.get('model','?')}"
+            return desc, f"✅ HTTP {r.status} | {ms}ms | model={body.get('model', '?')}"
     except urllib.error.HTTPError as e:
         err = e.read().decode()[:100]
         return desc, f"❌ HTTP {e.code} | {err}"
@@ -68,11 +83,11 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
     futs = [ex.submit(test, *t) for t in targets]
     results = [f.result() for f in concurrent.futures.as_completed(futs)]
 
-ok = sum(1 for _,r in results if r.startswith("✅"))
+ok = sum(1 for _, r in results if r.startswith("✅"))
 fail = len(results) - ok
 
 print(f"\n{'套餐':<45} 结果")
-print("─"*95)
+print("─" * 95)
 for d, r in sorted(results):
     print(f"  {d:<45} {r}")
 print(f"\n📊 汇总: {ok}✅ / {fail}❌ / {len(results)} 总计")

@@ -31,6 +31,18 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# k3 系列推理模型只接受 temperature=1（实测 400: "invalid temperature:
+# only 1 is allowed for this model"）。前缀匹配覆盖 k3 / k3-256k / kimi-k3 等。
+_TEMP_LOCKED_MODEL_PREFIXES = ("k3", "kimi-k3", "kimi-k2-thinking")
+
+
+def _effective_temperature(model: str, temperature: float) -> float:
+    """部分推理模型对 temperature 有硬约束，越界值直接 400。"""
+    m = model.lower()
+    if any(m == p or m.startswith(p) for p in _TEMP_LOCKED_MODEL_PREFIXES):
+        return 1.0
+    return temperature
+
 
 class OpenAIProvider(ModelProvider):
     def __init__(self, config: ModelConfig | None = None) -> None:
@@ -277,7 +289,7 @@ class OpenAIProvider(ModelProvider):
             "model": cfg.model,
             "messages": msg_dicts,
             "max_tokens": cfg.max_tokens,
-            "temperature": cfg.temperature,
+            "temperature": _effective_temperature(cfg.model, cfg.temperature),
         }
         if tools:
             body["tools"] = [

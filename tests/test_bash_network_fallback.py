@@ -94,6 +94,76 @@ class TestNetworkAllowed(unittest.TestCase):
     def test_head_first_not_allowed(self) -> None:
         self.assertFalse(_is_network_allowed("head -3 && git push"))
 
+    # --- P0-②（2026-09-13 灵安审计）：git 整体放行网络 ---
+    def test_git_status_allowed(self) -> None:
+        # P0-② 修复后 git 家族整体放行（此前仅 6 个子命令前缀命中，git status/
+        # show/diff/remote 等被 --unshare-net 隔离）
+        self.assertTrue(_is_network_allowed("git status"))
+
+    def test_git_remote_v_allowed(self) -> None:
+        self.assertTrue(_is_network_allowed("git remote -v"))
+
+    def test_git_dangerous_params_still_blocked(self) -> None:
+        # 参数注入仍由 _git_network_safe 兜底：--upload-pack / -c / --exec 不放行
+        self.assertFalse(_is_network_allowed("git push --upload-pack='evil' origin main"))
+        self.assertFalse(_is_network_allowed("git -c core.sshCommand='evil' push origin main"))
+        self.assertFalse(_is_network_allowed("git push origin main $(echo evil)"))
+
+
+class TestApiHostGate(unittest.TestCase):
+    """P2-②（2026-09-13 灵安审计）：API host 不再一刀切误杀。
+
+    修复前：host in cmd_lower 子串匹配，连 `grep "api.deepseek.com"` 都被拦
+    （只读搜索域名 = 能力绞杀，实锤：审计时 bash grep 域名被拦）。
+    修复后：仅拦截「网络命令实际发起连接」（curl/wget 直连 API），
+    只读搜索/文档引用（grep/cat/echo 含域名）放行。
+    """
+
+    def setUp(self) -> None:
+        self.b = BashExecutor()
+
+    def test_grep_api_host_search_allowed(self) -> None:
+        # 只读搜索 API 域名 → 放行（安全工具自身合法操作）
+        self.assertIsNone(self.b._check_blocked('grep -rn "api.deepseek.com" docs/'))
+
+    def test_grep_pipe_reference_allowed(self) -> None:
+        self.assertIsNone(self.b._check_blocked("cat config.json | grep open.bigmodel.cn"))
+
+    def test_curl_direct_api_blocked(self) -> None:
+        # 裸 curl 直连 API（即使只读抓取形态）→ 拦截（绕过 SDK）
+        self.assertIsNotNone(self.b._check_blocked("curl -s https://api.deepseek.com/v1/models"))
+
+    def test_curl_other_domain_allowed(self) -> None:
+        # curl 抓取非 API 域名的只读内容 → 放行（P0-④ 只读抓取）
+        self.assertIsNone(self.b._check_blocked("curl https://example.com"))
+
+
+class TestReadonlyDiagExempt(unittest.TestCase):
+    """P2-①（2026-09-13 灵安审计）：systemctl/mount 只读诊断豁免（自检通道）。
+
+    修复前：`systemctl status` 都被拦 → health_inspect 报 状态=unknown、
+    无法诊断挂载，假死只能靠外部人肉救火。写形态仍拦截。
+    """
+
+    def setUp(self) -> None:
+        self.b = BashExecutor()
+
+    def test_systemctl_status_allowed(self) -> None:
+        self.assertIsNone(self.b._check_blocked("systemctl status nginx"))
+
+    def test_systemctl_is_active_allowed(self) -> None:
+        self.assertIsNone(self.b._check_blocked("systemctl is-active sshd"))
+
+    def test_systemctl_start_blocked(self) -> None:
+        # 写形态仍拦截
+        self.assertIsNotNone(self.b._check_blocked("systemctl start nginx"))
+
+    def test_mount_noarg_allowed(self) -> None:
+        self.assertIsNone(self.b._check_blocked("mount"))
+
+    def test_mount_write_blocked(self) -> None:
+        self.assertIsNotNone(self.b._check_blocked("mount -o remount,rw /"))
+
 
 class TestNetworkFailureDetection(unittest.TestCase):
     def test_dns_failure(self) -> None:

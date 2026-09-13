@@ -81,6 +81,7 @@ _PROVIDER_ENV_KEY_MAP: dict[str, str] = {
     "siliconflow": "SILICONFLOW_API_KEY",
     "siliconflow_disabled": "SILICONFLOW_API_KEY",
     "kimi": "KIMI_API_KEY",
+    "mimo": "XIAOMI_TOKEN_PLAN_API_KEY",
     "zai": "ZAI_API_KEY",
     "zhipu": "ZHIPU_API_KEY",
     "glm": "ZHIPU_API_KEY",
@@ -136,10 +137,20 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "models": ["agnes-latest"],
     },
     "kimi": {
+        # Kimi Code 官方套餐直连（key 前缀 sk-kimi-，见 codex-providers/INSTALL.md）。
+        # api.moonshot.cn/v1 是 Moonshot 开放平台，套餐 key 在那边 401。
         "type": "openai",
-        "base_url": "https://api.moonshot.cn/v1",
-        "model": "moonshot-v1-8k",
-        "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+        "base_url": "https://api.kimi.com/coding/v1",
+        "model": "k3-256k",
+        "models": ["k3-256k", "k3", "kimi-for-coding"],
+    },
+    "mimo": {
+        # Xiaomi MiMo token plan (key 前缀 tp-).套餐 key 走 token-plan-cn 域名直连,
+        # 不是小米 AI 开放平台。ASR/TTS 走独立音频端点,本路由仅含 2 个对话模型。
+        "type": "openai",
+        "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+        "model": "mimo-v2.5-pro",
+        "models": ["mimo-v2.5-pro", "mimo-v2.5"],
     },
     "siliconflow": {
         "type": "openai",
@@ -207,9 +218,18 @@ def _normalize_provider_def(name: str, pdef: str | dict[str, Any]) -> dict[str, 
 
 
 def _resolve_api_key(provider_name: str, config_key: str) -> str:
-    """F12c:config api_key 为空 → 按映射查环境变量兜底。"""
+    """F12c:config api_key 为空 → 按映射查环境变量兜底。
+
+    支持 ${ENV_VAR} 引用形式（与 core/config.py._resolve_api_key 同语义），
+    展开 结果为空时再走 provider→env 映射兜底。
+    """
     if config_key:
-        return config_key
+        if config_key.startswith("${") and config_key.endswith("}"):
+            expanded = os.environ.get(config_key[2:-1], "")
+            if expanded:
+                return expanded
+        else:
+            return config_key
     env_name = _PROVIDER_ENV_KEY_MAP.get(provider_name)
     if env_name:
         return os.environ.get(env_name, "")
@@ -343,9 +363,12 @@ class TaskRouter:
             # F12b:云端 provider 缺 api_key → 跳过选下一候选,不让请求
             # 炸在 provider.stream_complete 层。本地服务无 key 是正常形态,不跳过。
             if not pinfo.api_key and not _is_local_base(pinfo.base_url):
+                _env_var = _PROVIDER_ENV_KEY_MAP.get(ref.provider, "<未映射>")
                 logger.debug(
-                    "路由跳过 %s:云端 provider 无 api_key(候选 %d/%d)",
+                    "路由跳过 %s:云端 provider 无 api_key"
+                    "(候选 %d/%d, 期望环境变量: %s, 已设置: %s)",
                     ref.provider, pos + 1, len(models),
+                    _env_var, bool(os.environ.get(_env_var, "")),
                 )
                 continue
 
@@ -489,6 +512,22 @@ class TaskRouter:
         return None, None, None
 
 
+
+    def provider_diagnostics(self) -> list[dict[str, Any]]:
+        """供 /model 诊断: 每个 provider 的 key/连通性摘要。"""
+        out = []
+        for name, pinfo in self._providers.items():
+            env_var = _PROVIDER_ENV_KEY_MAP.get(name, "")
+            out.append({
+                "provider": name,
+                "base_url": pinfo.base_url,
+                "has_key": bool(pinfo.api_key),
+                "is_local": _is_local_base(pinfo.base_url),
+                "expected_env_var": env_var,
+                "env_var_set": bool(os.environ.get(env_var, "")) if env_var else True,
+                "key_missing": (not pinfo.api_key) and not _is_local_base(pinfo.base_url),
+            })
+        return out
 
     def get_provider_name(self, api_key: str, base_url: str) -> str | None:
         for name, pinfo in self._providers.items():

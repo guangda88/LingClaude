@@ -87,7 +87,8 @@ class TestNetworkAllowedWithOutputModifier(unittest.TestCase):
 
     def test_non_network_command_not_allowed(self) -> None:
         self.assertFalse(_is_network_allowed("echo hello"))
-        self.assertFalse(_is_network_allowed("git status --short"))
+        # P0-②（灵安审计）：git 家族整体放行，含本地只读子命令（status/log/diff 等）
+        self.assertTrue(_is_network_allowed("git status --short"))
         self.assertFalse(_is_network_allowed("ls -la"))
 
 

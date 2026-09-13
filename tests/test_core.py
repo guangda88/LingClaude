@@ -606,8 +606,11 @@ class TestBashSecurity:
         from lingclaude.engine.bash import BashExecutor
 
         executor = BashExecutor()
+        # P0-④（灵安审计）：curl 到 stdout 的只读抓取已放行（不再 126）。
+        # 无网环境退化为主进程网络域执行，exit_code=6(DNS)；有网则 200。
+        # 写形态（-O/-o 落盘、|sh）仍 126 拦截，见 test_granular_sandbox。
         result = executor.run("curl http://example.com")
-        assert result.exit_code == 126
+        assert result.exit_code != 126, "P0-④: curl stdout 只读抓取不应被拦截"
 
     def test_allowed_command_passes(self) -> None:
         from lingclaude.engine.bash import BashExecutor
