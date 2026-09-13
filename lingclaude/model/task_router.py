@@ -88,6 +88,123 @@ _PROVIDER_ENV_KEY_MAP: dict[str, str] = {
     "openrouter": "OPENROUTER_API_KEY",
 }
 
+# F12k:知名 provider 默认值表 — 当 config 里 provider 是字符串简写
+# （如 "glm": "${GLM_API_KEY}"）或字段不全的 dict 时，自动补全为
+# 标准 provider 定义，避免因缺 base_url/model 被跳过。
+# 与 _PROVIDER_ENV_KEY_MAP 同源维护。
+_KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
+    "glm": {
+        "type": "openai",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-4.7",
+        "models": ["glm-4.7", "glm-4-plus", "glm-4-air"],
+    },
+    "zhipu": {
+        "type": "openai",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-4.7",
+        "models": ["glm-4.7", "glm-4-plus", "glm-4-air"],
+    },
+    "deepseek": {
+        "type": "openai",
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "models": ["deepseek-chat", "deepseek-reasoner"],
+    },
+    "minimax": {
+        "type": "openai",
+        "base_url": "https://api.minimax.chat/v1",
+        "model": "abab6.5s-chat",
+        "models": ["abab6.5s-chat", "abab7-chat"],
+    },
+    "nvidia": {
+        "type": "openai",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "model": "nvidia/llama-3.1-nemotron-70b-instruct",
+        "models": ["nvidia/llama-3.1-nemotron-70b-instruct", "meta/llama-3.1-405b-instruct"],
+    },
+    "hunyuan": {
+        "type": "openai",
+        "base_url": "https://api.hunyuan.tencent.com/v1",
+        "model": "hunyuan-lite",
+        "models": ["hunyuan-lite", "hunyuan-pro", "hunyuan-turbo"],
+    },
+    "agnes": {
+        "type": "openai",
+        "base_url": "https://agnes.ai/api/v1",
+        "model": "agnes-latest",
+        "models": ["agnes-latest"],
+    },
+    "kimi": {
+        "type": "openai",
+        "base_url": "https://api.moonshot.cn/v1",
+        "model": "moonshot-v1-8k",
+        "models": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+    },
+    "siliconflow": {
+        "type": "openai",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "Qwen/Qwen2.5-72B-Instruct",
+        "models": ["Qwen/Qwen2.5-72B-Instruct", "deepseek-ai/DeepSeek-V3"],
+    },
+    "siliconflow_disabled": {
+        # 同源 defaults,标记为 disabled 跳过路由池(账号欠费 / 临时下架)
+        "type": "openai",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "models": ["deepseek-ai/DeepSeek-V4-Flash"],
+        "enabled": False,
+    },
+    "dashscope": {
+        "type": "openai",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "model": "qwen-plus",
+        "models": ["qwen-plus", "qwen-turbo", "qwen-max"],
+    },
+    "openrouter": {
+        "type": "openai",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "anthropic/claude-3.5-sonnet",
+        "models": ["anthropic/claude-3.5-sonnet", "openai/gpt-4o"],
+    },
+    "zai": {
+        "type": "openai",
+        "base_url": "https://api.zai.ai/v1",
+        "model": "zai-chat",
+        "models": ["zai-chat"],
+    },
+}
+
+
+def _normalize_provider_def(name: str, pdef: str | dict[str, Any]) -> dict[str, Any] | None:
+    """把字符串简写或不完整 dict 补全为标准 provider 定义。
+
+    - 字符串：当作 api_key 值（支持 ${ENV_VAR} 形式），从 _KNOWN_PROVIDER_DEFAULTS 补全
+    - dict：缺字段时从 _KNOWN_PROVIDER_DEFAULTS 补全默认值
+    - 未知 provider 且信息不足：返回 None（调用方决定跳过）
+    """
+    defaults = _KNOWN_PROVIDER_DEFAULTS.get(name, {})
+
+    if isinstance(pdef, str):
+        if not defaults:
+            return None  # 未知 provider 且只有字符串，无法补全
+        result = dict(defaults)
+        result["api_key"] = pdef
+        return result
+
+    if isinstance(pdef, dict):
+        result = dict(defaults)  # 先铺默认值
+        result.update(pdef)      # 用户显式配置覆盖默认值
+        # 显式 enabled=false 的 provider 即使没 base_url/type 也合法——交给上层 INFO 跳过
+        if result.get("enabled", True) is False:
+            return result
+        # 至少要有 base_url 或 type，否则认为不可用
+        if not result.get("base_url") and not result.get("type"):
+            return None
+        return result
+
+    return None
+
 
 def _resolve_api_key(provider_name: str, config_key: str) -> str:
     """F12c:config api_key 为空 → 按映射查环境变量兜底。"""
@@ -136,18 +253,24 @@ class TaskRouter:
         self._default_provider = routing.get("default_target", "cheap")
 
         for name, pdef in routing.get("providers", {}).items():
+            # F12k:字符串简写 / 缺字段 dict → 用知名 provider 默认值表补全
+            normalized = _normalize_provider_def(name, pdef)
+            if normalized is None:
+                logger.warning("TaskRouter: provider '%s' is not usable (type=%s, no known defaults), skipped",
+                               name, type(pdef).__name__)
+                continue
             # F12g:per-provider 开关 — 上游全挂的 provider(如 waterfall)可在
             # lingcode config 加 "enabled": false 摘出路由池,无需删条目。
-            if pdef.get("enabled", True) is False:
+            if normalized.get("enabled", True) is False:
                 logger.info("TaskRouter: provider '%s' disabled by config, skipped", name)
                 continue
-            rate = pdef.get("rate_limit", {})
+            rate = normalized.get("rate_limit", {})
             self._providers[name] = _ProviderInfo(
-                type=pdef.get("type", "openai"),
-                api_key=_resolve_api_key(name, pdef.get("api_key", "")),
-                base_url=pdef.get("base_url", ""),
-                default_model=pdef.get("model", ""),
-                models=pdef.get("models", []),
+                type=normalized.get("type", "openai"),
+                api_key=_resolve_api_key(name, normalized.get("api_key", "")),
+                base_url=normalized.get("base_url", ""),
+                default_model=normalized.get("model", ""),
+                models=normalized.get("models", []),
                 rpm=float(rate.get("rpm", 10)),
                 burst=int(rate.get("burst", 3)),
             )
@@ -158,7 +281,22 @@ class TaskRouter:
             self._slots[name] = ProviderSlot(name=name, bucket=bucket)
 
         for key, tr in routing.get("task_routes", {}).items():
-            models = [_ModelRef(provider=m["provider"], model=m["model"]) for m in tr.get("models", [])]
+            if not isinstance(tr, dict):
+                logger.warning("TaskRouter: task_route '%s' is not a dict (%s), skipped", key, type(tr).__name__)
+                continue
+            raw_models = tr.get("models", [])
+            if not isinstance(raw_models, list):
+                logger.warning("TaskRouter: task_route '%s' models is not a list (%s), skipped", key, type(raw_models).__name__)
+                continue
+            models = []
+            for m in raw_models:
+                if not isinstance(m, dict):
+                    logger.warning("TaskRouter: task_route '%s' has non-dict model entry (%s), skipped", key, type(m).__name__)
+                    continue
+                if "provider" not in m or "model" not in m:
+                    logger.warning("TaskRouter: task_route '%s' model entry missing provider/model, skipped", key)
+                    continue
+                models.append(_ModelRef(provider=m["provider"], model=m["model"]))
             self._task_routes[key] = _TaskRoute(description=tr.get("description", ""), models=models)
 
         logger.info(
