@@ -14,8 +14,11 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 # 1) 若仓库自带扫描脚本，优先用（支持 --check 模式，只扫 config.json 类）
 if [ -f "$SCANNER" ]; then
-    # 扫描本次变更涉及的 json 配置文件
-    CHANGED_JSON=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E '\.(json|yaml|yml|toml|env)$' || true)
+# 扫描本次变更涉及的 json 配置文件
+# 注意: sanitize_lingcode_config.py 只解析 JSON，yaml/yml/toml/env 传给它会
+# JSONDecodeError 退出码 1 被误判为凭据命中而阻断提交（2026-09-13 lefthook.yml 误阻）。
+# 非 json 配置文件由下方兜底正则扫描。
+    CHANGED_JSON=$(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep -E '\.json$' || true)
     if [ -n "$CHANGED_JSON" ]; then
         BLOCKED=0
         for f in $CHANGED_JSON; do

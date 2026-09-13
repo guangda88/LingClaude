@@ -19,12 +19,10 @@ pre-commit:
     # （提交后审计签名验证）占用，且其源不在本仓库，lefthook 接管会覆盖它。
     workspace-snapshot:
       run: python3 scripts/prechange_snapshot.py record --label "pre-commit"
-    # C1 (2026-09-13): secret 扫描前置到 pre-commit —— 此前只挂在 pre-push，
-    # 历史 key 泄漏说明「已推才拦」太晚。提交前即拦截明文凭据（fail-closed）。
-    # 复用 scripts/secret_scan_hook.sh（扫描暂存区 json/yaml/env 等配置文件）。
-    secret-scan:
-      run: bash scripts/secret_scan_hook.sh
-      stage_fixed: false
+    # C1 (2026-09-13): secret 扫描已直接接入 .git/hooks/pre-commit（绕过崩溃的
+    # lefthook 直接调用 scripts/secret_scan_hook.sh，见 hooks/pre-commit）。
+    # lefthook 在 ulimit -v 512MB 下必然崩溃(Go runtime 虚拟内存不足, exit 0)，
+    # 配置在此处的命令实际从未执行——故不在此重复配置，避免将来修复后双重执行。
 
 pre-push:
   commands:
