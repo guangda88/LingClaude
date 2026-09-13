@@ -220,6 +220,23 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
             ),
             turn_duration_s=round(time.monotonic() - turn_t0, 3),
         )
+        # P0-FOUNDATION: L5 审计接入主路径（streaming 路径原本完全绕过）
+        # 非阻断：audit 方法 catch 一切异常，失败只打 warning 不影响返回值。
+        # L5 内部调用链：should_trigger → run_l5_audit_full/_apply_l5_audit
+        #   → T0 behavior check + T1 fact checker (orchestrator) + T3 entity conflict
+        #   + L1/L2 handover/restart 检查，与 submission.py submit() 保持一致。
+        try:
+            from lingclaude.core.query_engine import _get_l5_auditor
+            auditor = _get_l5_auditor(engine)
+            if auditor._engine._l5_loop.should_trigger(prompt):
+                auditor.run_l5_audit_full(prompt, response_content)
+            else:
+                auditor.apply_l5_audit(prompt, response_content)
+            auditor.check_entity_conflict(prompt, response_content)
+            auditor.check_l1_handover()
+            auditor.check_l2_restart()
+        except Exception:  # noqa: BLE001
+            pass  # L5 失败不阻塞主流程，与 submission.py submit() 保持一致
     else:
         result = engine.submit(prompt)
         print(result.output)
