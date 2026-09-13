@@ -142,14 +142,26 @@ _BLOCKED_DANGER_ANYWHERE = frozenset({
 # （bwrap wrap(allow_network=True)，不再注入 --unshare-net）。其余命令仍网络隔离。
 # 设计：git 本身不在黑名单（_check_blocked 放行），git 内部调 ssh 是子进程、
 # 命令行无 ssh token 不触发 _BLOCKED_BASE_COMMANDS；本白名单只决定「是否去掉网络隔离」。
-_NETWORK_ALLOWED_COMMANDS = (
-    "git push",
-    "git fetch",
-    "git pull",
-    "git clone",
-    "git ls-remote",
-    "git remote",
-)
+# P2-1 (灵元): 白名单外置 policies/sandbox_policy.yaml，走 PolicyLoader 热更（mtime watch）。
+def _network_allowed_commands() -> tuple[str, ...]:
+    """网络白名单：优先策略文件，读失败回退内置默认（graceful degrade）。"""
+    from lingclaude.core.policy_loader import get as policy_get
+
+    data = policy_get("sandbox_policy")
+    cmds = data.get("network_allowed_commands")
+    if isinstance(cmds, list) and cmds:
+        return tuple(str(c) for c in cmds)
+    return (
+        "git push",
+        "git fetch",
+        "git pull",
+        "git clone",
+        "git ls-remote",
+        "git remote",
+    )
+
+
+_NETWORK_ALLOWED_COMMANDS = _network_allowed_commands()
 
 # 透明前缀：这些包装命令本身不访问网络，剥离后不影响白名单判定。
 # 2026-09-12 修复：agent 习惯给 git 远程命令加 `timeout N`/`env` 前缀，
@@ -367,9 +379,11 @@ def _is_network_allowed(command: str) -> bool:
         if norm == "git" or norm.startswith("git "):
             hit = True
         else:
+            # P2-1: 运行时读策略（热更生效），模块常量仅作回退
+            allowed_list = _network_allowed_commands()
             hit = any(
                 norm == allowed or norm.startswith(allowed + " ")
-                for allowed in _NETWORK_ALLOWED_COMMANDS
+                for allowed in allowed_list
             )
         if not hit:
             return False
@@ -653,8 +667,16 @@ class BashExecutor:
             # 显式设置：全量采用用户指定目录（不隐式加 /home/ai，尊重覆盖意图）
             extra_dirs = [d.strip() for d in env_extra.split(",") if d.strip()]
         else:
-            # 未显式设置：默认对齐策略层 allowed_paths —— /home/ai 下所有协作目录可写
-            extra_dirs = ["/home/ai"]
+            # 未显式设置：默认对齐策略层 allowed_paths（P2-1: 读 sandbox_policy.yaml
+            # 的 default_writable_dirs，热更生效；读失败回退 /home/ai）
+            from lingclaude.core.policy_loader import get as policy_get
+
+            sdata = policy_get("sandbox_policy")
+            defaults = sdata.get("default_writable_dirs")
+            if isinstance(defaults, list) and defaults:
+                extra_dirs = [str(d) for d in defaults]
+            else:
+                extra_dirs = ["/home/ai"]
         # 兼容旧 wrap 签名（无 extra_writable_dirs 参数的 provider，如测试 Fake）：
         # 尝试传 extra_writable_dirs，TypeError 则回退旧参数（能力降级不报错）。
         try:

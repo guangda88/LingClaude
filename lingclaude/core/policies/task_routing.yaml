@@ -1,0 +1,24 @@
+# Task 类型 → 路由 key 映射策略（灵元 1.0：策略是 data，不是结构）
+# P2-2 (2026-09-14): TASK_TYPE_TO_ROUTE 硬编码字典外置。
+# 来源：lingclaude/model/task_router.py TASK_TYPE_TO_ROUTE
+# 原则：改路由映射只改此文件，不动代码。走 PolicyLoader（mtime watch 热更）。
+# 生效时机：每次路由前读取；热更后下个请求生效。
+# 回退：读失败回退内置默认（graceful degrade），默认值与 YAML 完全一致。
+
+# task_type → route key
+# 注：route key 对应的具体 providers/models 仍在 lingcode/config.json 的
+# routing.task_routes 定义（运行时会话配置，含敏感信息，不进策略仓库）。
+task_type_to_route:
+  code_generation: coding
+  code_analysis: coding
+  code_refactoring: coding
+  debugging: coding
+  testing: coding
+  analysis: chinese_reasoning
+  optimization: chinese_reasoning
+  documentation: english_general
+  search: fast_response
+  other: fast_response
+
+# 未知 task_type 的兜底路由
+default_route: fast_response

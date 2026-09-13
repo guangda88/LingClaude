@@ -1,0 +1,26 @@
+# 沙箱策略（灵元 1.0：策略是 data，不是结构）
+# P2-1 (2026-09-14): 网络白名单 + 默认可写目录从 bash.py/sandbox_provider.py 硬编码外置。
+# 原则：改白名单只改此文件，不动代码。走 PolicyLoader（mtime watch 热更，进程不重启）。
+# 生效时机：每次 sandbox 包裹前读取；热更后下条命令生效。
+
+# 网络白名单：仅这些「可信 git 远程操作」在沙箱中开放网络（不再注入 --unshare-net）。
+# 其余命令一律网络隔离（fail-closed）。
+network_allowed_commands:
+  - "git push"
+  - "git fetch"
+  - "git pull"
+  - "git clone"
+  - "git ls-remote"
+  - "git remote"
+
+# 默认可写目录：未显式设置 LINGCLAUDE_EXTRA_WRITABLE_DIRS 时，这些协作路径放开写。
+# 对齐策略层 allowed_paths（/home/ai 下所有协作目录可信）。
+default_writable_dirs:
+  - "/home/ai"
+
+# bwrap 包裹参数（仅列策略可调项；安全底线 ro-bind /dev 绑定不可配置）
+# bwrap 二进制查找名
+bwrap_binary: bwrap
+
+# 网络隔离开关（fail-closed 默认隔离；设 false 仅为特殊环境诊断用，不建议）
+network_isolation_enabled: true
