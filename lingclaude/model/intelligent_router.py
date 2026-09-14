@@ -31,9 +31,6 @@ def _load_policy() -> dict:
     return policy_get("router_keywords")
 
 
-_POLICY = _load_policy()
-
-
 def _task_keywords(task_key: str) -> list[str]:
     """取某任务类型的关键词列表；策略缺失回退内置默认。"""
     builtin = {
@@ -48,7 +45,7 @@ def _task_keywords(task_key: str) -> list[str]:
         "testing": ["测试", "test", "验证", "verify", "assert"],
     }
     try:
-        kws = _POLICY.get("task_keywords", {}).get(task_key)
+        kws = _load_policy().get("task_keywords", {}).get(task_key)
         if isinstance(kws, list) and kws:
             return kws
     except Exception:  # noqa: BLE001
@@ -63,7 +60,7 @@ def _complexity_keywords(level: str) -> list[str]:
         "medium": ["函数", "function", "类", "class", "模块", "module", "配置", "config", "调试", "debug"],
     }
     try:
-        kws = _POLICY.get("complexity_keywords", {}).get(level)
+        kws = _load_policy().get("complexity_keywords", {}).get(level)
         if isinstance(kws, list) and kws:
             return kws
     except Exception:  # noqa: BLE001

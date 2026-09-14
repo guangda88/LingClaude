@@ -1,7 +1,8 @@
 # 智能路由关键词策略（灵元 1.0：策略是 data，不是结构）
 # 来源：lingclaude/model/intelligent_router.py 硬编码关键词
 # 原则：改关键词只改此文件，不动代码。读失败回退内置默认（graceful degrade）。
-# 生效时机：启动时读取；P1 接入 PolicyLoader 后支持 mtime watch 热更。
+# 生效时机：每次调用实时读（PolicyLoader 缓存 + mtime watch + 30s 节流），
+# 改此文件后下个调用生效，进程不重启（P6 已删除模块级一次性缓存）。
 
 # 任务分类关键词（_classify_task）：query 命中任一关键词 → 对应 task_type
 task_keywords:
