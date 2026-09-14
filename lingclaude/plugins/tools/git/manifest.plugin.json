@@ -5,6 +5,14 @@
   "entry": "lingclaude/plugins/tools/git/plugin.py:GitPlugin",
   "description": "git 工具组插件：status/diff/log/blame/push/preflight（委托 engine/git，不复制主干逻辑）",
   "requires": [],
-  "provides": ["git_status", "git_diff", "git_log", "git_blame", "git_push", "git_push_preflight"],
-  "enabled": true
+  "provides": [
+    "git_status",
+    "git_diff",
+    "git_log",
+    "git_blame",
+    "git_push",
+    "git_push_preflight"
+  ],
+  "enabled": true,
+  "test_entry": "lingclaude/plugins/tools/git/test_git_plugin.py"
 }

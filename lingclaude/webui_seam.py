@@ -39,6 +39,22 @@ WEBUI_INTERFACE: dict[str, Any] = {
 WEBUI_CONSUMER_METHODS = ["chat", "live", "permission", "status"]
 
 
+def _lingflow_seam_registry():
+    """跨仓契约：显式声明依赖 lingflow 仓库（灵元「跨仓 = 显式插片契约」）。
+
+    1. 先经 cross_repo_seam.ensure_import_path('lingflow') 登记仓库路径
+       （env 可覆盖 LINGFLOW_PATH，不依赖隐式 editable 安装布局）；
+    2. 再包导入 lingflow 的 seam_registry —— 若不可用抛 ImportError，
+       由调用方（api._register_webui_seam_safe）fail-soft 处置，不阻断启动。
+    """
+    from lingclaude.lacp.cross_repo_seam import ensure_import_path
+
+    ensure_import_path("lingflow")
+    from lingflow.coordination.seam_registry import get_seam_registry
+
+    return get_seam_registry()
+
+
 def register_webui_seam(registry: Any | None = None) -> Any:
     """注册 webui seam 并声明 lingclaude 引擎为 Consumer。
 
@@ -47,9 +63,7 @@ def register_webui_seam(registry: Any | None = None) -> Any:
     :raises SeamDefinitionError: 重复注册同名 seam 且 provider 不同（fail loud）
     """
     if registry is None:
-        from lingflow.coordination.seam_registry import get_seam_registry
-
-        registry = get_seam_registry()
+        registry = _lingflow_seam_registry()
 
     service_disposer = registry.register_service(
         name=WEBUI_SEAM,
@@ -69,9 +83,7 @@ def webui_seam_graph() -> dict[str, list[str]]:
 
     :returns: {consumer: [seams]} 依赖图
     """
-    from lingflow.coordination.seam_registry import get_seam_registry
-
-    return get_seam_registry().build_dependency_graph()
+    return _lingflow_seam_registry().build_dependency_graph()
 
 
 def register_capability_seams() -> None:
@@ -87,9 +99,8 @@ def register_capability_seams() -> None:
         FS_SEAM, SHELL_SEAM, LLM_SEAM, SUBAGENT_SEAM,
         register_default_providers,
     )
-    from lingflow.coordination.seam_registry import get_seam_registry
 
-    registry = get_seam_registry()
+    registry = _lingflow_seam_registry()
 
     # 注册能力 seam（lingflow 声明层）
     registry.register_service("fs", FS_SEAM.interface, provider="lingclaude")
@@ -114,9 +125,7 @@ def register_capability_seams() -> None:
 
 if __name__ == "__main__":
     # 验证入口：注册 + 拓扑校验 + 快照
-    from lingflow.coordination.seam_registry import get_seam_registry
-
-    reg = get_seam_registry()
+    reg = _lingflow_seam_registry()
     sd, cd = register_webui_seam(reg)
     print("seam 注册:", reg.snapshot())
     print("依赖图:", webui_seam_graph())

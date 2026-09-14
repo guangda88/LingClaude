@@ -5,6 +5,14 @@
   "entry": "lingclaude/plugins/tools/file_ops/plugin.py:FileOpsPlugin",
   "description": "文件编辑工具组插件：write/edit/create/insert/delete_lines/undo（委托 engine/file_edit.FileEditTool，不复制主干逻辑）",
   "requires": [],
-  "provides": ["write", "edit", "file_create", "file_insert", "file_delete_lines", "file_undo"],
-  "enabled": true
+  "provides": [
+    "write",
+    "edit",
+    "file_create",
+    "file_insert",
+    "file_delete_lines",
+    "file_undo"
+  ],
+  "enabled": true,
+  "test_entry": "lingclaude/plugins/tools/file_ops/test_file_ops_plugin.py"
 }

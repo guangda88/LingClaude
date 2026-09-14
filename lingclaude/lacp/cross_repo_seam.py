@@ -37,9 +37,11 @@ _REPO_DEFAULT = {
     "lingminopt": "/home/ai/lingminopt",
     "lingan": "/home/ai/lingan",
     "lingflow": "/home/ai/lingflow",
+    "lingflow_plus": "/home/ai/lingflow_plus",
     "lingyang": "/home/ai/lingyang",
     "lingresearch": "/home/ai/lingresearch",
     "lingmemory": "/home/ai/lingclaude/lingmemory",  # 本仓子目录(测试薄主干)
+    "ling_lib": "/home/ai/.ling_lib",  # 共享工具目录（ling_key_store 等）
 }
 
 # env 覆盖键映射（配置外置: 灵元「策略/配置外置热更」）
@@ -49,9 +51,11 @@ _REPO_ENV_KEY = {
     "lingminopt": "LINGMINOPT_PATH",
     "lingan": "LINGAN_PATH",  # 目录级覆盖; 文件级加载(security_gate.py)用 LINGAN_SECURITY_GATE_PATH
     "lingflow": "LINGFLOW_PATH",
+    "lingflow_plus": "LINGFLOW_PLUS_PATH",
     "lingyang": "LINGYANG_PATH",
     "lingresearch": "LINGRESEARCH_PATH",
     "lingmemory": "LINGMEMORY_PATH",  # 本仓子目录(测试薄主干)
+    "ling_lib": "LING_LIB_PATH",
 }
 
 # 记录已被 ensure_import_path 加入的仓库名（幂等/审计用）
@@ -62,7 +66,8 @@ def repo_path(name: str) -> Optional[Path]:
     """返回指定跨仓仓库的根路径。env 覆盖优先, 否则默认 /home/ai/<name>。
 
     Args:
-        name: 仓库名（lingzhi / lingmessage / lingminopt / lingan / lingflow / lingyang）
+        name: 仓库名（lingzhi / lingmessage / lingminopt / lingan / lingflow /
+              lingflow_plus / lingyang / lingresearch / lingmemory / ling_lib）
 
     Returns:
         Path（已 resolve）或 None（未知仓库名）。

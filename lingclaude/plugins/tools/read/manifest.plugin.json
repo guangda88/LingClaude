@@ -5,6 +5,10 @@
   "entry": "lingclaude/plugins/tools/read/plugin.py:ReadPlugin",
   "description": "示范工具插件：文件读取（注册进 SeamRegistry.TOOL，ToolRegistry.execute 优先走 seam）",
   "requires": [],
-  "provides": ["read", "file"],
-  "enabled": true
+  "provides": [
+    "read",
+    "file"
+  ],
+  "enabled": true,
+  "test_entry": "lingclaude/plugins/tools/read/test_read_plugin.py"
 }

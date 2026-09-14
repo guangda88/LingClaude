@@ -5,6 +5,10 @@
   "entry": "lingclaude/plugins/tools/web/plugin.py:WebPlugin",
   "description": "web 工具组插件：web_fetch / web_search（委托 engine/web_tools，不复制主干逻辑）",
   "requires": [],
-  "provides": ["web_fetch", "web_search"],
-  "enabled": true
+  "provides": [
+    "web_fetch",
+    "web_search"
+  ],
+  "enabled": true,
+  "test_entry": "lingclaude/plugins/tools/web/test_web_plugin.py"
 }

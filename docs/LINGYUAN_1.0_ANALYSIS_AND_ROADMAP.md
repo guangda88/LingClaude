@@ -419,3 +419,75 @@ install_openai(); install_bash()
 - 定向回归：**111 passed, 2 skipped**（wiring ×4 + coding + arch_guards）
 - G3 懒加载基线同步 375 → 390（仅 coding_wiring 工厂，合法迁移）
 - 待办：CLI 回归专项（Q5 涉及 CodingRuntime 初始化热路径，建议再跑 `tests/e2e` + `tests/integration`）
+
+---
+
+## 十三、执行记录（2026-09-15：E1-E8 —— D6 后灵元尺子再照，死代码清除 + 跨仓残余收敛 + 插片质量门禁）
+
+> 依据 D6（跨仓硬编码依赖统一收敛）完成后再次以灵元 1.0 为尺子全量扫描，
+> 聚焦「减法」与「跨仓显式契约」两轴。全部改动过 lefthook 三钩子，工作树干净。
+
+### E1：message_builder.py 死代码清除（减法，维护点 2→1）
+
+- **背景**：`core/message_builder.py`（227 行）是 `system_prompt_builder.py` 的**旧版逐字重复**
+  （无 SESSION_CONTEXT / R8 增强），**生产零引用**（query_engine_model_mixin 直用 system_prompt_builder），
+  仅 tests 引用。属灵元「同一概念多处实现」+「死代码不清」双违。
+- **改动**：`message_builder.py` 收敛为**外观层**（100 行）——`MessageBuilder` 类 + `assemble_system_prompt`
+  函数保留签名，全部委托 `system_prompt_builder.build_adaptive_system_prompt` 单实现。
+  净减 **~127 行重复实现**；19 个行为测试保留为 facade 资产（委托同实现，行为等价）。
+- **回归**：`test_message_builder.py` + `test_system_prompt_builder.py` **29 passed**
+
+### E3-E6：跨仓依赖残留收敛（D6 漏网 7 处 → cross_repo_seam 单源）
+
+| 项 | 文件 | 残留 | 处置 |
+|----|------|------|------|
+| E3 | `webui_seam.py` | 4 处 `from lingflow.coordination...` | 收敛为 `_lingflow_seam_registry()` 单源（先 `ensure_import_path('lingflow')` 显式登记，再包导入；fail-soft 由 api 调用方处置） |
+| E4 | `engine/mcp_proxy.py` | 1 处 `from lingflow_plus.mcp_registry` | 收敛为 `ensure_import_path('lingflow_plus')` 前置显式化 |
+| E5 | `model/factory.py` + `model/llm_proxy/server.py` | 2 处 `~/.ling_lib` 硬编码 `sys.path.insert` | 收敛为 `ensure_import_path('ling_lib')`（env 可覆盖 `LING_LIB_PATH`） |
+| E6 | `self_optimizer/optimizer.py` + `mcp/server.py` | 2 处 `from lingminopt import ...` | 收敛为 `ensure_import_path('lingminopt')` 前置显式化 |
+
+- **cross_repo_seam.py 扩展**：`_REPO_DEFAULT`/`_REPO_ENV_KEY` 新增 `lingflow_plus`（`LINGFLOW_PLUS_PATH`）、
+  `ling_lib`（`LING_LIB_PATH`）两个条目，docstring 同步。
+- **回归**：cross_repo_seam 8 passed + 受影响集 105 passed（唯一失败为**原始 HEAD 已存在**的
+  test_mcp_server 跨文件 bash 状态干扰，stash 对比实证与本次改动无关）
+
+### E7：插片质量门禁（灵元「插片无测试 = 非法插片」落地为机制）
+
+- **plugin_manifest.py**：schema + dataclass + from_dict 增加可选 `test_entry` 字段
+- **plugin_loader.py**：`load_plugin` 注册前执行门禁——
+  - manifest 声明 `test_entry` → **subprocess 隔离跑测试**（cwd 切到插件目录，支持自包含
+    `from plugin import ...`），全绿才注册；测试红/文件缺失 → **fail fast** 不注册
+  - 未声明 test_entry → warning 不阻断（演进中）
+  - **门禁缓存**：类级共享 `name@version` 已通过 → 跳过重跑（热更语义：版本变化
+    强制重验；类级而非实例级：测试套件每用例新建 PluginLoader，实例级会每用例
+    重复跑 subprocess pytest ~2s×N，类级保证进程内每插件只跑一次）
+- **6 个工具插件补齐自包含测试 + manifest 声明 test_entry**：read/bash/git/ast/web/file_ops
+  各 2 项薄契约测试（实例化 + 委托路径），`plugins/tools/*/test_*_plugin.py`
+- **回归**：`test_tool_plugins_p0/p1_p2` + `test_seam_plugin` **39 passed**
+
+### E8：FileOps/FileEditTool 双实现边界实证 + edit 单源化
+
+- **实证结论**：FileOps（read/glob/grep/exists/delete/write）与 FileEditTool
+  （replace/create/insert/delete_lines/undo）**不是纯重复**——FileOps 的只读能力
+  FileEditTool 没有；FileOps.write（file_tools._write_handler 在用）与 FileEditTool.replace
+  （file_tools._edit_handler 在用）各司其职。**唯一真重复是 `FileOps.edit`**
+  （FileEditTool.replace 的简版，无 .bak 回滚，生产零调用）。
+- **改动**：`FileOps.edit` → 委托 `FileEditTool.replace`（保持 Result[str] 旧契约），
+  「文本替换」行为由 FileEditTool 单源（带备份 + 模糊替换 + diff）。
+  测试断言适配单源文案（`"匹配" in error or "Multiple matches" in error`）。
+- **回归**：`test_strict` + `test_file_edit` + `test_file_read` **68 passed**
+
+### 质量指标（本轮）
+
+- 变更：16 文件（8 修改 + 6 新增测试 + 2 测试/文档），净减重复实现 ~130 行
+- 新增测试：12 项（6 插件门禁测试 ×2）+ 门禁机制测试（红/绿/缓存三路径实测）
+- `.bak` 归零纪律保持
+- 待办：广域全量回归（后台 job）；推送远端
+
+### 后续候选（未纳入本轮）
+
+- **E11 候选**：`webui_seam.py` 顶层 docstring 已澄清两套 seam 体系，lingflow 若可抽为
+  本地接口副本可彻底去跨仓（当前依赖 editable 安装，显式化后已可审计）
+- **E12 候选**：插件门禁的 pytest subprocess 启动开销（~2s/插件）——已用版本缓存缓解，
+  如需再降可改进程内 pytest 收集（需解决 cwd 污染）
+- **推送**：本轮提交尚未 push 远端

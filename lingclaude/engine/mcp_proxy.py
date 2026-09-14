@@ -494,6 +494,11 @@ def clear_cache() -> None:
 
 def init_from_lingflow_registry() -> int:
     try:
+        # 跨仓契约：显式声明依赖 lingflow_plus 仓库（env 可覆盖 LINGFLOW_PLUS_PATH），
+        # 不依赖隐式 editable 安装布局（灵元「跨仓 = 显式插片契约」）。
+        from lingclaude.lacp.cross_repo_seam import ensure_import_path
+
+        ensure_import_path("lingflow_plus")
         from lingflow_plus.mcp_registry import MCP_SERVERS as REGISTRY
     except ImportError:
         logger.warning("MCP Proxy: lingflow_plus not available, skipping registry init")

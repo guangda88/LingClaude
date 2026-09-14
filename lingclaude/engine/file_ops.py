@@ -82,22 +82,21 @@ class FileOps:
     def edit(
         self, path: str, old_text: str, new_text: str, replace_all: bool = False
     ) -> Result[str]:
-        read_result = self.read(path)
-        if read_result.is_error:
-            return read_result  # type: ignore[return-value]
+        """文本替换 — 委托 FileEditTool.replace（E8, 2026-09-15 单源化）。
 
-        content = read_result.data.content
-        count = content.count(old_text)
-        if count == 0:
-            return Result.fail(f"Text not found in {path}")
-        if count > 1 and not replace_all:
-            return Result.fail(
-                f"Multiple matches ({count}) in {path}, use replace_all=True"
-            )
+        原实现是与 FileEditTool.replace 逐字重复的简版（无 .bak 回滚），
+        生产零调用（file_tools._edit_handler 直用 file_edit）。灵元「同一概念
+        一处实现」：行为由 FileEditTool 单源（带备份 + 模糊替换 + diff），
+        本方法保持 Result[str]（path）旧契约，兼容存量调用/测试。
+        """
+        from lingclaude.engine.file_edit import FileEditTool
 
-        new_content = content.replace(old_text, new_text) if replace_all else content.replace(old_text, new_text, 1)
-        write_result = self.write(path, new_content)
-        return write_result
+        result = FileEditTool(base_dir=str(self.base_dir)).replace(
+            path, old_text, new_text, replace_all=replace_all,
+        )
+        if result.is_error:
+            return Result.fail(result.error)
+        return Result.ok(result.data.path)
 
     def glob(self, pattern: str, path: str | None = None) -> Result[tuple[str, ...]]:
         # T0-5: path 参数 — 指定 glob 根目录（默认 base_dir）

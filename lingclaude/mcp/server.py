@@ -233,9 +233,12 @@ def tool_run_optimization(
     max_trials: int = 20,
 ) -> dict:
     """运行同步优化搜索，寻找最佳参数配置。goal 可选: structure/performance/quality。"""
+    # 跨仓契约：显式声明依赖 lingminopt 仓库（env 可覆盖 LINGMINOPT_PATH）。
+    from lingclaude.lacp.cross_repo_seam import ensure_import_path
     from lingminopt import SearchSpace
     from ..self_optimizer.optimizer import OptimizationRequest
 
+    ensure_import_path("lingminopt")
     space = SearchSpace()
     if goal == "structure":
         space.add_discrete("max_class_lines", [100, 200, 300, 500])

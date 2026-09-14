@@ -80,9 +80,11 @@ def _get_env_key(provider: str) -> str:
 
 def _key_store_get(key_name: str) -> str:
     try:
-        import sys
-        from pathlib import Path
-        sys.path.insert(0, str(Path.home() / ".ling_lib"))
+        # 跨仓契约：显式声明依赖 ling_lib 共享工具目录（env 可覆盖 LING_LIB_PATH），
+        # 替代硬编码 ~/.ling_lib sys.path.insert（灵元「跨仓 = 显式插片契约」）。
+        from lingclaude.lacp.cross_repo_seam import ensure_import_path
+
+        ensure_import_path("ling_lib")
         from ling_key_store import get_key
         return get_key(key_name) or ""
     except (ImportError, ModuleNotFoundError, AttributeError):

@@ -5,6 +5,10 @@
   "entry": "lingclaude/plugins/tools/ast/plugin.py:AstPlugin",
   "description": "ast 工具组插件：ast_replace / list_functions（委托 engine/ast_edit，不复制主干逻辑）",
   "requires": [],
-  "provides": ["ast_replace", "list_functions"],
-  "enabled": true
+  "provides": [
+    "ast_replace",
+    "list_functions"
+  ],
+  "enabled": true,
+  "test_entry": "lingclaude/plugins/tools/ast/test_ast_plugin.py"
 }

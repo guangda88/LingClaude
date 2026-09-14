@@ -256,7 +256,8 @@ class TestFileOpsEdgeCases:
         ops = FileOps(base_dir=str(base))
         result = ops.edit("test.txt", "aaa", "ccc")
         assert result.is_error
-        assert "Multiple matches" in result.error
+        # E8 单源化：edit 委托 FileEditTool.replace，错误文案为 FileEditTool 单源
+        assert "匹配" in result.error or "Multiple matches" in result.error
 
 
 # ---------------------------------------------------------------------------

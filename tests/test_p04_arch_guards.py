@@ -103,7 +103,18 @@ BASELINE_SYS_PATH = 14
                      # 循环）；② plugins/tools/ast/plugin.py 函数内延迟 import ast_edit ×1
                      # （与 bash/read/file_ops/web 插件同款）。共 +6，均为合法懒加载，
                      # 换来 ast 工具组插片化 + 插件→MCP stdio 连接池 warm 通道，非膨胀。
-BASELINE_LAZY = 407
+                     # 2026-09-15 (E3-E7): 407 → 421 —— 本轮实测 HEAD(D6 提交 43d0333)
+                     # 已达 419（历史提交未同步基线，g3 带病误报）；本轮新增合法懒加载：
+                     # ① plugin_loader.py _run_plugin_tests 门禁函数内延迟 import
+                     # subprocess/sys/pytest/ExitCode ×4（E7 插片测试门禁，subprocess
+                     # 隔离 cwd 跑插件自带测试）；② file_ops.py edit 委托 FileEditTool ×1
+                     # （E8 单源化，函数内延迟规避 engine 循环）；③ webui_seam.py
+                     # _lingflow_seam_registry cross_repo_seam ×1（E3，4 处 lingflow
+                     # import 收敛为 1 处单源 + 1 处登记，净 2 处）；④ factory/llm_proxy/
+                     # optimizer/mcp_proxy/mcp.server cross_repo_seam ×5（E4-E6 跨仓
+                     # 显式化）。均为合法懒加载（S3 纪律），换来跨仓显式契约 + 插片
+                     # 质量门禁，非膨胀。
+BASELINE_LAZY = 421
 BASELINE_DICT_ERR = 52
 
 

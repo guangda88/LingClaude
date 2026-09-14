@@ -36,6 +36,7 @@ MANIFEST_SCHEMA: dict[str, Any] = {
             "enum": [t.value for t in SeamType],
         },
         "entry": {"type": "string", "minLength": 1},
+        "test_entry": {"type": "string", "minLength": 1},
         "description": {"type": "string"},
         "requires": {
             "type": "array",
@@ -61,6 +62,7 @@ class PluginManifest:
     version: str
     type: SeamType
     entry: str                    # "module.py:ClassName" 或 "module.py"
+    test_entry: str = ""          # 插片自带测试入口（灵元「插片无测试=非法插片」，加载门禁用）
     description: str = ""
     requires: tuple[str, ...] = ()   # 依赖的插件/包名
     provides: tuple[str, ...] = ()   # 提供的能力名
@@ -107,6 +109,7 @@ class PluginManifest:
             version=str(data["version"]),
             type=stype,
             entry=str(data["entry"]),
+            test_entry=str(data.get("test_entry", "")),
             description=str(data.get("description", "")),
             requires=tuple(str(x) for x in data.get("requires", [])),
             provides=tuple(str(x) for x in data.get("provides", [])),

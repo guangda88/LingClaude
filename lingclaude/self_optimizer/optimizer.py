@@ -5,6 +5,12 @@ import traceback
 from dataclasses import dataclass
 from typing import Any
 
+# 跨仓契约：显式声明依赖 lingminopt 仓库（灵元「跨仓 = 显式插片契约」）。
+# env 可覆盖 LINGMINOPT_PATH，不依赖隐式 editable 安装布局。
+from lingclaude.lacp.cross_repo_seam import ensure_import_path as _seam_import
+
+_seam_import("lingminopt")
+
 from lingminopt import (
     MinimalOptimizer,
     SearchSpace,

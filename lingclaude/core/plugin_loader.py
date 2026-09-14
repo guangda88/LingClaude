@@ -73,9 +73,80 @@ class _PluginAliasProxy:
 class PluginLoader:
     """动态插件加载器：manifest → importlib → SeamRegistry 注册。"""
 
+    # 门禁缓存（类级）：{name@version: True} —— 跨实例共享，进程内每插件只跑一次测试
+    _gate_passed: set[str] = set()
+
     def __init__(self, registry: type[SeamRegistry] | None = None) -> None:
         self._registry = registry or SeamRegistry
         self._loaded: dict[str, LoadResult] = {}
+        # 门禁缓存（类级，跨实例共享）：{name@version: True} —— 同一进程内已通过
+        # 自带测试的插件不再重复跑（版本变化强制重跑，热更语义）。灵元「测试是
+        # 资产，跑过一次即复用结果，不是每次加载都全量重验」。类级而非实例级：
+        # 测试套件每用例新建 PluginLoader 实例，实例级缓存会让每用例重复跑
+        # subprocess pytest（~2s×N），类级保证整个进程每插件只跑一次。
+        self._gate_passed: set[str] = PluginLoader._gate_passed
+
+    def _gate_key(self, manifest: PluginManifest) -> str:
+        return f"{manifest.name}@{manifest.version}"
+
+    def _run_plugin_tests(self, manifest: PluginManifest) -> tuple[bool, str] | None:
+        """灵元质量门禁：跑插件自带测试（manifest.test_entry）。
+
+        返回:
+          - None        → 未声明 test_entry（跳过门禁，调用方记录 warning）
+          - (True, 概要) → 测试全绿
+          - (False, 错误) → 测试红 / 测试文件不存在 / 跑挂
+        """
+        if not manifest.test_entry:
+            logger.warning(
+                "PluginLoader: 插件 %s 未声明 test_entry（灵元「插片无测试=非法插片」，"
+                "建议补齐自包含测试后声明）",
+                manifest.name,
+            )
+            return None
+
+        key = self._gate_key(manifest)
+        if key in self._gate_passed:
+            return True, f"{manifest.test_entry} (cached)"
+
+        test_path = Path(manifest.test_entry)
+        if not test_path.is_file():
+            test_path = Path.cwd() / manifest.test_entry
+        if not test_path.is_file():
+            return False, f"test_entry 文件不存在: {manifest.test_entry}"
+
+        import pytest
+
+        try:
+            from _pytest.config import ExitCode
+        except ImportError:  # pragma: no cover — 极老版本兜底
+            ExitCode = type("ExitCode", (), {"OK": 0})  # type: ignore[assignment]
+
+        try:
+            # 插件测试设计为「自包含」：从插件目录内 `from plugin import ...` 导入，
+            # 因此必须把 cwd 切到测试文件所在目录再跑（否则嵌套 pytest 在仓库根
+            # 找不到 plugin 模块）。用 subprocess 隔离 cwd，避免污染调用方进程。
+            import subprocess
+            proc = subprocess.run(
+                [sys.executable, "-m", "pytest", "-q", "--no-header", "--tb=short",
+                 "-p", "no:cacheprovider", test_path.name],
+                cwd=str(test_path.parent),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            code = proc.returncode
+        except subprocess.TimeoutExpired:
+            return False, "测试执行超时(120s)"
+        except Exception as exc:  # noqa: BLE001 — 门禁异常转 fail，不炸进程
+            return False, f"测试执行异常: {exc}"
+
+        ok = code in (0, getattr(ExitCode, "OK", 0))
+        summary = f"{test_path.name} exit={code}"
+        if ok:
+            self._gate_passed.add(key)
+        return (ok, summary)
+
 
     def load_plugin(self, manifest: PluginManifest) -> LoadResult:
         """按 manifest 加载插件并注册进 SeamRegistry。
@@ -100,6 +171,20 @@ class PluginLoader:
             path = Path.cwd() / module_name
         if not path.is_file():
             return LoadResult(False, error=f"插件文件不存在: {module_name}", manifest=manifest)
+
+        # 灵元「插片无测试 = 非法插片」质量门禁（E7, 2026-09-15）：
+        # manifest 声明 test_entry（相对仓库根或绝对路径）→ 注册前强制跑测试，
+        # 全绿才允许挂载；测试红 → fail fast（不注册，返回 LoadResult 错误）。
+        # 未声明 test_entry → 记录 warning 不阻断（演进中：存量插件逐步补齐自包含测试）。
+        test_result = self._run_plugin_tests(manifest)
+        if test_result is not None:
+            if not test_result[0]:
+                return LoadResult(
+                    False,
+                    error=f"插件 {manifest.name} 自带测试未通过（灵元门禁）: {test_result[1]}",
+                    manifest=manifest,
+                )
+            logger.info("PluginLoader: %s 自带测试通过（%s）", manifest.name, test_result[1])
 
         try:
             # 每次加载用唯一模块名（时间戳），彻底绕开 sys.modules 缓存：
