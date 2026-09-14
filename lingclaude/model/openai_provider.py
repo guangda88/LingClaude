@@ -362,10 +362,14 @@ class OpenAIProvider(ModelProvider):
             return replace(cfg, model=target_model)
         return cfg
 
-    def _call_api_sync(
+    def _prepare_request(
         self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
         tools: tuple[dict[str, Any], ...] | None = None,
-    ) -> Result[ModelResponse]:
+    ) -> tuple[str, dict[str, Any], dict[str, str]]:
+        """构造 chat/completions 请求三元组 (url, body, headers)。
+
+        同步/异步两条 API 调用链共用——逐字重复收敛(维护点 2→1)。
+        """
         base = cfg.base_url or "https://api.openai.com/v1"
         url = base.rstrip("/") + "/chat/completions"
         body = self._build_request_body(messages, cfg, tools)
@@ -373,6 +377,13 @@ class OpenAIProvider(ModelProvider):
             "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
         }
+        return url, body, headers
+
+    def _call_api_sync(
+        self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
+        tools: tuple[dict[str, Any], ...] | None = None,
+    ) -> Result[ModelResponse]:
+        url, body, headers = self._prepare_request(messages, cfg, tools)
 
         req = urllib.request.Request(
             url,
@@ -397,13 +408,7 @@ class OpenAIProvider(ModelProvider):
     ) -> Result[ModelResponse]:
         import aiohttp
 
-        base = cfg.base_url or "https://api.openai.com/v1"
-        url = base.rstrip("/") + "/chat/completions"
-        body = self._build_request_body(messages, cfg, tools)
-        headers = {
-            "Authorization": f"Bearer {cfg.api_key}",
-            "Content-Type": "application/json",
-        }
+        url, body, headers = self._prepare_request(messages, cfg, tools)
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
