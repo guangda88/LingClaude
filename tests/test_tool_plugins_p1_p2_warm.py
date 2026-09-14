@@ -111,3 +111,58 @@ class TestWarmPluginServer:
         inner = r["data"]
         assert inner["ok"] is True
         assert "functions" in inner["data"]
+
+
+class TestToolAliasHotplug:
+    """P2 深化 (2026-09-14): provides 工具名别名代理 → 热拔插通道接通工具执行路径。
+
+    此前 PluginLoader 只注册 manifest.name（read_plugin），ToolRegistry.execute(name)
+    按工具名（read）查 seam 永远 miss —— 热拔插在工具执行路径上从未真正生效。
+    修复后：工具名注册为 _PluginAliasProxy，插件加载即接管对应工具，卸载即回退主干。
+    """
+
+    def _build_registry(self):
+        from lingclaude.engine.tools import ToolDefinition, ToolRegistry
+
+        reg = ToolRegistry()
+        reg.register(ToolDefinition(name="read", description="", parameters={},
+                                    handler_name="h_read"))
+        reg.register(ToolDefinition(name="git_status", description="", parameters={},
+                                    handler_name="h_gs"))
+        reg.register_handler("h_read", lambda **kw: {"via": "main"})
+        reg.register_handler("h_gs", lambda **kw: {"via": "main"})
+        return reg
+
+    def test_provides_aliases_registered(self):
+        """provides 工具名注册为 seam TOOL 槽位（read/bash/git_status 等）。"""
+        PluginLoader().load_plugins_from_dir(TOOLS_DIR)
+        names = set(SeamRegistry.list_names(SeamType.TOOL))
+        assert "read" in names          # read_plugin 的 provides
+        assert "bash" in names          # bash_plugin 的 provides
+        assert "git_status" in names    # git_plugin 的 provides
+        assert "read_plugin" in names   # manifest.name 本体
+
+    def test_execute_goes_through_plugin(self):
+        """主干先注册 → 插件后加载 → ToolRegistry.execute 走插件（非主干）。"""
+        reg = self._build_registry()
+        PluginLoader().load_plugins_from_dir(TOOLS_DIR)
+        r = reg.execute("read", path="lingclaude/plugins/tools/read/plugin.py",
+                        offset=1, limit=2)
+        assert r.is_ok, r.error
+        text = str(r.data.to_dict() if hasattr(r.data, "to_dict") else r.data)
+        assert "lines" in text      # read_plugin 结果
+        assert "via" not in text    # 非主干占位
+
+    def test_unload_falls_back_to_core(self):
+        """卸载插件 → 工具名别名清理 → execute 回退主干。"""
+        reg = self._build_registry()
+        loader = PluginLoader()
+        loader.load_plugins_from_dir(TOOLS_DIR)
+        mf = loader._loaded["read_plugin"].manifest
+        assert loader.unload_plugin(mf)
+        # 别名已清理
+        assert SeamRegistry.get_optional(SeamType.TOOL, "read") is None
+        # 回退主干
+        r = reg.execute("read", path="x")
+        assert r.is_ok and r.data == {"via": "main"}
+

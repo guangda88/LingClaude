@@ -45,6 +45,31 @@ class LoadResult:
 # 模块加载序号（每次加载唯一模块名用，绕开 sys.modules 缓存）
 _LOAD_SEQ = [0]
 
+
+class _PluginAliasProxy:
+    """工具名 → 插件的别名代理（P2 深化：provides 工具名注册进 seam）。
+
+    ToolRegistry.execute(name) 按工具名查 seam（tools.py:175），而插件注册名是
+    manifest.name（read_plugin）。别名代理让工具名（read）也能命中插件：
+
+        SeamRegistry.register(TOOL, "read", _PluginAliasProxy(instance, "read"))
+
+    execute 自动把工具名作 name 传给插件 —— 按名分派型插件（git/web/ast/file_ops
+    的 execute(name, **kwargs)）正确路由；*args/**kwargs 型插件（bash/read）
+    name 进位置参数被吸收，无副作用。
+    """
+
+    __slots__ = ("name", "_instance", "_tool_name")
+
+    def __init__(self, instance: Any, tool_name: str) -> None:
+        self.name = tool_name
+        self._instance = instance
+        self._tool_name = tool_name
+
+    def execute(self, **kwargs: Any) -> Any:
+        return self._instance.execute(self._tool_name, **kwargs)
+
+
 class PluginLoader:
     """动态插件加载器：manifest → importlib → SeamRegistry 注册。"""
 
@@ -116,14 +141,37 @@ class PluginLoader:
         # 注册进 SeamRegistry（热更：先注销旧的再注册新的）
         self._registry.unregister(manifest.type, manifest.name)
         self._registry.register(manifest.type, manifest.name, instance)
+        # 2026-09-14 (P2 深化): tool 型插件把 provides 工具名也注册为别名代理 ——
+        # ToolRegistry.execute(name) 按工具名查 seam（tools.py:175 get_optional），
+        # 此前只注册 manifest.name（read_plugin），工具名（read）永远 miss，
+        # 热拔插通道在工具执行路径上从未真正接通。别名代理 execute 自动注入
+        # 工具名作 name 分派（git/web/ast/file_ops 的 execute(name, **kwargs) 正确
+        # 路由；bash/read 的 *args/**kwargs 吸收 name 无副作用）。
+        if manifest.type == SeamType.TOOL and manifest.provides:
+            for tool_name in manifest.provides:
+                if not tool_name or tool_name == manifest.name:
+                    continue
+                self._registry.register(
+                    manifest.type, tool_name,
+                    _PluginAliasProxy(instance, tool_name),
+                )
         result = LoadResult(True, instance=instance, manifest=manifest)
         self._loaded[manifest.name] = result
         logger.info("PluginLoader: 加载并注册 %s/%s <- %s", manifest.type.value, manifest.name, path)
         return result
 
     def unload_plugin(self, manifest: PluginManifest) -> bool:
-        """热拔插：从 SeamRegistry 注销。幂等。"""
+        """热拔插：从 SeamRegistry 注销。幂等。
+
+        同时注销 provides 工具名别名代理（P2 深化：加载时注册的别名，卸载时
+        必须一并清掉，否则工具名残留命中已卸载插件的代理）。
+        """
         removed = self._registry.unregister(manifest.type, manifest.name)
+        if manifest.type == SeamType.TOOL and manifest.provides:
+            for tool_name in manifest.provides:
+                if not tool_name or tool_name == manifest.name:
+                    continue
+                self._registry.unregister(manifest.type, tool_name)
         self._loaded.pop(manifest.name, None)
         return removed
 
