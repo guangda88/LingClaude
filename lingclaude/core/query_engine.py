@@ -22,8 +22,6 @@ from lingclaude.core.prior_verifier import PriorVerifier
 from lingclaude.core.degradation_detector import DegradationAlert, DegradationDetector
 from lingclaude.core.meta_cognition import MetaCognition, Domain
 from lingclaude.core.layered_memory import LayeredMemory, Experience, EmotionIntensity
-from lingclaude.model.intelligent_router import IntelligentRouter
-from lingclaude.model.task_router import TaskRouter
 from lingclaude.core.context_cache import ContextCache
 from lingclaude.core.task_aggregation import TaskAggregator
 from lingclaude.core.token_monitor import TokenMonitor
