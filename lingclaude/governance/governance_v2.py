@@ -459,69 +459,74 @@ class GovernanceEngine:
                 body=body,
             )
 
-    def _notify_objection(self, proposal: ProposalV2, objection: Objection) -> None:
+    def _notify_safe(self, proposal: ProposalV2, build_body, topic: str, subject: str,
+                     reply_subject: str | None = None, log_fmt: str = "通知发送失败: %s") -> None:
+        """收敛: _notify_objection/_notify_nudge/_notify_result 三处逐字相同的
+        bus 判空 + 测试提案跳过 + try/except 包裹骨架（维护点 3→1）。
+
+        build_body: 无参可调用，返回通知正文。topic/subject/reply_subject
+        由各通知显式传入（含 reply_subject 差异与异议人 cn 拼接），保真。
+        """
         if self.bus is None:
             return
         if _is_test_proposal(proposal.proposer, proposal.title):
             return
         try:
-            cn = get_cn_name(objection.objector)
-            body = (
+            body = build_body()
+            self._post_or_open_thread(
+                proposal, body,
+                topic=topic,
+                subject=subject,
+                reply_subject=reply_subject,
+            )
+        except Exception as e:
+            logger.warning(log_fmt, e)
+
+    def _notify_objection(self, proposal: ProposalV2, objection: Objection) -> None:
+        cn = get_cn_name(objection.objector)
+        self._notify_safe(
+            proposal,
+            lambda: (
                 f"【异议】{proposal.title}\n\n"
                 f"异议人: {cn}\n"
                 f"严重性: {objection.severity.value}\n"
                 f"证据: {objection.evidence[:500]}\n"
                 f"认知评估: {objection.cognitive_assessment.state.value if objection.cognitive_assessment else '无'}\n"
-            )
-            self._post_or_open_thread(
-                proposal, body,
-                topic=f"[异议] {proposal.title}",
-                subject=f"异议: {cn} 对 {proposal.title}",
-            )
-        except Exception as e:
-            logger.warning("异议通知发送失败: %s", e)
+            ),
+            topic=f"[异议] {proposal.title}",
+            subject=f"异议: {cn} 对 {proposal.title}",
+            log_fmt="异议通知发送失败: %s",
+        )
 
     def _notify_nudge(self, proposal: ProposalV2) -> None:
-        if self.bus is None:
-            return
-        if _is_test_proposal(proposal.proposer, proposal.title):
-            return
-        try:
-            body = (
+        self._notify_safe(
+            proposal,
+            lambda: (
                 f"【催票】{proposal.title}\n\n"
                 f"剩余时间: {proposal.remaining_hours:.1f}小时\n"
                 f"当前异议数: {len(proposal.objections)}\n"
                 f"阻塞性异议: {len(proposal.blocking_objections)}\n\n"
                 f"如无异议将自动通过。请尽快审阅。"
-            )
-            self._post_or_open_thread(
-                proposal, body,
-                topic=f"[催票] {proposal.title}",
-                subject=f"催票: {proposal.title}",
-            )
-        except Exception as e:
-            logger.warning("催票通知发送失败: %s", e)
+            ),
+            topic=f"[催票] {proposal.title}",
+            subject=f"催票: {proposal.title}",
+            log_fmt="催票通知发送失败: %s",
+        )
 
     def _notify_result(self, proposal: ProposalV2) -> None:
-        if self.bus is None:
-            return
-        if _is_test_proposal(proposal.proposer, proposal.title):
-            return
-        try:
-            body = (
+        self._notify_safe(
+            proposal,
+            lambda: (
                 f"【决议】{proposal.title}\n\n"
                 f"结果: {proposal.status.value}\n"
                 f"{proposal.decision_note}\n\n"
                 f"提案人: {get_cn_name(proposal.proposer)}"
-            )
-            self._post_or_open_thread(
-                proposal, body,
-                topic=f"[决议] {proposal.title}",
-                subject=f"决议: {proposal.title}",
-                reply_subject=f"决议: {proposal.title} → {proposal.status.value}",
-            )
-        except Exception as e:
-            logger.warning("决议通知发送失败: %s", e)
+            ),
+            topic=f"[决议] {proposal.title}",
+            subject=f"决议: {proposal.title}",
+            reply_subject=f"决议: {proposal.title} → {proposal.status.value}",
+            log_fmt="决议通知发送失败: %s",
+        )
 
     def audit_thread(
         self,

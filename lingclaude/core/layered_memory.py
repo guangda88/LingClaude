@@ -526,25 +526,22 @@ class LayeredMemory:
     def decay(self) -> int:
         return self.experience.decay_all()
 
-    def _save_meta(self) -> None:
+    def _save_json(self, path: Path, facts: dict, label: str) -> None:
+        """收敛: _save_meta/_save_shared 逐字重复的落盘骨架（维护点 2→1）。"""
         try:
-            self._meta_path.parent.mkdir(parents=True, exist_ok=True)
-            self._meta_path.write_text(
-                json.dumps(self._meta_facts, ensure_ascii=False, indent=2),
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(facts, ensure_ascii=False, indent=2),
                 encoding="utf-8",
             )
         except OSError:
-            logger.warning("Failed to save meta facts to %s", self._meta_path)
+            logger.warning("Failed to save %s facts to %s", label, path)
+
+    def _save_meta(self) -> None:
+        self._save_json(self._meta_path, self._meta_facts, "meta")
 
     def _save_shared(self) -> None:
-        try:
-            self._shared_path.parent.mkdir(parents=True, exist_ok=True)
-            self._shared_path.write_text(
-                json.dumps(self._shared_facts, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except OSError:
-            logger.warning("Failed to save shared facts to %s", self._shared_path)
+        self._save_json(self._shared_path, self._shared_facts, "shared")
 
     def _load_facts(self) -> None:
         for path, target in [(self._meta_path, "_meta_facts"), (self._shared_path, "_shared_facts")]:
