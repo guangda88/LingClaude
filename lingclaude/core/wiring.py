@@ -18,12 +18,15 @@ phase 三值语义：
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled  # P3.2
 from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink  # P3.3 模块级（g3 守卫基线 351 内化，勿放函数内）
 from lingclaude.core.lingmemory_token_bridge import LingMemoryTokenSink  # P3.4 模块级（g3 基线内化，勿放函数内）
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -437,6 +440,26 @@ def _manifest_or_yaml() -> tuple[WiringSpec, ...]:
     return WIRING_MANIFEST
 
 
+def _load_plugins_if_present() -> None:
+    """S4: 批量加载 lingclaude/plugins/ 下插件（fail-soft）。
+
+    - 目录不存在/为空 → no-op（引擎启动无插件目录不报错）
+    - 单个插件失败 → logger.warning，不影响其他插件与装配
+    - 已加载实例注册进 SeamRegistry（消费面经 get_optional 查询即生效）
+    """
+    plugins_dir = Path(__file__).resolve().parent.parent.parent / "plugins"
+    try:
+        from lingclaude.core.plugin_loader import PluginLoader
+
+        loader = PluginLoader()
+        results = loader.load_plugins_from_dir(plugins_dir)
+        loaded = [name for name, r in results.items() if r.is_ok]
+        if loaded:
+            logger.info("S4: 批量加载插件 %d 个: %s", len(loaded), ", ".join(sorted(loaded)))
+    except Exception as exc:  # noqa: BLE001 — 插件机制故障绝不影响引擎装配
+        logger.warning("S4: 插件批量加载跳过（fail-soft）: %s", exc)
+
+
 def assemble(
     ctx: WiringContext,
     manifest: tuple[WiringSpec, ...] = None,  # type: ignore[assignment]
@@ -454,6 +477,10 @@ def assemble(
     """
     if manifest is None:
         manifest = _manifest_or_yaml()
+    # S4 (2026-09-14): PluginLoader 从「库」变「机制」——引擎装配必经路径批量加载
+    # lingclaude/plugins/ 下所有 *.plugin.json（fail-soft：目录不存在/插件失败不阻断装配）。
+    # 新增插件 = 目录加一个 manifest 文件，主干零 diff；热拔插 = unload/重载 manifest。
+    _load_plugins_if_present()
     wired: list[str] = []
     for spec in manifest:
         if overrides and spec.attr in overrides:

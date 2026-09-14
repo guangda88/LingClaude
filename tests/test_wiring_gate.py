@@ -217,6 +217,16 @@ class TestNoDeadModules:
         # （返回 (脱敏文本, 是否发生替换)，供日志/审计调用），与 redact/contains_sensitive
         # 同属 redact 模块公共面；当前无调用方属预留审计接口，登记豁免待接线。
         "redact_if_needed",
+        # P3/S4: LoadResult 是 plugin_loader 内部返回类型（load_plugin 返回值），
+        # 从不需要跨模块 import；ProviderPlugin/ToolPlugin 是 seam.py 的协议声明
+        # （结构性检查用，非实例依赖）。S4 后由 wiring._load_plugins_if_present
+        # 函数内 import 消费，AST 守卫只扫 ImportFrom 故登记豁免。
+        "LoadResult", "ProviderPlugin", "ToolPlugin",
+        # P1: policy_loader 是函数式模块（load/get/hot_update/policies_dir/reset），
+        # 被 behavior_aware_router/intelligent_router/wiring 以函数内
+        # `from lingclaude.core.policy_loader import get as policy_get` 消费，
+        # AST 守卫只收集 ImportFrom 顶层别名，函数内 import 不在扫描集内 → 豁免。
+        "load", "get", "hot_update", "policies_dir", "reset",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:

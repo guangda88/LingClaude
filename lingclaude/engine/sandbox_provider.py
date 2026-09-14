@@ -212,8 +212,14 @@ def create_default_sandbox_provider() -> SandboxProvider:
     bwrap = BwrapSandboxProvider()
     if bwrap.available():
         SeamRegistry.register(SeamType.SANDBOX, bwrap.name, bwrap)
+        # P13 (S2): 消费侧统一查询视图 —— 注册 "default" 别名指向选中的后端，
+        # 供 bash.py 运行时经 SeamRegistry.get_optional(SANDBOX, "default") 获取。
+        # 热拔插语义：外部 register(SANDBOX, "default", new_provider) 覆盖后，
+        # 下个 bash 命令即用新后端（无需重启、无需动 bash.py）。
+        SeamRegistry.register(SeamType.SANDBOX, "default", bwrap)
         return bwrap
     logger.warning("bwrap 不可用，sandbox 后端降级为 noop（黑名单+资源限制仍生效）")
     noop = NoopSandboxProvider()
     SeamRegistry.register(SeamType.SANDBOX, noop.name, noop)
+    SeamRegistry.register(SeamType.SANDBOX, "default", noop)
     return noop

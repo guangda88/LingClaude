@@ -8,9 +8,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from lingclaude.engine.tool_router import ToolRouter
-from lingclaude.engine import mcp_proxy
-
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +31,10 @@ class McpToolsMixin:
 
         if not tool_defs:
             return None
+        # S3: 延迟 import —— 消除模块级 core→engine 倒装（主干不 import 插片实现）。
+        # 常量取值轻量（无副作用），仅此处使用；路由本身走 self._tool_router。
+        from lingclaude.engine.tool_router import ToolRouter
+
         if not query or len(tool_defs) <= ToolRouter.MAX_TOOLS_PER_REQUEST:
             return tuple(
                 {
@@ -62,6 +63,7 @@ class McpToolsMixin:
 
     def _build_mcp_tool_defs(self) -> list[Any]:
         from lingclaude.engine.tools import ToolDefinition
+        from lingclaude.engine import mcp_proxy
 
         self._ensure_mcp()
         mcp_names = mcp_proxy.list_all_tools()
@@ -97,6 +99,8 @@ class McpToolsMixin:
         if self._mcp_initialized:
             return
         self._mcp_initialized = True
+        from lingclaude.engine import mcp_proxy
+
         try:
             mcp_proxy.init_from_lingflow_registry()
         except Exception:
@@ -120,6 +124,7 @@ class McpToolsMixin:
         发现失败不阻塞主流程，仅记录警告。
         """
         from lingclaude.engine.mcp_client import discover_and_register
+        from lingclaude.engine import mcp_proxy
 
         empty_servers = [
             s for s in mcp_proxy.list_servers()

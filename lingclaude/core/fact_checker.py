@@ -215,6 +215,11 @@ class Claim:
     text: str
     entity: str = ""
     span: tuple[int, int] = (0, 0)
+    # S5 (2026-09-14): Cross-reference claims（灵元幻觉治理 P0-1，借鉴 CC）——
+    # 每条 claim 若有显式依据引用（"依据是X"/"因为X"），记录依据文本位置与内容。
+    # 审计不仅验证 claim 真实性，还验证"声明引用的依据是否真实存在"（有据可查）。
+    source_span: tuple[int, int] = (0, 0)
+    source_text: str = ""
 
 
 @dataclass
@@ -231,7 +236,7 @@ class FactCheckResult:
 
 class ClaimExtractor:
     """从模型输出中提取 claim"""
-    
+
     # 声明关键词模式
     _PATTERNS = [
         r"(?:已|已经)(?:完成|执行|处理|修复|解决|实现)(?:了)?",
@@ -242,17 +247,44 @@ class ClaimExtractor:
         r"\w+(?:搜索|检索|查询)了",
         r"完成(?:了)?\w+",
     ]
-    
+
+    # S5: 依据引用模式（Cross-reference claims）—— 捕获 claim 后声明的证据引用。
+    # 提取 source_text + source_span，供审计验证"声明引用的依据是否真实存在"。
+    _SOURCE_PATTERNS = [
+        r"依据(?:是|为)\s*(.+?)(?:[，。,；;]|$)",
+        r"因为\s*(.+?)(?:[，。,；;]|$)",
+        r"根据\s*(.+?)(?:[，。,；;]|$)",
+        r"来源(?:是|为|:)\s*(.+?)(?:[，。,；;]|$)",
+    ]
+
+    @classmethod
+    def _find_source(cls, text: str, claim_span: tuple[int, int]) -> tuple[tuple[int, int], str]:
+        """在 claim 之后查找显式依据引用（claim 声明的证据来源）。
+
+        Returns:
+            (source_span, source_text)；无引用返回 ((0,0), "")。
+        """
+        for pat in cls._SOURCE_PATTERNS:
+            for m in re.finditer(pat, text):
+                if m.start() >= claim_span[1]:  # 依据在 claim 之后
+                    src = m.group(1).strip()
+                    if src:
+                        return (m.start(), m.end()), src
+        return ((0, 0), "")
+
     @classmethod
     def extract(cls, text: str) -> list[Claim]:
-        """提取事实性声明"""
+        """提取事实性声明（含 Cross-reference 依据引用）"""
         claims = []
         for pat in cls._PATTERNS:
             for m in re.finditer(pat, text):
+                source_span, source_text = cls._find_source(text, (m.start(), m.end()))
                 claims.append(Claim(
                     text=m.group(),
                     entity=m.group()[:16],
                     span=(m.start(), m.end()),
+                    source_span=source_span,
+                    source_text=source_text,
                 ))
         # 去重
         seen = set()
@@ -368,13 +400,29 @@ def audit_response(
     extractor: type[ClaimExtractor] = ClaimExtractor,
 ) -> dict[str, Any]:
     """对模型输出做事实校验 (L5 round 2 可调)
-    
+
+    S5 (Cross-reference claims): 对带显式依据引用的 claim（"依据是X"/"因为X"），
+    追加证据存在性检查——声明引用的依据文本是否真实出现在检索证据中。
+
     Returns:
         {"passed": bool, "claims": list[FactCheckResult], "warning": str}
     """
     checker = checker or KGFactChecker()
     claims = extractor.extract(output)
     results = [checker.check(c) for c in claims]
+
+    # S5: 证据存在性检查 — claim 声明了依据（source_text），且检索到证据时，
+    # 验证依据文本关键词是否确实出现在证据中（Cross-reference 可查）。
+    for r in results:
+        if r.found and r.claim.source_text and r.evidence:
+            src_keywords = set(re.findall(r"[\w\u4e00-\u9fff]{2,}", r.claim.source_text))
+            ev_text = r.evidence
+            missing = [kw for kw in src_keywords if kw not in ev_text]
+            if missing and len(src_keywords) >= 2 and len(missing) / len(src_keywords) > 0.6:
+                # 声明依据的文本关键词大部分不在证据中 → 依据不可交叉验证
+                r.completeness = min(r.completeness, 0.3)
+                r.found = False  # 依据存在性未通过 → 视同不可信
+
     failed = [r for r in results if not r.found]
     return {
         "passed": len(failed) == 0,
@@ -384,7 +432,9 @@ def audit_response(
             {"text": r.claim.text, "found": r.found,
              "confidence": r.confidence, "source": r.source,
              "completeness": r.completeness,
-             "evidence": r.evidence[:120] if r.evidence else ""}
+             "evidence": r.evidence[:120] if r.evidence else "",
+             "source_text": r.claim.source_text,  # S5: 声明引用的依据
+             }
             for r in results
         ],
         "warning": f"{len(failed)}/{len(results)} claims 无可信来源" if failed else "",

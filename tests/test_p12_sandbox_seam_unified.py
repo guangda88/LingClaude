@@ -23,19 +23,28 @@ def _reset_seam(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_default_provider_registers_to_sandbox_slot() -> None:
-    """create_default_sandbox_provider() 后，SANDBOX 槽位有且仅有一个后端可查。"""
+    """create_default_sandbox_provider() 后，SANDBOX 槽位可查真实后端 + default 别名。
+
+    S2: 注册「具体后端名 + default 别名」——具体名供观测，default 别名供
+    bash.py 消费面查询（热拔插换血 = 覆盖 default 槽位即生效）。
+    """
     from lingclaude.engine.sandbox_provider import create_default_sandbox_provider
 
     provider = create_default_sandbox_provider()
 
-    # 统一查询视图：进程内 SeamRegistry 可查真实后端（bwrap 或 noop）
+    # 统一查询视图：进程内 SeamRegistry 可查真实后端（bwrap 或 noop）+ default 别名
     names = SeamRegistry.list_names(SeamType.SANDBOX)
-    assert len(names) == 1
-    assert names[0] == provider.name
+    assert provider.name in names
+    assert "default" in names
 
     seam = SeamRegistry.get(SeamType.SANDBOX, provider.name)
     assert seam is not None
     assert seam.name == provider.name
+
+    # default 别名指向同一后端（消费面查询即得）
+    default_seam = SeamRegistry.get(SeamType.SANDBOX, "default")
+    assert default_seam is not None
+    assert default_seam is provider
 
 
 def test_sandbox_seam_satisfies_protocol() -> None:

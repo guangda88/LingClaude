@@ -614,18 +614,25 @@ class BashExecutor:
         """
         provider = getattr(self, "_sandbox_provider", None)
         if provider is None:
-            # 优先从 SANDBOX_SEAM 拿默认后端（半 seam → 全 seam）：
-            # seam 里是 SignedProvider 包装（治理/审计），bash 执行需底层 wrap/available，
-            # 解包 _wrapped 拿 SandboxProviderAdapter（可用时）。seam 不可用回退 BwrapSandboxProvider。
-            try:
-                from lingclaude.lacp.capability_seam import SANDBOX_SEAM
-                seam = SANDBOX_SEAM.get_provider()
-                if hasattr(seam, "_wrapped"):
-                    seam = seam._wrapped  # 解包 SignedProvider → SandboxProviderAdapter
-                if hasattr(seam, "available") and hasattr(seam, "wrap"):
-                    provider = seam
-            except Exception:  # noqa: BLE001 — seam 不可用回退直接构造
-                provider = None
+            # P13 (S2): 消费面优先查进程内 SeamRegistry（热拔插真正生效）——
+            # 注册表换血（register(SANDBOX, "default", new_backend)）后下个命令即用新后端，
+            # 无需重启、无需动本文件。miss 回退 SANDBOX_SEAM 跨进程缝 → 兜底 Bwrap。
+            from lingclaude.core.seam import SeamRegistry, SeamType
+
+            provider = SeamRegistry.get_optional(SeamType.SANDBOX, "default")
+            if provider is None:
+                # 优先从 SANDBOX_SEAM 拿默认后端（半 seam → 全 seam）：
+                # seam 里是 SignedProvider 包装（治理/审计），bash 执行需底层 wrap/available，
+                # 解包 _wrapped 拿 SandboxProviderAdapter（可用时）。seam 不可用回退 BwrapSandboxProvider。
+                try:
+                    from lingclaude.lacp.capability_seam import SANDBOX_SEAM
+                    seam = SANDBOX_SEAM.get_provider()
+                    if hasattr(seam, "_wrapped"):
+                        seam = seam._wrapped  # 解包 SignedProvider → SandboxProviderAdapter
+                    if hasattr(seam, "available") and hasattr(seam, "wrap"):
+                        provider = seam
+                except Exception:  # noqa: BLE001 — seam 不可用回退直接构造
+                    provider = None
             if provider is None:
                 from lingclaude.engine.sandbox_provider import BwrapSandboxProvider
                 provider = BwrapSandboxProvider()

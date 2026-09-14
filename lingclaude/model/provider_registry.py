@@ -79,8 +79,19 @@ class ProviderRegistry:
 
     @classmethod
     def create(cls, name: str, config: ModelConfig) -> Result[ModelProvider]:
-        """按名创建 provider 实例（Result 语义，保留 factory 原 fail 行为）。"""
+        """按名创建 provider 实例（Result 语义，保留 factory 原 fail 行为）。
+
+        P13 (S2): 消费面优先查进程内 SeamRegistry（热拔插生效）——
+        若外部 register(PROVIDER, name, instance) 注册了**已构造实例**，
+        则直接返回该实例（注册表换血 = 下个 create 用新实例，无需重启）。
+        否则回退内部注册表按构造器创建。
+        """
         name = (name or "").strip().lower()
+        # S2: 先查进程内 SeamRegistry —— 已注册实例优先（热拔插语义）
+        seam_inst = SeamRegistry.get_optional(SeamType.PROVIDER, name)
+        if seam_inst is not None and not isinstance(seam_inst, type):
+            # 已构造实例（非类）→ 直接返回（热拔插：外部可注入已就绪实例）
+            return Result.ok(seam_inst)
         factory = cls._registry.get(name)
         if factory is None:
             supported = ", ".join(sorted(cls._registry.keys())) or "(空)"

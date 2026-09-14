@@ -16,6 +16,7 @@ entry 格式: "path/to/plugin.py:ClassName" 或 "path/to/plugin.py"（取模块�
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import sys
 from dataclasses import dataclass, field
@@ -125,6 +126,38 @@ class PluginLoader:
         removed = self._registry.unregister(manifest.type, manifest.name)
         self._loaded.pop(manifest.name, None)
         return removed
+
+    def load_plugins_from_dir(self, directory: str | Path) -> dict[str, LoadResult]:
+        """批量加载目录下所有插件 manifest（灵元：新增插件 = 加 manifest 文件）。
+
+        S4: PluginLoader 从「库」变「机制」——约定目录扫描 *.plugin.json，
+        逐个 from_dict + load_plugin，返回 {name: LoadResult}。
+
+        - 目录不存在 → 返回 {}（fail-soft，引擎启动无 manifest 目录不报错）
+        - 单个插件失败不影响其他（各自 Result.fail，汇总可见）
+        - enabled=false 的插件由 load_plugin 内部拒绝（返回 fail）
+        """
+        directory = Path(directory)
+        results: dict[str, LoadResult] = {}
+        if not directory.is_dir():
+            return results
+        for manifest_file in sorted(directory.glob("*.plugin.json")):
+            try:
+                data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                manifest = PluginManifest.from_dict(data)
+            except Exception as exc:  # noqa: BLE001 — 单个 manifest 坏不影响批量
+                logger.warning("S4: manifest %s 解析失败: %s", manifest_file.name, exc)
+                results[manifest_file.stem] = LoadResult(
+                    False, error=f"manifest 解析失败: {exc}"
+                )
+                continue
+            res = self.load_plugin(manifest)
+            results[manifest.name] = res
+            if not res.is_ok:
+                logger.warning(
+                    "S4: 插件 %s 加载失败: %s", manifest.name, res.error
+                )
+        return results
 
     def loaded(self) -> dict[str, LoadResult]:
         """已加载插件快照。"""
