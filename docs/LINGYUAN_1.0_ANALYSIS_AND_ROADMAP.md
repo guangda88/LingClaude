@@ -218,3 +218,60 @@ install_openai(); install_bash()
 > **P0 三项（seam + 倒装消除 + `_loop_detector`）今天就能动**——3 个文件、~200 行代码、零行为变化、纯结构整理。
 >
 > **按 `LINGYUAN_1.0_REFACTOR.md` 路线图走完 P2，Warm 级热插拔随架构天然到位**；Hot 级再投一个月专项攻关。**主干从此只管循环，插片想怎么换怎么换。**
+---
+
+## 十、执行记录（2026-09-14：P1-P12 全部完成）
+
+> 本节是路线图落地记录（按上文 P0-P3 差距清单收敛而来，P1-P12 为本仓具体拆解）。
+> 日期：2026-09-14。全部提交均过 lefthook（audit-record / linggit-audit / workspace-snapshot），工作树干净。
+
+### 阶段一：策略统一 + 外置（P1-P2）
+
+| 项 | 内容 | 提交 |
+|----|------|------|
+| P1-1/P1-2 | 新建 `core/policy_loader.py`（统一 YAML 加载 + mtime watch 热更 + 目录穿越防护 + graceful degrade）；补 `hot_update()` 强制重读 | `83781a2` |
+| P2-1/P2-2 | sandbox 网络白名单 + 默认可写目录外置 `policies/sandbox_policy.yaml`；`TASK_TYPE_TO_ROUTE` 外置 `policies/task_routing.yaml` | `ef561dd` |
+
+### 阶段二：进程内插片注册表（P3）
+
+- `core/seam.py`：`SeamRegistry`（register/unregister/get/get_optional/热拔插）+ `SeamType` 7 类 + `ProviderPlugin`/`ToolPlugin`/`SandboxPlugin` 协议
+- `core/plugin_manifest.py`：PluginManifest schema 校验（from_dict fail fast）
+- `core/plugin_loader.py`：importlib 动态加载 + **`__pycache__` 字节码清除修复**（插件重载失效根因）
+- 提交：`03dfb76`
+
+### 阶段三：消费者拆分 + 接入真实注册表（P4-P5）
+
+| 项 | 内容 | 提交 |
+|----|------|------|
+| P4 | 新建 `coordination/bus_consumer.py`（BusResponder 消费循环独立模块化，引擎进程也可消费 LingBus 任务）；`api.py` 接入消费者 | `b4ed9e0` |
+| P5 | `ProviderRegistry.register/reset` → 同步 SeamRegistry(PROVIDER)；`ToolRegistry.register/unregister/reset` → 同步 SeamRegistry(TOOL)（`_ToolSeamProxy` 满足 ToolPlugin 协议） | `b4ed9e0` |
+
+### 阶段四：热更可靠性 + 消费面（P6-P9）
+
+| 项 | 内容 | 提交 |
+|----|------|------|
+| P6 | `intelligent_router` 移除模块级一次性 `_POLICY` 缓存，改调用时 `_load_policy()` 实时读（4 处 `_load_policy()` 全部收敛） | `aab1fe3` |
+| P7 | 策略检测粒度 `st_mtime_ns` + `st_size` 组合判据（修 ext4 jiffy 粒度漏检）；`hot_update()` 内容比较兜底 | `5858c61` |
+| P8 | webui 能力缝（fs/shell/llm/subagent）同步注册进程内 SeamRegistry；澄清两套 seam 体系（lingflow=跨进程声明层 / core/seam.py=进程内插片表） | `5858c61` |
+| P9 | `BehaviorRoutingConfig.hot_reload()` + `DeclarationExtractor.extract()` 热更；**修 `get_config`/`update_config` 的 `self._config` AttributeError 真实缺陷**（路由此前从未用上新配置） | `5858c61` |
+
+### 阶段五：死快照清除 + 查询视图补全（P10-P12）
+
+| 项 | 内容 | 提交 |
+|----|------|------|
+| P10 | `task_router` 删除模块级 `TASK_TYPE_TO_ROUTE` 死快照（`resolve()` 早已实时读，死快照零生产引用） | `97ed618` |
+| P11 | `SeamRegistry.get_all()`（副本）+ `snapshot()`（全类型热拔插状态只读观测） | `97ed618` |
+| P12 | sandbox 后端同步注册 `SeamRegistry(SANDBOX)`（与 P5 provider/tool 对称），统一查询视图补全 | `d2ac682` |
+
+### 关键质量指标
+
+- 全链路提交：`83781a2` → `ef561dd` → `03dfb76` → `bd64a11` → `b4ed9e0` → `aab1fe3` → `5858c61` → `97ed618` → `d2ac682`（9 提交，全部 0 issues）
+- 过程中发现并修复 5 个真实缺陷：`Path` import 误删、`__pycache__` 缓存致插件重载失效、mtime 粒度漏检（jiffy 同 tick 漏写）、`update_config`/`get_config` AttributeError、模块级策略缓存不生效
+- `policies/` 已有 6 个 YAML（behavior_router / claim_patterns / router_keywords / wiring_manifest / sandbox_policy / task_routing），全部走 PolicyLoader 统一热更
+- 定向 + 受影响集累计：P12 105 passed / 守卫 11 passed；广域回归总数待全量复核
+
+### 后续候选（未纳入本轮）
+
+- **P13 候选**：`ToolRegistry.get()` 消费改为"先查 SeamRegistry、再回退内部 dict"——目前无实际收益，建议**收敛而非扩展**
+- **推送**：9 个提交尚未 push 远端，如需可 `git push`
+- **广域回归**：全量 `tests/` 复核 247+ 总数
