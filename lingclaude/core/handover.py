@@ -31,11 +31,19 @@ class TaskSource(str, Enum):
     LINGBUS = "lingbus_originated"
 
 
-class TaskStatus(str, Enum):
+class HandoverTaskStatus(str, Enum):
+    """交接检查点状态（灵元 Q2 去歧义：原 TaskStatus —— 与 task_aggregation/task_scheduler 同名混淆）。
+
+    值域：in_discussion/in_progress/completed/blocked（交接检查点域）。
+    """
     IN_DISCUSSION = "in_discussion"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     BLOCKED = "blocked"
+
+
+# 兼容别名：外部旧引用（from lingclaude.core.handover import TaskStatus）仍可用
+TaskStatus = HandoverTaskStatus
 
 
 @dataclass

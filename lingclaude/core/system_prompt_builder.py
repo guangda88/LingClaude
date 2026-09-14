@@ -73,7 +73,15 @@ def _build_session_context() -> str:
             capture_output=True, text=True, timeout=2,
         )
         if r.returncode == 0 and r.stdout.strip():
-            lines = "\n".join(f"  {ln}" for ln in r.stdout.strip().splitlines()[:5])
+            # 渲染侧过滤：提交消息里可能含幻觉治理标记字符（⚠/💡 等运行时符号，
+            # 如 5ff2ba1 提交消息自述「被误打 ⚠[工具结果未验证]」），
+            # 不应污染系统提示（test_adaptive 断言健康状态无 ⚠）。
+            # 历史提交消息本身是事实，这里只过滤渲染，不篡改 git 历史。
+            _SANITIZE = str.maketrans({"⚠": "!", "💡": "!"})
+            lines = "\n".join(
+                f"  {ln.translate(_SANITIZE)}"
+                for ln in r.stdout.strip().splitlines()[:5]
+            )
             parts.append(f"最近提交:\n{lines}")
     except Exception:  # noqa: BLE001
         pass

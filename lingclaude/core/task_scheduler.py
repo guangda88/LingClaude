@@ -26,13 +26,20 @@ class TaskPriority(str, Enum):
     URGENT = "紧急"
 
 
-class TaskStatus(str, Enum):
-    """任务状态"""
+class SchedulerTaskStatus(str, Enum):
+    """任务调度状态（灵元 Q2 去歧义：原 TaskStatus —— 与 task_aggregation/handover 同名混淆）。
+
+    值域：待处理/已排队/执行中/已完成/失败（任务调度域，中文枚举）。
+    """
     PENDING = "待处理"
     QUEUED = "已排队"
     RUNNING = "执行中"
     COMPLETED = "已完成"
     FAILED = "失败"
+
+
+# 兼容别名：外部旧引用（from lingclaude.core.task_scheduler import TaskStatus）仍可用
+TaskStatus = SchedulerTaskStatus
 
 
 @dataclass(frozen=True)

@@ -167,6 +167,18 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return Result.fail(f"Tool not found: {name}", code="NOT_FOUND")
+        # Q1 (2026-09-14): 主干热路径走 seam —— 同名覆盖即热拔插。
+        # 先查 SeamRegistry.TOOL 槽位。但本注册表 register() 时自己会注册指向自身的
+        # _ToolSeamProxy（tools.py register），若直接走它会造成 execute→proxy→execute 死循环。
+        # 因此只有当 seam 里命中的是「外部换血代理」（非指向本 registry 的影子）才优先走；
+        # 指向自身的影子 / miss 一律回退内部 handler 解析（graceful degrade）。
+        proxy = SeamRegistry.get_optional(SeamType.TOOL, name)
+        if proxy is not None and hasattr(proxy, "execute"):
+            if not (isinstance(proxy, _ToolSeamProxy) and proxy._registry is self):
+                try:
+                    return Result.ok(proxy.execute(**kwargs))
+                except Exception as e:
+                    return Result.fail(f"Tool execution failed (seam proxy): {e}", code="EXECUTION_ERROR")
         # P1 解耦: 解析 handler — 优先 Callable（向后兼容），其次 handler_name 按名查找
         handler = self._resolve_handler(tool)
         if handler is None:

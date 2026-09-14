@@ -30,13 +30,20 @@ class TaskPriority(str, Enum):
     LOW = "low"
 
 
-class TaskStatus(str, Enum):
-    """任务状态"""
+class AggregationTaskStatus(str, Enum):
+    """任务聚合状态（灵元 Q2 去歧义：原 TaskStatus —— 与 task_scheduler/handover 同名混淆）。
+
+    值域：pending/queued/processing/completed/failed（任务聚合域）。
+    """
     PENDING = "pending"
     QUEUED = "queued"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+# 兼容别名：外部旧引用（from lingclaude.core.task_aggregation import TaskStatus）仍可用
+TaskStatus = AggregationTaskStatus
 
 
 @dataclass(frozen=True)
