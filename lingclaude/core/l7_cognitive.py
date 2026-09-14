@@ -248,20 +248,23 @@ class CognitiveStore(SqliteStoreBase):
         self._l7_available = self._try_load_l7()
 
     def _try_load_l7(self) -> bool:
-        """尝试加载灵极优 L7 存储引擎，不可用时降级"""
-        try:
-            _l7_path = Path(__file__).parent.parent.parent.parent / "lingminopt" / "lingyuan"
-            import sys
-            if str(_l7_path) not in sys.path:
-                sys.path.insert(0, str(_l7_path))
-            from l7_memory import store as l7_store, retrieve as l7_retrieve
-            self._l7_store = l7_store
-            self._l7_retrieve = l7_retrieve
+        """尝试加载灵极优 L7 存储引擎（走显式插片契约），不可用时降级。
+
+        D5 (2026-09-15): 原硬编码相对路径 + sys.path.insert 污染
+        → lingclaude/lacp/l7_engine_seam.py 显式契约。
+        只走注册表（register_l7_engine 外部显式注册）——主干零隐式探测；
+        需要 L7 时由 lingminopt 侧显式注册，未注册即降级（零副作用）。
+        """
+        from lingclaude.lacp.l7_engine_seam import load_l7_engine
+
+        handle = load_l7_engine()
+        if handle is not None:
+            self._l7_store = handle.store
+            self._l7_retrieve = handle.retrieve
             return True
-        except Exception:
-            self._l7_store = None
-            self._l7_retrieve = None
-            return False
+        self._l7_store = None
+        self._l7_retrieve = None
+        return False
 
     # ── 认知记忆 CRUD ──
 

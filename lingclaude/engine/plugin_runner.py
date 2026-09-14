@@ -269,6 +269,13 @@ def register_plugin_server(manifest_path: str | Path) -> str | None:
     return key
 
 
+def unregister_plugin_server(key: str) -> bool:
+    """卸载插件 stdio server（热替换：unregister + register 使旧连接失效重连）。"""
+    from lingclaude.engine.mcp_proxy import unregister_server
+
+    return unregister_server(key)
+
+
 def call_plugin_server(key: str, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
     """经 MCP stdio 连接池调用插件工具。
 

@@ -1,4 +1,6 @@
 # L7 Cognitive Layer test suite
+import sys
+
 import pytest
 from lingclaude.core.l7_cognitive import (
     L7Cognitive, MemoryTier, OKFType, MessageCategory,
@@ -234,3 +236,100 @@ class TestL7CognitiveTopLevel:
         assert "glossary" in s
         assert "edges" in s
         assert "l7_engine_connected" in s
+
+
+class TestL7EngineSeam:
+    """D5 (2026-09-15): L7 引擎显式插片契约。
+
+    覆盖:
+    - 未注册 → load_l7_engine() 返回 None（降级安全，零 sys.path 污染）
+    - register_l7_engine → load 命中句柄（source 可查）
+    - unregister → 回到 None（热替换）
+    - auto_discover_l7: env 覆盖路径（不存在 → None）+ 默认路径（存在 → 句柄）
+    """
+
+    def test_unregistered_returns_none(self):
+        from lingclaude.lacp.l7_engine_seam import load_l7_engine, unregister_l7_engine
+
+        unregister_l7_engine()
+        assert load_l7_engine() is None
+
+    def test_register_then_load(self):
+        from lingclaude.lacp.l7_engine_seam import (
+            load_l7_engine,
+            register_l7_engine,
+            unregister_l7_engine,
+        )
+
+        def fake_store(**kwargs):
+            return "stored"
+
+        def fake_retrieve(**kwargs):
+            return []
+
+        unregister_l7_engine()
+        register_l7_engine(fake_store, fake_retrieve, source="test:fake")
+        handle = load_l7_engine()
+        assert handle is not None
+        assert handle.source == "test:fake"
+        assert handle.store(key="x") == "stored"
+        assert handle.retrieve(query="x") == []
+        unregister_l7_engine()
+        assert load_l7_engine() is None
+
+    def test_cognitive_store_degrades_when_unregistered(self, tmp_path):
+        """未注册 L7 引擎 → CognitiveStore 降级（l7_engine_connected=False）。"""
+        from lingclaude.lacp.l7_engine_seam import unregister_l7_engine
+        from lingclaude.core.l7_cognitive import CognitiveStore
+
+        unregister_l7_engine()
+        db = tmp_path / "degrade.db"
+        store = CognitiveStore(db_path=str(db))
+        try:
+            assert store._l7_available is False
+            # 降级仍可用（SQLite 本地）
+            mid = store.put_memory(CognitiveMemory(key="k", value="v", importance=5))
+            assert store.get_memory(mid).value == "v"
+        finally:
+            store.close()
+
+    def test_auto_discover_env_path_missing(self, monkeypatch):
+        """env 覆盖路径不存在 → 回退 default 候选；env 路径不污染 sys.path。
+
+        auto_discover_l7 的候选顺序：env 优先 → default 回退。本机 default
+        （lingminopt 仓库）存在时返回 auto:default；核心契约是 env 无效路径
+        绝不进入 sys.path、函数不炸。
+        """
+        from lingclaude.lacp.l7_engine_seam import (
+            auto_discover_l7,
+            unregister_l7_engine,
+        )
+
+        unregister_l7_engine()
+        monkeypatch.setenv("LINGYUAN_L7_PATH", "/no/such/l7/dir")
+        before = set(sys.path)
+        handle = auto_discover_l7()
+        assert "/no/such/l7/dir" not in sys.path, "env 无效路径不应污染 sys.path"
+        # env 路径不存在 → 回退 default（存在则返回句柄，不存在则 None，皆合法）
+        if handle is not None:
+            assert handle.source.startswith("auto:")
+        after = set(sys.path)
+        # 仅允许 default 发现路径被加入（真实发现），env 无效路径绝不加入
+        assert "/no/such/l7/dir" not in (after - before)
+
+    def test_auto_discover_default_path(self):
+        """默认相对路径存在（lingminopt 仓库）→ 探测返回句柄。"""
+        from lingclaude.lacp.l7_engine_seam import (
+            auto_discover_l7,
+            unregister_l7_engine,
+        )
+
+        unregister_l7_engine()
+        handle = auto_discover_l7()
+        if handle is None:
+            import pytest as _pt
+
+            _pt.skip("lingminopt/lingyuan 仓库不存在于默认相对路径")
+        assert handle.source.startswith("auto:")
+        assert callable(handle.store)
+        assert callable(handle.retrieve)

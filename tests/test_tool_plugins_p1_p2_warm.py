@@ -211,6 +211,38 @@ class TestWarmPluginServer:
             f"second call 后 size={pool.size}（期望不变，即子进程未重复 spawn）"
         )
 
+    def test_unregister_plugin_server_hotswap(self):
+        """热替换：unregister 卸载 → find_server 不再命中 → 重注册恢复。
+
+        P2 深化 (2026-09-15): warm 通道支持插片热替换（unregister + register）。
+        卸载后 find_server(tool_name) 应 miss；重注册后恢复可用。
+        """
+        from lingclaude.engine.mcp_proxy import find_server
+
+        key = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        assert key == "plugin:read_plugin"
+        assert find_server("read") is not None
+
+        # 卸载 → 不再命中
+        from lingclaude.engine.plugin_runner import unregister_plugin_server
+
+        assert unregister_plugin_server(key) is True
+        assert find_server("read") is None
+
+        # 重注册 → 恢复
+        key2 = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        assert key2 == key
+        assert find_server("read") is not None
+        r = call_plugin_server(key2, "read", {"path": "lingclaude/plugins/tools/read/plugin.py"})
+        assert r["ok"] is True, r.get("error")
+
+    def test_unregister_missing_key_returns_false(self):
+        """卸载不存在的 key → 返回 False（不炸）。"""
+        from lingclaude.engine.plugin_runner import unregister_plugin_server
+
+        assert unregister_plugin_server("plugin:ghost") is False
+
+
 class TestToolAliasHotplug:
     """P2 深化 (2026-09-14): provides 工具名别名代理 → 热拔插通道接通工具执行路径。
 

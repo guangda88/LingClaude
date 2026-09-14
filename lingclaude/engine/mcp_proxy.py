@@ -99,6 +99,20 @@ def register_server(
     )
 
 
+def unregister_server(key: str) -> bool:
+    """按 key 卸载 MCP server（热替换插片用）。
+
+    清理注册表 + 模块/函数缓存（_load_module 的缓存条目）。
+    返回是否确实卸载（key 不存在返回 False）。
+    """
+    removed = _SERVERS.pop(key, None) is not None
+    if removed:
+        _cache._modules.pop(key, None)
+        _cache._functions.pop(key, None)
+        logger.info("MCP server 已卸载: %s", key)
+    return removed
+
+
 def find_server(tool_name: str) -> MCPServerInfo | None:
     """按工具名找 server（第一个匹配；冲突时返回第一个，见 find_server_with_conflicts）。"""
     for info in _SERVERS.values():
