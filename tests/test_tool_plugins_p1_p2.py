@@ -180,8 +180,33 @@ class TestPluginStdioWarm:
         assert "read" in names
         proc.terminate()
 
-    def test_tools_call_only_passes_arguments(self):
-        """tools/call 只透传 arguments（name 是路由信息，不进 execute 参数）。"""
+    def test_tools_call_passes_name_for_dispatch(self):
+        """tools/call 透传 name 作位置参数 → 按名分派型插件正确路由。
+
+        2026-09-14 修正：此前 tools/call 只透传 arguments 不传 name，导致
+        execute(name, **kwargs) 型插件（git/web/ast/file_ops）经 stdio 调用时
+        name 落默认值——git 永远 git_status、web 永远 web_search、ast 永远
+        list_functions、file_ops 永远 edit，路由失效。
+        修复后 name 进 execute 位置参数：git_log 请求应返回 commits 而非 status。
+        """
+        proc, send = self._spawn(f"{TOOLS_DIR}/git/manifest.plugin.json")
+        r = send({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+            "name": "git_log",
+            "arguments": {"path": ".", "count": 3},
+        }})
+        content = r["result"]["content"][0]
+        assert content["type"] == "text"
+        assert '"commits"' in content["text"]  # git_log 结果含 commits 字段
+        assert "isError" not in r["result"]
+        proc.terminate()
+
+    def test_tools_call_ignores_name_for_varargs_plugin(self):
+        """tools/call 透传 name → *args/**kwargs 型插件（read）name 被吸收不转发。
+
+        read 插件的 execute(*args, **kwargs) 会把 kwargs 原样转发给
+        FileReadTool.read()——若 name 进 kwargs 会炸（read() got unexpected
+        keyword 'name'）。name 作位置参数进 *args 被忽略，read 只收 arguments。
+        """
         proc, send = self._spawn(f"{TOOLS_DIR}/read/manifest.plugin.json")
         r = send({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
             "name": "read",
@@ -190,7 +215,7 @@ class TestPluginStdioWarm:
         }})
         content = r["result"]["content"][0]
         assert content["type"] == "text"
-        assert "lines" in content["text"]  # read 结果已 JSON 序列化
+        assert "lines" in content["text"]
         assert "isError" not in r["result"]
         proc.terminate()
 

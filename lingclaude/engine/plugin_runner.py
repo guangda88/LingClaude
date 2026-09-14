@@ -70,7 +70,11 @@ def run_plugin_subprocess(
     manifest_path = Path(manifest_path)
     if not manifest_path.is_file():
         return {"ok": False, "error": f"manifest 不存在: {manifest_path}"}
-    # MCP 外壳归一：{"name":..., "arguments": {...}} → {"path": ...}
+    # MCP 外壳归一：{"name":..., "arguments": {...}} → 只透传 arguments。
+    # 注意与 serve_plugin_stdio 的差异：stdio tools/call 按工具名路由（透传 name
+    # 作位置参数给 execute 分派）；run_plugin_subprocess 的语义是「调 execute 方法
+    # 本身」（method 参数已指定），name 只是 MCP 外壳信息，不透传（read 等插件
+    # execute(**kwargs) 会把 kwargs 原样转发给底层工具，传 name 会炸）。
     if args and "name" in args and isinstance(args.get("arguments"), dict):
         args = args["arguments"]
     req = {"method": method, "args": args or {}}
@@ -166,9 +170,13 @@ def _main():
             name = params.get("name") or tool_name
             arguments = params.get("arguments") or {}
             try:
-                # 只透传 arguments（MCP 外壳归一）：name 是路由信息，不进 execute 参数。
-                # 与 run_plugin_subprocess 的 B 格式处理对齐 —— 插件 execute 只收真实参数。
-                value = plugin.execute(**arguments)
+                # 透传 name 作为第一个位置参数 + arguments 关键字：name 是路由信息。
+                # 对 execute(name, **kwargs) 型插件（file_ops/git/web/ast）按名分派；
+                # 对 execute(*args, **kwargs) 型插件（bash/read）name 进 args 被忽略。
+                # 2026-09-14 修正：此前只透传 arguments 不传 name，导致按名分派型
+                # 插件经 stdio 调用时 name 落默认值（git 永远 git_status、web 永远
+                # web_search、ast 永远 list_functions、file_ops 永远 edit）——路由失效。
+                value = plugin.execute(name, **arguments)
                 text = _result_text(value)
                 out = {"jsonrpc": "2.0", "id": rid, "result": {
                     "content": [{"type": "text", "text": text}]}}
