@@ -77,12 +77,53 @@ _UNSUPPORTED_MARKERS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:肯定|绝对|100%|毫无疑问|definitely|absolutely)", re.IGNORECASE), "overconfident"),
 ]
 
+# ===== P17 (2026-09-14): Cross-reference claims —— 声明类型 ↔ 工具证据语义映射 =====
+# 灵元：每条执行性声明必须「有据可查」——本 turn 实际调用过对应工具才算有据。
+# 灵元治理插片：fail-soft（无证据只是标记，不阻断主输出）。
+# 映射原则：声明动作类型 → 能提供证据的工具名集合（前缀匹配，避免工具名演化断链）。
+_TOOL_ACTION_EVIDENCE_MAP: dict[str, tuple[str, ...]] = {
+    "commit_claim": ("git_push", "git_commit", "commit"),
+    "test_claim": ("pytest", "test", "bash"),
+    "file_write_claim": ("write", "edit", "file_create", "file_insert", "file_delete_lines", "file_undo"),
+    "action_claim": ("bash", "bash_lingxi", "run", "execute"),
+}
+
+
+def _evidence_available(kind: str, tool_evidence: tuple[str, ...]) -> bool:
+    """声明类型 kind 是否有对应工具证据（Cross-reference）。
+
+    - 证据集非空且命中映射前缀 → 有据（verified）
+    - 无证据集 / 证据集为空 → 无法判断，保持原语义（由 used_tools 兜底）
+    """
+    if not tool_evidence:
+        return False  # 调用方未提供证据 → 不做 cross-reference 判定（保持向后兼容）
+    candidates = _TOOL_ACTION_EVIDENCE_MAP.get(kind)
+    if not candidates:
+        return False
+    return any(ev.startswith(c) for ev in tool_evidence for c in candidates)
+
+
+def _tool_action_has_evidence(assertion: Assertion, tool_evidence: tuple[str, ...]) -> bool:
+    """从 assertion.reason（如 'Tool action claim (commit_claim) ...'）提取 kind 并查证据。
+
+    Assertion 定义在其后，此处用字符串解析避免前置依赖问题。
+    """
+    m = re.search(r"Tool action claim \((\w+)\)", assertion.reason)
+    if not m:
+        return False
+    return _evidence_available(m.group(1), tool_evidence)
+
 
 @dataclass
 class PriorVerifier:
     strict_mode: bool = False
 
-    def analyze(self, text: str, used_tools: bool = False) -> VerificationResult:
+    def analyze(
+        self,
+        text: str,
+        used_tools: bool = False,
+        tool_evidence: tuple[str, ...] = (),
+    ) -> VerificationResult:
         assertions: list[Assertion] = []
         warnings: list[str] = []
 
@@ -98,16 +139,20 @@ class PriorVerifier:
                     if self.strict_mode:
                         warnings.append(f"未经验证的代码断言: {match.group()}")
 
-        # 工具动作声明校验：commit/测试/落盘等完成式声明，无工具证据即标记
+        # 工具动作声明校验：commit/测试/落盘等完成式声明，无工具证据即标记。
+        # P17 Cross-reference：提供 tool_evidence 时，声明类型 ↔ 工具名语义匹配，
+        # 命中映射（如 commit_claim ↔ git_push）视为「有据可查」，不标记未验证。
         for pattern, kind in _TOOL_ACTION_PATTERNS:
             for match in pattern.finditer(text):
+                has_evidence = _evidence_available(kind, tool_evidence)
                 assertions.append(Assertion(
                     text=match.group(),
                     level=AssertionLevel.HARD_FACT,
                     reason=f"Tool action claim ({kind}) without tool verification",
                     source="prior_verifier",
                 ))
-                if not used_tools or self.strict_mode:
+                # 有据（cross-reference 命中）→ 不警告；无据 → 标记未验证
+                if not has_evidence and (not used_tools or self.strict_mode):
                     warnings.append(f"工具动作声明未验证: {match.group()} ({kind})")
 
         # H17 伪造验证报告检测：无工具调用却输出整表"验证通过/非幻觉"，
@@ -159,14 +204,19 @@ class PriorVerifier:
             )
             corrected = banner + corrected
         # 工具动作声明无证据 → 标记 ⚠ [工具结果未验证]
+        # P17 Cross-reference：有工具证据（如 commit_claim ↔ git_push 命中）的声明不打标。
         tool_unverified = [a for a in assertions
                            if a.level == AssertionLevel.HARD_FACT
-                           and "Tool action claim" in a.reason]
+                           and "Tool action claim" in a.reason
+                           and not _tool_action_has_evidence(a, tool_evidence)]
         if tool_unverified and not used_tools:
             tag = "⚠ [工具结果未验证]"
             for a in tool_unverified:
                 corrected = corrected.replace(a.text, f"{tag} {a.text}", 1)
         if hard_unverified and not used_tools:
+            # P17: 排除有工具证据的工具动作声明（cross-reference 命中 → 有据可查不打标）
+            hard_unverified = [a for a in hard_unverified
+                               if not _tool_action_has_evidence(a, tool_evidence)]
             tag = "⚠ [未验证]"
             for a in hard_unverified:
                 corrected = corrected.replace(a.text, f"{tag} {a.text}", 1)

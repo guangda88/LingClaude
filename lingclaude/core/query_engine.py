@@ -440,7 +440,19 @@ class QueryEngine(ModelCallMixin, McpToolsMixin, SubmissionMixin):
         total_output: int,
         resolved_config: Any,
     ) -> str:
-        vr = self._prior_verifier.analyze(content, used_tools=used_tools)
+        # P17 (2026-09-14): Cross-reference claims —— 从 journal 取本 turn 真实工具证据，
+        # 传给 prior_verifier 做「声明 ↔ 工具」语义匹配（有据可查才不算未验证）。
+        # fail-soft：journal 不可用/异常 → 空证据 → 保持原语义（不阻断主输出）。
+        tool_evidence: tuple[str, ...] = ()
+        try:
+            tool_evidence = tuple(
+                name for name, _args in self._get_journal().tool_signatures()
+            )
+        except Exception:  # noqa: BLE001 — 治理插片故障绝不影响主输出
+            logger.debug("P17: journal 读取失败，cross-reference 降级为纯先验", exc_info=True)
+        vr = self._prior_verifier.analyze(
+            content, used_tools=used_tools, tool_evidence=tool_evidence,
+        )
         final_content = vr.corrected_text if vr.corrected_text else content
         # A1b (2026-09-13): 输出收口脱敏 — 模型回复唯一出口统一 scrub。
         # 在 append 进 conversation / layered_memory / 返回值（用户可见）之前打码，

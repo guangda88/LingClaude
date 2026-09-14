@@ -4,7 +4,7 @@ import json
 import pytest
 
 from lingclaude.core.dementia_detector import (
-    CognitiveState,
+    DegradationLevel,
     DementiaDetector,
     DementiaDiagnosis,
     DementiaMetrics,
@@ -50,7 +50,7 @@ class TestDementiaDetector:
         for i in range(10):
             det.record_tool_call("read", json.dumps({"path": f"/tmp/file{i}.py"}))
         diag = det.diagnose()
-        assert diag.state == CognitiveState.HEALTHY
+        assert diag.state == DegradationLevel.HEALTHY
         assert diag.dementia_index == 0.0
         assert diag.intervention_prompt == ""
 
@@ -60,8 +60,8 @@ class TestDementiaDetector:
             det.record_tool_call("read", json.dumps({"path": "/tmp/same.py"}))
         diag = det.diagnose()
         assert diag.state in (
-            CognitiveState.MILD_DEGRADATION,
-            CognitiveState.MODERATE_DEGRADATION,
+            DegradationLevel.MILD_DEGRADATION,
+            DegradationLevel.MODERATE_DEGRADATION,
         )
         assert "认知预警" in diag.intervention_prompt
 
@@ -72,8 +72,8 @@ class TestDementiaDetector:
             det.record_tool_call("grep", json.dumps({"pattern": "foo"}))
         diag = det.diagnose()
         assert diag.state in (
-            CognitiveState.SEVERE_DEGRADATION,
-            CognitiveState.DEMENTIA,
+            DegradationLevel.SEVERE_DEGRADATION,
+            DegradationLevel.DEMENTIA,
         )
 
     def test_hard_stop_after_repeated_dementia(self) -> None:
@@ -114,7 +114,7 @@ class TestDementiaDetector:
             det.record_tool_call("read", json.dumps({"path": "/tmp/a.py"}))
         det.reset()
         diag = det.diagnose()
-        assert diag.state == CognitiveState.HEALTHY
+        assert diag.state == DegradationLevel.HEALTHY
         assert det.get_metrics().total_tool_calls == 0
 
     def test_window_pruning(self) -> None:
@@ -136,7 +136,7 @@ class TestDementiaDetector:
         det.record_tool_call("read", json.dumps({"path": "/tmp/a.py"}))
         diag = det.diagnose()
         assert isinstance(diag, DementiaDiagnosis)
-        assert isinstance(diag.state, CognitiveState)
+        assert isinstance(diag.state, DegradationLevel)
         assert isinstance(diag.recent_duplicates, tuple)
 
     def test_intervention_includes_files(self) -> None:
@@ -144,5 +144,5 @@ class TestDementiaDetector:
         for _ in range(3):
             det.record_tool_call("read", json.dumps({"path": "/tmp/important.py"}))
         diag = det.diagnose()
-        if diag.state != CognitiveState.HEALTHY:
+        if diag.state != DegradationLevel.HEALTHY:
             assert "important.py" in diag.intervention_prompt

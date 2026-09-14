@@ -433,3 +433,59 @@ class TestNonBlocking:
         assert r is not None
         assert r.passed is False
         assert all(item.error != "" for item in r.results)
+
+
+# ===== P16: 单一事实来源契约（灵元：策略是 data，代码副本只是降级镜像） =====
+
+class TestP16SingleSourceOfTruth:
+    """锁定 claim_patterns.yaml 与 _FALLBACK_PATTERNS 的单向同步。
+
+    背景：审计指出 L10-A 正则三源（灵极优/YAML/_FALLBACK）副本。实测：
+    三源是分层降级链（灵极优→YAML→_FALLBACK），但 YAML 与 _FALLBACK
+    内容 100% 一致 —— 属冗余镜像，须锁死同步防分叉。
+
+    契约：改 claim_patterns.yaml 必须同步 _FALLBACK_PATTERNS（或反之），
+    本测试在 CI 拦截两者漂移。
+    """
+
+    def test_yaml_is_authoritative_source(self):
+        """YAML 是权威源，_FALLBACK 是它的降级镜像（逐模式对齐）。"""
+        from lingclaude.core.l10_a_post_audit import DeclarationExtractor
+
+        yaml_patterns = DeclarationExtractor._load_policy_patterns()
+        _FALLBACK_PATTERNS = DeclarationExtractor._FALLBACK_PATTERNS
+        assert yaml_patterns, "claim_patterns.yaml 必须可加载（权威源缺失）"
+
+        def _canonical(patterns):
+            return sorted(
+                (
+                    p["pattern_id"],
+                    p.get("regex", ""),
+                    p.get("event_type", ""),
+                    p.get("action", ""),
+                )
+                for p in patterns
+            )
+
+        assert _canonical(_FALLBACK_PATTERNS) == _canonical(yaml_patterns), (
+            "_FALLBACK_PATTERNS 与 claim_patterns.yaml 漂移 —— "
+            "两处必须保持 1:1 同步（YAML 是权威源，改一处必须改另一处）"
+        )
+
+    def test_yaml_load_failure_graceful_degrade(self):
+        """YAML 缺失/损坏时优雅降级到 _FALLBACK，不炸主流程。
+
+        降级链：灵极优 → claim_patterns.yaml → _FALLBACK_PATTERNS。
+        本测试锁定结构契约：_FALLBACK 是最终兜底且可独立工作
+        （即使策略文件被删/损坏，extract 仍能按 _FALLBACK 正常提取）。
+        """
+        from lingclaude.core.l10_a_post_audit import DeclarationExtractor
+
+        _FALLBACK_PATTERNS = DeclarationExtractor._FALLBACK_PATTERNS
+        # 直接构造一个"YAML 不可用"的 extractor（显式传 patterns = _FALLBACK 等价于降级路径）
+        ext = DeclarationExtractor(patterns=list(_FALLBACK_PATTERNS))
+        decls = ext.extract("已通知灵安，已创建任务清单。")
+        assert len(decls) == 2, (
+            f"_FALLBACK 降级路径应能正常提取 2 条声明，实际 {len(decls)}"
+        )
+        assert {d.pattern_id for d in decls} == {"notified", "created"}

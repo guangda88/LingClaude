@@ -24,12 +24,16 @@ from enum import Enum
 logger = logging.getLogger(__name__)
 
 
-class CognitiveState(str, Enum):
+class DegradationLevel(str, Enum):
     HEALTHY = "healthy"
     MILD_DEGRADATION = "mild_degradation"
     MODERATE_DEGRADATION = "moderate_degradation"
     SEVERE_DEGRADATION = "severe_degradation"
     DEMENTIA = "dementia"
+
+
+# 兼容别名：旧名 CognitiveState 指向退化等级（2026-09-14 P14 去混淆）
+CognitiveState = DegradationLevel
 
 
 @dataclass(frozen=True)
@@ -70,7 +74,7 @@ class DementiaMetrics:
 @dataclass(frozen=True)
 class DementiaDiagnosis:
     dementia_index: float
-    state: CognitiveState
+    state: DegradationLevel
     duplicate_file_read_rate: float
     duplicate_tool_call_rate: float
     recent_duplicates: tuple[str, ...]
@@ -154,15 +158,15 @@ class DementiaDetector:
             + retrace_rate * 0.3
         )
 
-        state = CognitiveState.HEALTHY
+        state = DegradationLevel.HEALTHY
         if dementia_index >= self._dementia_threshold:
-            state = CognitiveState.DEMENTIA
+            state = DegradationLevel.DEMENTIA
         elif dementia_index >= self._severe_threshold:
-            state = CognitiveState.SEVERE_DEGRADATION
+            state = DegradationLevel.SEVERE_DEGRADATION
         elif dementia_index >= self._moderate_threshold:
-            state = CognitiveState.MODERATE_DEGRADATION
+            state = DegradationLevel.MODERATE_DEGRADATION
         elif dementia_index >= self._mild_threshold:
-            state = CognitiveState.MILD_DEGRADATION
+            state = DegradationLevel.MILD_DEGRADATION
 
         recent_dups: list[str] = []
         for fp, count in list(self._recent_calls.items())[-10:]:
@@ -179,24 +183,24 @@ class DementiaDetector:
             recent_duplicates=tuple(recent_dups),
             intervention_prompt=intervention,
             should_hard_stop=(
-                state == CognitiveState.DEMENTIA
+                state == DegradationLevel.DEMENTIA
                 and self._intervention_count >= 3
             ),
         )
 
     def _generate_intervention(
         self,
-        state: CognitiveState,
+        state: DegradationLevel,
         index: float,
         recent_dups: list[str],
     ) -> str:
-        if state == CognitiveState.HEALTHY:
+        if state == DegradationLevel.HEALTHY:
             return ""
 
         self._intervention_count += 1
 
         parts: list[str] = []
-        if state in (CognitiveState.MILD_DEGRADATION, CognitiveState.MODERATE_DEGRADATION):
+        if state in (DegradationLevel.MILD_DEGRADATION, DegradationLevel.MODERATE_DEGRADATION):
             parts.append(
                 f"⚠ 认知预警: 你正在重复之前的操作（痴呆指数 {index:.0%}）。"
             )
@@ -208,14 +212,14 @@ class DementiaDetector:
                 parts.append(f"已读文件: {files_str}")
             parts.append("请勿重复读取已知文件，直接基于已有信息继续。")
 
-        elif state in (CognitiveState.SEVERE_DEGRADATION, CognitiveState.DEMENTIA):
+        elif state in (DegradationLevel.SEVERE_DEGRADATION, DegradationLevel.DEMENTIA):
             parts.append(
                 f"🚨 严重认知退化（痴呆指数 {index:.0%}）！你正在大量重复操作。"
             )
             if recent_dups:
                 parts.append(f"重复调用: {', '.join(recent_dups[:5])}")
             parts.append("立即停止重复，总结当前状态，基于已知信息做出决策。")
-            if state == CognitiveState.DEMENTIA and self._intervention_count >= 3:
+            if state == DegradationLevel.DEMENTIA and self._intervention_count >= 3:
                 parts.append("[即将触发硬中断 — 连续认知干预无效]")
 
         return "\n".join(parts)
