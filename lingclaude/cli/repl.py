@@ -137,13 +137,24 @@ def _status_prompt(ctx: _ReplCtx) -> str:
     3) 上下文 window=0 时 ctx 总是 ? → 失去常驻感
     把状态信息下沉到底部 toolbar 后,prompt 简短可读,光标稳定。
     """
-    engine = ctx.engine
     status = ctx.status
     input_queue = ctx.input_queue
     if get_output_format() != "plain":
         return "灵克> "
-    # 即便 prompt 简短,仍要刷新 ctx_tokens（每次 session.prompt 都重算）——
-    # 否则状态栏比例永远停在上次 _blocks 触发时的旧值
+    _refresh_ctx_tokens(ctx)
+    status.refresh_cwd()
+    status.set_pending(input_queue.pending())
+    return "灵克> "
+
+
+def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
+    """刷新底部状态栏的 ctx tokens（_status_prompt 与 _status_refresh 共用）。
+
+    收敛: 原两处逐字相同的 try 导入 + set_ctx + context_window_tokens 解析块
+    （维护点 2→1）。
+    """
+    engine = ctx.engine
+    status = ctx.status
     try:
         from lingclaude.core.tool_executor import _estimate_message_tokens
 
@@ -154,9 +165,6 @@ def _status_prompt(ctx: _ReplCtx) -> str:
         )
     except Exception:  # noqa: BLE001
         pass
-    status.refresh_cwd()
-    status.set_pending(input_queue.pending())
-    return "灵克> "
 
 
 def _read_input(ctx: _ReplCtx) -> str:
@@ -330,16 +338,7 @@ def _status_refresh(ctx: _ReplCtx) -> None:
         status.set_pinned(True)
     else:
         status.set_pinned(False)
-    try:
-        from lingclaude.core.tool_executor import _estimate_message_tokens
-
-        status.set_ctx(
-            _estimate_message_tokens(engine._messages),
-            int(getattr(engine.config, "context_window_tokens", None)
-                or getattr(engine.config, "max_budget_tokens", 0) or 0),
-        )
-    except Exception:  # noqa: BLE001
-        pass
+    _refresh_ctx_tokens(ctx)
     status.set_pending(input_queue.pending())
 
 
