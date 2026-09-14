@@ -242,6 +242,44 @@ class TestWarmPluginServer:
 
         assert unregister_plugin_server("plugin:ghost") is False
 
+    def test_unregister_drops_pool_connection(self):
+        """热替换必须真正释放旧连接：unregister 后连接池条目被 drop（不泄漏）。
+
+        P2 深化 (2026-09-15): unregister_server 此前只清注册表 + 模块/函数缓存，
+        连接池（stdio 子进程连接）残留 → 热替换后旧子进程泄漏。本测试锁定
+        unregister 联动 pool.drop(key) 的语义。
+
+        注意：连接池是进程级全局（其它测试可能残留插件连接），故断言按 key
+        精确判定本插件连接是否释放，不与全局 size 耦合。
+        """
+        from lingclaude.engine.mcp_client import get_client_pool
+        from lingclaude.engine.mcp_proxy import find_server
+        from lingclaude.engine.plugin_runner import unregister_plugin_server
+
+        pool = get_client_pool()
+        key = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        assert key == "plugin:read_plugin"
+
+        # 先真实调用一次，建立连接池条目
+        r = call_plugin_server(key, "read", {"path": "lingclaude/plugins/tools/read/plugin.py"})
+        assert r["ok"] is True, r.get("error")
+        assert key in pool._clients, "调用后连接池应含本插件条目"
+
+        # 卸载 → 注册表 miss + 连接池本 key 条目释放
+        assert unregister_plugin_server(key) is True
+        assert find_server("read") is None
+        assert key not in pool._clients, (
+            f"unregister 后连接池应释放 {key}（旧 stdio 子进程泄漏）"
+        )
+
+        # 重注册 → 新连接可用（重新 spawn 而非复用旧泄漏连接）
+        key2 = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        assert key2 == key
+        r2 = call_plugin_server(key2, "read", {"path": "lingclaude/plugins/tools/read/plugin.py"})
+        assert r2["ok"] is True, r2.get("error")
+        assert key in pool._clients, "重注册调用后应重建连接"
+        unregister_plugin_server(key2)
+
 
 class TestToolAliasHotplug:
     """P2 深化 (2026-09-14): provides 工具名别名代理 → 热拔插通道接通工具执行路径。

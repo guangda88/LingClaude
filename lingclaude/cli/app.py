@@ -535,6 +535,16 @@ def _find_webui_binary() -> Path | None:
     return None
 
 
+def _terminate_procs(*procs: subprocess.Popen | None) -> None:
+    """终止非 None 的子进程（忽略终止异常）。webui 启动/清理路径共用。"""
+    for p in procs:
+        if p is not None:
+            try:
+                p.terminate()
+            except Exception:  # noqa: BLE001 — 清理路径不抛异常
+                pass
+
+
 def _wait_for_http(url: str, timeout: float = 15.0) -> bool:
     """轮询直到 HTTP 端点可访问。任何 HTTP 响应（含 4xx 鉴权错误）都视为可达。"""
     deadline = time.monotonic() + timeout
@@ -665,8 +675,7 @@ def _cmd_webui(args: argparse.Namespace) -> int:
         )
         if not _wait_for_http(f"{engine_url}/status", timeout=20.0):
             print_error(f"引擎 {engine_url}/status 超时未就绪")
-            if engine_proc:
-                engine_proc.terminate()
+            _terminate_procs(engine_proc)
             return 1
     elif not _wait_for_http(f"{engine_url}/status", timeout=3.0):
         print_warning(f"引擎 {engine_url}/status 不可达，聊天将不可用（可用 --with-engine 自动拉起）")
@@ -680,7 +689,7 @@ def _cmd_webui(args: argparse.Namespace) -> int:
             "  (或确保 webui/dist 已构建: cd webui && npm run build)"
         )
         if engine_proc:
-            engine_proc.terminate()
+            _terminate_procs(engine_proc)
         return 1
 
     # 3. 启动 webui-server（守护：转 background，输出重定向）
@@ -699,9 +708,7 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     # 4. 就绪探测
     if not _wait_for_http(f"http://127.0.0.1:{port}/status", timeout=15.0):
         print_error(f"webui-server 端口 {port} 未就绪，查看日志 {log_path}")
-        webui_proc.terminate()
-        if engine_proc:
-            engine_proc.terminate()
+        _terminate_procs(webui_proc, engine_proc)
         return 1
 
     # 5. /mint 拿带 token 的 URL
@@ -736,9 +743,7 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print_info("收到 Ctrl+C，停止服务")
     finally:
-        webui_proc.terminate()
-        if engine_proc:
-            engine_proc.terminate()
+        _terminate_procs(webui_proc, engine_proc)
     return 0
 
 

@@ -102,13 +102,19 @@ def register_server(
 def unregister_server(key: str) -> bool:
     """按 key 卸载 MCP server（热替换插片用）。
 
-    清理注册表 + 模块/函数缓存（_load_module 的缓存条目）。
+    清理注册表 + 模块/函数缓存（_load_module 的缓存条目）+ 连接池条目
+    （stdio/http 子进程连接，P2 warm 热替换必须真正释放旧连接，否则泄漏）。
     返回是否确实卸载（key 不存在返回 False）。
     """
     removed = _SERVERS.pop(key, None) is not None
     if removed:
         _cache._modules.pop(key, None)
         _cache._functions.pop(key, None)
+        try:
+            from lingclaude.engine.mcp_client import get_client_pool
+            get_client_pool().drop(key)
+        except Exception:  # noqa: BLE001 — 连接池清理失败不阻断卸载
+            logger.warning("MCP server 卸载时连接池清理失败: %s", key)
         logger.info("MCP server 已卸载: %s", key)
     return removed
 
