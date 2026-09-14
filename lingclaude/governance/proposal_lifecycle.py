@@ -563,8 +563,13 @@ class LifecycleManager:
         except Exception as e:
             logger.warning("元提案复查通知失败: %s", e)
 
-    def _append_effectiveness_record(self, lc: ProposalLifecycle, resolved: bool) -> None:
+    def _write_history_record(self, record: dict) -> None:
+        """追加一条 history JSON 记录（真重复收敛：两个 _append_* 共用）。"""
         self._history_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _append_effectiveness_record(self, lc: ProposalLifecycle, resolved: bool) -> None:
         record = {
             "type": "meta_effectiveness",
             "proposal_id": lc.proposal_id,
@@ -573,11 +578,9 @@ class LifecycleManager:
             "reviewed_at": time.time(),
             "created_at": lc.created_at,
         }
-        with open(self._history_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self._write_history_record(record)
 
     def _append_history(self, lc: ProposalLifecycle) -> None:
-        self._history_file.parent.mkdir(parents=True, exist_ok=True)
         record = {
             "proposal_id": lc.proposal_id,
             "created_at": lc.created_at,
@@ -590,8 +593,7 @@ class LifecycleManager:
             "systemic_issue": lc.systemic_issue_detected,
             "attribution": lc.attribution_summary,
         }
-        with open(self._history_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        self._write_history_record(record)
 
     def _load(self) -> None:
         if not self._file.exists():

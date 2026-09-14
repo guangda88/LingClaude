@@ -240,7 +240,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 
-def _cmd_optimize(args: argparse.Namespace) -> int:
+def _load_runtime_target(args: argparse.Namespace) -> tuple:
+    """加载 config + CodingRuntime，并解析目标路径。
+
+    真重复收敛: _cmd_optimize/_cmd_analyze 初始化段逐字相同，提取单源。
+    """
     config = load_config(Path(args.config) if args.config else None)
     runtime = CodingRuntime(config)
 
@@ -250,6 +254,11 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
         from lingclaude.core.config import find_config_path
         found = find_config_path()
         target = str(found.parent) if found else "."
+    return runtime, target
+
+
+def _cmd_optimize(args: argparse.Namespace) -> int:
+    runtime, target = _load_runtime_target(args)
 
     goal = args.goal or "structure"
     max_trials = args.trials or 20
@@ -277,15 +286,7 @@ def _cmd_optimize(args: argparse.Namespace) -> int:
 
 
 def _cmd_analyze(args: argparse.Namespace) -> int:
-    config = load_config(Path(args.config) if args.config else None)
-    runtime = CodingRuntime(config)
-
-    if args.target:
-        target = args.target
-    else:
-        from lingclaude.core.config import find_config_path
-        found = find_config_path()
-        target = str(found.parent) if found else "."
+    runtime, target = _load_runtime_target(args)
 
     metrics = runtime.analyze(target)
 
