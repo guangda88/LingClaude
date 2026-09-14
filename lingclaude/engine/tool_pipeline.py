@@ -149,6 +149,40 @@ class ToolPipeline:
 
     # ----- 5 段执行 -----
 
+    def _preflight(
+        self,
+        name: str,
+        args: dict[str, Any],
+        ctx: PipelineContext,
+        permissions_blocks: Callable[[str], bool] | None = None,
+        rate_check: Callable[[], tuple[bool, str]] | None = None,
+    ) -> dict[str, Any] | None:
+        """纯权限预检（execute 与 check_permission 共用，维护点 2→1）。
+
+        覆盖：permissions 拦截 / rate_check 限流 / 危险命令检查。
+        返回 None = 通过；dict = 拒绝结果（error + error_code）。
+        """
+        if permissions_blocks is not None and permissions_blocks(name):
+            ctx.aborted = True
+            ctx.abort_reason = f"Tool blocked by permissions: {name}"
+            return self._error(ctx.abort_reason, ToolErrorCode.PERMISSION_DENIED)
+        if rate_check is not None:
+            passed, err = rate_check()
+            if not passed:
+                ctx.aborted = True
+                ctx.abort_reason = f"[rate-limit] {err}"
+                return self._error(ctx.abort_reason, ToolErrorCode.RATE_LIMITED)
+
+        # 危险命令检查 (从原 coding.py:618-624 迁移)
+        if name in self._critical:
+            cmd = args.get("command", "")
+            for pat in self._dangerous:
+                if pat in cmd:
+                    ctx.aborted = True
+                    ctx.abort_reason = f"[安全限制] 危险命令被阻止: 含有 '{pat}'"
+                    return self._error(ctx.abort_reason, ToolErrorCode.DANGEROUS_COMMAND)
+        return None
+
     def execute(
         self,
         name: str,
@@ -173,25 +207,9 @@ class ToolPipeline:
         ctx = PipelineContext(name=name, args=args)
 
         # === 1. pre-execute waterfall (hooks) ===
-        if permissions_blocks is not None and permissions_blocks(name):
-            ctx.aborted = True
-            ctx.abort_reason = f"Tool blocked by permissions: {name}"
-            return self._error(ctx.abort_reason, ToolErrorCode.PERMISSION_DENIED)
-        if rate_check is not None:
-            passed, err = rate_check()
-            if not passed:
-                ctx.aborted = True
-                ctx.abort_reason = f"[rate-limit] {err}"
-                return self._error(ctx.abort_reason, ToolErrorCode.RATE_LIMITED)
-
-        # 危险命令检查 (从原 coding.py:618-624 迁移)
-        if name in self._critical:
-            cmd = args.get("command", "")
-            for pat in self._dangerous:
-                if pat in cmd:
-                    ctx.aborted = True
-                    ctx.abort_reason = f"[安全限制] 危险命令被阻止: 含有 '{pat}'"
-                    return self._error(ctx.abort_reason, ToolErrorCode.DANGEROUS_COMMAND)
+        denied = self._preflight(name, args, ctx, permissions_blocks, rate_check)
+        if denied is not None:
+            return denied
 
         # 写前 verify
         if name in self._write_scoped and pre_write_verify is not None:
@@ -446,24 +464,9 @@ class ToolPipeline:
         """纯权限预检（不执行 handler）。返回 None 放行，dict 拒绝。"""
         ctx = PipelineContext(name=name, args=args)
 
-        if permissions_blocks is not None and permissions_blocks(name):
-            ctx.aborted = True
-            ctx.abort_reason = f"Tool blocked by permissions: {name}"
-            return self._error(ctx.abort_reason, ToolErrorCode.PERMISSION_DENIED)
-        if rate_check is not None:
-            passed, err = rate_check()
-            if not passed:
-                ctx.aborted = True
-                ctx.abort_reason = f"[rate-limit] {err}"
-                return self._error(ctx.abort_reason, ToolErrorCode.RATE_LIMITED)
-
-        if name in self._critical:
-            cmd = args.get("command", "")
-            for pat in self._dangerous:
-                if pat in cmd:
-                    ctx.aborted = True
-                    ctx.abort_reason = f"[安全限制] 危险命令被阻止: 含有 '{pat}'"
-                    return self._error(ctx.abort_reason, ToolErrorCode.DANGEROUS_COMMAND)
+        denied = self._preflight(name, args, ctx, permissions_blocks, rate_check)
+        if denied is not None:
+            return denied
 
         tool = self._registry.get(name)
         if not tool.is_ok:

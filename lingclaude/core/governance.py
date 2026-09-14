@@ -51,6 +51,20 @@ class GovernanceGate:
         except (json.JSONDecodeError, OSError):
             pass
 
+    def _fail(
+        self,
+        checks: list[dict[str, Any]],
+        warnings: list[str],
+        failed: dict[str, Any],
+    ) -> GovernanceCheckResult:
+        """构造失败结果（check() 三处失败出口共用，维护点 3→1）。"""
+        return GovernanceCheckResult(
+            passed=False,
+            checks=tuple(checks),
+            warnings=tuple(warnings),
+            error=failed.get("error", ""),
+        )
+
     def check(
         self,
         action: str,
@@ -67,12 +81,7 @@ class GovernanceGate:
         c1 = self._check_self_nominating(action, content)
         checks.append(c1)
         if not c1["passed"]:
-            return GovernanceCheckResult(
-                passed=False,
-                checks=tuple(checks),
-                warnings=tuple(warnings),
-                error=c1.get("error", ""),
-            )
+            return self._fail(checks, warnings, c1)
 
         c2 = self._check_self_benefiting(action, content)
         checks.append(c2)
@@ -87,22 +96,12 @@ class GovernanceGate:
         c4 = self._check_prior_inconsistency(action, content, metadata)
         checks.append(c4)
         if not c4["passed"]:
-            return GovernanceCheckResult(
-                passed=False,
-                checks=tuple(checks),
-                warnings=tuple(warnings),
-                error=c4.get("error", ""),
-            )
+            return self._fail(checks, warnings, c4)
 
         c5 = self._check_tier_change_conflict(action, content, metadata)
         checks.append(c5)
         if not c5["passed"]:
-            return GovernanceCheckResult(
-                passed=False,
-                checks=tuple(checks),
-                warnings=tuple(warnings),
-                error=c5.get("error", ""),
-            )
+            return self._fail(checks, warnings, c5)
         if c5.get("warning"):
             warnings.append(c5["warning"])
 

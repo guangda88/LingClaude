@@ -291,6 +291,23 @@ def tool_get_advice(
     return report
 
 
+def _optimization_context(
+    target_path: str,
+    total_files: int,
+    total_lines: int,
+    test_pass_rate: float,
+    avg_response_time: float,
+) -> dict[str, Any]:
+    """构造优化上下文（check_triggers / check_and_optimize 共用，维护点 2→1）。"""
+    return {
+        "target_path": target_path,
+        "total_files": total_files,
+        "total_lines": total_lines,
+        "test_pass_rate": test_pass_rate,
+        "avg_response_time": avg_response_time,
+    }
+
+
 @mcp.tool(name="check_triggers", description="检查优化触发条件（灵检）")
 def tool_check_triggers(
     target_path: str = ".",
@@ -303,13 +320,7 @@ def tool_check_triggers(
     from ..self_optimizer.trigger import OptimizationTrigger
 
     trigger = OptimizationTrigger()
-    context = {
-        "target_path": target_path,
-        "total_files": total_files,
-        "total_lines": total_lines,
-        "test_pass_rate": test_pass_rate,
-        "avg_response_time": avg_response_time,
-    }
+    context = _optimization_context(target_path, total_files, total_lines, test_pass_rate, avg_response_time)
     should_optimize, trigger_info = trigger.check_all_conditions(context)
     return {
         "should_optimize": should_optimize,
@@ -476,13 +487,7 @@ def tool_check_and_optimize(
     from ..engine.coding import CodingRuntime
 
     runtime = CodingRuntime()
-    context = {
-        "target_path": target,
-        "total_files": total_files,
-        "total_lines": total_lines,
-        "test_pass_rate": test_pass_rate,
-        "avg_response_time": avg_response_time,
-    }
+    context = _optimization_context(target, total_files, total_lines, test_pass_rate, avg_response_time)
     return runtime.check_and_optimize(context, target=target, goal=goal)
 
 
