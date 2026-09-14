@@ -255,6 +255,38 @@ class ModelCallMixin:
             self._task_router.record_error(pname, error or "")
         return pname
 
+    def _hard_interrupt_message(
+        self, scope: str, consecutive_failures: int,
+    ) -> str:
+        """统一硬中断消息生成 + 日志记录（维护点 4→1，逐点保真）。
+
+        scope 编码 4 种差异（logger 文案 / flywheel 有无 / 消息文本均不相同，
+        收敛为单源但逐点保留原行为——尤其 stream 两处原本不记 flywheel）：
+          "model_call"      → 非 stream provider 失败（有 flywheel）
+          "tool_loop_call"  → 非 stream 工具全错（有 flywheel）
+          "model_stream"    → stream provider 失败（无 flywheel，保真）
+          "tool_loop_stream"→ stream 工具全错（无 flywheel，保真）
+        返回给调用点的中断消息文本（调用点负责 return / yield 各自形态）。
+        """
+        if scope == "model_call":
+            logger.warning("硬中断触发: 连续模型调用失败 %d 次，强制停止", consecutive_failures)
+            self._log_to_flywheel(
+                "hard_interrupt", f"连续模型调用失败 {consecutive_failures} 次", tool_name="provider",
+            )
+            return f"[硬中断] 连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。"
+        if scope == "tool_loop_call":
+            logger.warning("硬中断触发: 连续工具失败 %d 次，强制停止", consecutive_failures)
+            self._log_to_flywheel(
+                "hard_interrupt", f"连续工具失败 {consecutive_failures} 次", tool_name="tool_loop",
+            )
+            return f"\n[硬中断] 连续工具调用失败 {consecutive_failures} 次，自动停止。"
+        if scope == "model_stream":
+            logger.warning("硬中断触发(stream): 连续模型调用失败 %d 次，强制停止", consecutive_failures)
+            return f"连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。"
+        # tool_loop_stream
+        logger.warning("硬中断触发(stream): 连续工具失败 %d 次，强制停止", consecutive_failures)
+        return f"连续工具调用失败 {consecutive_failures} 次，自动停止。"
+
 
     def _call_model(self, prompt: str) -> str:
         decision = self._router.route(prompt)
@@ -286,12 +318,7 @@ class ModelCallMixin:
                 if resolved_config:
                     self._record_provider_outcome(resolved_config, "error", result.error)
                 if consecutive_failures >= self.config.consecutive_failure_limit:
-                    logger.warning(
-                        "硬中断触发: 连续模型调用失败 %d 次，强制停止",
-                        consecutive_failures,
-                    )
-                    self._log_to_flywheel("hard_interrupt", f"连续模型调用失败 {consecutive_failures} 次", tool_name="provider")
-                    return f"[硬中断] 连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。"
+                    return self._hard_interrupt_message("model_call", consecutive_failures)
                 continue
 
             response = result.data
@@ -343,15 +370,10 @@ class ModelCallMixin:
             if round_error_count == len(response.tool_calls) and round_error_count > 0:
                 consecutive_failures += 1
                 if consecutive_failures >= self.config.consecutive_failure_limit:
-                    logger.warning(
-                        "硬中断触发: 连续工具失败 %d 次，强制停止",
-                        consecutive_failures,
-                    )
-                    self._log_to_flywheel("hard_interrupt", f"连续工具失败 {consecutive_failures} 次", tool_name="tool_loop")
                     content = response.content or ""
                     return self._finalize_turn(
                         prompt,
-                        content + f"\n[硬中断] 连续工具调用失败 {consecutive_failures} 次，自动停止。",
+                        content + self._hard_interrupt_message("tool_loop_call", consecutive_failures),
                         used_tools, total_input, total_output, resolved_config,
                     )
             else:
@@ -537,13 +559,9 @@ class ModelCallMixin:
                 consecutive_failures += 1
                 self._track_behavior(prompt, f"[模型调用失败] {stream_error}", used_tools=False)
                 if consecutive_failures >= self.config.consecutive_failure_limit:
-                    logger.warning(
-                        "硬中断触发(stream): 连续模型调用失败 %d 次，强制停止",
-                        consecutive_failures,
-                    )
                     yield {
                         "type": "hard_interrupt",
-                        "message": f"连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。",
+                        "message": self._hard_interrupt_message("model_stream", consecutive_failures),
                     }
                     return
                 yield {"type": "error", "error": stream_error}
@@ -634,13 +652,9 @@ class ModelCallMixin:
             if round_error_count == len(round_tool_calls) and round_error_count > 0:
                 consecutive_failures += 1
                 if consecutive_failures >= self.config.consecutive_failure_limit:
-                    logger.warning(
-                        "硬中断触发(stream): 连续工具失败 %d 次，强制停止",
-                        consecutive_failures,
-                    )
                     yield {
                         "type": "hard_interrupt",
-                        "message": f"连续工具调用失败 {consecutive_failures} 次，自动停止。",
+                        "message": self._hard_interrupt_message("tool_loop_stream", consecutive_failures),
                     }
                     return
             else:

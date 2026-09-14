@@ -108,6 +108,33 @@ class TestWarmPluginServer:
             data = _json.loads(data)
         assert "functions" in data, data
 
+    def test_register_and_call_file_ops_write_readback(self):
+        """file_ops 插件经 warm 通道写入 + read 读回（仓库内临时目录闭环，含写副作用安全域）。"""
+        import shutil
+        from pathlib import Path
+
+        base = Path("tests/.warm_demo")
+        base.mkdir(parents=True, exist_ok=True)
+        try:
+            target = base / "warm_demo.txt"
+            key = register_plugin_server(f"{TOOLS_DIR}/file_ops/manifest.plugin.json")
+            assert key == "plugin:file_ops_plugin"
+            w = call_plugin_server(key, "file_create", {
+                "path": str(target), "content": "hello from warm\nsecond line\n",
+            })
+            assert w["ok"] is True, w.get("error")
+            # 落盘核实
+            assert target.read_text(encoding="utf-8") == "hello from warm\nsecond line\n"
+            # read 插件读回（warm 双插件协作：file_ops 写 → read 读）
+            rk = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
+            r = call_plugin_server(rk, "read", {
+                "path": str(target), "offset": 0, "limit": 5,
+            })
+            assert r["ok"] is True, r.get("error")
+            assert "hello from warm" in str(r["data"])
+        finally:
+            shutil.rmtree(base, ignore_errors=True)
+
     def test_register_idempotent(self):
         """同 key 重复注册 → 返回同 key，不重复注册。"""
         key1 = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
