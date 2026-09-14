@@ -41,6 +41,11 @@ CORE_ENGINE_WHITELIST = [
     # 2026-09-14 (S3): wiring.py:213 → :216（上方新增 _load_plugins_if_present 函数，
     # 行号顺延）；函数内 import 语义不变。
     "core/wiring.py:216",
+    # 2026-09-14 (P19/P20): core/prior_verifier.py:113 —— P17 提交时遗漏入库的
+    # _derive_evidence_map 函数内延迟 import SPECS（从工具注册表派生声明类型→证据
+    # 工具名映射，防止工具名演化导致 cross-reference 映射失配）。属合法懒加载
+    # （core 不模块级 import engine，S3 倒装纪律），补登记消除 g1 误报。
+    "core/prior_verifier.py:113",
 ]
 BASELINE_SYS_PATH = 14
 # 340 (2026-09-10): P2.a wiring.py 新增 22 个工厂函数内 import —— WIRING_MANIFEST
@@ -48,8 +53,9 @@ BASELINE_SYS_PATH = 14
 # 344 (2026-09-10): P3 state_store.py 新增 4 个工厂函数内 import（StateBackend 协议 + 两后端 + StateStore）
 # 350 (2026-09-10): P3 lingmemory_bridge.py 懒加载 _get_lingmemory + wiring.py 微调
 # 351 (2026-09-10): P3 wiring.py 新增 _make_state_store 工厂函数
-BASELINE_LAZY = 374  # 2026-09-13: 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
+BASELINE_LAZY = 375  # 2026-09-13: 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
                      # webui_seam.py 等工厂/可选依赖函数内 import，9237537/db79c38 等提交），
+                     # 2026-09-14 (P19/P20): 374 → 375 —— prior_verifier.py 新增
                      # 实测 356，原基线 351 未随代码演进更新致 g3 误报。
                      # 2026-09-14 (P4/P5): 实测 HEAD 已达 368（wiring/mcp.server/query_engine 等
                      # 历史工厂函数内 import 未同步基线，g3 长期带病误报）；
@@ -59,6 +65,9 @@ BASELINE_LAZY = 374  # 2026-09-13: 补登记历史入库的合法懒加载（sel
                      # 改函数内延迟 import 6 处（:36/:65/:66/:102/:126/:127），
                      # 净增 6 个函数内 import（模块级不计 lazy）。模块级倒装清零，
                      # 这是「主干不持有插片实现」的净改善，非膨胀。
+                     # 2026-09-14 (P19/P20): 374 → 375 —— prior_verifier.py 新增
+                     # _derive_evidence_map 函数内延迟 import SPECS（P17 提交遗漏，
+                     # 随本轮 P20 一并入库）。合法懒加载，非膨胀。
 BASELINE_DICT_ERR = 52
 
 

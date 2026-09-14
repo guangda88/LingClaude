@@ -71,3 +71,42 @@ class TestP17CrossReference:
             text, used_tools=True, tool_evidence=("write",),
         )
         assert "未验证" not in r.corrected_text
+
+
+    def test_derive_evidence_map_from_specs(self):
+        """P19: _derive_evidence_map 应从 SPECS 派生（工具名演化自动跟随），
+        且语义锚点兜底不丢失（如 action_claim 的 run/execute 前缀）。"""
+        from lingclaude.core.prior_verifier import _derive_evidence_map
+
+        m = _derive_evidence_map()
+        # 派生覆盖：write scope 工具 → file_write_claim（SPECS 里有 write/edit/file_*）
+        assert "write" in m.get("file_write_claim", ())
+        assert "edit" in m.get("file_write_claim", ())
+        # git 系 → commit_claim（SPECS 里 git_push/git_commit）
+        assert any(
+            n.startswith("git_") for n in m.get("commit_claim", ())
+        ), f"commit_claim 应含 SPECS 派生的 git_* 工具: {m.get('commit_claim')}"
+        # 锚点兜底：action_claim 仍含 bash 与 run/execute 前缀（即便 SPECS 演化）
+        assert "bash" in m.get("action_claim", ())
+        assert any(
+            c in ("run", "execute") for c in m.get("action_claim", ())
+        ), f"action_claim 应保留锚点 run/execute: {m.get('action_claim')}"
+
+    def test_derive_evidence_map_evidence_matching(self):
+        """P19: 派生映射参与 _evidence_available 判定 —— SPECS 里的工具名
+        能作为对应声明类型的证据（端到端：声明↔证据语义匹配）。"""
+        from lingclaude.core.prior_verifier import (
+            _derive_evidence_map,
+            _evidence_available,
+        )
+
+        m = _derive_evidence_map()
+        # 从派生映射取一个真实工具名作为证据，验证能命中对应声明类型
+        for kind, tools in m.items():
+            if tools:
+                assert _evidence_available(
+                    kind, tools[:1]
+                ), f"{kind} 自己的工具证据应命中: {tools[:1]}"
+                break
+        # 反向：无关证据不命中
+        assert not _evidence_available("commit_claim", ("read", "glob"))
