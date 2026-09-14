@@ -275,3 +275,45 @@ install_openai(); install_bash()
 - **P13 候选**：`ToolRegistry.get()` 消费改为"先查 SeamRegistry、再回退内部 dict"——目前无实际收益，建议**收敛而非扩展**
 - **推送**：9 个提交尚未 push 远端，如需可 `git push`
 - **广域回归**：全量 `tests/` 复核 247+ 总数
+
+---
+
+## 十一、执行记录（2026-09-14：S1-S6 + P14-P17 深度优化）
+
+> 依据四家审计（codex/atomcode/opencode/灵克）收敛诊断，本轮按**灵元三步法**
+> （先砍到最薄 → 再接缝消费 → 后活）落地。全部提交过 lefthook 三钩子，工作树干净。
+
+### 阶段六：砍薄 + 接缝消费 + 幻觉治理（S1-S6）
+
+| 项 | 内容 | 提交 |
+|----|------|------|
+| S1 | 清理 91 个工作区 `.bak` + git rm 误入库备份（备份归零纪律，git 即备份） | `86489ef` |
+| S2 | **SeamRegistry 消费面打通**（热拔插真正生效）：bash.py `get_optional(SANDBOX,'default')` 优先、sandbox_provider 注册 default 别名、ProviderRegistry 已注册实例优先 | `dd2fd26` |
+| S3 | 主干倒装清零：mcp_tools 模块级 import 改函数内延迟（G1/G3 守卫同步） | `dd2fd26` |
+| S4 | **PluginLoader 从库变机制**：`load_plugins_from_dir` + wiring.assemble 生产调用点 | `dd2fd26` |
+| S5 | 幻觉治理 **Cross-reference claims**（v1 文档 P0-1）：Claim 增加 source_span/text + 证据存在性检查 | `dd2fd26` |
+| S6 | 方案文档（可行性方案 + 行动计划 + 验收尺度） | `dd2fd26` |
+
+### 阶段七：状态收敛 + 单源化 + 幻觉治理增强（P14-P17）
+
+| 项 | 内容 | 提交 |
+|----|------|------|
+| P14 | `dementia_detector.CognitiveState` 改名 `DegradationLevel`（与 governance S0-S6 `CognitiveState` **去混淆**——不同维度不同 type），保留兼容别名 | `625985c` |
+| P15 | **Mixin↔SPECS 装配完整性契约**：SPECS 每个 handler_attr 可解析 + 插片无反向依赖 coding.py + 插片文件 ≤200 行防回潮（实证：10 Mixin 早已拆至 `engine/tool_handlers/`，审计"10 Mixin 焊死"过时） | `625985c` |
+| P16 | **L10-A 单源契约**：`claim_patterns.yaml` 权威 + `_FALLBACK_PATTERNS` 降级镜像防漂移；Provider 双写实证为**分层架构**（构造器层+实例层），非冗余副本 | `625985c` |
+| P17 | **PriorVerifier Cross-reference claims**：声明类型↔工具证据语义映射（commit_claim↔git_push 等），`_finalize_turn` 从 journal 取真实工具名传入（fail-soft）；**修 hard_unverified 分支未排除有据声明的缺陷** | `625985c` |
+
+### 关键质量指标（本轮追加）
+
+- 提交：`86489ef` → `dd2fd26` → `625985c`（3 提交，全部 0 issues）
+- 新增测试：S1-S6 17 项 + P14-P17 13 项 = **30 项**
+- 受影响集回归：**267 passed, 1 skipped**（EXIT=0）；arch guards 7 passed（LAZY 基线未突破）
+- SeamRegistry.get 生产消费点：**0 → 3**（bash 沙箱 / provider / wiring 插件加载）——热拔插从"可观测"变"可生效"
+- `.bak` 归零纪律保持：本轮 edit 产生的 14 个 .bak 已清理，无入库
+
+### 后续候选（未纳入本轮）
+
+- **P18 候选**：`coding.py._setup_tools()` 42 行硬编码装配改走 wiring.assemble 或 seam 查询（高杠杆但需 CLI 回归专项）
+- **P19 候选**：`PriorVerifier` 的 `_TOOL_ACTION_EVIDENCE_MAP` 随工具名演化维护（当前前缀匹配已容错）
+- **推送**：`83781a2` → `625985c` 共 13 个提交尚未 push 远端
+- **广域回归**：全量 `tests/` 复核（后台进行中）
