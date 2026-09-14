@@ -27,8 +27,10 @@ logger = logging.getLogger(__name__)
 # LINGCODE_CONFIG 环境变量可覆盖 — 跨仓配置路径不再绑死本机布局 (2026-09-11 审计修复)
 CONFIG_PATH = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/lingcode/config.json"))
 
-# P2-2 (灵元): TASK_TYPE_TO_ROUTE 映射外置 policies/task_routing.yaml，
-# 走 PolicyLoader 热更。模块级加载一次（回退内置默认），运行时消费函数实时读策略。
+# P2-2 (灵元): task_type → route 映射外置 policies/task_routing.yaml，走 PolicyLoader 热更。
+# 消费方式：resolve() 每次路由前实时调用 _load_task_type_to_route()（P6 收敛口径），
+# 改 YAML → 下个请求生效，进程不重启。读失败回退内置默认（graceful degrade）。
+# P10: 曾存在模块级 TASK_TYPE_TO_ROUTE 死快照（生产零引用，唯一消费者是测试），已删除。
 def _load_task_type_to_route() -> dict[TaskType, str]:
     """从策略文件加载 task_type → route 映射；读失败回退内置默认（graceful degrade）。"""
     from lingclaude.core.policy_loader import get as policy_get
@@ -57,9 +59,6 @@ def _load_task_type_to_route() -> dict[TaskType, str]:
         if result:
             return result
     return builtin
-
-
-TASK_TYPE_TO_ROUTE: dict[TaskType, str] = _load_task_type_to_route()
 
 
 @dataclass

@@ -167,6 +167,30 @@ class SeamRegistry:
         return name in cls.list_names(seam_type)
 
     @classmethod
+    def get_all(cls, seam_type: SeamType) -> dict[str, Any]:
+        """取某类型全部插片（名 → 实例）的**副本**。
+
+        P11: 消费侧统一查询视图 —— 热拔插状态可观测。
+        - 返回 dict 副本，外部增删不影响注册表（防御性拷贝）。
+        - 实例本身按引用共享（消费方可直接调用 execute/create）。
+        """
+        seam_type = SeamType(seam_type)
+        with cls._get_lock():
+            return dict(cls._registry.get(seam_type, {}))
+
+    @classmethod
+    def snapshot(cls) -> dict[str, list[str]]:
+        """全量快照：SeamType → 已注册名列表（只读观测，供诊断/测试）。
+
+        P11: 统一查询视图 —— 一次调用看全所有插片类型的热拔插状态。
+        """
+        with cls._get_lock():
+            return {
+                stype.value: sorted(names.keys())
+                for stype, names in cls._registry.items()
+            }
+
+    @classmethod
     def reset(cls) -> None:
         """清空注册表（仅测试用）。"""
         with cls._get_lock():

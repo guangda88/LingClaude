@@ -256,3 +256,60 @@ def test_p5_tool_protocol_check_passes() -> None:
     got = SeamRegistry.get(SeamType.TOOL, "p5_tool")
     missing = SeamRegistry.check_protocol(SeamType.TOOL, got)
     assert missing == []
+
+
+# ---------------------------------------------------------------------------
+# P11: SeamRegistry 消费侧统一查询视图（get_all / snapshot）
+# ---------------------------------------------------------------------------
+
+
+def test_p11_get_all_returns_copy() -> None:
+    """get_all 返回副本：外部增删不影响注册表（防御性拷贝）。"""
+    reg = ToolRegistry()
+    reg.register(_mk_tool("p11_tool_a"))
+    reg.register(_mk_tool("p11_tool_b"))
+    try:
+        all_tools = SeamRegistry.get_all(SeamType.TOOL)
+        assert set(all_tools.keys()) == {"p11_tool_a", "p11_tool_b"}
+        # 修改副本不影响注册表
+        all_tools["p11_tool_c"] = object()
+        assert not SeamRegistry.has(SeamType.TOOL, "p11_tool_c")
+        all_tools.clear()
+        assert SeamRegistry.has(SeamType.TOOL, "p11_tool_a")
+    finally:
+        reg.reset()
+
+
+def test_p11_snapshot_covers_all_types() -> None:
+    """snapshot 返回已注册类型的热拔插状态（只含非空槽位）。"""
+    reg = ToolRegistry()
+    reg.register(_mk_tool("p11_snap"))
+    try:
+        snap = SeamRegistry.snapshot()
+        assert "tool" in snap
+        assert "p11_snap" in snap["tool"]
+        # 快照只包含已注册的类型槽位（无注册不占位）
+        assert all(names for names in snap.values())
+        # 快照是只读副本
+        snap["tool"].append("p11_injected")
+        assert not SeamRegistry.has(SeamType.TOOL, "p11_injected")
+    finally:
+        reg.reset()
+
+
+def test_p11_provider_view_visible() -> None:
+    """ProviderRegistry 注册后 get_all(PROVIDER) 可见（生产同源视图）。"""
+    class _FakeProvider:
+        name = "p11_provider"
+
+        def create(self, config=None):
+            return object()
+
+    ProviderRegistry.register("p11_provider", _FakeProvider)
+    try:
+        all_providers = SeamRegistry.get_all(SeamType.PROVIDER)
+        assert "p11_provider" in all_providers
+        got = all_providers["p11_provider"]
+        assert SeamRegistry.check_protocol(SeamType.PROVIDER, got) == []
+    finally:
+        ProviderRegistry.reset()

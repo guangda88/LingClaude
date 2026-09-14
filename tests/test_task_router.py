@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lingclaude.model.task_router import TaskRouter, TASK_TYPE_TO_ROUTE
+from lingclaude.model.task_router import TaskRouter, _load_task_type_to_route
 from lingclaude.model.intelligent_router import TaskType
 
 
@@ -184,9 +184,12 @@ class TestTaskRouter(unittest.TestCase):
         path.unlink()
 
     def test_task_type_mapping(self):
-        self.assertEqual(TASK_TYPE_TO_ROUTE[TaskType.CODE_GENERATION], "coding")
-        self.assertEqual(TASK_TYPE_TO_ROUTE[TaskType.ANALYSIS], "chinese_reasoning")
-        self.assertEqual(TASK_TYPE_TO_ROUTE[TaskType.SEARCH], "fast_response")
+        # P10: TASK_TYPE_TO_ROUTE 模块级快照已删除（生产零引用），
+        # 实时加载函数 _load_task_type_to_route() 是单一事实来源。
+        mapping = _load_task_type_to_route()
+        self.assertEqual(mapping[TaskType.CODE_GENERATION], "coding")
+        self.assertEqual(mapping[TaskType.ANALYSIS], "chinese_reasoning")
+        self.assertEqual(mapping[TaskType.SEARCH], "fast_response")
 
     def test_round_robin_rotation(self):
         path = self._make_config()
