@@ -96,7 +96,14 @@ BASELINE_SYS_PATH = 14
                      # 函数内延迟 import WebFetcher/WebSearcher ×1（S3 纪律，与
                      # bash/read/file_ops 插件同款；git/plugin.py 是模块级 import，
                      # 不计 lazy），换来 git/web 工具组插片化，非膨胀。
-BASELINE_LAZY = 401
+                     # 2026-09-14 (三方向推进: ast 插件 + warm 接线): 401 → 407 ——
+                     # ① plugin_runner.py 新增 warm 接线 3 函数（plugin_server_command/
+                     # register_plugin_server/call_plugin_server），函数内延迟 import
+                     # sys/json/mcp_proxy ×5（S3 纪律，函数内按需取，规避 engine 模块级
+                     # 循环）；② plugins/tools/ast/plugin.py 函数内延迟 import ast_edit ×1
+                     # （与 bash/read/file_ops/web 插件同款）。共 +6，均为合法懒加载，
+                     # 换来 ast 工具组插片化 + 插件→MCP stdio 连接池 warm 通道，非膨胀。
+BASELINE_LAZY = 407
 BASELINE_DICT_ERR = 52
 
 

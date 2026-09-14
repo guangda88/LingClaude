@@ -236,6 +236,25 @@ class ModelCallMixin:
         except Exception:
             logger.debug("journal append silently failed for %s", event_type)
 
+    def _record_provider_outcome(
+        self, cfg: Any, kind: str, error: str | None = None,
+    ) -> str | None:
+        """记录 provider 成败到 TaskRouter 熔断统计（真重复收敛：原 4 处逐字）。
+
+        kind: "success" → record_success；"error" → record_error(error)
+        返回 pname（找不到时 None）；cfg 为空时跳过。
+        """
+        if not cfg:
+            return None
+        pname = self._task_router.get_provider_name(cfg.api_key, cfg.base_url)
+        if not pname:
+            return None
+        if kind == "success":
+            self._task_router.record_success(pname)
+        else:
+            self._task_router.record_error(pname, error or "")
+        return pname
+
 
     def _call_model(self, prompt: str) -> str:
         decision = self._router.route(prompt)
@@ -265,9 +284,7 @@ class ModelCallMixin:
                 consecutive_failures += 1
                 self._track_behavior(prompt, f"[模型调用失败] {result.error}", used_tools=False)
                 if resolved_config:
-                    pname = self._task_router.get_provider_name(resolved_config.api_key, resolved_config.base_url)
-                    if pname:
-                        self._task_router.record_error(pname, result.error)
+                    self._record_provider_outcome(resolved_config, "error", result.error)
                 if consecutive_failures >= self.config.consecutive_failure_limit:
                     logger.warning(
                         "硬中断触发: 连续模型调用失败 %d 次，强制停止",
@@ -283,9 +300,7 @@ class ModelCallMixin:
                 total_input, total_output, response, round_text,
             )
             if resolved_config:
-                pname = self._task_router.get_provider_name(resolved_config.api_key, resolved_config.base_url)
-                if pname:
-                    self._task_router.record_success(pname)
+                self._record_provider_outcome(resolved_config, "success")
 
             if not response.tool_calls:
                 content = response.content
@@ -492,21 +507,13 @@ class ModelCallMixin:
 
                 if stream_error is None:
                     # F12f:成功也记 success(与 _call_model 对称)
-                    if resolved_config:
-                        pname = self._task_router.get_provider_name(
-                            resolved_config.api_key, resolved_config.base_url,
-                        )
-                        if pname:
-                            self._task_router.record_success(pname)
+                    self._record_provider_outcome(resolved_config, "success")
                     break
 
                 # 失败:记录 provider 错误(熔断统计,与 _call_model 对称;F12j 硬错误立即熔断)
-                if resolved_config:
-                    pname = self._task_router.get_provider_name(
-                        resolved_config.api_key, resolved_config.base_url,
-                    )
-                    if pname:
-                        self._task_router.record_error(pname, stream_error)
+                failed_pname = self._record_provider_outcome(
+                    resolved_config, "error", stream_error,
+                )
 
                 # 尚无输出 → 换下一候选重试一次
                 if cfg_attempt == 0 and not round_text_parts:
@@ -518,7 +525,7 @@ class ModelCallMixin:
                         yield {
                             "type": "status",
                             "message": (
-                                f"[{pname or '首选模型'}] 失败，"
+                                f"[{failed_pname or '首选模型'}] 失败，"
                                 f"切换备选 {next_cfg.model} 重试..."
                             ),
                         }

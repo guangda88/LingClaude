@@ -197,3 +197,86 @@ def serve_plugin_stdio(manifest_path: str | Path) -> None:
         sys.exit(1)
     globals_dict = {"__name__": "__main__", "_MANIFEST_PATH": str(manifest_path)}
     exec(compile(_PLUGIN_STDIO_ENTRY, "<plugin_stdio>", "exec"), globals_dict)
+
+
+# ============================================================================
+# P2 (warm 试点接线): 插件 → 标准 MCP stdio server → 连接池
+#
+# 使插件可经 mcp_proxy.register_server(transport="stdio") + 连接池调用：
+#   register_plugin_server(manifest)  → register_server(key, ..., transport="stdio",
+#                                    command=[python, -c, serve_plugin_stdio(manifest)])
+#   call_plugin_server(key, name, args) → 连接池 stdio client → tools/call
+#
+# warm 语义：子进程隔离（崩溃/死循环不拖垮主进程）+ 连接池复用（避免每次
+# spawn 子进程的成本）+ 换插片 = unregister + register（旧连接池条目失效重连）。
+# ============================================================================
+
+def plugin_server_command(manifest_path: str | Path) -> list[str]:
+    """构造启动插件 stdio server 的 command（供 register_server 使用）。"""
+    import sys
+
+    return [
+        sys.executable, "-c",
+        "from lingclaude.engine.plugin_runner import serve_plugin_stdio; "
+        f"serve_plugin_stdio('{Path(manifest_path).as_posix()}')",
+    ]
+
+
+def register_plugin_server(manifest_path: str | Path) -> str | None:
+    """把插件注册为标准 MCP stdio server，返回 server key（失败返回 None）。
+
+    幂等：同 key 已注册 → 直接返回 key（不重复注册）。
+    """
+    import json
+
+    from lingclaude.engine.mcp_proxy import register_server
+
+    manifest_path = Path(manifest_path)
+    if not manifest_path.is_file():
+        return None
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    name = data.get("name")
+    provides = data.get("provides") or []
+    if not name or not provides:
+        return None
+    key = f"plugin:{name}"
+    try:
+        from lingclaude.engine.mcp_proxy import find_server
+
+        if find_server(key) is not None:
+            return key
+    except Exception:  # noqa: BLE001 — find_server 可能未导出
+        pass
+    register_server(
+        key=key,
+        name=name,
+        agent_id="lingclaude",
+        tools=tuple(provides),
+        transport="stdio",
+        command=plugin_server_command(manifest_path),
+    )
+    return key
+
+
+def call_plugin_server(key: str, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """经 MCP stdio 连接池调用插件工具。
+
+    key 用于日志/校验；实际调用按工具名经 mcp_proxy.call_tool 路由
+    （find_server 按 tool_name 查 server，与 MCP 工具路由语义一致）。
+
+    返回 {"ok": bool, "data"|"error": ...}（与 run_plugin_subprocess 同构）。
+    """
+    from lingclaude.engine.mcp_proxy import call_tool, find_server
+
+    if find_server(tool_name) is None:
+        return {"ok": False, "error": f"MCP server 未注册工具: {tool_name}（key={key}）"}
+    result = call_tool(tool_name, **args)
+    if result.is_error:
+        return {"ok": False, "error": result.error}
+    tc = result.data
+    if not tc.success:
+        return {"ok": False, "error": tc.error}
+    return {"ok": True, "data": tc.output}
