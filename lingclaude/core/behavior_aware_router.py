@@ -27,6 +27,9 @@ from lingclaude.model.intelligent_router import (
 
 logger = logging.getLogger(__name__)
 
+# P9: PolicyLoader 顶层导入（G3: 避免函数内 import 增长）
+from lingclaude.core.policy_loader import get as _policy_get
+
 
 class BehaviorRouterStrategy(str, Enum):
     """Behavior-aware routing strategies."""
@@ -42,9 +45,7 @@ def _load_policy() -> dict:
     behavior_router.yaml 后下个 turn 生效，进程不重启。
     读失败回退内置默认（graceful degrade），默认值与 YAML 完全一致。
     """
-    from lingclaude.core.policy_loader import get as policy_get
-
-    return policy_get("behavior_router")
+    return _policy_get("behavior_router")
 
 
 def _policy_float(policy: dict, section: str, key: str, default: float) -> float:
@@ -77,7 +78,8 @@ class BehaviorRoutingConfig:
     error_model_priority: Optional[float] = None  # Weight for error rate
     default_strategy: Optional[BehaviorRouterStrategy] = None
 
-    # 策略数据（启动时加载一次；P1 接入 PolicyLoader 后支持热更）
+    # 策略数据（P9: 调用时实时读 —— PolicyLoader 内部缓存 + mtime watch 热更；
+    # 不再模块级/实例级一次性加载，改 YAML 后新构造的 config 立即用新值）
     _policy: dict = field(default_factory=_load_policy, repr=False, compare=False)
 
     # 内置默认（YAML 缺失或未设置时回退，与 YAML 值一致）
@@ -111,11 +113,26 @@ class BehaviorRoutingConfig:
     )
 
     def __post_init__(self) -> None:
-        """填充未显式设置的字段：策略文件 → 内置默认。"""
-        p = self._policy or {}
+        """填充未显式设置的字段：策略文件 → 内置默认。
+
+        P9: 记录显式传值的字段（构造时非 None 即显式），
+        hot_reload/_apply_policy 只跳过显式字段，策略填充字段可被热更。
+        """
+        # 构造时非 None 的字段 = 调用方显式设置（default 均为 None）
+        self._explicit_fields = {
+            attr
+            for _, _, attr in self._POLICY_MAP
+            if getattr(self, attr) is not None
+        }
+        if self.default_strategy is not None:
+            self._explicit_fields.add("default_strategy")
+        self._apply_policy(self._policy or {})
+
+    def _apply_policy(self, p: dict) -> None:
+        """按策略数据填充未显式设置的字段（P9: 可被 hot_reload 复用）。"""
         for section, key, attr in self._POLICY_MAP:
-            # 已显式设置 → 保留
-            if getattr(self, attr) is not None:
+            # 显式设置 → 保留（不被 YAML 覆盖）
+            if attr in self._explicit_fields:
                 continue
             # 策略文件 → 内置默认
             try:
@@ -123,12 +140,32 @@ class BehaviorRoutingConfig:
             except (KeyError, TypeError, ValueError):
                 setattr(self, attr, self._DEFAULTS[attr])
         # default_strategy 特殊处理（枚举）
-        if self.default_strategy is None:
+        if "default_strategy" not in self._explicit_fields:
             try:
                 strat = str(p.get("default_strategy", "")).lower()
                 self.default_strategy = BehaviorRouterStrategy(strat)
             except (ValueError, TypeError):
                 self.default_strategy = BehaviorRouterStrategy.STANDARD
+
+    def hot_reload(self) -> bool:
+        """强制重读策略文件并刷新未显式设置字段（P9: 已有实例热更）。
+
+        只重填未显式设置的字段（显式传值的保留调用方意图）。
+        返回是否有字段值发生变化（供调用方决定是否需要响应）。
+        """
+        before = {
+            attr: getattr(self, attr)
+            for _, _, attr in self._POLICY_MAP
+        }
+        before["default_strategy"] = self.default_strategy
+        self._policy = _policy_get("behavior_router")
+        self._apply_policy(self._policy or {})
+        after = {
+            attr: getattr(self, attr)
+            for _, _, attr in self._POLICY_MAP
+        }
+        after["default_strategy"] = self.default_strategy
+        return before != after
 
 
 class BehaviorAwareRouter:
@@ -146,6 +183,10 @@ class BehaviorAwareRouter:
             base_router: Base intelligent router instance
         """
         self.config = config or BehaviorRoutingConfig()
+        # P9 修复: get_config/update_config 用 self._config，但 __init__ 只设了
+        # self.config —— 导致 get_config() AttributeError、update_config 不生效。
+        # 统一为 self._config，self.config 保留为兼容别名（route 走 _config）。
+        self._config = self.config
         self.base_router = base_router or IntelligentRouter()
         self._behavior: Optional[BehaviorMetrics] = None
         self._strategy = BehaviorRouterStrategy.STANDARD
@@ -168,9 +209,9 @@ class BehaviorAwareRouter:
 
         # Check for high risk conditions
         if (
-            self._behavior.hallucination_risk > self.config.high_hallucination_threshold
-            or self._behavior.frustration_rate > self.config.high_frustration_threshold
-            or self._behavior.tool_error_rate > self.config.high_error_threshold
+            self._behavior.hallucination_risk > self._config.high_hallucination_threshold
+            or self._behavior.frustration_rate > self._config.high_frustration_threshold
+            or self._behavior.tool_error_rate > self._config.high_error_threshold
         ):
             self._strategy = BehaviorRouterStrategy.CONSERVATIVE
             logger.info(
@@ -180,9 +221,9 @@ class BehaviorAwareRouter:
                 f"errors={self._behavior.tool_error_rate:.2f}"
             )
         elif (
-            self._behavior.hallucination_risk < self.config.medium_hallucination_threshold
-            and self._behavior.frustration_rate < self.config.medium_frustration_threshold
-            and self._behavior.tool_error_rate < self.config.medium_error_threshold
+            self._behavior.hallucination_risk < self._config.medium_hallucination_threshold
+            and self._behavior.frustration_rate < self._config.medium_frustration_threshold
+            and self._behavior.tool_error_rate < self._config.medium_error_threshold
         ):
             self._strategy = BehaviorRouterStrategy.AGGRESSIVE
             logger.info(
@@ -202,6 +243,10 @@ class BehaviorAwareRouter:
         Returns:
             Routing decision with selected model and complexity
         """
+        # P9: 每次路由前检查策略热更（PolicyLoader mtime watch 节流 30s，
+        # 开销可忽略；改 behavior_router.yaml 后下个 turn 生效，进程不重启）
+        self._config.hot_reload()
+
         # Get base routing decision
         base_decision = self.base_router.route(query)
 
@@ -252,7 +297,7 @@ class BehaviorAwareRouter:
                 )
 
             # Force GLM-5.1 when hallucination risk is high
-            if self._behavior.hallucination_risk > self.config.high_hallucination_threshold:
+            if self._behavior.hallucination_risk > self._config.high_hallucination_threshold:
                 logger.debug("Routing to GLM-5.1 (high hallucination risk)")
                 return RoutingDecision(
                     model=GLMModel.GLM_5_1,
@@ -262,7 +307,7 @@ class BehaviorAwareRouter:
                 )
 
             # Force GLM-5.1 when user is frustrated
-            if self._behavior.frustration_rate > self.config.high_frustration_threshold:
+            if self._behavior.frustration_rate > self._config.high_frustration_threshold:
                 logger.debug("Routing to GLM-5.1 (high frustration rate)")
                 return RoutingDecision(
                     model=GLMModel.GLM_5_1,
@@ -335,19 +380,19 @@ class BehaviorAwareRouter:
         return {
             "hallucination_impact": (
                 self._behavior.hallucination_risk
-                * self.config.hallucination_model_priority
+                * self._config.hallucination_model_priority
             ),
             "frustration_impact": (
                 self._behavior.frustration_rate
-                * self.config.frustration_model_priority
+                * self._config.frustration_model_priority
             ),
             "error_impact": (
                 self._behavior.tool_error_rate
-                * self.config.error_model_priority
+                * self._config.error_model_priority
             ),
             "total_impact": (
-                self._behavior.hallucination_risk * self.config.hallucination_model_priority
-                + self._behavior.frustration_rate * self.config.frustration_model_priority
-                + self._behavior.tool_error_rate * self.config.error_model_priority
+                self._behavior.hallucination_risk * self._config.hallucination_model_priority
+                + self._behavior.frustration_rate * self._config.frustration_model_priority
+                + self._behavior.tool_error_rate * self._config.error_model_priority
             ),
         }

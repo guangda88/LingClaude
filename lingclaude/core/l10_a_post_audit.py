@@ -33,6 +33,9 @@ from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+# P9: PolicyLoader 顶层导入（G3: 避免函数内 import 增长）
+from lingclaude.core.policy_loader import get as _policy_get
+
 # 灵极优 L10-B 信任锚点导入 (旁路, 与 T1 FactChecker 导入灵知同模式)
 _LINGMINOPT_PATH = os.environ.get(
     "LINGMINOPT_PATH", str(Path(__file__).parent.parent.parent.parent / "lingminopt")
@@ -134,9 +137,7 @@ class DeclarationExtractor:
         P1-1: 走 PolicyLoader 统一加载，改 claim_patterns.yaml 后
         下次 L10-A 生效，进程不重启。
         """
-        from lingclaude.core.policy_loader import get as policy_get
-
-        data = policy_get("claim_patterns")
+        data = _policy_get("claim_patterns")
         patterns = data.get("patterns", [])
         return [p for p in patterns if isinstance(p, dict) and "regex" in p]
 
@@ -184,6 +185,7 @@ class DeclarationExtractor:
         """
         if patterns is not None:
             self._patterns = patterns
+            self._custom_patterns = True  # P9: 自定义模式不参与策略热更
         elif _L10B_AVAIL and _LMO_CLAIM_PATTERNS:
             self._patterns = _LMO_CLAIM_PATTERNS
         else:
@@ -202,6 +204,33 @@ class DeclarationExtractor:
             for p in self._patterns
         ]
 
+    def _maybe_refresh_policy(self) -> None:
+        """P9: 策略热更 —— extract() 前按 PolicyLoader mtime watch 检查 claim_patterns。
+
+        只在使用策略文件模式时刷新（显式传入 patterns 的自定义 extractor 保持不动）。
+        PolicyLoader 内部 30s 节流 + mtime 检测，改 claim_patterns.yaml 后
+        下次 extract 生效，进程不重启。
+        """
+        # 显式自定义 patterns（测试/外部注入）→ 不刷新
+        if getattr(self, "_custom_patterns", False):
+            return
+        # 灵极优模式（非策略文件）→ 不刷新
+        if _L10B_AVAIL and _LMO_CLAIM_PATTERNS and self._patterns is _LMO_CLAIM_PATTERNS:
+            return
+        data = _policy_get("claim_patterns")
+        patterns = data.get("patterns", [])
+        yaml_patterns = [p for p in patterns if isinstance(p, dict) and "regex" in p]
+        if not yaml_patterns:
+            return  # 策略缺失/为空 → 保持现状（graceful degrade）
+        if yaml_patterns == self._patterns:
+            return  # 内容未变 → 不重建正则
+        self._patterns = yaml_patterns
+        self._compiled = [
+            (p["pattern_id"], re.compile(p["regex"]), p.get("action", ""), p.get("event_type", ""))
+            for p in self._patterns
+        ]
+        logger.info("L10-A: claim_patterns 策略热更生效（%d 个模式）", len(self._compiled))
+
     @property
     def pattern_count(self) -> int:
         return len(self._compiled)
@@ -215,6 +244,8 @@ class DeclarationExtractor:
         Returns:
             去重后的 Declaration 列表 (按出现顺序).
         """
+        # P9: 每次提取前检查策略热更（PolicyLoader mtime watch 节流）
+        self._maybe_refresh_policy()
         declarations: list[Declaration] = []
         seen: set[str] = set()
 

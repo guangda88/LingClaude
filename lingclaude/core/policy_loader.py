@@ -42,9 +42,13 @@ _POLICIES_DIR = Path(__file__).parent / "policies"
 # 避免每轮读盘；策略文件变化最迟一个节流周期内生效。
 _WATCH_INTERVAL = 30.0
 
-# 文件 mtime 缓存：{绝对路径: st_mtime}。None 表示加载失败（不缓存失败，
+# 文件 mtime 缓存：{绝对路径: (st_mtime_ns, st_size)}。None 表示加载失败（不缓存失败，
 # 下次调用重试 —— graceful degrade 语义：文件补上后自动恢复）。
-_MTIME_CACHE: dict[str, float] = {}
+# P7 (2026-09-14): 从 st_mtime（秒级）升级为 (st_mtime_ns, st_size) 组合判据。
+#   实测：ext4 mtime_ns 实际粒度为 jiffy（~4ms@250Hz），同 jiffy 内快速连续写入
+#   mtime_ns 仍相同；size 作为第二判据可捕获同 jiffy 内不同长度的改写。
+#   同长度改写（内容变、长度不变）依赖 hot_update() 内容比较兜底（bd64a11）。
+_MTIME_CACHE: dict[str, tuple[int, int]] = {}
 
 # 数据缓存：{绝对路径: dict}
 _DATA_CACHE: dict[str, dict[str, Any]] = {}
@@ -100,10 +104,11 @@ def _load(name: str) -> dict[str, Any]:
     data = _read_yaml(path)
     if data:
         try:
-            mtime = path.stat().st_mtime
+            st = path.stat()
+            stamp = (st.st_mtime_ns, st.st_size)
         except OSError:
-            mtime = 0.0
-        _MTIME_CACHE[str(path)] = mtime
+            stamp = (0, 0)
+        _MTIME_CACHE[str(path)] = stamp
         _DATA_CACHE[str(path)] = data
     else:
         # 读失败：清缓存，下次重试
@@ -113,12 +118,20 @@ def _load(name: str) -> dict[str, Any]:
 
 
 def _changed(path: Path) -> bool:
-    """mtime 是否变化（文件新增/修改都算变化）。"""
+    """文件是否变化（新增/修改都算变化）。
+
+    P7: 用 (st_mtime_ns, st_size) 组合判据 ——
+      - st_mtime_ns：纳秒级，比秒级 st_mtime 精确得多
+      - st_size：第二判据，捕获同 jiffy（ext4 mtime 实际粒度 ~4ms）内
+        快速连续写入中长度不同的改写（mtime_ns 相同但 size 不同）
+      同长度改写（内容变、长度不变）由 hot_update() 内容比较兜底（bd64a11）。
+    """
     try:
-        mtime = path.stat().st_mtime
+        st = path.stat()
+        stamp = (st.st_mtime_ns, st.st_size)
     except OSError:
         return False
-    return _MTIME_CACHE.get(str(path)) != mtime
+    return _MTIME_CACHE.get(str(path)) != stamp
 
 
 def get(name: str) -> dict[str, Any]:
@@ -171,10 +184,11 @@ def hot_update() -> bool:
         old_data = _DATA_CACHE.get(key)
         if new_data:
             try:
-                mtime = path.stat().st_mtime
+                st = path.stat()
+                stamp = (st.st_mtime_ns, st.st_size)
             except OSError:
-                mtime = 0.0
-            _MTIME_CACHE[key] = mtime
+                stamp = (0, 0)
+            _MTIME_CACHE[key] = stamp
             _DATA_CACHE[key] = new_data
             _LAST_CHECK_BY_PATH.pop(key, None)
             if new_data != old_data:

@@ -5,6 +5,14 @@ SeamRegistry 来源: lingflow/lingflow/coordination/seam_registry.py
   declare_consumer(seam, consumer, methods)   -> disposer
   build_dependency_graph() -> {consumer: [seams]}（fail loud）
 
+与 lingclaude/core/seam.py（进程内 SeamRegistry）的关系（P8, 2026-09-14）:
+  - lingflow 那套: 跨进程/跨模块的 Service Definition 声明层（webui 等外部宿主），
+    纯声明、无实体注册（register_service 只存接口元数据）
+  - core/seam.py 这套: 进程内插片注册表（灵元"插片 = type"），存真实可调用实例，
+    SeamRegistry.get(PROVIDER, "fs") 可直接取到 provider
+  - register_capability_seams() 把能力缝同步注册到进程内 SeamRegistry，
+    形成统一查询视图（P5 已把 model provider/tool 同步，P8 补齐能力缝）
+
 本模块把 lingclaude-webui（Rust server）注册为 Service Definition，
 并声明 lingclaude 引擎作为 Consumer 消费 webUI 的对话/审批/实时通道。
 """
@@ -70,6 +78,10 @@ def register_capability_seams() -> None:
     """T3-1: 注册 capability seam 到 SeamRegistry（fs/shell/llm/subagent）。
 
     局部引入：只 4 个能力，不全面插件化。
+
+    P8 (2026-09-14): 同步注册到进程内 SeamRegistry（SeamType.PROVIDER 槽位），
+    形成统一查询视图 —— SeamRegistry.get(PROVIDER, "fs") 可查能力提供者，
+    与 P5 已同步的 model provider/tool 一致。
     """
     from lingclaude.lacp.capability_seam import (
         FS_SEAM, SHELL_SEAM, LLM_SEAM, SUBAGENT_SEAM,
@@ -79,7 +91,7 @@ def register_capability_seams() -> None:
 
     registry = get_seam_registry()
 
-    # 注册能力 seam
+    # 注册能力 seam（lingflow 声明层）
     registry.register_service("fs", FS_SEAM.interface, provider="lingclaude")
     registry.register_service("shell", SHELL_SEAM.interface, provider="lingclaude")
     registry.register_service("llm", LLM_SEAM.interface, provider="lingclaude")
@@ -87,6 +99,17 @@ def register_capability_seams() -> None:
 
     # 注册默认提供者
     register_default_providers()
+
+    # P8: 同步到进程内 SeamRegistry（统一查询视图）
+    #   SeamType.PROVIDER 槽位存可调用实例（CapabilitySeam 本身），
+    #   与 model provider（ProviderRegistry 同步）同槽，但名字空间独立不冲突。
+    #   fs/shell/llm/subagent 是能力缝名，openai/anthropic/local 是模型 provider 名。
+    from lingclaude.core.seam import SeamRegistry as ProcSeamRegistry
+    from lingclaude.core.seam import SeamType as ProcSeamType
+
+    for name, seam in (("fs", FS_SEAM), ("shell", SHELL_SEAM),
+                       ("llm", LLM_SEAM), ("subagent", SUBAGENT_SEAM)):
+        ProcSeamRegistry.register(ProcSeamType.PROVIDER, name, seam)
 
 
 if __name__ == "__main__":
