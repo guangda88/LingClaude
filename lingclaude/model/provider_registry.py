@@ -117,12 +117,19 @@ class ProviderRegistry:
 
     @classmethod
     def reset(cls) -> None:
-        """清空注册表（仅测试用）。"""
+        """清空注册表并恢复内置 provider（仅测试用）。
+
+        语义：回到"模块加载完的初始状态"——先清空全部（含 SeamRegistry PROVIDER 槽位），
+        再重新注册 builtins（openai/anthropic/local）。
+        这样后续依赖内置 provider 的测试不会被"清空"抹掉（修复跨测试状态污染：
+        test_p4_p5 的 reset 曾导致 test_s2_s3 的 openai 创建失败）。
+        """
         # P5: 同步清空 SeamRegistry 的 PROVIDER 槽位（reset 成对出现，防跨测试泄漏）
         for name in list(cls._registry.keys()):
             SeamRegistry.unregister(SeamType.PROVIDER, name)
         cls._registry.clear()
         cls._registry_classes.clear()
+        _register_builtins()
 
 
 def _register_builtins() -> None:

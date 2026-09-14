@@ -141,7 +141,14 @@ class PluginLoader:
         results: dict[str, LoadResult] = {}
         if not directory.is_dir():
             return results
-        for manifest_file in sorted(directory.glob("*.plugin.json")):
+        # P0: 支持「每插片自包含目录」结构 —— 先扫 */manifest.plugin.json，
+        # 再扫扁平 *.plugin.json（向后兼容旧布局）。两种都收集、去重、排序。
+        manifest_files: dict[Path, None] = {}
+        for mf in sorted(directory.glob("*/manifest.plugin.json")):
+            manifest_files[mf] = None
+        for mf in sorted(directory.glob("*.plugin.json")):
+            manifest_files[mf] = None
+        for manifest_file in sorted(manifest_files):
             try:
                 data = json.loads(manifest_file.read_text(encoding="utf-8"))
                 manifest = PluginManifest.from_dict(data)

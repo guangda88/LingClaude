@@ -145,6 +145,30 @@ def _make_tool_pipeline(ctx: CodingWiringContext) -> Any:
     )
 
 
+def _load_tool_plugins(ctx: CodingWiringContext) -> Any:
+    """P0: 加载 lingclaude/plugins/tools/ 下工具插件（示范载体：bash_plugin/read_plugin）。
+
+    灵元纪律：
+    - 变化（工具实现）= 插片，目录内自包含 manifest + 实现。
+    - 目录不存在/为空 → 返回 []（fail-soft，不影响现有 SPECS 34 工具回归）。
+    - 加载成功后注册进 SeamRegistry.TOOL，ToolRegistry.execute 优先走插件
+      （tools.py Q1 热拔插通道：外部换血代理优先于内部 handler）。
+    """
+    from lingclaude.core.plugin_loader import PluginLoader
+
+    plugins_dir = "lingclaude/plugins/tools"
+    results = PluginLoader().load_plugins_from_dir(plugins_dir)
+    loaded = [name for name, r in results.items() if r.is_ok]
+    if results:
+        logger.info(
+            "CodingRuntime: 工具插件目录 %s 加载 %d 个: %s",
+            plugins_dir,
+            len(loaded),
+            ", ".join(sorted(loaded)),
+        )
+    return loaded
+
+
 # ---------------------------------------------------------------------------
 # CODING_WIRING_MANIFEST — 与原 _setup_tools() 逐字对齐
 # 注意：registry 必须先于 tool_pipeline（构造期依赖），顺序即装配顺序。
@@ -157,6 +181,7 @@ CODING_WIRING_MANIFEST: tuple[CodingWiringSpec, ...] = (
     CodingWiringSpec("file_read", _make_file_read, note="文件读取"),
     CodingWiringSpec("grep_tool", _make_grep_tool, note="grep 搜索"),
     CodingWiringSpec("registry", _make_registry, note="工具注册表（register_all_tools 消费）"),
+    CodingWiringSpec("tool_plugins", _load_tool_plugins, note="P0: 工具插件载体（plugins/tools/，注册进 SeamRegistry.TOOL）"),
     CodingWiringSpec("permissions", _make_permissions, note="权限上下文（deny/mode）"),
     CodingWiringSpec("evaluator", _make_evaluator, note="结构评估"),
     CodingWiringSpec("optimizer", _make_optimizer, note="同步优化器"),

@@ -1,0 +1,10 @@
+{
+  "name": "bash_plugin",
+  "version": "1.0.0",
+  "type": "tool",
+  "entry": "lingclaude/plugins/tools/bash/plugin.py:BashPlugin",
+  "description": "示范工具插件：bash 执行（注册进 SeamRegistry.TOOL，ToolRegistry.execute 优先走 seam）",
+  "requires": [],
+  "provides": ["bash", "execute"],
+  "enabled": true
+}

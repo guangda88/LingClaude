@@ -82,7 +82,16 @@ BASELINE_SYS_PATH = 14
                      # bash.py _split_chain 委托、l7_cognitive re-export 顶替删除项），
                      # 均为合法懒加载（S3 纪律），换来 bash.py 1134→766、l7_cognitive
                      # 1008→704、token_monitor 926→491 净减 1107 行。净改善非膨胀。
-BASELINE_LAZY = 396
+                     # 2026-09-14 (P0 插件载体): 396 → 399 —— 新增 plugins/tools/ 载体，
+                     # coding_wiring.py _load_tool_plugins 函数内延迟 import PluginLoader
+                     # ×1 + 2 个插件 plugin.py 各函数内延迟 import 执行器（BashExecutor/
+                     # FileReadTool）×2，共 +3。均为合法懒加载（S3 纪律，函数内按需取），
+                     # 换来「主干不再 import 插件实现」的净改善，非膨胀。
+                     # 2026-09-14 (P1/P2 实施): 399 → 400 —— file_ops/plugin.py 函数内
+                     # 延迟 import FileEditTool ×1（S3 纪律，与 bash/read 插件同款），
+                     # 换来 file_ops 工具组插片化，非膨胀。plugin_runner.py 的子进程
+                     # 入口是字符串（不入 AST 统计），不增计数。
+BASELINE_LAZY = 400
 BASELINE_DICT_ERR = 52
 
 
@@ -275,3 +284,50 @@ def test_g10_no_core_bloat():
     assert total <= MAX_CORE_TOTAL, (
         f"core/ 总行数 {total} > 红线 {MAX_CORE_TOTAL}，必须砍薄"
     )
+
+# ── G11/G12 插件载体守卫（2026-09-14，P3：plugins/ 纳入架构保护）─────────────
+# 灵元纪律：变化=插片，不焊进主干。
+#   G11：主干（core/engine）不得直接 import lingclaude.plugins（只能经 PluginLoader
+#        动态加载 —— 加载是机制，import 是倒装）。
+#   G12：plugins/ 下每插件必须自包含 manifest.plugin.json（载体完整性）。
+_PLUGINS_DIR = SRC / "plugins"
+
+
+def test_g11_no_core_import_plugins():
+    """G11：主干不 import 插件实现（变化不焊进主干，只经 PluginLoader）。"""
+    offenders = []
+    for root_dir in ("core", "engine"):
+        d = SRC / root_dir
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.py")):
+            if f.name == "__init__.py":
+                continue
+            tree = _parse(f)
+            if tree is None:
+                continue
+            for node in ast.walk(tree):
+                mods = []
+                if isinstance(node, ast.ImportFrom) and node.module:
+                    mods = [node.module]
+                elif isinstance(node, ast.Import):
+                    mods = [a.name for a in node.names]
+                for m in mods:
+                    if m == "lingclaude.plugins" or m.startswith("lingclaude.plugins."):
+                        offenders.append(f"{_label(f)}:{node.lineno}:{m}")
+    assert not offenders, (
+        f"主干直接 import 插件实现（违反灵元「变化=插片」）: {offenders}"
+    )
+
+
+def test_g12_plugins_self_contained():
+    """G12：plugins/ 每插件自包含 manifest.plugin.json（载体完整性）。"""
+    if not _PLUGINS_DIR.is_dir():
+        return  # 无插件目录 → 跳过（未启用插件化）
+    for sub in sorted(_PLUGINS_DIR.glob("*/*")):
+        if not sub.is_dir():
+            continue
+        manifest = sub / "manifest.plugin.json"
+        assert manifest.is_file(), (
+            f"插件目录 {_label(sub)} 缺 manifest.plugin.json（灵元：每插片自包含载体）"
+        )
