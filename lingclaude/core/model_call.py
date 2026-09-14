@@ -390,10 +390,7 @@ class ModelCallMixin:
                 for t in (tools or [])
                 if isinstance(t, dict)
             )
-            snapshot = [
-                m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
-                for m in messages
-            ]
+            snapshot = self._snapshot_messages(messages)
             from datetime import datetime, timezone as _tz
             ev = self.model_request_log.append(
                 prompt=prompt,
@@ -405,6 +402,14 @@ class ModelCallMixin:
         except Exception as e:
             logger.warning("model_request_log append failed: %s", e)
             return -1
+
+    @staticmethod
+    def _snapshot_messages(messages: list) -> list:
+        """MV-1 三处校验共用的消息快照构造（单源，防逐字漂移）。"""
+        return [
+            m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
+            for m in messages
+        ]
 
     def _assert_model_visible(self, seq: int, messages: list) -> None:
         """MV-1 断言: derive(log.prefix(seq)) == 实际发送。违反记入告警列表。
@@ -419,10 +424,7 @@ class ModelCallMixin:
         if seq < 0:
             return
         try:
-            snapshot = [
-                m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
-                for m in messages
-            ]
+            snapshot = self._snapshot_messages(messages)
             from datetime import datetime, timezone as _tz
             ts = datetime.now(_tz.utc).isoformat()
             ok_a, reason_a = check_model_visible_invariant(self.model_request_log, seq, snapshot)
@@ -448,10 +450,7 @@ class ModelCallMixin:
         if seq < 0:
             return True  # log append 失败时不阻断主流程 (旧行为兼容)
         try:
-            snapshot = [
-                m if isinstance(m, dict) else getattr(m, "to_dict", lambda: {"role": str(getattr(m, "role", "user")), "content": str(getattr(m, "content", ""))})()
-                for m in messages
-            ]
+            snapshot = self._snapshot_messages(messages)
             ok, reason = check_model_visible_invariant(self.model_request_log, seq, snapshot)
             if not ok:
                 from datetime import datetime, timezone as _tz
