@@ -490,14 +490,35 @@ class MemoryIngester:
     def __init__(self, store: MemoryStore) -> None:
         self._store = store
 
+    # ── 摄取共用助手（真重复收敛：ingest_rule/ingest_incident 共享）──
+
+    def _find_existing(self, title: str, probe_tags: list[str]) -> str | None:
+        """按标题去重探测：命中同标题 episode 返回其 id，否则 None。"""
+        existing = self._store.search_episodes_by_tag(probe_tags, limit=50)
+        for ex in existing:
+            if ex.title == title:
+                return ex.id
+        return None
+
+    def _link_episode_to_tags(self, ep_id: str, tags: list[str]) -> None:
+        """为 episode 关联实体图：每个 tag → Entity(CONCEPT) → RELATED 边。"""
+        for tag in tags:
+            entity = self._store.find_entity(tag)
+            if not entity:
+                entity = Entity(name=tag, entity_type=EntityType.CONCEPT)
+                self._store.put_entity(entity)
+            self._store.put_edge(Edge(
+                source_id=entity.id, target_id=ep_id,
+                edge_type=EdgeType.RELATED,
+            ))
+
     def ingest_rule(
         self, title: str, body: str, tags: list[str],
         source: str = "CRUSH.md", severity: str = "high",
     ) -> str:
-        existing = self._store.search_episodes_by_tag(tags[:1], limit=50)
-        for ex in existing:
-            if ex.title == title:
-                return ex.id
+        existing_id = self._find_existing(title, tags[:1])
+        if existing_id:
+            return existing_id
         ep = Episode(
             title=title, body=body,
             episode_type=EpisodeType.RULE,
@@ -505,25 +526,16 @@ class MemoryIngester:
             source=source,
         )
         self._store.put_episode(ep)
-        for tag in tags:
-            entity = self._store.find_entity(tag)
-            if not entity:
-                entity = Entity(name=tag, entity_type=EntityType.CONCEPT)
-                self._store.put_entity(entity)
-            self._store.put_edge(Edge(
-                source_id=entity.id, target_id=ep.id,
-                edge_type=EdgeType.RELATED,
-            ))
+        self._link_episode_to_tags(ep.id, tags)
         return ep.id
 
     def ingest_incident(
         self, title: str, body: str, tags: list[str],
         facets: list[dict] | None = None, source: str = "",
     ) -> str:
-        existing = self._store.search_episodes_by_tag([title.split()[0]] if title else [], limit=50)
-        for ex in existing:
-            if ex.title == title:
-                return ex.id
+        existing_id = self._find_existing(title, [title.split()[0]] if title else [])
+        if existing_id:
+            return existing_id
         ep = Episode(
             title=title, body=body,
             episode_type=EpisodeType.INCIDENT,
@@ -541,15 +553,7 @@ class MemoryIngester:
                     fp = FacetPoint(facet_id=facet.id, claim=claim, tags=fp_tags)
                     self._store.put_facet_point(fp)
 
-        for tag in tags:
-            entity = self._store.find_entity(tag)
-            if not entity:
-                entity = Entity(name=tag, entity_type=EntityType.CONCEPT)
-                self._store.put_entity(entity)
-            self._store.put_edge(Edge(
-                source_id=entity.id, target_id=ep.id,
-                edge_type=EdgeType.RELATED,
-            ))
+        self._link_episode_to_tags(ep.id, tags)
         return ep.id
 
     def ingest_member(self, name: str, aliases: list[str], role: str) -> str:

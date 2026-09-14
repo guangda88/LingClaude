@@ -352,6 +352,7 @@ class CognitiveStore(SqliteStoreBase):
     ) -> list[CognitiveMemory]:
         """Triggered 层: 重要度 1-2, 会话钩子触发"""
         conn = self._get_conn()
+        okf_type: OKFType | None = None
         if category:
             type_map = {
                 MessageCategory.DECISION: OKFType.DECISION,
@@ -360,20 +361,13 @@ class CognitiveStore(SqliteStoreBase):
                 MessageCategory.PROJECT: OKFType.PROJECT,
             }
             okf_type = type_map.get(category)
-            if okf_type:
-                rows = conn.execute(
-                    """SELECT * FROM l7_cognitive_memories
-                       WHERE tier = 'triggered' AND okf_type = ?
-                       ORDER BY updated_at DESC LIMIT ?""",
-                    (okf_type.value, max_items),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    """SELECT * FROM l7_cognitive_memories
-                       WHERE tier = 'triggered'
-                       ORDER BY updated_at DESC LIMIT ?""",
-                    (max_items,),
-                ).fetchall()
+        if okf_type:
+            rows = conn.execute(
+                """SELECT * FROM l7_cognitive_memories
+                   WHERE tier = 'triggered' AND okf_type = ?
+                   ORDER BY updated_at DESC LIMIT ?""",
+                (okf_type.value, max_items),
+            ).fetchall()
         else:
             rows = conn.execute(
                 """SELECT * FROM l7_cognitive_memories
