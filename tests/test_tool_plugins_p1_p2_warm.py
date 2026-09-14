@@ -173,6 +173,20 @@ class TestWarmPluginServer:
         assert inner["ok"] is True
         assert "functions" in inner["data"]
 
+    def test_register_and_call_web_fetch_scheme_guard(self):
+        """web 插件经 warm 通道（stdio 子进程 + 连接池）真实调用 web_fetch。
+
+        用无效 URL scheme 触发 WebFetcher 的本地校验失败分支（file:// 不发起
+        网络请求）——既验证 warm 通道 + 按名分派（web_fetch）真实生效，又不
+        依赖外网/代理（测试稳定，不与外部服务握手）。
+        """
+        key = register_plugin_server(f"{TOOLS_DIR}/web/manifest.plugin.json")
+        assert key == "plugin:web_plugin"
+        r = call_plugin_server(key, "web_fetch", {"url": "file:///etc/hostname"})
+        assert r["ok"] is True, r.get("error")
+        # stdio 的 _result_text 会把单键 {"error": ...} 压平成纯文本（与 read 插件一致）
+        assert "Invalid URL scheme" in str(r["data"]), r["data"]
+
 
 class TestToolAliasHotplug:
     """P2 深化 (2026-09-14): provides 工具名别名代理 → 热拔插通道接通工具执行路径。

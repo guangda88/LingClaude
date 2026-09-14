@@ -487,6 +487,16 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
 
 
 
+def _requeue_extras(ctx: _ReplCtx, extras: list[str]) -> None:
+    """把收集的额外输入按原顺序回填队列（逆序 put 保持 FIFO 语义）。
+
+    真重复收敛：_consume_queue 三处（EOF / quit / 正常收尾）逐字相同的
+    `for _x in reversed(extras): ctx.input_queue.put(_x)` 回填循环，维护点 3→1。
+    """
+    for _x in reversed(extras):
+        ctx.input_queue.put(_x)
+
+
 def _consume_queue(ctx: _ReplCtx) -> str:
     """H17-TUI: 消费生成期挂起队列（斜杠命令即时执行；首个文本成为下一轮输入，
     余下重新排队保持顺序；EOF/quit 视为退出请求）。原 _interactive_loop
@@ -509,21 +519,18 @@ def _consume_queue(ctx: _ReplCtx) -> str:
         if item is None:
             break
         if InputQueue.is_eof(item):
-            for _x in reversed(extras):
-                ctx.input_queue.put(_x)
+            _requeue_extras(ctx, extras)
             return _TURN_QUIT
         if processor.handle(item):
             if processor.quit_requested:
-                for _x in reversed(extras):
-                    ctx.input_queue.put(_x)
+                _requeue_extras(ctx, extras)
                 return _TURN_QUIT
             continue
         if queued_next is None:
             queued_next = item
         else:
             extras.append(item)
-    for _x in reversed(extras):
-        ctx.input_queue.put(_x)
+    _requeue_extras(ctx, extras)
     ctx.queued_next = queued_next
     if processor.quit_requested:
         return _TURN_QUIT
