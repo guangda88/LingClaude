@@ -217,6 +217,10 @@ class TestNoDeadModules:
         # （返回 (脱敏文本, 是否发生替换)，供日志/审计调用），与 redact/contains_sensitive
         # 同属 redact 模块公共面；当前无调用方属预留审计接口，登记豁免待接线。
         "redact_if_needed",
+        # 2026-09-14: token_reports.generate_html_report/generate_markdown_report 由
+        # token_monitor.py:404/415 函数内延迟 import 委托消费（AST 守卫只扫顶层 ImportFrom），
+        # 且有 test_token_monitor.py:382-415 实测覆盖，非死代码 → 登记豁免。
+        "generate_html_report", "generate_markdown_report",
         # P3/S4: LoadResult 是 plugin_loader 内部返回类型（load_plugin 返回值），
         # 从不需要跨模块 import；ProviderPlugin/ToolPlugin 是 seam.py 的协议声明
         # （结构性检查用，非实例依赖）。S4 后由 wiring._load_plugins_if_present

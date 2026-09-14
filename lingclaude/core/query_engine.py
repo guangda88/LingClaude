@@ -28,6 +28,8 @@ from lingclaude.core.context_cache import ContextCache
 from lingclaude.core.task_aggregation import TaskAggregator
 from lingclaude.core.token_monitor import TokenMonitor
 from lingclaude.core.dementia_detector import DementiaDetector
+from lingclaude.core.data_flywheel import DataFlywheel
+from lingclaude.core.state_store import StateStore
 from lingclaude.core.tool_call_executor import ToolCallExecutor
 from lingclaude.core.types import is_tool_error
 from lingclaude.core.model_call import ModelCallMixin
