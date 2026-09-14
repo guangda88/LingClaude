@@ -380,14 +380,6 @@ def create_lingclaude_role_separation() -> RoleConflictChecker:
 
     目标：将灵克的四个角色分离到不同的智能体或组件
     """
-    lingclaude_roles = AgentRoles(
-        agent_id="lingclaude",
-        roles=[
-            ROLE_DEFINITIONS[RoleType.PARTICIPANT],
-        ],
-        enabled=True,
-    )
-
     # 未来的理想配置（需要其他智能体配合）
     lingyan_roles = AgentRoles(
         agent_id="lingyan",
