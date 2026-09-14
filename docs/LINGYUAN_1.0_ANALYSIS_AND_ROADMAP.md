@@ -317,3 +317,47 @@ install_openai(); install_bash()
 - **P19 候选**：`PriorVerifier` 的 `_TOOL_ACTION_EVIDENCE_MAP` 随工具名演化维护（当前前缀匹配已容错）
 - **推送**：`83781a2` → `625985c` 共 13 个提交尚未 push 远端
 - **广域回归**：全量 `tests/` 复核（后台进行中）
+
+## 十二、执行记录（2026-09-14：Q1/Q2/Q3 —— 灵元尺子再照后补齐消费面）
+
+> 五家审计（cc/codex/opencode/atomcode）共识：策略层已达标、倒装已清零、.bak 归零，
+> 未达标集中在「主干消费面」（Tool 槽位 0 消费）、「状态收敛」（3×TaskStatus 同名）、
+> 「系统提示被治理标记自伤」。本轮按灵元三步法（先砍薄 → 再接缝消费 → 后活）补齐。
+
+### Q1：Tool 热路径走 seam（热拔插从登记处变消费面）
+
+- **改动**：`engine/tools.py` `ToolRegistry.execute` 优先查 `SeamRegistry.get_optional(TOOL, name)`；
+  自注册 `_ToolSeamProxy`（指向本 registry）跳过防死循环；miss 回退内部 handler（graceful degrade）
+- **效果**：`SeamRegistry.register(TOOL, "bash", new_proxy)` 后，`execute("bash")` 立即用新实例——
+  **热拔插 tool 真正生效**（此前只有 register 无 get 消费，是影子表）
+- **陷阱修复**：`_ToolSeamProxy.execute` 委托回 registry → 若 execute 直接走自注册影子会无限递归；
+  通过 `isinstance(proxy, _ToolSeamProxy) and proxy._registry is self` 识别并跳过
+
+### Q2：3×TaskStatus 同名歧义归零（不同维度不同 type）
+
+- **背景**：task_aggregation（英文枚举）/ task_scheduler（中文枚举）/ handover（交接检查点）
+  各自定义同名 `TaskStatus`，值域完全不同——「两状态机必然不一致」的温床
+- **改动**：分别改名 `AggregationTaskStatus` / `SchedulerTaskStatus` / `HandoverTaskStatus`，
+  保留 `TaskStatus = 新名` 兼容别名（外部引用不断）；`grep 'class TaskStatus'` = 0
+- **依据**：灵元「不同维度不同 type」——同名歧义应消除，而非强行合并不同语义域
+
+### Q3：系统提示渲染净化（修复 5ff2ba1 提交消息自伤）
+
+- **背景**：`5ff2ba1` 提交消息含 `⚠[工具结果未验证]`，system_prompt_builder 用 `git show -s`
+  注入最近提交到 SESSION_CONTEXT → test_adaptive「健康状态无 ⚠」断言失败
+- **改动**：`core/system_prompt_builder.py` 渲染侧过滤治理标记（⚠/💡 → !），
+  **不篡改 git 历史**，只净化系统提示渲染
+- **效果**：提交消息是事实（保留），系统提示上下文去除干扰符号（健康状态无 ⚠）
+
+### 质量指标（本轮）
+
+- 提交：`291d1a0`（8 文件，+257/-6，lefthook 3 钩子全过，灵督 0 issues）
+- 新增契约测试：**10 项**（Q1 4 + Q2 3 + Q3 3）
+- 定向回归：**106 passed**（Q1/Q2/Q3 + 守卫 + adaptive + message_builder + prior_verifier + seam）
+- `.bak` 归零：本轮 edit 产生的 4 个 .bak 已清理
+
+### 后续候选
+
+- **Q4**：`query_engine.py` 814 行厚模块瘦身（循环/工具/提交三职责按 wiring 装配模式继续拆）
+- **Q5**：`coding.py._setup_tools()` 42 行硬编码装配改走 wiring.assemble（P18 方向，需 CLI 回归专项）
+- **推送**：`83781a2` → `291d1a0` 共 14 个提交尚未 push 远端
