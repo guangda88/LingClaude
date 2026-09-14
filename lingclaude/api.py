@@ -816,6 +816,19 @@ def _route_question(prompt: str) -> str:
     return _call_llm(system, prompt) or f"灵克暂时无法回答：{prompt}"
 
 
+def _http_get_json(url: str, timeout: float, ua: str = "lingclaude") -> dict:
+    """HTTP GET 返回 JSON（纯 urllib，无第三方依赖）。失败抛异常由调用方处理。
+
+    收敛: _query_github_stars 两个分支 + _query_pypi_downloads 三处逐字重复的
+    Request 构造 + urlopen + json.loads 模式（维护点 3→1）。
+    """
+    import urllib.request
+
+    req = urllib.request.Request(url, headers={"User-Agent": ua})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 — 固定外部 API URL
+        return json.loads(resp.read().decode())
+
+
 def _query_github_stars(prompt: str) -> str:
     repos = {
         "灵通": "guangda88/lingflow",
@@ -826,11 +839,7 @@ def _query_github_stars(prompt: str) -> str:
     for name, repo in repos.items():
         if name in prompt:
             try:
-                import urllib.request
-                url = f"https://api.github.com/repos/{repo}"
-                req = urllib.request.Request(url, headers={"User-Agent": "lingclaude"})
-                with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — 固定 GitHub API URL
-                    data = json.loads(resp.read().decode())
+                data = _http_get_json(f"https://api.github.com/repos/{repo}", 10)
                 return f"{name} ({repo}): {data.get('stargazers_count', 0)} stars, {data.get('forks_count', 0)} forks, {data.get('open_issues_count', 0)} open issues"
             except Exception as e:
                 return f"查询 {name} 的 GitHub 信息失败: {e}"
@@ -838,11 +847,7 @@ def _query_github_stars(prompt: str) -> str:
     all_info = []
     for name, repo in repos.items():
         try:
-            import urllib.request
-            url = f"https://api.github.com/repos/{repo}"
-            req = urllib.request.Request(url, headers={"User-Agent": "lingclaude"})
-            with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — 固定 GitHub API URL
-                data = json.loads(resp.read().decode())
+            data = _http_get_json(f"https://api.github.com/repos/{repo}", 10)
             all_info.append(f"{name}: {data.get('stargazers_count', 0)} stars")
         except Exception:
             all_info.append(f"{name}: 查询失败")
@@ -850,15 +855,11 @@ def _query_github_stars(prompt: str) -> str:
 
 
 def _query_pypi_downloads(prompt: str) -> str:
-    import urllib.request
     packages = ["lingflow-core", "lingflow-mcp", "lingclaude", "lingtongask"]
     results = []
     for pkg in packages:
         try:
-            url = f"https://pypi.org/pypi/{pkg}/json"
-            req = urllib.request.Request(url, headers={"User-Agent": "lingclaude"})
-            with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310 — 固定 PyPI API URL
-                data = json.loads(resp.read().decode())
+            data = _http_get_json(f"https://pypi.org/pypi/{pkg}/json", 5)
             ver = data.get("info", {}).get("version", "?")
             results.append(f"{pkg} v{ver}")
         except Exception as e:
