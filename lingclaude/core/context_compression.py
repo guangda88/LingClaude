@@ -306,41 +306,25 @@ def compress_messages(
             recent_context=recent_text,
             handover_conclusions=config.handover_conclusions,
         )
-
-        combined = reasoning_summary + "\n" + fact_summary
-        budget = config.effective_summary_chars()
-        if len(combined) > budget:
-            combined = combined[:budget] + "\n... (摘要已截断)"
-
+        summary = reasoning_summary + "\n" + fact_summary
         archived_count = sum(len(v) for v in facts.values()) + sum(len(v) for v in reasoning.values())
-
-        return CompressionResult(
-            compressed_messages=[combined] + kept,
-            dropped_count=dropped_count,
-            summary_text=combined,
-            archived_facts=archived_count,
-            tokens_estimated_saved=_estimate_tokens_saved(dropped) - len(combined),
-            level=config.level,
+    else:
+        recent_text = _extract_text(kept[0]) if kept else ""
+        summary = generate_chinese_summary(
+            facts, dropped_count,
+            recent_context=recent_text,
+            handover_conclusions=config.handover_conclusions,
         )
-
-    recent_text = _extract_text(kept[0]) if kept else ""
-    summary = generate_chinese_summary(
-        facts, dropped_count,
-        recent_context=recent_text,
-        handover_conclusions=config.handover_conclusions,
-    )
-
-    # T1-1: LLM 摘要通道 — use_llm_summary 且 provider 可用时替换正则摘要，失败降级
-    if config.use_llm_summary:
-        llm_summary = _try_llm_summary(facts, dropped_count, config)
-        if llm_summary:
-            summary = llm_summary
+        # T1-1: LLM 摘要通道 — use_llm_summary 且 provider 可用时替换正则摘要，失败降级
+        if config.use_llm_summary:
+            llm_summary = _try_llm_summary(facts, dropped_count, config)
+            if llm_summary:
+                summary = llm_summary
+        archived_count = sum(len(v) for v in facts.values())
 
     budget = config.effective_summary_chars()
     if len(summary) > budget:
         summary = summary[:budget] + "\n... (摘要已截断)"
-
-    archived_count = sum(len(v) for v in facts.values())
 
     return CompressionResult(
         compressed_messages=[summary] + kept,

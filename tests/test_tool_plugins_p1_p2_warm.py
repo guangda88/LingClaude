@@ -188,6 +188,29 @@ class TestWarmPluginServer:
         assert "Invalid URL scheme" in str(r["data"]), r["data"]
 
 
+    def test_pool_reuses_same_connection(self):
+        """连接池复用：同插件连续调用不新建子进程（warm 级核心价值）。
+
+        连接池 get() 命中缓存且健康时返回同一 client（mcp_client.py get 的
+        健康检查分支），子进程只 spawn 一次 —— 若每次调用新建进程，第二次
+        call 会重新 connect，pool.size 会增长；复用则 size 恒为 1。
+        """
+        from lingclaude.engine.mcp_client import get_client_pool
+
+        pool = get_client_pool()
+        key = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        assert key == "plugin:read_plugin"
+        r1 = call_plugin_server(key, "read", {"path": "lingclaude/plugins/tools/read/plugin.py"})
+        assert r1["ok"] is True, r1.get("error")
+        size_after_first = pool.size
+        # 第二次调用应命中同一连接
+        r2 = call_plugin_server(key, "read", {"path": "lingclaude/plugins/tools/read/plugin.py"})
+        assert r2["ok"] is True, r2.get("error")
+        assert pool.size == size_after_first, (
+            f"连接池未复用：first call 后 size={size_after_first}，"
+            f"second call 后 size={pool.size}（期望不变，即子进程未重复 spawn）"
+        )
+
 class TestToolAliasHotplug:
     """P2 深化 (2026-09-14): provides 工具名别名代理 → 热拔插通道接通工具执行路径。
 
