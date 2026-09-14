@@ -135,6 +135,17 @@ class TestWarmPluginServer:
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
+    def test_register_and_call_bash_warm(self):
+        """bash 插件经 warm 通道（stdio 子进程 + 连接池）真实调用只读命令。
+
+        bash 有执行语义，只跑无副作用的只读命令（pwd）验证通道可用。
+        """
+        key = register_plugin_server(f"{TOOLS_DIR}/bash/manifest.plugin.json")
+        assert key == "plugin:bash_plugin"
+        r = call_plugin_server(key, "bash", {"command": "pwd"})
+        assert r["ok"] is True, r.get("error")
+        assert "lingclaude" in str(r["data"])
+
     def test_register_idempotent(self):
         """同 key 重复注册 → 返回同 key，不重复注册。"""
         key1 = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")

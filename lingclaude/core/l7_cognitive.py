@@ -424,21 +424,16 @@ class CognitiveStore(SqliteStoreBase):
     def search_docs(self, query: str, top_k: int = 5, project: str = "") -> list[DocIndex]:
         conn = self._get_conn()
         pattern = f"%{query}%"
+        sql = """SELECT * FROM l7_doc_index
+                 WHERE title LIKE ? OR summary LIKE ? OR tags LIKE ?
+                 {proj_filter}
+                 ORDER BY created_at DESC LIMIT ?"""
         if project:
-            rows = conn.execute(
-                """SELECT * FROM l7_doc_index
-                   WHERE (title LIKE ? OR summary LIKE ? OR tags LIKE ?)
-                   AND project = ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (pattern, pattern, f'%"{query}"%', project, top_k),
-            ).fetchall()
+            sql = sql.format(proj_filter="AND project = ?")
+            rows = conn.execute(sql, (pattern, pattern, f'%"{query}"%', project, top_k)).fetchall()
         else:
-            rows = conn.execute(
-                """SELECT * FROM l7_doc_index
-                   WHERE title LIKE ? OR summary LIKE ? OR tags LIKE ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (pattern, pattern, f'%"{query}"%', top_k),
-            ).fetchall()
+            sql = sql.format(proj_filter="")
+            rows = conn.execute(sql, (pattern, pattern, f'%"{query}"%', top_k)).fetchall()
         return [self._row_to_doc(r) for r in rows]
 
     def _row_to_doc(self, row: sqlite3.Row) -> DocIndex:

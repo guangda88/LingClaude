@@ -348,45 +348,61 @@ class MemoryStore(SqliteStoreBase):
 
     # ── 检索 ──
 
-    def search_episodes_by_tag(self, tags: list[str], limit: int = 10) -> list[Episode]:
-        conn = self._get_conn()
-        results: list[Episode] = []
+    def _search_by_tags(self, tags: list[str], rows_for_tag, limit: int = 10) -> list[sqlite3.Row]:
+        """按标签去重聚合检索原始行（真重复收敛: episodes/facet_points 共用骨架）。
+
+        rows_for_tag(tag) -> rows：调用方提供 SQL 查询（保真各自语义），本 helper
+        只收敛「遍历 tag + id 去重 + 截断」骨架。
+        """
+        results: list[sqlite3.Row] = []
         seen: set[str] = set()
         for tag in tags:
+            for r in rows_for_tag(tag):
+                if r["id"] not in seen:
+                    seen.add(r["id"])
+                    results.append(r)
+        return results[:limit]
+
+    def search_episodes_by_tag(self, tags: list[str], limit: int = 10) -> list[Episode]:
+        conn = self._get_conn()
+
+        def rows_for_tag(tag: str):
             pattern = f'%"{tag}"%'
-            rows = conn.execute(
+            return conn.execute(
                 """SELECT * FROM episodes
                    WHERE tags LIKE ? OR title LIKE ? OR body LIKE ?
                    ORDER BY weight DESC LIMIT ?""",
                 (pattern, f"%{tag}%", f"%{tag}%", limit),
             ).fetchall()
-            for r in rows:
-                if r["id"] not in seen:
-                    seen.add(r["id"])
-                    results.append(self._row_to_episode(r))
-        results.sort(key=lambda e: e.weight, reverse=True)
-        return results[:limit]
+
+        results = self._search_by_tags(tags, rows_for_tag, limit=limit)
+        # 仅 episode 按 weight 二次排序（facet_point 无 weight，保留插入序）
+        ranked = sorted(
+            (self._row_to_episode(r) for r in results),
+            key=lambda e: e.weight, reverse=True,
+        )
+        return ranked[:limit]
 
     def search_facet_points_by_tag(self, tags: list[str], limit: int = 10) -> list[FacetPoint]:
         conn = self._get_conn()
-        results: list[FacetPoint] = []
-        seen: set[str] = set()
-        for tag in tags:
+
+        def rows_for_tag(tag: str):
             pattern = f'%"{tag}"%'
-            rows = conn.execute(
+            return conn.execute(
                 """SELECT * FROM facet_points
                    WHERE tags LIKE ? OR claim LIKE ?
                    LIMIT ?""",
                 (pattern, f"%{tag}%", limit),
             ).fetchall()
-            for r in rows:
-                if r["id"] not in seen:
-                    seen.add(r["id"])
-                    results.append(FacetPoint(
-                        id=r["id"], facet_id=r["facet_id"],
-                        claim=r["claim"], tags=json.loads(r["tags"]),
-                    ))
-        return results[:limit]
+
+        results = self._search_by_tags(tags, rows_for_tag, limit=limit)
+        return [
+            FacetPoint(
+                id=r["id"], facet_id=r["facet_id"],
+                claim=r["claim"], tags=json.loads(r["tags"]),
+            )
+            for r in results
+        ][:limit]
 
     def record_recall(self, ep_id: str) -> None:
         conn = self._get_conn()
