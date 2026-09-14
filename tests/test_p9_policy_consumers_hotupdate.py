@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from lingclaude.core import policy_loader as pl
-from lingclaude.core.behavior_aware_router import (
+from lingclaude.model.behavior_aware_router import (
     BehaviorAwareRouter,
     BehaviorRouterStrategy,
     BehaviorRoutingConfig,

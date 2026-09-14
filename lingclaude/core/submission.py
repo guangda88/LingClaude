@@ -317,7 +317,7 @@ class SubmissionMixin:
         return self._session_persister.load_checkpoint()
 
     def resume_interrupted(self) -> Result[str]:
-        from lingclaude.model.types import ModelMessage, MessageRole, ToolCall
+        from lingclaude.core.model_types import ModelMessage, MessageRole, ToolCall
 
         data = self._load_checkpoint()
         if data is None:

@@ -22,7 +22,7 @@ from lingclaude.core.meta_cognition import Domain
 from lingclaude.core.layered_memory import EmotionIntensity, Experience
 from lingclaude.core.redact import redact as _redact_text
 from lingclaude.core.types import Result, is_tool_error
-from lingclaude.model.types import ModelMessage, MessageRole
+from lingclaude.core.model_types import ModelMessage, MessageRole
 from lingclaude.core.model_call import _estimate_message_tokens, _estimate_tokens
 
 logger = logging.getLogger(__name__)

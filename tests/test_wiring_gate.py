@@ -178,7 +178,6 @@ class TestNoDeadModules:
         "metrics.py",
         "role_separation.py",
         "task_scheduler.py",
-        "behavior_aware_router.py",
         "governance.py",
         "governance_integration.py",
         "governance_verifier.py",

@@ -89,7 +89,7 @@ try:
     from experiments.r5_kb_conflict import R5KBConflictSource as _R5KBConflictSource
 except ImportError:
     _R5KBConflictSource = None  # type: ignore[assignment]
-from lingclaude.model.types import ModelConfig, ModelMessage, MessageRole
+from lingclaude.core.model_types import ModelConfig, ModelMessage, MessageRole
 
 from lingclaude.core.types import Result, StopReason
 

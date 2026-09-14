@@ -3,7 +3,7 @@ from __future__ import annotations
 
 
 from lingclaude.core.behavior import BehaviorMetrics
-from lingclaude.core.behavior_aware_router import (
+from lingclaude.model.behavior_aware_router import (
     BehaviorAwareRouter,
     BehaviorRouterStrategy,
     BehaviorRoutingConfig,

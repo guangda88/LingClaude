@@ -10,7 +10,7 @@ import time
 from typing import Any
 
 from lingclaude.core.types import Result
-from lingclaude.model.types import ModelConfig
+from lingclaude.core.model_types import ModelConfig
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class QueryEngineModelMixin:
                 Result.ok(新模型名)；失败返回错误。
             """
             from lingclaude.model.factory import create_provider
-            from lingclaude.model.types import ModelConfig
+            from lingclaude.core.model_types import ModelConfig
 
             if not model_name or not model_name.strip():
                 return Result.fail("model name is required", code="BAD_MODEL_NAME")
@@ -90,7 +90,7 @@ class QueryEngineModelMixin:
             """
             import time
             from lingclaude.model.factory import create_provider
-            from lingclaude.model.types import ModelConfig
+            from lingclaude.core.model_types import ModelConfig
 
             if not model_name or not model_name.strip():
                 return Result.fail("model name is required", code="BAD_MODEL_NAME")

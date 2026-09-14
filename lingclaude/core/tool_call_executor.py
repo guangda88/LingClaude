@@ -35,7 +35,7 @@ class ToolCallExecutor:
             messages: 追加结果消息的目标列表。
             content: assistant 消息文本。
         """
-        from lingclaude.model.types import ModelMessage, MessageRole
+        from lingclaude.core.model_types import ModelMessage, MessageRole
 
         engine = self._engine
         engine._behavior = engine._behavior.record_tool_calls(count=len(tool_calls))
@@ -74,7 +74,7 @@ class ToolCallExecutor:
         写工具不标记 is_concurrency_safe=True，此处兜底校验：若误标了写工具，
         自动降级为顺序执行并记录警告。
         """
-        from lingclaude.model.types import ModelMessage, MessageRole
+        from lingclaude.core.model_types import ModelMessage, MessageRole
         from lingclaude.engine.verification_gate import WRITE_SCOPED_TOOLS
 
         engine = self._engine
@@ -122,7 +122,7 @@ class ToolCallExecutor:
 
     def _process_single(self, tc: Any, messages: list) -> None:
         """执行单个工具调用（供降级路径复用）。"""
-        from lingclaude.model.types import ModelMessage, MessageRole
+        from lingclaude.core.model_types import ModelMessage, MessageRole
 
         engine = self._engine
         engine._dementia_detector.record_tool_call(tc.name, tc.arguments)

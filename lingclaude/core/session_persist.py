@@ -101,7 +101,7 @@ class SessionPersister:
         cd = engine.session_store.load_checkpoint_by_tag(tag)
         if cd is None:
             return False
-        from lingclaude.model.types import ModelMessage, MessageRole, ToolCall
+        from lingclaude.core.model_types import ModelMessage, MessageRole, ToolCall
 
         messages: list[ModelMessage] = []
         for rm in cd.raw_messages:

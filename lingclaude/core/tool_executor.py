@@ -4,7 +4,7 @@ import json
 import logging
 from typing import Any
 
-from lingclaude.model.types import ModelConfig
+from lingclaude.core.model_types import ModelConfig
 from lingclaude.core.hooks import HookContext, HookType
 from lingclaude.core.context_compression import compress_messages, CompressionConfig, CompressionLevel
 from lingclaude.core.task_aggregation import TaskPriority
@@ -375,7 +375,7 @@ class ToolExecutor:
             return None
 
     def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
-        from lingclaude.model.types import ModelConfig
+        from lingclaude.core.model_types import ModelConfig
         # Check for pinned model first (bypasses TaskRouter)
         if self._engine.is_model_pinned():
             pinned_cfg = self._engine._pinned_model_config

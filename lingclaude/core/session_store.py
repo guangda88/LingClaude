@@ -46,7 +46,7 @@ class CheckpointData:
 
     def to_model_messages(self) -> list[Any]:
         """raw dict -> ModelMessage 列表 (延迟 import 避免环)。"""
-        from lingclaude.model.types import ModelMessage, MessageRole, ToolCall
+        from lingclaude.core.model_types import ModelMessage, MessageRole, ToolCall
 
         messages = []
         for rm in self.raw_messages:

@@ -11,7 +11,7 @@ from typing import Any, Generator
 from lingclaude.core.behavior import detect_intent, is_tool_intent
 from lingclaude.core.session_journal import SessionJournal
 from lingclaude.core.types import is_tool_error
-from lingclaude.model.types import MessageRole, ModelMessage
+from lingclaude.core.model_types import MessageRole, ModelMessage
 
 logger = logging.getLogger(__name__)
 
@@ -478,7 +478,7 @@ class ModelCallMixin:
         return tuple(self._mv1_violations)
 
     def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
-        from lingclaude.model.types import ModelMessage, MessageRole, ModelUsage, ToolCall
+        from lingclaude.core.model_types import ModelMessage, MessageRole, ModelUsage, ToolCall
 
         messages = self._build_messages(prompt)
         tools = self._build_openai_tools()
@@ -701,7 +701,7 @@ class ModelCallMixin:
             logger.warning("幻觉闭环达到最大递归深度，放弃修正")
             return None
 
-        from lingclaude.model.types import ModelMessage, MessageRole
+        from lingclaude.core.model_types import ModelMessage, MessageRole
 
         bm = self._behavior
         logger.info(
