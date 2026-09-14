@@ -35,7 +35,11 @@ import logging
 import threading
 from typing import Any
 
-from lingclaude.core.lingmemory_bridge import _get_lingmemory, dualwrite_enabled
+from lingclaude.core.lingmemory_bridge import (
+    _LingMemorySinkBase,
+    _get_lingmemory,
+    dualwrite_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +52,10 @@ def edge_key(source_id: str, target_id: str, edge_type: str) -> str:
     return f"{source_id}->{target_id}:{edge_type}"
 
 
-class LingMemoryStoreSink:
+class LingMemoryStoreSink(_LingMemorySinkBase):
+
+    _LM_TYPE = "memory_store_entry"
+    _CREATED_BY = "lingclaude.memory_engine"
     """MemoryStore 五类写点 → 灵忆 双写旁观者。
 
     经 ``MemoryStore(legacy_sink=...)`` 注入；事件接口（鸭子类型，
@@ -56,15 +63,6 @@ class LingMemoryStoreSink:
     - on_put(store_name, entry_key, value)   首写镜像（同键重复 put 不重复建）
     - on_forget(store_name, entry_key)       主路删除 → merged_away（留史）
     """
-
-    def __init__(self, db_path: Any = None,
-                 created_by: str = _CREATED_BY) -> None:
-        self._db_path = db_path
-        self._created_by = created_by
-        self._lm: Any = None
-        self._record_ids: dict[tuple[str, str], str] = {}
-        self._lock = threading.Lock()
-        self._broken = False  # 熔断：首错后本进程内静默
 
     # ------------------------------------------------------------
     # 事件入口（主路以 try/except 调用，此处异常也自行吞掉双保险）
@@ -103,22 +101,13 @@ class LingMemoryStoreSink:
     # ------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------
-    def _ensure_lm(self) -> bool:
-        """懒初始化灵忆实例；模块不可用返回 False（旁路纪律：不抛）"""
-        if self._lm is None:
-            LingMemory = _get_lingmemory()
-            if LingMemory is None:
-                return False
-            kwargs = {"db_path": self._db_path} if self._db_path else {}
-            self._lm = LingMemory(**kwargs)
-        return True
 
     def _lookup_active(self, store_name: str, entry_key: str) -> str | None:
         """按 (store_name, entry_key) 找灵忆侧 live record（跨重启续接状态机）"""
         if not self._ensure_lm():
             return None  # lingmemory 不可用，无从查询
         items = self._lm.query(
-            type=_LM_TYPE, state="live",
+            type=self._LM_TYPE, state="live",
             data_filter={"store_name": store_name, "entry_key": entry_key},
             limit=1,
         )["items"]
@@ -134,7 +123,7 @@ class LingMemoryStoreSink:
         if summary:
             content = f"{content} | {summary}"
         return self._lm.create(
-            type=_LM_TYPE,
+            type=self._LM_TYPE,
             data={
                 "store_name": store_name,
                 "entry_key": entry_key,
@@ -146,10 +135,3 @@ class LingMemoryStoreSink:
             created_by=self._created_by,
         )
 
-    def _trip(self, where: str, exc: Exception) -> None:
-        """熔断：首错告警并停摆，本进程不再重试（旁路必须静默失败）"""
-        self._broken = True
-        logger.warning(
-            "lingmemory_memstore_bridge.%s 失败，双写本进程内停摆: %s",
-            where, exc,
-        )

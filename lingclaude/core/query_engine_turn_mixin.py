@@ -23,23 +23,10 @@ from lingclaude.core.layered_memory import EmotionIntensity, Experience
 from lingclaude.core.redact import redact as _redact_text
 from lingclaude.core.types import Result, is_tool_error
 from lingclaude.model.types import ModelMessage, MessageRole
-from lingclaude.core.model_call import _estimate_tokens
+from lingclaude.core.model_call import _estimate_message_tokens, _estimate_tokens
 
 logger = logging.getLogger(__name__)
 
-def _estimate_message_tokens(messages: list[Any]) -> int:
-    """Q4: 自 query_engine.py 搬迁（原模块级函数，_pre_check_compact 依赖）。"""
-    total_chars = 0
-    for m in messages:
-        if isinstance(m, str):
-            total_chars += len(m)
-        elif isinstance(m, dict):
-            total_chars += len(m.get("content", "") or m.get("text", "") or "")
-        elif hasattr(m, "content"):
-            total_chars += len(m.content or "")
-        elif m:
-            total_chars += len(str(m))
-    return total_chars // 4
 
 class QueryEngineTurnMixin:
         def _generate_response(
@@ -143,7 +130,7 @@ class QueryEngineTurnMixin:
             self._track_behavior(prompt, final_content, used_tools=used_tools)
             # P0: usage 遥测兜底 — provider 未回传 usage(全 0) 时估算, 保证 journal 非 0
             if total_input == 0 and total_output == 0 and final_content:
-                from lingclaude.core.model_call import _estimate_tokens
+                from lingclaude.core.model_call import _estimate_message_tokens, _estimate_tokens
                 total_input = max(1, _estimate_tokens(prompt))
                 total_output = _estimate_tokens(final_content)
             self._usage = self._usage.add_usage(total_input, total_output)

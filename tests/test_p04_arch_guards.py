@@ -10,6 +10,7 @@
 G1-G4 为基线锁死型守卫：存量允许，新增即红。
 """
 import ast
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -294,13 +295,18 @@ _PLUGINS_DIR = SRC / "plugins"
 
 
 def test_g11_no_core_import_plugins():
-    """G11：主干不 import 插件实现（变化不焊进主干，只经 PluginLoader）。"""
+    """G11：主干不 import 插件实现（变化不焊进主干，只经 PluginLoader）。
+
+    2026-09-14 (G11 扩展): glob → rglob，递归覆盖 core/prompt_engineering/、
+    engine/tool_handlers/、engine/subagent/ 等子目录 —— 防止插件 import 藏进
+    子目录绕过守卫（灵元：变化=插片，任何深度都不得焊进主干）。
+    """
     offenders = []
     for root_dir in ("core", "engine"):
         d = SRC / root_dir
         if not d.is_dir():
             continue
-        for f in sorted(d.glob("*.py")):
+        for f in sorted(d.rglob("*.py")):
             if f.name == "__init__.py":
                 continue
             tree = _parse(f)
@@ -331,3 +337,59 @@ def test_g12_plugins_self_contained():
         assert manifest.is_file(), (
             f"插件目录 {_label(sub)} 缺 manifest.plugin.json（灵元：每插片自包含载体）"
         )
+
+
+def test_g13_plugin_entry_must_be_inside_plugins():
+    """G13：插件 manifest.entry 必须指向 plugins/ 内，且文件真实存在。
+
+    2026-09-14 (G13 新增): plugin_runner 用 entry 文件路径直接加载 —— 若 entry
+    可指向任意路径（如 /tmp/evil.py、core/ 内模块），则插件载体形同虚设、且
+    成为任意代码执行口。灵元：插片必须自包含于载体目录，entry 不得越界。
+    """
+    if not _PLUGINS_DIR.is_dir():
+        return
+    bad = []
+    for manifest in sorted(_PLUGINS_DIR.rglob("manifest.plugin.json")):
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            bad.append(f"{_label(manifest)}: manifest 非合法 JSON")
+            continue
+        entry = data.get("entry", "")
+        module_path = entry.partition(":")[0] if entry else ""
+        if not module_path:
+            bad.append(f"{_label(manifest)}: 缺 entry")
+            continue
+        # 解析相对仓库根的路径，必须落在 plugins/ 内
+        resolved = (ROOT / module_path).resolve()
+        plugins_resolved = _PLUGINS_DIR.resolve()
+        if plugins_resolved not in resolved.parents:
+            bad.append(f"{_label(manifest)}: entry {module_path!r} 越出 plugins/")
+            continue
+        if not resolved.is_file():
+            bad.append(f"{_label(manifest)}: entry 文件不存在 {module_path}")
+    assert not bad, f"G13 违规（entry 必须自包含于 plugins/）:\n  " + "\n  ".join(bad)
+
+
+def test_g14_plugin_loader_dirs_under_plugins():
+    """G14：PluginLoader 只加载 plugins/ 内的插件目录（加载源白名单）。
+
+    2026-09-14 (G14 新增): 若 PluginLoader 可被配置加载 plugins/ 之外任意目录，
+    G11 的"不 import"保护会被加载机制绕过（加载 = 执行）。灵元：变化=插片，
+    插片的"活"只允许在载体目录内发生。
+    """
+    # 扫描 PluginLoader 中被当作插件根目录的字符串常量，校验全部以 plugins/ 结尾
+    loader = SRC / "core" / "plugin_loader.py"
+    if not loader.is_file():
+        return
+    tree = _parse(loader)
+    if tree is None:
+        return
+    dirs = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            v = node.value
+            if ("plugins" in v) and ("{" not in v) and (v.count("/") <= 2):
+                dirs.add(v)
+    bad = [d for d in sorted(dirs) if not d.endswith("plugins") and "plugins" not in d.split("/")[-2:-1]]
+    assert not bad, f"G14 违规（插件加载目录必须位于 plugins/ 下）: {bad}"

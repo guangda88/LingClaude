@@ -32,6 +32,25 @@ def _estimate_tokens(text: str, per_char: float = 0.28) -> int:
     return max(1, int(len(text) * per_char))
 
 
+def _estimate_message_tokens(messages: list[Any]) -> int:
+    """估算 messages 总 token 数（兜底；消息可为 str/dict/带 content 对象）。
+
+    2026-09-14 (lingyuan 真重复收敛): 原 query_engine.py:97 与
+    query_engine_turn_mixin.py:30 各有一份逐字相同实现（Q4 拆文件遗留副本），
+    收敛为本模块单源，两处改为 import 引用 —— 维护点 2→1。
+    """
+    total_chars = 0
+    for m in messages:
+        if isinstance(m, str):
+            total_chars += len(m)
+        elif isinstance(m, dict):
+            total_chars += len(m.get("content", "") or m.get("text", "") or "")
+        elif hasattr(m, "content"):
+            total_chars += len(m.content or "")
+        elif m:
+            total_chars += len(str(m))
+    return total_chars // 4
+
 def _accumulate_usage(total_input: int, total_output: int, response: Any, text: str) -> tuple[int, int]:
     """累加 usage；只累加真实值，缺失（全 0）保持 0，不估算。
 

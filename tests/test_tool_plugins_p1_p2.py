@@ -109,3 +109,28 @@ class TestPluginRunnerSubprocess:
         )
         assert r["ok"] is False
         assert "超时" in r["error"]
+
+    def test_run_plugin_subprocess_mcp_shell_normalized(self):
+        """MCP 外壳归一：{\"name\", \"arguments\"} → 只透传 arguments。
+
+        2026-09-14 (warm 试点验证缺口补): plugin_runner 支持与 ToolRegistry
+        MCP 调用流对齐的外壳格式（{\"name\": \"read\", \"arguments\": {...}}），
+        子进程插件即可无缝接 mcp_proxy stdio transport。此改动此前无测试覆盖，
+        本测试锁定语义防回归。
+        """
+        r = run_plugin_subprocess(
+            f"{TOOLS_DIR}/read/manifest.plugin.json",
+            "execute",
+            {
+                "name": "read",
+                "arguments": {
+                    "path": "lingclaude/plugins/tools/read/plugin.py",
+                    "offset": 1,
+                    "limit": 2,
+                },
+            },
+        )
+        assert r["ok"] is True, r.get("error")
+        inner = r["data"]
+        assert inner["ok"] is True
+        assert "lines" in inner["data"]

@@ -59,10 +59,20 @@ def run_plugin_subprocess(
     args: dict[str, Any] | None = None,
     timeout: float = 60.0,
 ) -> dict[str, Any]:
-    """子进程执行插件方法。返回 {"ok": bool, "data"|"error": ...}。"""
+    """子进程执行插件方法。返回 {"ok": bool, "data"|"error": ...}。
+
+    2026-09-14 (warm 试点): 支持两种 args 格式 ——
+      A) 纯参数: {"path": "...", "offset": 1}  → 直接透传 execute
+      B) MCP 外壳: {"name": "read", "arguments": {"path": ...}} → 剥离外壳，
+         只把 arguments 透传给 execute（与 ToolRegistry 的 MCP 调用流对齐，
+         使子进程插件可无缝接 mcp_proxy stdio transport）。
+    """
     manifest_path = Path(manifest_path)
     if not manifest_path.is_file():
         return {"ok": False, "error": f"manifest 不存在: {manifest_path}"}
+    # MCP 外壳归一：{"name":..., "arguments": {...}} → {"path": ...}
+    if args and "name" in args and isinstance(args.get("arguments"), dict):
+        args = args["arguments"]
     req = {"method": method, "args": args or {}}
     try:
         proc = subprocess.run(

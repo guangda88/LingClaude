@@ -156,3 +156,52 @@ class LingMemoryCacheBridge:
         """熔断：首错告警并停摆，本进程不再重试（旁路必须静默失败）"""
         self._broken = True
         logger.warning("lingmemory_bridge.%s 失败，双写本进程内停摆: %s", where, exc)
+
+
+class _LingMemorySinkBase:
+    """三 sink（L7/Experience/MemStore）共享基类 —— 找不变砍到最薄。
+
+    2026-09-14 (lingyuan 真重复收敛): lingmemory_l7_bridge / experience_bridge /
+    memstore_bridge 三处 _ensure_lm（懒初始化灵忆）逐字相同、_trip 逻辑相同、
+    __init__ 六字段同构 —— 提取为基类，各 sink 只保留真实变化：
+      - _LM_TYPE / _CREATED_BY 常量（每域不同）
+      - _lookup_active（state 与 data_filter 不同）
+      - _lm_create（payload 结构不同）
+      - on_* 事件入口（业务域不同）
+    纪律：只收逐字重复与同构骨架，不强行收"形似神异"的变化（灵元：砍真重复）。
+    """
+
+    _LM_TYPE: str = ""
+    _CREATED_BY: str = ""
+    # 子类覆写：日志前缀（默认取类名）
+    _TRIP_PREFIX: str = ""
+
+    def __init__(
+        self,
+        db_path: str | None = None,
+        created_by: str | None = None,
+    ) -> None:
+        self._db_path = db_path
+        self._created_by = created_by or self._CREATED_BY
+        self._lm: Any = None
+        self._record_ids: dict = {}
+        self._lock = threading.Lock()
+        self._broken = False  # 熔断：首错后本进程内静默
+
+    def _ensure_lm(self) -> bool:
+        """懒初始化灵忆实例；模块不可用返回 False（旁路纪律：不抛）"""
+        if self._lm is None:
+            LingMemory = _get_lingmemory()
+            if LingMemory is None:
+                return False
+            kwargs = {"db_path": self._db_path} if self._db_path else {}
+            self._lm = LingMemory(**kwargs)
+        return True
+
+    def _trip(self, where: str, exc: Exception) -> None:
+        """熔断：首错告警并停摆，本进程不再重试（旁路必须静默失败）"""
+        self._broken = True
+        prefix = self._TRIP_PREFIX or type(self).__name__.lower()
+        logger.warning(
+            "%s.%s 失败，双写本进程内停摆: %s", prefix, where, exc,
+        )

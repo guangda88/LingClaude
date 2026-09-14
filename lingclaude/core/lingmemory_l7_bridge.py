@@ -16,7 +16,11 @@ import logging
 import threading
 from typing import Any
 
-from lingclaude.core.lingmemory_bridge import _get_lingmemory, dualwrite_enabled
+from lingclaude.core.lingmemory_bridge import (
+    _LingMemorySinkBase,
+    _get_lingmemory,
+    dualwrite_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +33,10 @@ def l7_edge_key(source_id: str, relation: str, target_id: str) -> str:
     return f"{source_id}->{relation}->{target_id}"
 
 
-class LingMemoryL7Sink:
+class LingMemoryL7Sink(_LingMemorySinkBase):
+
+    _LM_TYPE = "l7_state"
+    _CREATED_BY = "lingclaude.l7_cognitive"
     """CognitiveStore.put_* → 灵忆 双写旁观者。
 
     事件接口（鸭子类型，主路 _emit 已兜底）：
@@ -37,16 +44,6 @@ class LingMemoryL7Sink:
 
     记录去重锚：``origin:entry_key`` 复合（entry_key 内已含业务唯一键）。
     """
-
-    def __init__(
-        self, db_path: str | None = None, created_by: str = _CREATED_BY,
-    ) -> None:
-        self._db_path = db_path
-        self._created_by = created_by
-        self._lm: Any = None
-        self._record_ids: dict[str, str] = {}
-        self._lock = threading.Lock()
-        self._broken = False  # 熔断：首错后本进程内静默
 
     # ------------------------------------------------------------
     # 事件入口（主路 _emit 已吞异常，此处自身再兜一层双保险）
@@ -84,23 +81,13 @@ class LingMemoryL7Sink:
         except Exception as e:  # noqa: BLE001 — 旁路纪律，见模块 docstring
             self._trip("_mirror", e)
 
-    def _ensure_lm(self) -> bool:
-        """懒初始化灵忆实例；模块不可用返回 False（旁路纪律：不抛）"""
-        if self._lm is None:
-            LingMemory = _get_lingmemory()
-            if LingMemory is None:
-                return False
-            kwargs = {"db_path": self._db_path} if self._db_path else {}
-            self._lm = LingMemory(**kwargs)
-        return True
-
     def _lookup_active(self, anchor: str) -> str | None:
         """按 anchor 找灵忆侧 active record（跨重启续接状态机）"""
         if not self._ensure_lm():
             return None  # lingmemory 不可用，无从查询
         origin, _, key = anchor.partition(":")
         items = self._lm.query(
-            type=_LM_TYPE, state="active",
+            type=self._LM_TYPE, state="active",
             data_filter={"origin": origin, "entry_key": key}, limit=1,
         )["items"]
         return items[0]["id"] if items else None
@@ -109,7 +96,7 @@ class LingMemoryL7Sink:
         if not self._ensure_lm():
             raise RuntimeError("lingmemory 模块不可用")
         return self._lm.create(
-            type=_LM_TYPE,
+            type=self._LM_TYPE,
             data={
                 "origin": str(payload.get("origin", "")),
                 "origin_id": str(payload.get("origin_id", "")),
@@ -121,10 +108,3 @@ class LingMemoryL7Sink:
             created_by=self._created_by,
         )
 
-    def _trip(self, where: str, exc: Exception) -> None:
-        """熔断：首错告警并停摆，本进程不再重试（旁路必须静默失败）"""
-        self._broken = True
-        logger.warning(
-            "lingmemory_l7_bridge.%s 失败，双写本进程内停摆: %s",
-            where, exc,
-        )

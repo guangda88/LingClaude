@@ -33,6 +33,7 @@ from lingclaude.core.types import is_tool_error
 from lingclaude.core.model_call import ModelCallMixin
 # 显式 re-export（消费方：test_agent_loop 等）— T3-3 瘦身后 query_engine 仍是对外兼容面
 from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS as AGENT_MAX_TOOL_ROUNDS  # noqa: F401
+from lingclaude.core.model_call import _estimate_message_tokens
 from lingclaude.core.image_content import extract_image_content as extract_image_content  # noqa: F401
 from lingclaude.core.image_content import image_tool_text as image_tool_text  # noqa: F401
 from lingclaude.core.mcp_tools import McpToolsMixin
@@ -94,18 +95,6 @@ from lingclaude.core.types import Result, StopReason
 
 logger = logging.getLogger(__name__)
 
-def _estimate_message_tokens(messages: list[Any]) -> int:
-    total_chars = 0
-    for m in messages:
-        if isinstance(m, str):
-            total_chars += len(m)
-        elif isinstance(m, dict):
-            total_chars += len(m.get("content", "") or m.get("text", "") or "")
-        elif hasattr(m, "content"):
-            total_chars += len(m.content or "")
-        elif m:
-            total_chars += len(str(m))
-    return total_chars // 4
 
 
 CONSECUTIVE_FAILURE_LIMIT = 3

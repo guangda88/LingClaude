@@ -32,7 +32,11 @@ import logging
 import threading
 from typing import Any
 
-from lingclaude.core.lingmemory_bridge import _get_lingmemory, dualwrite_enabled
+from lingclaude.core.lingmemory_bridge import (
+    _LingMemorySinkBase,
+    _get_lingmemory,
+    dualwrite_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +44,10 @@ _LM_TYPE = "layered_memory_entry"
 _CREATED_BY = "lingclaude.layered_memory"
 
 
-class LingMemoryExperienceSink:
+class LingMemoryExperienceSink(_LingMemorySinkBase):
+
+    _LM_TYPE = "layered_memory_entry"
+    _CREATED_BY = "lingclaude.layered_memory"
     """ExperienceStore / InMemoryExperienceStore → 灵忆 双写旁观者。
 
     经 ``ExperienceStore(legacy_sink=...)`` / ``InMemoryExperienceStore(
@@ -49,15 +56,6 @@ class LingMemoryExperienceSink:
     - on_forget(exp_id)         单条遗忘 → archived
     - on_decay_forgotten(ids)   衰减出清批量遗忘 → archived
     """
-
-    def __init__(self, db_path: Any = None,
-                 created_by: str = _CREATED_BY) -> None:
-        self._db_path = db_path
-        self._created_by = created_by
-        self._lm: Any = None
-        self._record_ids: dict[str, str] = {}
-        self._lock = threading.Lock()
-        self._broken = False  # 熔断：首错后本进程内静默
 
     # ------------------------------------------------------------
     # 事件入口（主路以 try/except 调用，此处异常也自行吞掉双保险）
@@ -99,22 +97,13 @@ class LingMemoryExperienceSink:
     # ------------------------------------------------------------
     # 内部
     # ------------------------------------------------------------
-    def _ensure_lm(self) -> bool:
-        """懒初始化灵忆实例；模块不可用返回 False（旁路纪律：不抛）"""
-        if self._lm is None:
-            LingMemory = _get_lingmemory()
-            if LingMemory is None:
-                return False
-            kwargs = {"db_path": self._db_path} if self._db_path else {}
-            self._lm = LingMemory(**kwargs)
-        return True
 
     def _lookup_active(self, exp_id: str) -> str | None:
         """按 experience_id 找灵忆侧 working record（跨重启续接状态机）"""
         if not self._ensure_lm():
             return None  # lingmemory 不可用，无从查询
         items = self._lm.query(
-            type=_LM_TYPE, state="working",
+            type=self._LM_TYPE, state="working",
             data_filter={"experience_id": exp_id}, limit=1,
         )["items"]
         return items[0]["id"] if items else None
@@ -135,7 +124,7 @@ class LingMemoryExperienceSink:
         emotion = getattr(exp_dict.get("emotion", "none"), "value",
                           exp_dict.get("emotion", "none"))
         return self._lm.create(
-            type=_LM_TYPE,
+            type=self._LM_TYPE,
             data={
                 "experience_id": str(exp_dict["id"]),
                 "layer_of_origin": "experience",
@@ -150,10 +139,3 @@ class LingMemoryExperienceSink:
             created_by=self._created_by,
         )
 
-    def _trip(self, where: str, exc: Exception) -> None:
-        """熔断：首错告警并停摆，本进程不再重试（旁路必须静默失败）"""
-        self._broken = True
-        logger.warning(
-            "lingmemory_experience_bridge.%s 失败，双写本进程内停摆: %s",
-            where, exc,
-        )
