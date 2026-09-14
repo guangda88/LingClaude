@@ -687,8 +687,20 @@ class ModelCallMixin:
 
         response = result.data
         if response.tool_calls:
+            # P17 修复 (2026-09-14): 幻觉修正路径工具执行必须与主路径对称写 journal——
+            # 否则 _finalize_turn 从 journal 取 tool_evidence 为空，修正轮真实执行的
+            # bash/write 等会被 prior_verifier 当「无据」打 ⚠ [工具结果未验证]（误报）。
             for tc in response.tool_calls:
+                self._journal_append("tool_call", {
+                    "tool_call_id": tc.id, "name": tc.name, "arguments": tc.arguments,
+                })
                 tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
+                preview = tool_output[:200] if len(tool_output) > 200 else tool_output
+                self._journal_append("tool_result", {
+                    "tool_call_id": tc.id,
+                    "output_preview": preview,
+                    "is_error": is_tool_error(tool_output),
+                })
                 messages.append(ModelMessage(
                     role=MessageRole.ASSISTANT,
                     content=response.content,

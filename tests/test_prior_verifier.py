@@ -99,6 +99,27 @@ class TestPriorVerifier(unittest.TestCase):
         r = self.pv.analyze("当前目录文件列表如下")
         self.assertEqual(len(r.warnings), 0)
 
+    def test_tool_action_claim_with_evidence_not_tagged(self):
+        """P17 Cross-reference：有工具证据（如 action_claim ↔ bash 命中）的声明不打标。"""
+        r = self.pv.analyze(
+            "已运行 sed 检查源码（bash 执行成功）",
+            used_tools=True,
+            tool_evidence=("bash",),
+        )
+        self.assertNotIn("⚠ [工具结果未验证]", r.corrected_text)
+        # 有据声明不进 tool_unverified（不被打标）——但 strict 模式仍可警告（工具存在≠动作发生）
+        self.assertNotIn("工具动作声明未验证", " ".join(r.warnings))
+
+    def test_tool_action_claim_with_evidence_not_tagged_default(self):
+        """P17 默认模式（非 strict）：有工具证据 + used_tools=True → 既不警告也不打标。"""
+        r = self.pv.analyze(
+            "已提交 commit 并推送（git_push 成功）",
+            used_tools=True,
+            tool_evidence=("git_push",),
+        )
+        self.assertEqual(r.corrected_text, "")
+        self.assertNotIn("工具动作声明未验证", " ".join(r.warnings))
+
 
 if __name__ == "__main__":
     unittest.main()
