@@ -201,8 +201,22 @@ def register_default_providers() -> None:
             return _sandbox.wrap(*args, **kwargs)
         def available(self) -> bool:
             return _sandbox.available()
-        def wrap(self, command: str, working_dir: Any = None, allow_network: bool = False) -> str:
-            return _sandbox.wrap(command, working_dir=working_dir, allow_network=allow_network)
+        def wrap(
+            self,
+            command: str,
+            working_dir: Any = None,
+            allow_network: bool = False,
+            extra_writable_dirs: list[str] | None = None,
+        ) -> str:
+            # 修复(2026-09-14 全量回归): 不透传 extra_writable_dirs → P2-1 默认可写目录
+            # (sandbox_policy.yaml default_writable_dirs=/home/ai) 在 seam/adapter 生产路径被丢弃。
+            # bash.py:684 传 extra_writable_dirs → 此处必须透传到底层 SandboxProvider.wrap。
+            return _sandbox.wrap(
+                command,
+                working_dir=working_dir,
+                allow_network=allow_network,
+                extra_writable_dirs=extra_writable_dirs,
+            )
 
     SANDBOX_SEAM.register_provider(SandboxProviderAdapter(), default=True)
 
