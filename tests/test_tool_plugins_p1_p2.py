@@ -134,3 +134,77 @@ class TestPluginRunnerSubprocess:
         inner = r["data"]
         assert inner["ok"] is True
         assert "lines" in inner["data"]
+
+
+class TestPluginStdioWarm:
+    """P2 (warm 试点): MCP stdio 服务模式（serve_plugin_stdio）。
+
+    2026-09-14 补: 上轮 plugin_runner 新增 _PLUGIN_STDIO_ENTRY（行式 JSON-RPC 2.0
+    stdio server），但存在 2 个真实缺陷（实测发现）：
+      1) _main() 无参调用 vs 定义需要 manifest_path → NameError
+      2) tools/call 把 name 也透传给 execute → FileReadTool.read() got
+         unexpected keyword 'name'
+    本测试锁定 stdio 模式端到端语义，防回归。
+    """
+
+    def _spawn(self, manifest_rel: str):
+        import json
+        import subprocess
+        import sys
+
+        cmd = [
+            sys.executable, "-c",
+            "from lingclaude.engine.plugin_runner import serve_plugin_stdio; "
+            f"serve_plugin_stdio('{manifest_rel}')",
+        ]
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True,
+        )
+
+        def send(req):
+            proc.stdin.write(json.dumps(req) + "\n")
+            proc.stdin.flush()
+            return json.loads(proc.stdout.readline())
+
+        return proc, send
+
+    def test_initialize_and_list(self):
+        """initialize → serverInfo.name；tools/list → 提供的能力名。"""
+        proc, send = self._spawn(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        r1 = send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                   "params": {"protocolVersion": "2024-11-05"}})
+        assert r1["result"]["serverInfo"]["name"] == "read_plugin"
+        r2 = send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        names = [t["name"] for t in r2["result"]["tools"]]
+        assert "read" in names
+        proc.terminate()
+
+    def test_tools_call_only_passes_arguments(self):
+        """tools/call 只透传 arguments（name 是路由信息，不进 execute 参数）。"""
+        proc, send = self._spawn(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        r = send({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+            "name": "read",
+            "arguments": {"path": "lingclaude/plugins/tools/read/plugin.py",
+                          "offset": 1, "limit": 2},
+        }})
+        content = r["result"]["content"][0]
+        assert content["type"] == "text"
+        assert "lines" in content["text"]  # read 结果已 JSON 序列化
+        assert "isError" not in r["result"]
+        proc.terminate()
+
+    def test_unknown_method_returns_error(self):
+        """未知方法 → JSON-RPC 错误（-32601），不挂死。"""
+        proc, send = self._spawn(f"{TOOLS_DIR}/read/manifest.plugin.json")
+        r = send({"jsonrpc": "2.0", "id": 4, "method": "tools/unknown", "params": {}})
+        assert r["error"]["code"] == -32601
+        proc.terminate()
+
+    def test_git_plugin_stdio_tools_list(self):
+        """git 插件走 stdio：tools/list 暴露 6 个 git 能力。"""
+        proc, send = self._spawn(f"{TOOLS_DIR}/git/manifest.plugin.json")
+        r = send({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        names = [t["name"] for t in r["result"]["tools"]]
+        assert set(names) >= {"git_status", "git_diff", "git_push"}
+        proc.terminate()

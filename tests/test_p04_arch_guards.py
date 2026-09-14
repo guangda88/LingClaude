@@ -92,7 +92,11 @@ BASELINE_SYS_PATH = 14
                      # 延迟 import FileEditTool ×1（S3 纪律，与 bash/read 插件同款），
                      # 换来 file_ops 工具组插片化，非膨胀。plugin_runner.py 的子进程
                      # 入口是字符串（不入 AST 统计），不增计数。
-BASELINE_LAZY = 400
+                     # 2026-09-14 (P1/P2 git+web 插件): 400 → 401 —— 新增 web/plugin.py
+                     # 函数内延迟 import WebFetcher/WebSearcher ×1（S3 纪律，与
+                     # bash/read/file_ops 插件同款；git/plugin.py 是模块级 import，
+                     # 不计 lazy），换来 git/web 工具组插片化，非膨胀。
+BASELINE_LAZY = 401
 BASELINE_DICT_ERR = 52
 
 
