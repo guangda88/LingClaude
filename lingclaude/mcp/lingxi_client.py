@@ -226,6 +226,9 @@ class lingxiClient:
         command: str,
         args: Optional[list[str]] = None,
         timeout: Optional[int] = 60,
+        caller: str = "lingclaude",
+        shell: bool = True,
+        reasoning: Optional[str] = None,
     ) -> str:
         """执行终端命令
 
@@ -233,6 +236,9 @@ class lingxiClient:
             command: 命令名称
             args: 命令参数
             timeout: 超时时间（秒）
+            caller: 调用者身份（灵犀 required，校验灵族成员注册表；默认 lingclaude）
+            shell: 是否经 shell 执行（管道/重定向/内建命令需 True；灵犀默认 False 仅直跑二进制）
+            reasoning: 执行该命令的原因（灵犀可选审计字段）
 
         Returns:
             命令输出
@@ -240,10 +246,15 @@ class lingxiClient:
         arguments: dict[str, Any] = {
             "command": command,
             "args": args or [],
+            "caller": caller,  # 灵犀 schema required: ['command', 'caller']
+            "shell": shell,
         }
 
         if timeout is not None:
             arguments["timeout"] = timeout
+
+        if reasoning:
+            arguments["reasoning"] = reasoning
 
         content = self.call_tool("execute_command", arguments)
 

@@ -182,22 +182,32 @@ def _apply_span_tags(text: str, assertions: list[Assertion], tag: str) -> str:
         items.append((a.start, a.end, a.text))
     items.sort(key=lambda x: x[0], reverse=True)
     for start, end, _orig in items:
-        if text[start:end] != _orig:
-            # 原文切片与断言文本不一致 → 说明偏移已失效（不应发生，防御性跳过）
+        # 2026-09-14 修复：使用断言的 text 字段（正则匹配的实际文本），
+        # 而不是切片 text[start:end]（可能包含额外空格/字符）。
+        # 正则匹配时，match.group() 是精确匹配，但 start/end 是完整范围，
+        # 两者可能不一致（如 "commit" vs "commit "）。
+        if _orig not in text[start:end]:
+            # 断言文本不在切片中 → 防御性跳过
             continue
-        text = text[:start] + f"{tag} {text[start:end]}" + text[end:]
+        # 找到断言文本在切片中的位置，精确插入标记
+        idx = text[start:end].find(_orig)
+        insert_pos = start + idx
+        text = text[:insert_pos] + f"{tag} {text[insert_pos:insert_pos+len(_orig)]}" + text[insert_pos+len(_orig):]
     return text
 
 
 @dataclass
 class PriorVerifier:
     strict_mode: bool = False
+    # 新增：工具执行结果缓存，用于验证工具是否真的成功
+    _tool_results: dict[str, bool] = None  # tool_name -> success
 
     def analyze(
         self,
         text: str,
         used_tools: bool = False,
         tool_evidence: tuple[str, ...] = (),
+        tool_results: dict[str, bool] | None = None,  # 新增：工具执行结果
     ) -> VerificationResult:
         assertions: list[Assertion] = []
         warnings: list[str] = []
@@ -219,9 +229,22 @@ class PriorVerifier:
         # 工具动作声明校验：commit/测试/落盘等完成式声明，无工具证据即标记。
         # P17 Cross-reference：提供 tool_evidence 时，声明类型 ↔ 工具名语义匹配，
         # 命中映射（如 commit_claim ↔ git_push）视为「有据可查」，不标记未验证。
+        # 2026-09-14 增强：即使调用了工具，如果工具执行失败，也标记未验证。
         for pattern, kind in _TOOL_ACTION_PATTERNS:
             for match in pattern.finditer(text):
                 has_evidence = _evidence_available(kind, tool_evidence)
+                # 新增：检查工具是否真的执行成功
+                tool_succeeded = True
+                if tool_results:
+                    # 查找相关工具是否成功
+                    relevant_tools = _derive_evidence_map().get(kind, ())
+                    for tool_name in relevant_tools:
+                        if tool_name in tool_results and not tool_results[tool_name]:
+                            tool_succeeded = False
+                            break
+                # 如果工具执行失败，即使有证据也标记未验证
+                if not tool_succeeded:
+                    has_evidence = False
                 assertions.append(Assertion(
                     text=match.group(),
                     level=AssertionLevel.HARD_FACT,
@@ -230,8 +253,8 @@ class PriorVerifier:
                     start=match.start(),
                     end=match.end(),
                 ))
-                # 有据（cross-reference 命中）→ 不警告；无据 → 标记未验证
-                if not has_evidence and (not used_tools or self.strict_mode):
+                # 有据（cross-reference 命中且工具成功）→ 不警告；无据或工具失败 → 标记未验证
+                if not has_evidence and (not used_tools or self.strict_mode or not tool_succeeded):
                     warnings.append(f"工具动作声明未验证: {match.group()} ({kind})")
 
         # H17 伪造验证报告检测：无工具调用却输出整表"验证通过/非幻觉"，
@@ -290,14 +313,30 @@ class PriorVerifier:
             corrected = banner + corrected
         # 工具动作声明无证据 → 标记 ⚠ [工具结果未验证]
         # P17 Cross-reference：有工具证据（如 commit_claim ↔ git_push 命中）的声明不打标。
-        tool_unverified = [a for a in assertions
-                           if a.level == AssertionLevel.HARD_FACT
-                           and "Tool action claim" in a.reason
-                           and not _tool_action_has_evidence(a, tool_evidence)]
-        if tool_unverified and not used_tools:
+        # 2026-09-14 增强：即使调用了工具，如果工具执行失败，也标记未验证。
+        # 新增：检查工具是否真的执行成功（如果 tool_results 中有失败记录，也视为未验证）
+        tool_failed = False
+        if tool_results:
+            for tool_name, success in tool_results.items():
+                if not success:
+                    tool_failed = True
+                    break
+        # 修改：工具失败时，即使 _tool_action_has_evidence 返回 True，也视为未验证
+        tool_unverified = []
+        for a in assertions:
+            if (a.level == AssertionLevel.HARD_FACT
+                and "Tool action claim" in a.reason):
+                # 检查是否有证据（考虑工具失败）
+                has_ev = _tool_action_has_evidence(a, tool_evidence)
+                if tool_failed:
+                    has_ev = False  # 工具失败 → 无证据
+                if not has_ev:
+                    tool_unverified.append(a)
+        # 修改：工具失败时也标记（不再只看 used_tools）
+        if tool_unverified and (not used_tools or tool_failed):
             tag = "⚠ [工具结果未验证]"
             corrected = _apply_span_tags(corrected, tool_unverified, tag)
-        if hard_unverified and not used_tools:
+        if hard_unverified and (not used_tools or tool_failed):
             # P17: 排除有工具证据的工具动作声明（cross-reference 命中 → 有据可查不打标）
             hard_unverified = [a for a in hard_unverified
                                if not _tool_action_has_evidence(a, tool_evidence)]

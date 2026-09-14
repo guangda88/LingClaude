@@ -53,7 +53,8 @@ BASELINE_SYS_PATH = 14
 # 344 (2026-09-10): P3 state_store.py 新增 4 个工厂函数内 import（StateBackend 协议 + 两后端 + StateStore）
 # 350 (2026-09-10): P3 lingmemory_bridge.py 懒加载 _get_lingmemory + wiring.py 微调
 # 351 (2026-09-10): P3 wiring.py 新增 _make_state_store 工厂函数
-BASELINE_LAZY = 390  # 2026-09-13: 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
+# BASELINE_LAZY 历史值演进记录（当前值见下方 2026-09-14 T9/T10 登记）：
+#  390 (2026-09-13): 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
                      # webui_seam.py 等工厂/可选依赖函数内 import，9237537/db79c38 等提交），
                      # 2026-09-14 (P19/P20): 374 → 375 —— prior_verifier.py 新增
                      # 2026-09-14 (Q5): 375 → 390 —— coding_wiring.py 新增 14 个工厂
@@ -72,6 +73,11 @@ BASELINE_LAZY = 390  # 2026-09-13: 补登记历史入库的合法懒加载（sel
                      # 2026-09-14 (P19/P20): 374 → 375 —— prior_verifier.py 新增
                      # _derive_evidence_map 函数内延迟 import SPECS（P17 提交遗漏，
                      # 随本轮 P20 一并入库）。合法懒加载，非膨胀。
+                     # 2026-09-14 (T9/T10): 375 → 392 —— 实测 HEAD(Q5 提交 46cac1e)
+                     # 已达 391（上一轮 Q5 coding_wiring 工厂 import 与基线不同步，
+                     # g3 带病误报）；本轮新增 hallucination_guard.py 1 个函数内延迟
+                     # import（PriorVerifier，S3 纪律）→ 392。基线同步消除误报，非膨胀。
+BASELINE_LAZY = 392
 BASELINE_DICT_ERR = 52
 
 

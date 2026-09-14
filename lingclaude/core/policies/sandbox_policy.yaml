@@ -12,6 +12,10 @@ network_allowed_commands:
   - "git clone"
   - "git ls-remote"
   - "git remote"
+  # 只读探测（第一阶段 2026-09-14）：形态上不可写盘/不可执行远程内容，风险极低
+  - "curl -sI"
+  - "curl -s -o /dev/null"
+  - "wget --spider"
 
 # 默认可写目录：未显式设置 LINGCLAUDE_EXTRA_WRITABLE_DIRS 时，这些协作路径放开写。
 # 对齐策略层 allowed_paths（/home/ai 下所有协作目录可信）。

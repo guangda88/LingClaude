@@ -114,14 +114,25 @@ class QueryEngineTurnMixin:
             # 传给 prior_verifier 做「声明 ↔ 工具」语义匹配（有据可查才不算未验证）。
             # fail-soft：journal 不可用/异常 → 空证据 → 保持原语义（不阻断主输出）。
             tool_evidence: tuple[str, ...] = ()
+            tool_results: dict[str, bool] = {}
             try:
+                journal = self._get_journal()
                 tool_evidence = tuple(
-                    name for name, _args in self._get_journal().tool_signatures()
+                    name for name, _args in journal.tool_signatures()
                 )
+                # 2026-09-14 新增：从 journal 获取工具执行结果（成功/失败）
+                # 用于 prior_verifier 判断工具是否真的成功，避免"调用失败但声称成功"的幻觉
+                for sig, results in journal.tool_results_by_signature().items():
+                    tool_name = sig[0]
+                    # 如果该工具有任何一条结果标记为错误，则视为失败
+                    tool_results[tool_name] = not any(
+                        r.get("is_error", False) for r in results
+                    )
             except Exception:  # noqa: BLE001 — 治理插片故障绝不影响主输出
                 logger.debug("P17: journal 读取失败，cross-reference 降级为纯先验", exc_info=True)
             vr = self._prior_verifier.analyze(
                 content, used_tools=used_tools, tool_evidence=tool_evidence,
+                tool_results=tool_results,  # 新增：传入工具执行结果
             )
             final_content = vr.corrected_text if vr.corrected_text else content
             # A1b (2026-09-13): 输出收口脱敏 — 模型回复唯一出口统一 scrub。
@@ -147,6 +158,30 @@ class QueryEngineTurnMixin:
             self._conversation.append(("assistant", final_content))
             self._layered_memory.working.append("user", prompt)
             self._layered_memory.working.append("assistant", final_content)
+
+            # 幻觉治理守卫：输出前强制验证（fail-soft，不阻断主流程）
+            # T9 (2026-09-14): should_validate 传真实任务名（prompt）而非空串，
+            # 否则 task_name 关键词触发（push/deploy/fix/repair）永远不生效。
+            try:
+                from lingclaude.core.hallucination_guard import validate_task_result, should_validate
+                if should_validate(prompt, final_content):
+                    vr = validate_task_result(
+                        result_message=final_content,
+                        task_context={"prompt": prompt[:200], "session_id": getattr(self, 'session_id', 'unknown')},
+                        strict=False,  # 非严格模式，只标记不阻断
+                    )
+                    if vr["has_hallucination"]:
+                        # 在输出前添加幻觉警告标记
+                        warning = "\n\n⚠️ [幻觉治理] 检测到未验证断言，请谨慎采信"
+                        final_content = final_content + warning
+                        logger.warning(
+                            "hallucination_guard: 检测到 %d 个问题: %s",
+                            len(vr["issues"]), vr["issues"]
+                        )
+            except Exception as e:
+                # fail-soft: 验证器故障绝不影响主输出
+                logger.debug("hallucination_guard: 验证失败（已忽略）: %s", e, exc_info=True)
+
             return final_content
 
         def _execute_tool_with_retry(self, name: str, arguments_json: str) -> str:
