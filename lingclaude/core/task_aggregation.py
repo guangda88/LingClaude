@@ -270,9 +270,20 @@ class TaskAggregator:
         rows = cursor.fetchall()
         conn.close()
 
+        tasks = self._rows_to_tasks(rows)
+
+        return tasks
+
+    @staticmethod
+    def _rows_to_tasks(rows: list[Any]) -> list[Task]:
+        """将 SQL 行列表转换为 Task 对象列表（消除两处逐字重复解析）。
+
+        SQL 列序约定（与 SELECT 列序一致）：
+            id, query, task_type, priority, context, created_at, metadata
+        """
         tasks = []
         for row in rows:
-            task = Task(
+            tasks.append(Task(
                 id=row[0],
                 query=row[1],
                 task_type=row[2],
@@ -280,9 +291,7 @@ class TaskAggregator:
                 context=json.loads(row[4]) if row[4] else {},
                 created_at=row[5],
                 metadata=json.loads(row[6]) if row[6] else {},
-            )
-            tasks.append(task)
-
+            ))
         return tasks
 
     def _group_tasks_by_relevance(self, tasks: list[Task]) -> dict[str, list[Task]]:
@@ -408,18 +417,7 @@ class TaskAggregator:
         task_rows = cursor.fetchall()
         conn.close()
 
-        tasks = []
-        for task_row in task_rows:
-            task = Task(
-                id=task_row[0],
-                query=task_row[1],
-                task_type=task_row[2],
-                priority=TaskPriority(task_row[3]),
-                context=json.loads(task_row[4]) if task_row[4] else {},
-                created_at=task_row[5],
-                metadata=json.loads(task_row[6]) if task_row[6] else {},
-            )
-            tasks.append(task)
+        tasks = self._rows_to_tasks(task_rows)
 
         return TaskGroup(
             id=row[0],
