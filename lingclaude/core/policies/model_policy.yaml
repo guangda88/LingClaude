@@ -1,0 +1,12 @@
+# 模型策略（灵元 1.0：策略是 data，不是结构）
+# 来源：lingclaude/model/openai_provider.py:36 的 _TEMP_LOCKED_MODEL_PREFIXES 外置
+# 原则：改模型温度约束只改此文件，不动代码。
+# 加载优先级（对位 claim_patterns.yaml）：
+#   1. 调用方显式传入（测试用）
+#   2. 本 YAML（策略文件）
+#   3. 代码内 _FALLBACK_TEMP_LOCKED（最终兜底，与 YAML 保持同步）
+
+temp_locked_model_prefixes:
+  - "k3"
+  - "kimi-k3"
+  - "kimi-k2-thinking"

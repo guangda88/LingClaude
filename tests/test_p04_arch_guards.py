@@ -77,7 +77,12 @@ BASELINE_SYS_PATH = 14
                      # 已达 391（上一轮 Q5 coding_wiring 工厂 import 与基线不同步，
                      # g3 带病误报）；本轮新增 hallucination_guard.py 1 个函数内延迟
                      # import（PriorVerifier，S3 纪律）→ 392。基线同步消除误报，非膨胀。
-BASELINE_LAZY = 392
+                     # 2026-09-14 (四家审计减薄): 392 → 396 —— 本轮剥离厚模块新增
+                     # 4 个函数内延迟 import（token_monitor.py 报告委托 ×2、
+                     # bash.py _split_chain 委托、l7_cognitive re-export 顶替删除项），
+                     # 均为合法懒加载（S3 纪律），换来 bash.py 1134→766、l7_cognitive
+                     # 1008→704、token_monitor 926→491 净减 1107 行。净改善非膨胀。
+BASELINE_LAZY = 396
 BASELINE_DICT_ERR = 52
 
 
@@ -226,3 +231,47 @@ def test_g9_all_tools_decoupled_handlers():
         if t.handler is not None or t.handler_name is None
     ]
     assert not offenders, f"以下工具未走 handler_name 解耦: {offenders}"
+
+
+# ── G10 厚模块行数红线（2026-09-14，灵元「砍到最薄」防回潮守卫）─────────────
+# 灵元三步法第一步「找不变 → 砍到最薄」。拆过的厚模块不许长回去：
+#   - 单文件红线：core/ 与 engine/ 任一 .py ≤ MAX_SINGLE（当前 800 行）
+#   - 总量红线：core/ 总行数 ≤ MAX_CORE_TOTAL（当前 24000 行）
+# 超线 = 必须拆（方法级 mixin 不算减，是拆文件，见 cedex 审计）。
+# 只缩不放：拆薄时同步下调红线，但**绝不上调**。
+# 例外豁免：__init__.py（包标记）、wiring.py（工厂注册表，属装配数据化本体）。
+MAX_SINGLE = 800
+MAX_CORE_TOTAL = 24000
+_EXEMPT_LARGE = {"wiring.py"}
+
+
+def test_g10_no_oversized_modules():
+    """G10：core/ 与 engine/ 无超过 800 行的厚模块（防回潮）。"""
+    violations: list[str] = []
+    total_core = 0
+    for root_dir in ("core", "engine"):
+        d = SRC / root_dir
+        if not d.is_dir():
+            continue
+        for f in sorted(d.glob("*.py")):
+            if f.name in ("__init__.py",) or f.name in _EXEMPT_LARGE:
+                continue
+            n = len(f.read_text(encoding="utf-8").splitlines())
+            if root_dir == "core":
+                total_core += n
+            if n > MAX_SINGLE:
+                violations.append(f"{_label(f)}: {n} 行 (> {MAX_SINGLE})")
+    assert not violations, (
+        f"存在超线厚模块（灵元「砍到最薄」：单文件 >{MAX_SINGLE} 行必须拆）: "
+        f"{violations}"
+    )
+
+
+def test_g10_no_core_bloat():
+    """G10：core/ 总行数红线（当前 23796 行，防总量回潮）。"""
+    total = 0
+    for f in (SRC / "core").glob("*.py"):
+        total += len(f.read_text(encoding="utf-8").splitlines())
+    assert total <= MAX_CORE_TOTAL, (
+        f"core/ 总行数 {total} > 红线 {MAX_CORE_TOTAL}，必须砍薄"
+    )

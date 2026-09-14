@@ -33,13 +33,31 @@ logger = logging.getLogger(__name__)
 
 # k3 系列推理模型只接受 temperature=1（实测 400: "invalid temperature:
 # only 1 is allowed for this model"）。前缀匹配覆盖 k3 / k3-256k / kimi-k3 等。
-_TEMP_LOCKED_MODEL_PREFIXES = ("k3", "kimi-k3", "kimi-k2-thinking")
+# 2026-09-14 灵元：策略外置 —— 前缀列表迁到 policies/model_policy.yaml，
+# 改温度约束只改 YAML 不动代码（PolicyLoader mtime watch 热更）。
+_FALLBACK_TEMP_LOCKED_PREFIXES: tuple[str, ...] = ("k3", "kimi-k3", "kimi-k2-thinking")
+
+
+def _temp_locked_prefixes() -> tuple[str, ...]:
+    """从 policies/model_policy.yaml 读取温度锁前缀；读失败回退内置默认。"""
+    try:
+        from lingclaude.core import policy_loader
+
+        data = policy_loader.load("model_policy")
+        raw = data.get("temp_locked_model_prefixes")
+        if isinstance(raw, list) and raw:
+            prefixes = tuple(str(p).strip() for p in raw if str(p).strip())
+            if prefixes:
+                return prefixes
+    except Exception:  # noqa: BLE001 — 策略加载失败绝不影响主流程
+        pass
+    return _FALLBACK_TEMP_LOCKED_PREFIXES
 
 
 def _effective_temperature(model: str, temperature: float) -> float:
     """部分推理模型对 temperature 有硬约束，越界值直接 400。"""
     m = model.lower()
-    if any(m == p or m.startswith(p) for p in _TEMP_LOCKED_MODEL_PREFIXES):
+    if any(m == p or m.startswith(p) for p in _temp_locked_prefixes()):
         return 1.0
     return temperature
 

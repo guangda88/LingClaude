@@ -124,6 +124,9 @@ class TestGetCognitive:
     def test_concurrent_init_single_instance(self, monkeypatch):
         """并发首调：只构造一次 L7Cognitive（原裸双检会构造多个）。"""
         from lingclaude.core import l7_cognitive as l7
+        # 2026-09-14 灵元减薄：get_cognitive 迁至 l7_cognitive_facade，
+        # monkeypatch 需打到 facade 模块命名空间（l7 仅 re-export）。
+        from lingclaude.core import l7_cognitive_facade as facade
 
         created: list[object] = []
 
@@ -133,8 +136,10 @@ class TestGetCognitive:
                 time.sleep(0.01)  # 放大竞态窗口
                 created.append(self)
 
-        monkeypatch.setattr(l7, "L7Cognitive", FakeCognitive)
-        monkeypatch.setattr(l7, "_global", None)
+        monkeypatch.setattr(facade, "L7Cognitive", FakeCognitive)
+        monkeypatch.setattr(facade, "_global", None)
+        # 保持 l7 模块的 get_cognitive 指向 facade 的实现（re-export 同一函数对象）
+        monkeypatch.setattr(l7, "get_cognitive", facade.get_cognitive)
 
         N = 4  # 共享沙箱线程配额有限(实证 8 连失败), 4 已足以构成竞态窗口
         barrier = threading.Barrier(N)

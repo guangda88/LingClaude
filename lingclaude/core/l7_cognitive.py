@@ -214,28 +214,17 @@ CREATE TABLE IF NOT EXISTS l7_session_log (
 );
 CREATE INDEX IF NOT EXISTS idx_l7sl_session ON l7_session_log(session_id);
 """
+# ── 消息分类规则（2026-09-14 灵元：剥离为 l7_classifier 纯规则引擎）──
+# 规则与 MessageClassifier 已迁至 lingclaude/core/l7_classifier.py，
+# 此处仅 re-export 保持向后兼容（消费方 from l7_cognitive import MessageClassifier 不变）。
+from lingclaude.core.l7_classifier import (  # noqa: F401,E402
+    MessageClassifier,
+    _CLASSIFY_RULES,
+    _PROFILE_PATTERNS,
+)
 
-# ── 消息分类规则 ──
 
-_CLASSIFY_RULES: list[tuple[re.Pattern, MessageCategory]] = [
-    (re.compile(r"(?:决定|结论|同意|接受|驳回|通过|否决|确认|freeze|冻结)", re.I), MessageCategory.DECISION),
-    (re.compile(r"(?:阻塞|卡住|报错|失败|崩溃|事故|down|crash|error|bug|故障|中断)", re.I), MessageCategory.INCIDENT),
-    (re.compile(r"(?:完成|提交|部署|上线|交付|达成|done|completed|deployed|merged)", re.I), MessageCategory.ACHIEVEMENT),
-    (re.compile(r"(?:项目|task|issue|PR|commit|开发|计划|roadmap|里程碑)", re.I), MessageCategory.PROJECT),
-    (re.compile(r"(?:偏好|喜欢|习惯|用.*模型|显卡|GPU|内存|显存|配置|preferred|hardware)", re.I), MessageCategory.PREFERENCE),
-    (re.compile(r"(?:阻塞|blocker|pending|等待|依赖|卡)", re.I), MessageCategory.BLOCKER),
-]
-
-# ── 画像提取模式 (复用 proxy3 a_l7_memory.py) ──
-
-_PROFILE_PATTERNS: list[tuple[re.Pattern, str, OKFType, int]] = [
-    (re.compile(r"(?:GTX|RTX|A100|H100)\s*\S+(?:\s+\S+){0,4}", re.I), "hardware:gpu", OKFType.HARDWARE, 7),
-    (re.compile(r"(?:内存|RAM)\s*[:：是]?\s*(\d+)\s*G", re.I), "hardware:ram_gb", OKFType.HARDWARE, 6),
-    (re.compile(r"(?:显存|VRAM)\s*[:：是]?\s*(\d+)\s*G", re.I), "hardware:vram_gb", OKFType.HARDWARE, 6),
-    (re.compile(r"(?:NVMe|SSD|硬盘)\s*[:：]?\s*(\d+)\s*T", re.I), "hardware:ssd_tb", OKFType.HARDWARE, 5),
-    (re.compile(r"(?:使用|跑|部署)\s*(\S+?)\s*(?:模型|MoE)", re.I), "model:preferred", OKFType.PREFERENCE, 7),
-    (re.compile(r"(DeepSeek|Qwen|GLM|Llama|Mixtral)\S*", re.I), "model:preferred", OKFType.PREFERENCE, 6),
-]
+# ── 认知存储层 ──
 
 
 
@@ -694,310 +683,17 @@ class CognitiveStore:
 
 
 
-# ── 消息分类引擎 ──
 
-class MessageClassifier:
-    """消息分类 - 从 obsidian-mind UserPromptSubmit 钩子模式"""
-
-    def classify(self, text: str) -> MessageCategory:
-        if not text:
-            return MessageCategory.GENERAL
-        for pattern, category in _CLASSIFY_RULES:
-            if pattern.search(text):
-                return category
-        return MessageCategory.GENERAL
-
-    def extract_profile(self, text: str, source: str = "") -> list[CognitiveMemory]:
-        """从对话文本中提取用户画像信息 (复用 proxy3 a_l7_memory.py 模式)"""
-        memories: list[CognitiveMemory] = []
-        for pattern, key, okf_type, importance in _PROFILE_PATTERNS:
-            m = pattern.search(text)
-            if m:
-                value = m.group(1).strip() if m.lastindex and m.lastindex >= 1 else m.group(0).strip()
-                memories.append(CognitiveMemory(
-                    key=f"{source}:{key}" if source else key,
-                    value=value,
-                    source=source,
-                    importance=importance,
-                    okf_type=okf_type,
-                    tags=[key.split(":")[0]] if ":" in key else [key],
-                ))
-        return memories
+# ── 会话生命周期钩子（2026-09-14 灵元：剥离为 l7_session）──
+from lingclaude.core.l7_session import SessionHooks  # noqa: F401,E402
 
 
-# ── 会话生命周期钩子 ──
 
-class SessionHooks:
-    """会话生命周期钩子 - 从 obsidian-mind 5节点模式
-
-    🚀 SessionStart    -> 加载常驻层记忆 (北极星 + 术语词典)
-    💬 UserPromptSubmit -> 对消息分类 -> 注入分类路由提示
-    ✍️ PostToolUse      -> 记录写入摘要
-    💾 PreCompact       -> 备份会话记录
-    🏁 Stop             -> 提取新记忆 -> 自动链接同类记忆
-    """
-
-    def __init__(self, store: CognitiveStore) -> None:
-        self._store = store
-        self._classifier = MessageClassifier()
-
-    def on_session_start(self, session_id: str, member: str = "") -> dict:
-        """会话启动: 加载 Always 层 + 术语词典"""
-        self._store.log_session_event(session_id, "session_start", f"member={member}")
-
-        always_mems = self._store.get_always_context(max_items=5)
-        glossary = self._store.all_glossary()
-
-        context_parts: list[str] = []
-        for mem in always_mems:
-            context_parts.append(f"[记忆:{mem.okf_type.value}] {mem.key}: {mem.value}")
-        for term in glossary:
-            context_parts.append(f"[术语] {term.term}: {term.definition}")
-
-        context = "\n".join(context_parts) if context_parts else ""
-        return {
-            "session_id": session_id,
-            "member": member,
-            "context": context,
-            "always_count": len(always_mems),
-            "glossary_count": len(glossary),
-            "token_estimate": len(context) // 3,
-        }
-
-    def on_user_prompt(
-        self, session_id: str, message: str, member: str = ""
-    ) -> dict:
-        """用户消息提交: 分类 + 按需检索"""
-        category = self._classifier.classify(message)
-
-        # 按需检索相关记忆
-        ondemand = self._store.get_ondemand_context(message, max_items=5)
-
-        # 触发层按分类检索
-        triggered = self._store.get_triggered_context(category, max_items=5)
-
-        # 提取画像
-        profile = self._classifier.extract_profile(message, source=member)
-        for mem in profile:
-            self._store.put_memory(mem)
-
-        self._store.log_session_event(
-            session_id, "user_prompt",
-            f"category={category.value}, ondemand={len(ondemand)}, triggered={len(triggered)}",
-        )
-
-        context_parts: list[str] = []
-        if category != MessageCategory.GENERAL:
-            context_parts.append(f"[消息类型] {category.value}")
-        for mem in ondemand + triggered:
-            context_parts.append(f"[记忆:{mem.okf_type.value}] {mem.key}: {mem.value}")
-
-        return {
-            "session_id": session_id,
-            "category": category.value,
-            "context": "\n".join(context_parts) if context_parts else "",
-            "ondemand_count": len(ondemand),
-            "triggered_count": len(triggered),
-            "profile_extracted": len(profile),
-        }
-
-    def on_post_tool_use(self, session_id: str, tool: str, summary: str = "") -> None:
-        """工具使用后: 记录写入摘要"""
-        self._store.log_session_event(
-            session_id, "post_tool_use", f"tool={tool}, summary={summary[:200]}",
-        )
-
-    def on_pre_compact(self, session_id: str, history: list[dict] | None = None) -> None:
-        """上下文压缩前: 备份会话记录"""
-        summary = json.dumps(history[-5:] if history else [], ensure_ascii=False)[:500]
-        self._store.log_session_event(session_id, "pre_compact", summary)
-
-    def on_session_stop(
-        self, session_id: str, last_message: str = "", last_reply: str = "",
-    ) -> dict:
-        """会话结束: 提取新记忆"""
-        extracted: list[CognitiveMemory] = []
-
-        # 从最后一条消息提取画像
-        if last_message:
-            profile = self._classifier.extract_profile(last_message)
-            extracted.extend(profile)
-
-        # 从对话中提取决策
-        if last_message:
-            category = self._classifier.classify(last_message)
-            if category == MessageCategory.DECISION:
-                extracted.append(CognitiveMemory(
-                    key=f"decision:{session_id}",
-                    value=last_message[:500],
-                    source="session",
-                    session_id=session_id,
-                    importance=7,
-                    okf_type=OKFType.DECISION,
-                    tags=["decision", "session"],
-                ))
-
-        # 存储提取的记忆
-        for mem in extracted:
-            self._store.put_memory(mem)
-
-        self._store.log_session_event(
-            session_id, "session_stop",
-            f"extracted={len(extracted)}, last_msg_len={len(last_message)}",
-        )
-
-        return {
-            "session_id": session_id,
-            "extracted_count": len(extracted),
-            "memories": [{"key": m.key, "value": str(m.value)[:100]} for m in extracted],
-        }
-
-
-# ── 顶层接口 ──
-
-class L7Cognitive:
-    """L7 认知层 - 顶层接口
-
-    用法:
-        from lingclaude.core.l7_cognitive import L7Cognitive
-        cog = L7Cognitive()
-        cog.start_session("session-123", member="lingclaude")
-        ctx = cog.on_message("session-123", "我决定用 DeepSeek 模型")
-        cog.stop_session("session-123", "我决定用 DeepSeek 模型", "好的...")
-    """
-
-    def __init__(
-        self,
-        db_path: str | Path | None = None,
-        legacy_sink: Any | None = None,
-    ) -> None:
-        self.store = CognitiveStore(db_path, legacy_sink=legacy_sink)
-        self.hooks = SessionHooks(self.store)
-        self.classifier = MessageClassifier()
-
-    def start_session(self, session_id: str, member: str = "") -> dict:
-        return self.hooks.on_session_start(session_id, member)
-
-    def on_message(self, session_id: str, message: str, member: str = "") -> dict:
-        return self.hooks.on_user_prompt(session_id, message, member)
-
-    def on_tool_use(self, session_id: str, tool: str, summary: str = "") -> None:
-        self.hooks.on_post_tool_use(session_id, tool, summary)
-
-    def on_pre_compact(self, session_id: str, history: list[dict] | None = None) -> None:
-        self.hooks.on_pre_compact(session_id, history)
-
-    def stop_session(
-        self, session_id: str, last_message: str = "", last_reply: str = "",
-    ) -> dict:
-        return self.hooks.on_session_stop(session_id, last_message, last_reply)
-
-    # ── 记忆管理 ──
-
-    def remember(
-        self, key: str, value: Any, source: str = "",
-        importance: int = 5, okf_type: OKFType = OKFType.CONCEPT,
-        tags: list[str] | None = None, session_id: str = "",
-    ) -> str:
-        mem = CognitiveMemory(
-            key=key, value=value, source=source, session_id=session_id,
-            importance=importance, okf_type=okf_type,
-            tags=tags or [],
-        )
-        return self.store.put_memory(mem)
-
-    def recall(self, query: str, top_k: int = 5, okf_type: OKFType | None = None) -> list[dict]:
-        mems = self.store.search(query, top_k=top_k, okf_type=okf_type)
-        return [{"key": m.key, "value": m.value, "type": m.okf_type.value,
-                 "importance": m.importance, "tier": m.tier.value} for m in mems]
-
-    def recall_compact(self, query: str, top_k: int = 5) -> str:
-        results = self.recall(query, top_k=top_k)
-        if not results:
-            return ""
-        lines = []
-        for r in results:
-            lines.append(f"[{r['type']}/{r['importance']}] {r['key']}: {r['value']}")
-        return "\n".join(lines)
-
-    # ── 文档索引 ──
-
-    def index_doc(
-        self, path: str, title: str, summary: str = "",
-        okf_type: OKFType = OKFType.CONCEPT,
-        tags: list[str] | None = None, project: str = "", url: str = "",
-    ) -> str:
-        doc = DocIndex(
-            path=path, url=url, title=title, summary=summary,
-            okf_type=okf_type, tags=tags or [], project=project,
-        )
-        return self.store.put_doc(doc)
-
-    def find_docs(self, query: str, top_k: int = 5, project: str = "") -> list[dict]:
-        docs = self.store.search_docs(query, top_k=top_k, project=project)
-        return [{"path": d.path, "url": d.url, "title": d.title,
-                 "summary": d.summary, "type": d.okf_type.value,
-                 "project": d.project} for d in docs]
-
-    # ── 术语共识 ──
-
-    def define_term(
-        self, term: str, definition: str,
-        aliases: list[str] | None = None, source_thread: str = "",
-    ) -> str:
-        t = GlossaryTerm(
-            term=term, definition=definition,
-            aliases=aliases or [], source_thread=source_thread,
-        )
-        return self.store.put_glossary(t)
-
-    def lookup_term(self, term: str) -> str:
-        t = self.store.lookup_glossary(term)
-        return f"{t.term}: {t.definition}" if t else ""
-
-    # ── 知识图谱 ──
-
-    def link(self, source_id: str, target_id: str,
-             relation: str = "related", context: str = "") -> None:
-        self.store.put_edge(GraphEdge(
-            source_id=source_id, target_id=target_id,
-            relation=relation, context=context,
-        ))
-
-    def graph(self, node_id: str, depth: int = 1) -> dict:
-        return self.store.get_neighbors(node_id, depth=depth)
-
-    # ── 统计 ──
-
-    def stats(self) -> dict[str, Any]:
-        return self.store.stats()
-
-    def close(self) -> None:
-        self.store.close()
-
-
-# ── 全局单例 ──
-
-import threading as _threading
-
-_global: L7Cognitive | None = None
-_global_lock = _threading.Lock()
-
-
-def get_cognitive() -> L7Cognitive:
-    """全局单例访问点（双检锁）。
-
-    2026-09-11: 竞态修复 — 原版裸双检，两线程同时见 None 会各建一个
-    L7Cognitive；败者的 store 是独立 sqlite 句柄，写点双写/P3.3 指标
-    会静默分裂到两个 DB。__init__ 开 sqlite 连接属重副作用，必须锁。
-    """
-    global _global
-    if _global is None:
-        with _global_lock:
-            if _global is None:  # double-check
-                _global = L7Cognitive()
-    return _global
-
+# ── 顶层门面 + 全局单例（2026-09-14 灵元：剥离为 l7_cognitive_facade）──
+from lingclaude.core.l7_cognitive_facade import (  # noqa: F401,E402
+    L7Cognitive,
+    get_cognitive,
+)
 
 __all__ = [
     "MemoryTier", "OKFType", "MessageCategory",
