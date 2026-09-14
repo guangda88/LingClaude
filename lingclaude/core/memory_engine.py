@@ -24,7 +24,7 @@ from enum import Enum
 from pathlib import Path
 from uuid import uuid4
 
-from lingclaude.core.safe_db import safe_connect
+from lingclaude.core.sqlite_store_base import SqliteStoreBase
 
 logger = logging.getLogger(__name__)
 
@@ -172,49 +172,12 @@ CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 """
 
 
-class MemoryStore:
+class MemoryStore(SqliteStoreBase):
+    _SCHEMA = _SCHEMA
+
     def __init__(self, db_path: str | Path | None = None,
                  legacy_sink: object | None = None) -> None:
-        if db_path is None:
-            root = Path(__file__).parent.parent.parent / ".lingclaude"
-            root.mkdir(parents=True, exist_ok=True)
-            db_path = str(root / "memory.db")
-        self._db_path = str(db_path)
-        self._conn: sqlite3.Connection | None = None
-        # P3.3 双写：可选旁观者（如 LingMemoryStoreSink），主路零依赖。
-        # self._emit 自指卫兵：无 sink 或在 sink 内部再触发 put 时跳过。
-        self._legacy_sink = legacy_sink
-        self._in_sink_emit = False
-        self._init_db()
-
-    def _emit(self, method: str, *args: object) -> None:
-        """旁路事件派发：永不抛异常，永不递归（P3.3 第一件同款纪律）"""
-        sink = getattr(self, "_legacy_sink", None)
-        if sink is None or self._in_sink_emit:
-            return
-        self._in_sink_emit = True
-        try:
-            getattr(sink, method)(*args)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("legacy_sink.%s 失败（已忽略）: %s", method, e)
-        finally:
-            self._in_sink_emit = False
-
-    def _get_conn(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self._conn = safe_connect(self._db_path)
-            self._conn.row_factory = sqlite3.Row
-        return self._conn
-
-    def _init_db(self) -> None:
-        conn = self._get_conn()
-        conn.executescript(_SCHEMA)
-        conn.commit()
-
-    def close(self) -> None:
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        super().__init__(db_path=db_path, legacy_sink=legacy_sink, db_name="memory.db")
 
     # ── Episode CRUD ──
 
