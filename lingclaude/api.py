@@ -605,8 +605,9 @@ async def lingmessage_post(req: GovernedPostRequest, api_key: str = Security(ver
         logger.warning(f"GovernanceGate 拒绝发帖: {gov_result.get('reason')}")
         raise HTTPException(403, f"GovernanceGate 拒绝: {gov_result.get('reason')}")
 
-    import sys
-    sys.path.insert(0, "/home/ai/lingmessage")
+    from lingclaude.lacp.cross_repo_seam import ensure_import_path
+
+    ensure_import_path("lingmessage")
     from lingmessage.lingbus import LingBus
     from pathlib import Path as _P
 

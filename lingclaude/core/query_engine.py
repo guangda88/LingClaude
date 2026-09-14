@@ -53,19 +53,17 @@ from lingclaude.core.query_engine_model_mixin import QueryEngineModelMixin
 from lingclaude.core.query_engine_lifecycle_mixin import QueryEngineLifecycleMixin
 
 # 灵元测试薄主干 (TestCase 契约)
-import sys as _sys
-if '/home/ai/lingclaude/lingmemory' not in _sys.path:
-    _sys.path.insert(0, '/home/ai/lingclaude/lingmemory')
+from lingclaude.lacp.cross_repo_seam import ensure_import_path as _seam_import
+
+_seam_import("lingmemory")
 try:
     from test_engine import TestCase as _TestCase
 except ImportError:
     _TestCase = None  # type: ignore[assignment,misc]
 
-# 三方 L5 Orchestrator (PYTHONPATH 旁路)
-if '/home/ai/lingminopt' not in _sys.path:
-    _sys.path.insert(0, '/home/ai/lingminopt')
-if '/home/ai/lingan' not in _sys.path:
-    _sys.path.insert(0, '/home/ai/lingan')
+# 三方 L5 Orchestrator (PYTHONPATH 旁路, 统一走 cross_repo_seam)
+_seam_import("lingminopt")
+_seam_import("lingan")
 try:
     from lingyuan.l5_orchestrator import L5Orchestrator, L5Context, R5SignalSourceMock, Z3PredicateMock
 except ImportError:
@@ -78,9 +76,8 @@ try:
 except ImportError:
     DeclarationConsistencyChecker = None
 
-# T2/T3: 灵极优 IntentPrecheck + 灵研 R5KBConflict (PYTHONPATH 旁路)
-if '/home/ai/lingresearch' not in _sys.path:
-    _sys.path.insert(0, '/home/ai/lingresearch')
+# T2/T3: 灵极优 IntentPrecheck + 灵研 R5KBConflict (PYTHONPATH 旁路, 统一走 cross_repo_seam)
+_seam_import("lingresearch")
 try:
     from lingyuan.l5_orchestrator import intent_precheck as _intent_precheck
 except ImportError:

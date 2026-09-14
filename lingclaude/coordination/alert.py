@@ -28,10 +28,9 @@ def send_lingbus_alert(
     thread_id 给定 → post_reply；否则 → open_thread 建新线程。
     """
     try:
-        import sys
-        from pathlib import Path
+        from lingclaude.lacp.cross_repo_seam import ensure_import_path
 
-        sys.path.insert(0, str(Path.home() / "lingmessage"))
+        ensure_import_path("lingmessage")
         from lingmessage.lingbus import LingBus
 
         bus: Any = LingBus()

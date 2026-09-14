@@ -26,7 +26,6 @@ import asyncio
 import logging
 import os
 import re
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -37,11 +36,9 @@ logger = logging.getLogger(__name__)
 from lingclaude.core.policy_loader import get as _policy_get
 
 # 灵极优 L10-B 信任锚点导入 (旁路, 与 T1 FactChecker 导入灵知同模式)
-_LINGMINOPT_PATH = os.environ.get(
-    "LINGMINOPT_PATH", str(Path(__file__).parent.parent.parent.parent / "lingminopt")
-)
-if _LINGMINOPT_PATH not in sys.path:
-    sys.path.insert(0, _LINGMINOPT_PATH)
+from lingclaude.lacp.cross_repo_seam import ensure_import_path, repo_path
+
+ensure_import_path("lingminopt")
 
 try:
     from lingyuan.l10_trust_anchor import CLAIM_PATTERNS as _LMO_CLAIM_PATTERNS
@@ -60,7 +57,7 @@ import importlib.util as _importlib_util
 
 _LINGAN_MODULE_PATH = os.environ.get(
     "LINGAN_SECURITY_GATE_PATH",
-    str(Path(__file__).parent.parent.parent.parent / "lingan" / "security_gate.py"),
+    str(repo_path("lingan") / "security_gate.py"),
 )
 try:
     _spec = _importlib_util.spec_from_file_location("lingan_security_gate", _LINGAN_MODULE_PATH)

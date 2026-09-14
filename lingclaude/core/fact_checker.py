@@ -19,17 +19,16 @@ import asyncio
 import logging
 import os
 import re
-import sys
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-# 灵知 FactVerifier 导入 (旁路)
-_LINGZHI_PATH = "/home/ai/lingzhi"
-if _LINGZHI_PATH not in sys.path:
-    sys.path.insert(0, _LINGZHI_PATH)
+# 灵知 FactVerifier 导入 (旁路, 跨仓依赖统一走 cross_repo_seam)
+from lingclaude.lacp.cross_repo_seam import ensure_import_path
+
+ensure_import_path("lingzhi")
 
 try:
     from backend.services.retrieval.fact_verifier import FactVerifier as _LZFactVerifier

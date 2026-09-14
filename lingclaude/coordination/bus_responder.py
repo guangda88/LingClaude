@@ -78,8 +78,9 @@ class BusResponder:
 
     def _get_bus(self) -> Any:
         if self._bus is None:
-            import sys
-            sys.path.insert(0, str(Path.home() / "lingmessage"))
+            from lingclaude.lacp.cross_repo_seam import ensure_import_path
+
+            ensure_import_path("lingmessage")
             from lingmessage.lingbus import LingBus
             self._bus = LingBus()
         return self._bus

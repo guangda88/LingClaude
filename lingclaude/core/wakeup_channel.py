@@ -42,8 +42,9 @@ class LingBusWakeupChannel:
 
     def send(self, task: dict[str, Any]) -> None:
         try:
-            import sys
-            sys.path.insert(0, "/home/ai/lingmessage")
+            from lingclaude.lacp.cross_repo_seam import ensure_import_path
+
+            ensure_import_path("lingmessage")
             from lingmessage.lingbus import LingBus
 
             bus = LingBus()
