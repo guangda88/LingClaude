@@ -431,6 +431,34 @@ class GovernanceEngine:
         except Exception as e:
             logger.warning("提案通知发送失败: %s", e)
 
+    def _post_or_open_thread(self, proposal: ProposalV2, body: str, topic: str, subject: str, reply_subject: str | None = None) -> None:
+        """向提案线程发回复；线程不存在则开新线程。
+
+        收敛: _notify_objection/_notify_nudge/_notify_result 三处逐字相同的
+        tid 查找 + post_reply/open_thread 分支（维护点 3→1）。
+
+        reply_subject: 发回复用的 subject；为 None 时与 open_thread 相同。
+        _notify_result 的回复 subject 带决议状态（与原行为一致）。
+        """
+        tid = self._proposal_threads.get(proposal.proposal_id)
+        if tid:
+            self.bus.post_reply(
+                thread_id=tid,
+                sender="lingclaude",
+                recipient="all",
+                body=body,
+                subject=reply_subject if reply_subject is not None else subject,
+            )
+        else:
+            self.bus.open_thread(
+                topic=topic,
+                sender="lingclaude",
+                recipients=COUNCIL_MEMBER_IDS,
+                channel="council",
+                subject=subject,
+                body=body,
+            )
+
     def _notify_objection(self, proposal: ProposalV2, objection: Objection) -> None:
         if self.bus is None:
             return
@@ -445,24 +473,11 @@ class GovernanceEngine:
                 f"证据: {objection.evidence[:500]}\n"
                 f"认知评估: {objection.cognitive_assessment.state.value if objection.cognitive_assessment else '无'}\n"
             )
-            tid = self._proposal_threads.get(proposal.proposal_id)
-            if tid:
-                self.bus.post_reply(
-                    thread_id=tid,
-                    sender="lingclaude",
-                    recipient="all",
-                    body=body,
-                    subject=f"异议: {cn} 对 {proposal.title}",
-                )
-            else:
-                self.bus.open_thread(
-                    topic=f"[异议] {proposal.title}",
-                    sender="lingclaude",
-                    recipients=COUNCIL_MEMBER_IDS,
-                    channel="council",
-                    subject=f"异议: {cn} 对 {proposal.title}",
-                    body=body,
-                )
+            self._post_or_open_thread(
+                proposal, body,
+                topic=f"[异议] {proposal.title}",
+                subject=f"异议: {cn} 对 {proposal.title}",
+            )
         except Exception as e:
             logger.warning("异议通知发送失败: %s", e)
 
@@ -479,24 +494,11 @@ class GovernanceEngine:
                 f"阻塞性异议: {len(proposal.blocking_objections)}\n\n"
                 f"如无异议将自动通过。请尽快审阅。"
             )
-            tid = self._proposal_threads.get(proposal.proposal_id)
-            if tid:
-                self.bus.post_reply(
-                    thread_id=tid,
-                    sender="lingclaude",
-                    recipient="all",
-                    body=body,
-                    subject=f"催票: {proposal.title}",
-                )
-            else:
-                self.bus.open_thread(
-                    topic=f"[催票] {proposal.title}",
-                    sender="lingclaude",
-                    recipients=COUNCIL_MEMBER_IDS,
-                    channel="council",
-                    subject=f"催票: {proposal.title}",
-                    body=body,
-                )
+            self._post_or_open_thread(
+                proposal, body,
+                topic=f"[催票] {proposal.title}",
+                subject=f"催票: {proposal.title}",
+            )
         except Exception as e:
             logger.warning("催票通知发送失败: %s", e)
 
@@ -512,24 +514,12 @@ class GovernanceEngine:
                 f"{proposal.decision_note}\n\n"
                 f"提案人: {get_cn_name(proposal.proposer)}"
             )
-            tid = self._proposal_threads.get(proposal.proposal_id)
-            if tid:
-                self.bus.post_reply(
-                    thread_id=tid,
-                    sender="lingclaude",
-                    recipient="all",
-                    body=body,
-                    subject=f"决议: {proposal.title} → {proposal.status.value}",
-                )
-            else:
-                self.bus.open_thread(
-                    topic=f"[决议] {proposal.title}",
-                    sender="lingclaude",
-                    recipients=COUNCIL_MEMBER_IDS,
-                    channel="council",
-                    subject=f"决议: {proposal.title}",
-                    body=body,
-                )
+            self._post_or_open_thread(
+                proposal, body,
+                topic=f"[决议] {proposal.title}",
+                subject=f"决议: {proposal.title}",
+                reply_subject=f"决议: {proposal.title} → {proposal.status.value}",
+            )
         except Exception as e:
             logger.warning("决议通知发送失败: %s", e)
 
