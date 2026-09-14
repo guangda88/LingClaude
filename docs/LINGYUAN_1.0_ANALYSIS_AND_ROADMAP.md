@@ -358,6 +358,64 @@ install_openai(); install_bash()
 
 ### 后续候选
 
-- **Q4**：`query_engine.py` 814 行厚模块瘦身（循环/工具/提交三职责按 wiring 装配模式继续拆）
-- **Q5**：`coding.py._setup_tools()` 42 行硬编码装配改走 wiring.assemble（P18 方向，需 CLI 回归专项）
+- **~~Q4~~**：~~`query_engine.py` 814 行厚模块瘦身~~（已实施，见下 §十二 Q4 记录）
+- **~~Q5~~**：~~`coding.py._setup_tools()` 42 行硬编码装配改走 wiring.assemble~~（已实施，见下 §十二 Q5 记录）
 - **推送**：`83781a2` → `291d1a0` 共 14 个提交尚未 push 远端
+
+## 十二续、Q4/Q5 执行记录（2026-09-14：灵元尺子再照后消费面瘦身/装配数据化）
+
+> 上轮 Q1/Q2/Q3 已完成「消费面补齐」。本轮承接路线图 :361/:362 的 Q4/Q5 候选：
+> Q4 是**方法级拆分**（装配已收敛，剩余是方法体大/职责杂），Q5 是**装配数据化**
+> （coding.py 主干仍硬编码构造 13 个 handler 实例，未走 manifest）。
+
+### Q4：query_engine.py 814 行厚模块按三职责 mixin 拆分
+
+- **背景**：P2.b 已把 55 项装配收敛至 WIRING_MANIFEST（五家审计"装配硬编码"结论已过时）；
+  真正剩余是业务方法数量——方法体大、职责杂。Q4 按「循环/模型/生命周期」三职责拆。
+- **改动**（4 文件）：
+  - `lingclaude/core/query_engine_turn_mixin.py` — `QueryEngineTurnMixin`（13 方法）
+    `_generate_response/_track_behavior/_build_messages/_finalize_turn/_execute_tool`
+    `_execute_mcp_tool/_compact_if_needed/_pre_check_compact/_archive_dropped_messages`
+    `_execute_tool_with_retry/_is_concurrency_safe/_fix_tool_arguments/_get_last_tool_output`
+  - `lingclaude/core/query_engine_model_mixin.py` — `QueryEngineModelMixin`（7 方法）
+    `switch_model/pin_model/unpin_model/is_model_pinned/get_pinned_model_name`
+    `_resolve_model_config/_build_adaptive_system_prompt`
+  - `lingclaude/core/query_engine_lifecycle_mixin.py` — `QueryEngineLifecycleMixin`（12 方法）
+    `collect_daily_digest/set_session_history_path/_append_to_session_history`
+    `_learn_from_turn/_log_to_flywheel/_session_state_path/_save_session_state`
+    `_load_session_state/_check_optimization_triggers/_collect_behavior_intel`
+    `_index_project/_format_output`
+  - `lingclaude/core/query_engine.py` — 类声明多继承 3 个 mixin，主干 814 → 385 行（-53%）
+- **方法**：AST 提取原方法体机械搬迁（仅调缩进，行为零变化）；mixin 内补全独立依赖
+  （`ModelMessage/MessageRole/detect_emotion/Intent/Domain/EmotionIntensity/_estimate_tokens`
+  等原来自 query_engine 模块级 import，迁至 mixin 模块级 import）
+- **回归**：`test_p2a_wiring_manifest.py` + `test_t0/t1_wiring.py` + `test_mv1_wiring.py`
+  **111 passed**（含装配面守恒、provider 身份注入、乱序不变式全部保持）
+
+### Q5：coding.py._setup_tools() 42 行硬编码装配走 wiring
+
+- **背景**：coding.py:102-165 `_setup_tools()` 直接构造 13 个 handler 实例
+  （BashExecutor/BashlingxiExecutor/FileOps/FileEditTool/FileReadTool/GrepTool/
+  ToolRegistry/PermissionContext/StructureEvaluator/SynchronousOptimizer/
+  OptimizationAdvisor/STTEngine/ToolPipeline），未走 manifest/PluginLoader——
+  「主干不知插片」残留。
+- **改动**（3 文件）：
+  - `lingclaude/engine/coding_wiring.py`（新增）— `CODING_WIRING_MANIFEST`（13 项）+ 工厂注册表
+    + `assemble_coding()`。工厂函数内延迟 import（对位 wiring.py 纪律，规避 engine 模块级循环）
+  - `lingclaude/engine/coding.py` — `_setup_tools()` 主体替换为
+    `assemble_coding(CodingWiringContext(runtime=self, sandbox_policy=...))`；
+    主干仅保留 sandbox 策略构造 + `register_all_tools`（specs 表机制）
+    + plan_mode/sensitive_path_guard 接线。顶层 import 净减 11 个（542 → 510 行）
+  - `tests/test_p04_arch_guards.py` — G3 懒加载基线 375 → 390（coding_wiring 新增
+    14 个工厂函数内 import，合法懒加载；coding.py 顶层净减，净改善非膨胀）
+- **装配顺序依赖**：`registry` 必须先于 `tool_pipeline`（构造期绑定），以 manifest
+  顺序显式表达（与 QueryEngine 顺序无关不变式不同，单条注释说明）
+- **回归**：`test_coding.py`（test_setup_tools_registers_all 全量工具断言）+ G8/G9
+  架构守卫（主干零内联注册、handler_name 解耦）全绿
+
+### 质量指标（本轮）
+
+- 变更：7 文件（4 新增 + 3 修改），`query_engine.py` -429 行、`coding.py` -32 行
+- 定向回归：**111 passed, 2 skipped**（wiring ×4 + coding + arch_guards）
+- G3 懒加载基线同步 375 → 390（仅 coding_wiring 工厂，合法迁移）
+- 待办：CLI 回归专项（Q5 涉及 CodingRuntime 初始化热路径，建议再跑 `tests/e2e` + `tests/integration`）

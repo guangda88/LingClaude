@@ -5,28 +5,18 @@ from typing import Any
 
 from lingclaude.core.config import lingclaudeConfig
 from lingclaude.core.model_call import _ToolLoopDetector
-from lingclaude.core.permissions import PermissionContext, PermissionStore
+from lingclaude.core.permissions import PermissionStore
 from lingclaude.core.session_runtime import SessionRuntime
-from lingclaude.engine.bash import BashExecutor
-from lingclaude.engine.bash_lingxi import BashlingxiExecutor
-from lingclaude.engine.file_ops import FileOps
-from lingclaude.engine.file_edit import FileEditTool
-from lingclaude.engine.file_read import FileReadTool
-from lingclaude.engine.grep import GrepTool
-from lingclaude.engine.tools import ToolRegistry
 from lingclaude.engine.tool_registration import register_all_tools
 from lingclaude.self_optimizer import (
     OptimizationAdvisor,
     OptimizationTrigger,
-    SynchronousOptimizer,
     StructureEvaluator,
 )
 from lingclaude.engine.git import git_blame, git_diff, git_log, git_status
 from lingclaude.engine.indexer import index_project
 from lingclaude.engine.ast_edit import list_functions, replace_function_body
-from lingclaude.engine.stt import STTEngine
-from lingclaude.engine.verification_gate import VerificationGate, WRITE_SCOPED_TOOLS, CRITICAL_TOOLS
-from lingclaude.engine.tool_pipeline import ToolPipeline
+from lingclaude.engine.verification_gate import VerificationGate
 from lingclaude.self_optimizer.learner.patterns import PatternRecognizer
 from lingclaude.engine.todo import TodoStore, make_handlers as _make_todo_handlers
 from lingclaude.engine.lsp_provider import StdioLspProvider, _path_to_uri
@@ -100,7 +90,13 @@ class CodingRuntime(
                 pass
 
     def _setup_tools(self) -> None:
-        # T0-10: 沙箱策略 — LINGCLAUDE_SANDBOX_MODE=strict/paranoid 时 bwrap 不可用即 fail-closed
+        # Q5 (2026-09-14): 42 行硬编码装配收敛至 engine/coding_wiring.py 的
+        # CODING_WIRING_MANIFEST（工厂 + manifest 数据化，对位 QueryEngine
+        # WIRING_MANIFEST 模式）。主干不再直接构造 handler 实例 —— 新增协作者
+        # = coding_wiring.py 注册工厂 + manifest 加一行，本文件 diff 为 0。
+        # 回归网：tests/test_coding.py 全量（test_setup_tools_registers_all 等）。
+        # 剩余硬编码仅：sandbox 策略（环境驱动）+ 工具注册（specs 表机制）
+        # + plan_mode / sensitive_path_guard 接线（运行时一次性钩子）。
         import os
 
         sandbox_mode = os.environ.get("LINGCLAUDE_SANDBOX_MODE")
@@ -112,29 +108,10 @@ class CodingRuntime(
                 sandbox_policy = SandboxPolicy(mode=SandboxMode(sandbox_mode.lower()))
             except ValueError:
                 sandbox_policy = None
-        self.bash = BashExecutor(
-            timeout=self.config.optimizer.timeout_seconds,
-            sandbox_policy=sandbox_policy,
-        )
-        # P0 安全对齐(2026-09-11): bash_lingxi 默认继承 bash.py 同源黑名单
-        # (见 bash_lingxi._DEFAULT_LINGXI_BLOCKED), handler 层另有 sensitive_path_gate。
-        # allowed_commands=None 表示不设白名单(黑名单制, 与 bash 通道同语义)。
-        self.bash_lingxi = BashlingxiExecutor(
-            timeout=self.config.optimizer.timeout_seconds,
-        )
-        self.file_ops = FileOps()
-        self.file_edit = FileEditTool()
-        self.file_read = FileReadTool()
-        self.grep_tool = GrepTool()
-        self.registry = ToolRegistry()
-        self.permissions = PermissionContext.from_config(
-            deny_tools=self.config.permissions.deny_tools,
-            deny_prefixes=self.config.permissions.deny_prefixes,
-            mode=getattr(self.config.permissions, "mode", "ask"),
-        )
-        self.evaluator = StructureEvaluator()
-        self.optimizer = SynchronousOptimizer()
-        self.advisor = OptimizationAdvisor()
+        # Q5: 装配主体 — 13 项协作者实例化收敛至 manifest（行为与原逐字构造一致）
+        from lingclaude.engine.coding_wiring import CodingWiringContext, assemble_coding
+
+        assemble_coding(CodingWiringContext(runtime=self, sandbox_policy=sandbox_policy))
 
         # T4（opencode 架构演进项）：统一注册入口 — specs 表 × runtime handlers。
         # 原 32 条内联 ToolDefinition 已机械迁至 engine/tool_registration.py
@@ -142,15 +119,6 @@ class CodingRuntime(
         # G8 守卫锁定本文件不再出现 ToolDefinition( 内联注册。
         register_all_tools(self.registry, self)
         self._plan_mode_active: bool = False
-        # LINGKERNEL_v1 #2: 5 段 pipeline (dsh tool-execution-pipeline 对位)
-        # stt 引擎原在注册块中部创建（原 L254）— 注册数据外迁后仍属运行时构造
-        self.stt = STTEngine()
-        self.tool_pipeline = ToolPipeline(
-            self.registry,
-            write_scoped_tools=WRITE_SCOPED_TOOLS,
-            critical_tools=CRITICAL_TOOLS,
-            timeout_seconds=self.config.optimizer.timeout_seconds,
-        )
         # T0-1: plan_mode 接入 — 用于过滤写工具
         from lingclaude.engine.plan_mode import PlanMode
         self.plan_mode = PlanMode()

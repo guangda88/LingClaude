@@ -53,9 +53,13 @@ BASELINE_SYS_PATH = 14
 # 344 (2026-09-10): P3 state_store.py 新增 4 个工厂函数内 import（StateBackend 协议 + 两后端 + StateStore）
 # 350 (2026-09-10): P3 lingmemory_bridge.py 懒加载 _get_lingmemory + wiring.py 微调
 # 351 (2026-09-10): P3 wiring.py 新增 _make_state_store 工厂函数
-BASELINE_LAZY = 375  # 2026-09-13: 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
+BASELINE_LAZY = 390  # 2026-09-13: 补登记历史入库的合法懒加载（self_optimizer/daemon.py、
                      # webui_seam.py 等工厂/可选依赖函数内 import，9237537/db79c38 等提交），
                      # 2026-09-14 (P19/P20): 374 → 375 —— prior_verifier.py 新增
+                     # 2026-09-14 (Q5): 375 → 390 —— coding_wiring.py 新增 14 个工厂
+                     # 函数内 import（BashExecutor/BashlingxiExecutor/FileOps/.../ToolPipeline
+                     # 自 coding.py 顶层迁至工厂函数内，规避 engine 模块级循环，对位 wiring.py
+                     # 纪律）。coding.py 顶层净减 11 个 import，净改善非膨胀。
                      # 实测 356，原基线 351 未随代码演进更新致 g3 误报。
                      # 2026-09-14 (P4/P5): 实测 HEAD 已达 368（wiring/mcp.server/query_engine 等
                      # 历史工厂函数内 import 未同步基线，g3 长期带病误报）；
