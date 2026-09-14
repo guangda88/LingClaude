@@ -296,3 +296,36 @@ class TestToolAliasHotplug:
         r = reg.execute("read", path="x")
         assert r.is_ok and r.data == {"via": "main"}
 
+
+    def test_cross_plugin_chain_file_git_read(self):
+        """跨插件协作三插件链：file_ops 写 → git 状态 → read 读回（warm 通道真实闭环）。
+
+        P2 深化：验证插件经 stdio 子进程 + 连接池可跨插件编排（写-查-读闭环），
+        各环节都走 warm 通道（register_plugin_server），不落主干执行路径。
+        """
+        import shutil
+        from pathlib import Path
+
+        base = Path("tests/.warm_chain")
+        base.mkdir(parents=True, exist_ok=True)
+        try:
+            target = base / "chain_demo.txt"
+            # ① file_ops 写
+            fk = register_plugin_server(f"{TOOLS_DIR}/file_ops/manifest.plugin.json")
+            w = call_plugin_server(fk, "file_create", {
+                "path": str(target), "content": "chain v1\n",
+            })
+            assert w["ok"] is True, w.get("error")
+            # ② git 状态可见该新文件（git 插件在仓库内运行，untracked 应出现）
+            gk = register_plugin_server(f"{TOOLS_DIR}/git/manifest.plugin.json")
+            g = call_plugin_server(gk, "git_status", {})
+            assert g["ok"] is True, g.get("error")
+            # ③ read 读回内容一致
+            rk = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")
+            r = call_plugin_server(rk, "read", {
+                "path": str(target), "offset": 0, "limit": 5,
+            })
+            assert r["ok"] is True, r.get("error")
+            assert "chain v1" in str(r["data"])
+        finally:
+            shutil.rmtree(base, ignore_errors=True)

@@ -206,32 +206,11 @@ class BashExecutor:
             if cmd != command:
                 # bwrap 已包裹：bwrap 自身是 argv 边界，shell=True 执行不会二次解析
                 # 内层命令的引号/命令替换（P1-1 审计修复）
-                result = subprocess.run(  # nosec B602 — 仅 bwrap 包裹路径走 shell=True，_check_blocked 四重缓解仍生效
-                    cmd,
-                    shell=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=effective_timeout,
-                    cwd=self.working_dir,
-                    start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
-                    stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
-                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
-                    preexec_fn=lambda: self._set_resource_limits(command),
-                )
+                result = self._run_subprocess(cmd, command, effective_timeout, shell=True)
             else:
                 # 无 bwrap：显式使用 bash 而非 sh（dash），避免 bash 语法兼容问题
                 # shell=True 默认用 /bin/sh（本环境是 dash），不支持数组、() 等语法
-                result = subprocess.run(  # nosec B602 — shell=True 由 _check_blocked 黑名单+白名单+资源限制+沙箱四重缓解
-                    ['/bin/bash', '-c', cmd],
-                    capture_output=True,
-                    text=True,
-                    timeout=effective_timeout,
-                    cwd=self.working_dir,
-                    start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
-                    stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
-                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
-                    preexec_fn=lambda: self._set_resource_limits(command),
-                )
+                result = self._run_subprocess(["/bin/bash", "-c", cmd], command, effective_timeout)
             duration = time.monotonic() - start
             # 2026-09-12：白名单网络命令失败自动降级重试。
             # 若 bwrap 沙箱（--unshare-net 或共享 netns 但 DNS 失效）导致网络命令失败，
@@ -249,17 +228,7 @@ class BashExecutor:
                     result.returncode,
                     command[:80],
                 )
-                result = subprocess.run(  # nosec B603 — 白名单 git 命令，_check_blocked 已前置校验
-                    ["/bin/bash", "-c", command],
-                    capture_output=True,
-                    text=True,
-                    timeout=effective_timeout,
-                    cwd=self.working_dir,
-                    start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
-                    stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
-                    env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
-                    preexec_fn=lambda: self._set_resource_limits(command),
-                )
+                result = self._run_subprocess(["/bin/bash", "-c", command], command, effective_timeout)
                 duration = time.monotonic() - start
             return BashResult(
                 exit_code=result.returncode,
@@ -299,6 +268,28 @@ class BashExecutor:
                 duration=duration,
                 command=command,
             )
+
+    def _run_subprocess(self, argv, command: str, timeout: float, shell: bool = False) -> "subprocess.CompletedProcess":
+        """subprocess.run 统一封装（3 处重复：bwrap 包裹 / 无 bwrap / 网络降级重试）。
+
+        8 个关键字参数逐字重复——统一为单点，规避/资源限制/会话组语义保持：
+        - start_new_session=True: 新会话组 — 超时 killpg 整组（P1-1）
+        - stdin=DEVNULL: 隔离 stdin，子进程不再抢占终端（P0-①）
+        - env: 认证失败立即返回，不挂起读终端
+        - preexec_fn: 资源限制（内存/CPU，白名单网络命令放宽至 1GB）
+        """
+        return subprocess.run(  # nosec B602 — 白名单校验 + 黑名单 + 资源限制 + 沙箱四重缓解已前置（_check_blocked）
+            argv,
+            shell=shell,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=self.working_dir,
+            start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
+            stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
+            env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
+            preexec_fn=lambda: self._set_resource_limits(command),
+        )
 
     def _sandbox_command(self, command: str) -> str:
         """B3：沙箱包裹 — 通过 SandboxProvider（默认 bwrap，可换 noop/firejail 等）。
@@ -458,6 +449,24 @@ class BashExecutor:
         if needle and (needle[-1].isalnum() or needle[-1] == "_"):
             pattern += r"\b"
         return re.search(pattern, text) is not None
+
+    @staticmethod
+    def _is_readonly_diag_command(tokens: list[str]) -> bool:
+        """systemctl status/is-active 等只读诊断 + mount 无参 —— 豁免判定（3 处重复单源）。
+
+        P2-①（灵安审计）：只读诊断形态豁免 — systemctl status/is-active 等 + mount 无参
+        只读，放行；其余（systemctl start/restart、mount -o rw 等）照常拦截。
+        """
+        if not tokens:
+            return False
+        head = Path(tokens[0]).name.lower()
+        if head == "systemctl" and len(tokens) > 1 and tokens[1] in (
+            "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
+        ):
+            return True
+        if head == "mount" and len(tokens) == 1:
+            return True
+        return False
 
     @staticmethod
     def _split_chain(command: str) -> list[str]:
@@ -634,12 +643,8 @@ class BashExecutor:
             # 取第一个「非透明包装」token 检查（见 _normalize_command 剥离前缀）。
             if lead_name.lower() in _BLOCKED_BASE_COMMANDS or lead_name.lower() in _BLOCKED_CMD_NAME_ONLY:
                 # P2-①（灵安审计）：只读诊断形态豁免 — systemctl status/is-active 等 + mount 无参
-                if lead_name.lower() == "systemctl" and len(tokens) > 1 and tokens[1] in (
-                    "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
-                ):
+                if self._is_readonly_diag_command(tokens):
                     pass  # 只读，放行
-                elif lead_name.lower() == "mount" and len(tokens) == 1:
-                    pass  # 无参数=仅查看挂载，放行
                 else:
                     return f"基础命令 '{lead_name}' 被禁止"
             # EXP-S2 '?'-混淆防御（命令名位置）：shell 里 "s?do" 会被 glob
@@ -647,11 +652,7 @@ class BashExecutor:
             # 规则与 token 等长、非 '?' 字符全等 → 拦截。
             # token 级比较不会误伤（"stat" len4 ≠ "su" len2）。
             # P2-①：只读诊断形态豁免同样适用于 '?' 混淆检查
-            _is_readonly_diag = (
-                lead_name.lower() == "systemctl" and len(tokens) > 1 and tokens[1] in (
-                    "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
-                )
-            ) or (lead_name.lower() == "mount" and len(tokens) == 1)
+            _is_readonly_diag = self._is_readonly_diag_command(tokens)
             _name_blocks = _BLOCKED_BASE_COMMANDS | _BLOCKED_CMD_NAME_ONLY | _BLOCKED_DANGER_ANYWHERE
             for bl in _name_blocks:
                 if not bl or " " in bl or any(c in bl for c in "*?"):
@@ -671,10 +672,7 @@ class BashExecutor:
         base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
         base_cmd_name = Path(base_cmd).name
         # P2-①（灵安审计）：只读诊断形态豁免同样适用于循环外的基础命令检查
-        _is_readonly_diag_base = (
-            base_cmd_name.lower() == "systemctl" and len(cmd_stripped.split()) > 1
-            and cmd_stripped.split()[1] in ("status", "is-active", "is-enabled", "is-failed", "list-units", "show")
-        ) or (base_cmd_name.lower() == "mount" and len(cmd_stripped.split()) == 1)
+        _is_readonly_diag_base = self._is_readonly_diag_command(cmd_stripped.split())
         if base_cmd_name.lower() in _BLOCKED_BASE_COMMANDS and not _is_readonly_diag_base:
             return f"基础命令 '{base_cmd_name}' 被禁止"
 
