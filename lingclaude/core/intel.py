@@ -159,6 +159,11 @@ class DailyDigest:
 class IntelCollector:
     items: list[IntelItem] = field(default_factory=list)
 
+    def _add_item(self, item: IntelItem) -> IntelItem:
+        """单源落库：append + return（各 from_* 收集器统一出口）。"""
+        self.items.append(item)
+        return item
+
     def from_behavior(
         self,
         metrics: dict[str, Any],
@@ -256,8 +261,7 @@ class IntelCollector:
                 ("lines_removed", str(lines_removed)),
             ),
         )
-        self.items.append(item)
-        return item
+        return self._add_item(item)
 
     def from_pattern(
         self,
@@ -280,8 +284,7 @@ class IntelCollector:
                 ("file_path", file_path),
             ),
         )
-        self.items.append(item)
-        return item
+        return self._add_item(item)
 
     def from_error(
         self,
@@ -302,8 +305,7 @@ class IntelCollector:
                 ("context", context),
             ),
         )
-        self.items.append(item)
-        return item
+        return self._add_item(item)
 
     def from_optimization(
         self,
@@ -325,8 +327,7 @@ class IntelCollector:
                 ("violations_after", str(violations_after)),
             ),
         )
-        self.items.append(item)
-        return item
+        return self._add_item(item)
 
     def from_structure(
         self,
@@ -349,8 +350,7 @@ class IntelCollector:
                 ("max_complexity", str(max_complexity)),
             ),
         )
-        self.items.append(item)
-        return item
+        return self._add_item(item)
 
     def from_quality(
         self,
@@ -372,8 +372,7 @@ class IntelCollector:
                 ("quality_score", f"{score:.1f}"),
             ),
         )
-        self.items.append(item)
-        return item
+        return self._add_item(item)
 
     def collect_all(self) -> tuple[IntelItem, ...]:
         return tuple(self.items)

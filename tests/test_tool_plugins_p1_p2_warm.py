@@ -85,6 +85,29 @@ class TestWarmPluginServer:
         })
         assert r["ok"] is True, r.get("error")
 
+    def test_register_and_call_git_status(self):
+        """git 插件经 warm 通道（stdio 子进程 + 连接池）真实调用 git_status。"""
+        key = register_plugin_server(f"{TOOLS_DIR}/git/manifest.plugin.json")
+        assert key == "plugin:git_plugin"
+        r = call_plugin_server(key, "git_status", {})
+        assert r["ok"] is True, r.get("error")
+
+    def test_register_and_call_ast_list_functions(self):
+        """ast 插件经 warm 通道真实调用 list_functions（读文件，无副作用）。"""
+        import json as _json
+
+        key = register_plugin_server(f"{TOOLS_DIR}/ast/manifest.plugin.json")
+        assert key == "plugin:ast_plugin"
+        r = call_plugin_server(key, "list_functions", {
+            "file_path": "lingclaude/plugins/tools/ast/plugin.py",
+        })
+        assert r["ok"] is True, r.get("error")
+        data = r["data"]
+        # stdio 透传后 data 为 JSON 字符串（与 read 的纯文本输出不同）
+        if isinstance(data, str):
+            data = _json.loads(data)
+        assert "functions" in data, data
+
     def test_register_idempotent(self):
         """同 key 重复注册 → 返回同 key，不重复注册。"""
         key1 = register_plugin_server(f"{TOOLS_DIR}/read/manifest.plugin.json")

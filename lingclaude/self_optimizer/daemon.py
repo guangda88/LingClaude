@@ -26,6 +26,15 @@ DEFAULT_STATE_DIR = Path(".lingclaude")
 # 行为快照滚动窗口上限 — 见 save_behavior_history 内注释（存量/流量修正）
 _BEHAVIOR_SNAPSHOT_CAP = 200
 
+# 行为历史默认值 — load/save_behavior_history 两处逐字重复的单源（2026-09-14 收敛）
+_DEFAULT_BEHAVIOR_HISTORY: dict[str, Any] = {
+    "total_turns": 0,
+    "total_frustration": 0,
+    "total_corrections": 0,
+    "total_tool_errors": 0,
+    "snapshots": [],
+}
+
 
 @dataclass(frozen=True)
 class OptimizationCycle:
@@ -478,19 +487,13 @@ class OptimizationDaemon:
             except (json.JSONDecodeError, KeyError):
                 pass
         return Result.ok(
-            {
-                "total_turns": 0,
-                "total_frustration": 0,
-                "total_corrections": 0,
-                "total_tool_errors": 0,
-                "snapshots": [],
-            }
+            dict(_DEFAULT_BEHAVIOR_HISTORY, snapshots=[])
         )
 
     def save_behavior_history(self, behavior: dict[str, Any]) -> Result[None]:
         try:
             history_result = self.load_behavior_history()
-            history = history_result.data if history_result.is_ok else {"total_turns": 0, "total_frustration": 0, "total_corrections": 0, "total_tool_errors": 0, "snapshots": []}
+            history = history_result.data if history_result.is_ok else dict(_DEFAULT_BEHAVIOR_HISTORY, snapshots=[])
             history["total_turns"] = history.get("total_turns", 0) + behavior.get("total_turns", 0)
             history["total_frustration"] = history.get("total_frustration", 0) + behavior.get("frustration_count", 0)
             history["total_corrections"] = history.get("total_corrections", 0) + behavior.get("corrections_received", 0)
