@@ -23,6 +23,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from lingclaude.core.seam import SeamRegistry, SeamType
+
 logger = logging.getLogger(__name__)
 
 # bwrap 可用性探测结果缓存：(None=未探测, (bool, reason))
@@ -199,9 +201,19 @@ class NoopSandboxProvider:
 
 
 def create_default_sandbox_provider() -> SandboxProvider:
-    """默认后端：bwrap 可用时用之，否则 noop（fail-safe 降级，策略约束路径由调用方 fail-closed）。"""
+    """默认后端：bwrap 可用时用之，否则 noop（fail-safe 降级，策略约束路径由调用方 fail-closed）。
+
+    P12: 与 P5 的 provider/tool 对称 —— 创建默认后端时同步注册到进程内
+    SeamRegistry（SeamType.SANDBOX 槽位），建立「sandbox 后端也可经
+    SeamRegistry.get(SANDBOX, name) 查询」的统一视图。bash.py 运行时路径
+    仍走 CapabilitySeam（lacp 跨进程缝，含治理/审计包装），本注册是
+    查询视图补充（热拔插状态可观测），不是替代。
+    """
     bwrap = BwrapSandboxProvider()
     if bwrap.available():
+        SeamRegistry.register(SeamType.SANDBOX, bwrap.name, bwrap)
         return bwrap
     logger.warning("bwrap 不可用，sandbox 后端降级为 noop（黑名单+资源限制仍生效）")
-    return NoopSandboxProvider()
+    noop = NoopSandboxProvider()
+    SeamRegistry.register(SeamType.SANDBOX, noop.name, noop)
+    return noop
