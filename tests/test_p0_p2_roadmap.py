@@ -48,20 +48,21 @@ class TestWriteWhitelist:
     def test_whitelist_blocks_outside(self, tmp_path: Path) -> None:
         rt, _ = self._runtime_with_roots(tmp_path, ["workspace"])
         out = rt._write_handler("/etc/evil.txt", "x")
-        assert "error" in out and "白名单" in out["error"]
+        assert out.is_error
+        assert out.error is not None and "白名单" in out.error.message
 
     def test_whitelist_allows_inside(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)  # 相对白名单按 CWD 解析
         rt, _ = self._runtime_with_roots(tmp_path, ["workspace"])
         inner = tmp_path / "workspace" / "ok.txt"
         out = rt._write_handler(str(inner), "x")
-        assert "error" not in out
+        assert out.is_ok, out.error
 
     def test_empty_roots_unrestricted(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)  # 绕开 file_ops 自带的项目范围门,聚焦白名单逻辑
         rt, _ = self._runtime_with_roots(tmp_path, [])
         out = rt._write_handler(str(tmp_path / "any.txt"), "x")
-        assert "error" not in out
+        assert out.is_ok, out.error
 
 
 class TestDaemonPatchRecord:

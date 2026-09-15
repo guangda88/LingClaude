@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from lingclaude.core.types import ToolResult
 from lingclaude.engine.lsp_provider import StdioLspProvider
 
 
@@ -20,14 +21,17 @@ class LspToolsMixin:
         line: int = 0,
         character: int = 0,
         **_: Any,
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         """P1-1: LSP dispatcher — routes to StdioLspProvider on first use."""
         import asyncio
         from pathlib import Path
 
         cmd = command.lower()
         if cmd not in ("goto_def", "find_refs", "hover", "goto_impl"):
-            return {"ok": False, "error": f"unknown LSP command: {command}"}
+            return ToolResult.err(
+                f"unknown LSP command: {command}",
+                tool_name="lsp",
+            )
 
         # Lazy-init LSP provider
         if self._lsp_provider is None:
@@ -68,13 +72,18 @@ class LspToolsMixin:
 
         try:
             result = asyncio.run(run())
-            return {
-                "ok": True,
-                "command": cmd,
-                "result": [
-                    {"uri": loc.uri, "line": loc.range.start.line, "col": loc.range.start.character}
-                    for loc in (result if isinstance(result, list) else [])
-                ],
-            }
+            return ToolResult.ok(
+                {
+                    "ok": True,
+                    "command": cmd,
+                    "result": [
+                        {"uri": loc.uri, "line": loc.range.start.line, "col": loc.range.start.character}
+                        for loc in (result if isinstance(result, list) else [])
+                    ],
+                }
+            )
         except Exception as e:
-            return {"ok": False, "error": f"lsp error: {e}"}
+            return ToolResult.err(
+                f"lsp error: {e}",
+                tool_name="lsp",
+            )

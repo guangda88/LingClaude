@@ -207,7 +207,8 @@ class TestSubAgentFlywheelLog:
             task="ping",
         )
 
-        assert result["success"] is True
+        assert result.is_ok, result.error
+        assert result.data["success"] is True
         assert recorded, "handler 必须写 flywheel"
         rec = recorded[0]
         assert rec["pattern_type"] == "sub_agent_call"

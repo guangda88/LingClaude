@@ -26,19 +26,21 @@ class _MinimalRuntime:
 
 
 def test_lsp_unknown_command_returns_error():
-    """未知命令 → {"ok": False, "error": ...}，不崩溃。"""
+    """未知命令 → 结构化错误，不崩溃。"""
     rt = _MinimalRuntime()
     result = rt._lsp_handler("goto_unknown", "foo.py")
-    assert result.get("ok") is False
-    assert "unknown" in result.get("error", "").lower()
+    assert result.is_error
+    assert result.error is not None
+    assert "unknown" in result.error.message.lower()
 
 
 def test_lsp_invalid_command_no_crash():
     """空命令 / None 同样结构化拒绝。"""
     rt = _MinimalRuntime()
     result = rt._lsp_handler("", "foo.py")
-    assert result.get("ok") is False
-    assert result.get("error")
+    assert result.is_error
+    assert result.error is not None
+    assert result.error.message
 
 
 def test_lsp_missing_server_graceful_degrade():
@@ -51,9 +53,10 @@ def test_lsp_missing_server_graceful_degrade():
 
     rt = _MinimalRuntime()
     result = rt._lsp_handler("goto_def", "foo.py")
-    assert result.get("ok") is False
+    assert result.is_error
+    assert result.error is not None
     # 错误信息应包含可诊断内容（server 未找到 / 连接失败等）
-    assert result.get("error")
+    assert result.error.message
 
 
 def test_lsp_handler_uses_provider_when_available():
@@ -98,8 +101,10 @@ def test_lsp_handler_uses_provider_when_available():
             self._lsp_handler = LspToolsMixin._lsp_handler.__get__(self)
 
     rt = _RT()
-    # goto_def → provider 有结果, handler 返回 {"ok": True}
+    # goto_def → provider 有结果, handler 返回 ToolResult.ok
     res = rt._lsp_handler("goto_def", "foo.py")
-    assert res["ok"] is True
-    assert res["command"] == "goto_def"
-    assert isinstance(res["result"], list)
+    assert res.is_ok, res.error
+    data = res.data
+    assert data["ok"] is True
+    assert data["command"] == "goto_def"
+    assert isinstance(data["result"], list)

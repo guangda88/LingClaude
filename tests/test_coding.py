@@ -76,15 +76,18 @@ class TestBashHandlers:
         """Test bash handler with successful command"""
         runtime = CodingRuntime()
         result = runtime._bash_handler(command="echo 'hello'")
-        assert result["exit_code"] == 0
-        assert "hello" in result["stdout"]
-        assert result["duration"] >= 0
+        assert result.is_ok, result.error
+        data = result.data
+        assert data["exit_code"] == 0
+        assert "hello" in data["stdout"]
+        assert data["duration"] >= 0
 
     def test_bash_handler_failure(self):
         """Test bash handler with failing command"""
         runtime = CodingRuntime()
         result = runtime._bash_handler(command="exit 1")
-        assert result["exit_code"] == 1
+        assert result.is_ok, result.error
+        assert result.data["exit_code"] == 1
 
     @pytest.mark.skipif(
         os.environ.get("LINGXI_AVAILABLE") != "1",
@@ -94,8 +97,9 @@ class TestBashHandlers:
         """Test bash_lingxi handler"""
         runtime = CodingRuntime()
         result = runtime._bash_lingxi_handler(command="echo 'test'")
-        assert result["exit_code"] == 0
-        assert "test" in result["stdout"]
+        assert result.is_ok, result.error
+        assert result.data["exit_code"] == 0
+        assert "test" in result.data["stdout"]
 
 
 class TestFileHandlers:
@@ -119,8 +123,9 @@ class TestFileHandlers:
 
         runtime = CodingRuntime()
         result = runtime._read_handler(path=str(test_file))
-        assert "content" in result
-        assert "Hello, World!" in result["content"]
+        assert result.is_ok, result.error
+        assert "content" in result.data
+        assert "Hello, World!" in result.data["content"]
 
     def test_read_handler_with_offset_limit(self, test_dir):
         """Test read handler with offset and limit"""
@@ -129,23 +134,26 @@ class TestFileHandlers:
 
         runtime = CodingRuntime()
         result = runtime._read_handler(path=str(test_file), offset=1, limit=2)
-        assert "line2" in result["content"]
-        assert "line3" in result["content"]
-        assert "line1" not in result["content"]
-        assert "line4" not in result["content"]
+        assert result.is_ok, result.error
+        assert "line2" in result.data["content"]
+        assert "line3" in result.data["content"]
+        assert "line1" not in result.data["content"]
+        assert "line4" not in result.data["content"]
 
     def test_read_handler_not_found(self, test_dir):
         """Test read handler with non-existent file"""
         runtime = CodingRuntime()
         result = runtime._read_handler(path=str(test_dir / "nonexistent.txt"))
-        assert "error" in result
+        assert result.is_error
+        assert result.error is not None
 
     def test_write_handler(self, test_dir):
         """Test write handler"""
         test_file = test_dir / "test.txt"
         runtime = CodingRuntime()
         result = runtime._write_handler(path=str(test_file), content="Test content")
-        assert "path" in result
+        assert result.is_ok, result.error
+        assert "path" in result.data
         assert test_file.read_text(encoding="utf-8") == "Test content"
 
     def test_edit_handler(self, test_dir):
@@ -159,7 +167,8 @@ class TestFileHandlers:
             old_text="World",
             new_text="Universe"
         )
-        assert "path" in result
+        assert result.is_ok, result.error
+        assert "path" in result.data
         content = test_file.read_text(encoding="utf-8")
         assert "Universe" in content
         assert "World" not in content
@@ -172,7 +181,8 @@ class TestFileHandlers:
             path=str(test_file),
             content="New file content"
         )
-        assert "path" in result
+        assert result.is_ok, result.error
+        assert "path" in result.data
         assert test_file.read_text(encoding="utf-8") == "New file content"
 
     def test_file_insert_handler(self, test_dir):
@@ -186,7 +196,8 @@ class TestFileHandlers:
             line=1,  # Insert at index 1 (between line1 and line3)
             text="line2"
         )
-        assert "path" in result
+        assert result.is_ok, result.error
+        assert "path" in result.data
         content = test_file.read_text(encoding="utf-8")
         assert "line1" in content
         assert "line2" in content
@@ -203,7 +214,8 @@ class TestFileHandlers:
             start_line=1,  # Delete index 1 (line2) to index 3 (exclusive, so includes line3)
             end_line=3
         )
-        assert "path" in result
+        assert result.is_ok, result.error
+        assert "path" in result.data
         content = test_file.read_text(encoding="utf-8")
         assert "line1" in content
         assert "line4" in content
@@ -237,9 +249,10 @@ class TestGlobGrepHandlers:
             os.chdir(str(test_dir))
             runtime = CodingRuntime()  # Initialize AFTER changing CWD
             result = runtime._glob_handler(pattern="*.txt")
-            assert "files" in result
-            assert len(result["files"]) >= 1
-            assert any("test1.txt" in f for f in result["files"])
+            assert result.is_ok, result.error
+            assert "files" in result.data
+            assert len(result.data["files"]) >= 1
+            assert any("test1.txt" in f for f in result.data["files"])
         finally:
             os.chdir(old_cwd)
 
@@ -251,8 +264,9 @@ class TestGlobGrepHandlers:
             os.chdir(str(test_dir))
             runtime = CodingRuntime()  # Initialize AFTER changing CWD
             result = runtime._glob_handler(pattern="**/*.txt")
-            assert "files" in result
-            assert len(result["files"]) >= 1
+            assert result.is_ok, result.error
+            assert "files" in result.data
+            assert len(result.data["files"]) >= 1
         finally:
             os.chdir(old_cwd)
 
@@ -264,8 +278,9 @@ class TestGlobGrepHandlers:
             os.chdir(str(test_dir))
             runtime = CodingRuntime()  # Initialize AFTER changing CWD
             result = runtime._grep_handler(pattern="content")
-            assert "matches" in result
-            assert len(result["matches"]) >= 1
+            assert result.is_ok, result.error
+            assert "matches" in result.data
+            assert len(result.data["matches"]) >= 1
         finally:
             os.chdir(old_cwd)
 
@@ -281,8 +296,9 @@ class TestGlobGrepHandlers:
                 literal=True,
                 include="*.txt"  # Search in .txt files
             )
-            assert "matches" in result
-            assert len(result["matches"]) >= 1
+            assert result.is_ok, result.error
+            assert "matches" in result.data
+            assert len(result.data["matches"]) >= 1
         finally:
             os.chdir(old_cwd)
 
@@ -297,9 +313,10 @@ class TestGlobGrepHandlers:
                 pattern="content",
                 include="*.py"
             )
-            assert "matches" in result
+            assert result.is_ok, result.error
+            assert "matches" in result.data
             # Should only match .py files
-            for match in result["matches"]:
+            for match in result.data["matches"]:
                 assert ".py" in match.get("file", "")
         finally:
             os.chdir(old_cwd)
@@ -329,8 +346,10 @@ class TestGitHandlers:
         """Test git_status handler"""
         runtime = CodingRuntime()
         result = runtime._git_status_handler(path=str(git_repo))
-        assert isinstance(result, dict)
-        assert "has_changes" in result or "files" in result
+        assert result.is_ok, result.error
+        data = result.data
+        assert isinstance(data, dict)
+        assert "has_changes" in data or "files" in data
 
     def test_git_diff_handler(self, git_repo):
         """Test git_diff handler"""
@@ -340,14 +359,16 @@ class TestGitHandlers:
 
         runtime = CodingRuntime()
         result = runtime._git_diff_handler(path=str(git_repo))
-        assert isinstance(result, dict)
+        assert result.is_ok, result.error
+        assert isinstance(result.data, dict)
 
     def test_git_log_handler(self, git_repo):
         """Test git_log handler"""
         runtime = CodingRuntime()
         result = runtime._git_log_handler(path=str(git_repo), count=5)
-        assert isinstance(result, dict)
-        assert "commits" in result
+        assert result.is_ok, result.error
+        assert isinstance(result.data, dict)
+        assert "commits" in result.data
 
     def test_git_blame_handler(self, git_repo):
         """Test git_blame handler"""
@@ -357,7 +378,8 @@ class TestGitHandlers:
             file_path=str(test_file),
             cwd=str(git_repo)
         )
-        assert isinstance(result, dict)
+        assert result.is_ok, result.error
+        assert isinstance(result.data, dict)
 
 
 class TestAstHandlers:

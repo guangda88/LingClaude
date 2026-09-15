@@ -122,7 +122,6 @@ BASELINE_SYS_PATH = 14
                      # 3 个跨仓 src. 导入（lingtongask 可选依赖，fail-closed 必须函数内）
                      # + engine.mcp_client（S3 倒装例外），均为合法必需懒加载。
 BASELINE_LAZY = 424
-BASELINE_DICT_ERR = 52
 
 
 def _py_files(root: Path):
@@ -164,16 +163,25 @@ def _count_lazy() -> int:
     return cnt
 
 
-def _count_dict_error() -> list[str]:
+def _count_dict_error_handlers() -> list[str]:
+    """J1 全链路强制（2026-09-16，G4 换代）：扫描全部 tool_handlers/ 目录，
+    handler 内 `return {"error"...}` / `return {"success": False, "error"...}`
+    / `return {"ok": False, "error"...}` 裸判错 = 红灯（应返回 ToolResult.err）。
+
+    旧版只数 engine/ 裸 dict ≤ 基线 52，新增被吞进基线永不红（审计 P2 落空）；
+    现改为强制 handler 边界返回 ToolResult —— 迁移完成后（12 handler 全绿）
+    该清单归零即锁死，任何新增裸判错立即红灯。
+    """
     hits = []
-    for f in _py_files(SRC / "engine"):
-        for i, ln in enumerate(
-            f.read_text(encoding="utf-8").splitlines(), 1
-        ):
+    handlers_dir = SRC / "engine" / "tool_handlers"
+    if not handlers_dir.exists():
+        return hits
+    for f in sorted(handlers_dir.rglob("*.py")):
+        if "__pycache__" in f.parts:
+            continue
+        for i, ln in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
             s = ln.strip()
-            if s.startswith('return {"error"') or s.startswith(
-                "return {'error'"
-            ):
+            if s.startswith('return {"error"') or s.startswith("return {'error'"):
                 hits.append(f"{_label(f)}:{i}")
     return hits
 
@@ -320,10 +328,17 @@ def test_g10_no_private_media_access():
 
 
 def test_g4_no_new_dict_error_returns():
-    hits = _count_dict_error()
-    assert len(hits) <= BASELINE_DICT_ERR, (
-        f"工具层 dict-判错 基线 {BASELINE_DICT_ERR} 被突破({len(hits)}): "
-        + ", ".join(hits[len(hits) - 5:])
+    """G4（换代）：J1 全链路强制 —— 工具 handler 不得返回裸 dict 判错。
+
+    2026-09-16 (J5 守卫换代，审计 P2)：旧版数 `engine/` 裸 dict ≤ 基线 52，
+    新增会被吞进基线永不红（「禁新增」落空）。现改为扫描全部 tool_handlers/：
+      - handler 内 `return {"error"...}` 裸判错 = 红灯（应 ToolResult.err）
+      - 迁移完成后该清单归零即锁死（只缩不放）
+    """
+    hits = _count_dict_error_handlers()
+    assert not hits, (
+        "G4 违规：tool_handlers/ 存在裸 dict 判错（应返回 ToolResult.err，"
+        "见 lingclaude/core/types.py ToolResult）:\n  " + "\n  ".join(hits)
     )
 
 

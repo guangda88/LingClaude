@@ -269,7 +269,22 @@ class ToolPipeline:
                 ctx.error_msg = str(res.error)
                 ctx.raw_result = None
             else:
-                ctx.raw_result = res.data
+                # J1 全链路强制（2026-09-16）：handler 返回 ToolResult 时，
+                # _dispatch_with_timeout 已包 Result.ok(ToolResult)，此处解包语义：
+                # 内层 is_error → 置错；内层 ok → raw_result = data（不再包 {"result": ToolResult}）。
+                # 仅剥一层 ToolResult（handler 直接返回 ToolResult 的场景），
+                # 普通 dict/list 不受影响（走 else 原样）。
+                _raw = res.data
+                if isinstance(_raw, ToolResult):
+                    if _raw.is_error:
+                        assert _raw.error is not None
+                        ctx.is_error = True
+                        ctx.error_msg = _raw.error.message
+                        ctx.raw_result = None
+                    else:
+                        ctx.raw_result = _raw.data
+                else:
+                    ctx.raw_result = _raw
         except Exception as e:
             ctx.is_error = True
             ctx.error_msg = f"Tool execution failed: {e}"
@@ -360,6 +375,9 @@ class ToolPipeline:
 
         def _run() -> None:
             try:
+                # J1 全链路强制（2026-09-16）：handler 一律返回 ToolResult。
+                # 这里仍包 Result.ok 保持本层契约（超时/异常外不抛），
+                # 语义解包在 execute() 里做（见 res.data 的 ToolResult 处理）。
                 holder["result"] = Result.ok(handler(**args))
             except Exception as e:  # noqa: BLE001 — handler 异常转为 Result.fail
                 holder["error"] = e

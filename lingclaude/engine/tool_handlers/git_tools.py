@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from lingclaude.core.types import ToolResult
 from lingclaude.engine.git import (
     git_blame,
     git_diff,
@@ -17,11 +18,11 @@ from lingclaude.engine.git import (
 class GitToolsMixin:
     """git_status / git_diff / git_log / git_blame / git_push / git_push_preflight（依赖 engine.git 模块函数）。"""
 
-    def _git_status_handler(self, path: str = ".", **_kwargs: Any) -> dict[str, Any]:
+    def _git_status_handler(self, path: str = ".", **_kwargs: Any) -> ToolResult[dict[str, Any]]:
         result = git_status(path)
         if result.is_error:
-            return {"error": result.error}
-        return result.data
+            return ToolResult.err(str(result.error), tool_name="git_status")
+        return ToolResult.ok(result.data)
 
     def _git_diff_handler(
         self,
@@ -30,11 +31,11 @@ class GitToolsMixin:
         staged: bool = False,
         stat: bool = False,
         **_kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         result = git_diff(path, target=target, staged=staged, stat=stat)
         if result.is_error:
-            return {"error": result.error}
-        return result.data
+            return ToolResult.err(str(result.error), tool_name="git_diff")
+        return ToolResult.ok(result.data)
 
     def _git_log_handler(
         self,
@@ -42,11 +43,11 @@ class GitToolsMixin:
         count: int = 10,
         follow: str | None = None,
         **_kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         result = git_log(path, count=count, follow=follow)
         if result.is_error:
-            return {"error": result.error}
-        return result.data
+            return ToolResult.err(str(result.error), tool_name="git_log")
+        return ToolResult.ok(result.data)
 
     def _git_blame_handler(
         self,
@@ -55,11 +56,11 @@ class GitToolsMixin:
         start_line: int | None = None,
         end_line: int | None = None,
         **_kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         result = git_blame(file_path, cwd=cwd, start_line=start_line, end_line=end_line)
         if result.is_error:
-            return {"error": result.error}
-        return result.data
+            return ToolResult.err(str(result.error), tool_name="git_blame")
+        return ToolResult.ok(result.data)
 
     def _git_push_handler(
         self,
@@ -69,16 +70,16 @@ class GitToolsMixin:
         force: bool = False,
         timeout: int = 120,
         **_kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         """专用 git push：参数化构造（防注入）+ remote/branch 白名单。"""
         result = git_push(path=path, remote=remote, branch=branch, force=force, timeout=timeout)
         if result.is_error:
-            return {"error": result.error}
-        return result.data
+            return ToolResult.err(str(result.error), tool_name="git_push")
+        return ToolResult.ok(result.data)
 
-    def _git_push_preflight_handler(self, path: str = ".", **_kwargs: Any) -> dict[str, Any]:
+    def _git_push_preflight_handler(self, path: str = ".", **_kwargs: Any) -> ToolResult[dict[str, Any]]:
         """push 前置预检：remote / 未推送提交 / 门禁状态 / 工作区。"""
         result = git_push_preflight(path=path)
         if result.is_error:
-            return {"error": result.error}
-        return result.data
+            return ToolResult.err(str(result.error), tool_name="git_push_preflight")
+        return ToolResult.ok(result.data)

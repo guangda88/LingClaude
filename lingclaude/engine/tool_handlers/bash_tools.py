@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from lingclaude.core.types import ToolResult
+
 
 # 路径形 token 提取正则——单一来源，两个 handler 共用，禁止二次分叉。
 # 修复 2026-09-12（codex 审计 P0-2）：_bash_lingxi_handler 此前用了非 raw string
@@ -35,31 +37,41 @@ def _check_sensitive_in_command(command: str) -> tuple[str | None, str | None]:
 class BashToolsMixin:
     """bash / bash_lingxi 工具 handler（依赖 self.bash / self.bash_lingxi）。"""
 
-    def _bash_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
+    def _bash_handler(self, command: str, **_kwargs: Any) -> ToolResult[dict[str, Any]]:
         # T0-2: sensitive_path_gate 检查 bash 命令中的路径
         blocked, reason = _check_sensitive_in_command(command)
         if blocked:
-            return {"error": f"Path blocked by sensitive_path_gate in command: {blocked} ({reason})"}
+            return ToolResult.err(
+                f"Path blocked by sensitive_path_gate in command: {blocked} ({reason})",
+                tool_name="bash",
+            )
         result = self.bash.run(command)
-        return {
-            "exit_code": result.exit_code,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "duration": result.duration,
-        }
+        return ToolResult.ok(
+            {
+                "exit_code": result.exit_code,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "duration": result.duration,
+            }
+        )
 
-    def _bash_lingxi_handler(self, command: str, **_kwargs: Any) -> dict[str, Any]:
+    def _bash_lingxi_handler(self, command: str, **_kwargs: Any) -> ToolResult[dict[str, Any]]:
         # P0 安全对齐(2026-09-11): 此前 bash_lingxi handler 无 sensitive_path_gate
         # 也无默认黑名单, 是全工具面最明显的安全旁路(codex 审计命中)。
         # 现与 _bash_handler 走同一套敏感路径检查(credential exfiltration 防御)。
         blocked, reason = _check_sensitive_in_command(command)
         if blocked:
-            return {"error": f"Path blocked by sensitive_path_gate in command: {blocked} ({reason})"}
+            return ToolResult.err(
+                f"Path blocked by sensitive_path_gate in command: {blocked} ({reason})",
+                tool_name="bash_lingxi",
+            )
 
         result = self.bash_lingxi.run(command)
-        return {
-            "exit_code": result.exit_code,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "duration": result.duration,
-        }
+        return ToolResult.ok(
+            {
+                "exit_code": result.exit_code,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "duration": result.duration,
+            }
+        )

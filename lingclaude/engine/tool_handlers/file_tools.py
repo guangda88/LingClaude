@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.types import ToolResult
+
 
 class FileToolsMixin:
     """read / write / edit / file_create / file_insert / file_delete_lines / file_undo。
@@ -42,26 +44,26 @@ class FileToolsMixin:
         limit: int | None = None,
         line_numbers: bool = True,
         **_kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         # T0-2: sensitive_path_gate 检查（带 T0-3 审批逃生门）
         gated = self._gate_sensitive("read", path)
         if gated:
-            return {"error": gated}
+            return ToolResult.err(gated, tool_name="read")
         result = self.file_read.read(path, offset=offset, limit=limit, line_numbers=line_numbers)
         if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
+            return ToolResult.err(str(result.error), tool_name="read")
+        return ToolResult.ok(result.data.to_dict())
 
     def _write_handler(
         self, path: str, content: str, **_kwargs: Any
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         denied = self._write_allowed(path)
         if denied:
-            return {"error": denied}
+            return ToolResult.err(denied, tool_name="write")
         result = self.file_ops.write(path, content)
         if result.is_error:
-            return {"error": result.error}
-        return {"path": result.data}
+            return ToolResult.err(str(result.error), tool_name="write")
+        return ToolResult.ok({"path": result.data})
 
     def _edit_handler(
         self,
@@ -70,50 +72,50 @@ class FileToolsMixin:
         new_text: str,
         replace_all: bool = False,
         **_kwargs: Any,
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         denied = self._write_allowed(path)
         if denied:
-            return {"error": denied}
+            return ToolResult.err(denied, tool_name="edit")
         result = self.file_edit.replace(path, old_text, new_text, replace_all)
         if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
+            return ToolResult.err(str(result.error), tool_name="edit")
+        return ToolResult.ok(result.data.to_dict())
 
     def _file_create_handler(
         self, path: str, content: str, **_kwargs: Any
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         denied = self._write_allowed(path)
         if denied:
-            return {"error": denied}
+            return ToolResult.err(denied, tool_name="file_create")
         result = self.file_edit.create(path, content)
         if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
+            return ToolResult.err(str(result.error), tool_name="file_create")
+        return ToolResult.ok(result.data.to_dict())
 
     def _file_insert_handler(
         self, path: str, line: int, text: str, **_kwargs: Any
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         denied = self._write_allowed(path)
         if denied:
-            return {"error": denied}
+            return ToolResult.err(denied, tool_name="file_insert")
         result = self.file_edit.insert(path, line, text)
         if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
+            return ToolResult.err(str(result.error), tool_name="file_insert")
+        return ToolResult.ok(result.data.to_dict())
 
     def _file_delete_lines_handler(
         self, path: str, start_line: int, end_line: int, **_kwargs: Any
-    ) -> dict[str, Any]:
+    ) -> ToolResult[dict[str, Any]]:
         denied = self._write_allowed(path)
         if denied:
-            return {"error": denied}
+            return ToolResult.err(denied, tool_name="file_delete_lines")
         result = self.file_edit.delete_lines(path, start_line, end_line)
         if result.is_error:
-            return {"error": result.error}
-        return result.data.to_dict()
+            return ToolResult.err(str(result.error), tool_name="file_delete_lines")
+        return ToolResult.ok(result.data.to_dict())
 
-    def _file_undo_handler(self, path: str, **_kwargs: Any) -> dict[str, Any]:
+    def _file_undo_handler(self, path: str, **_kwargs: Any) -> ToolResult[dict[str, Any]]:
         result = self.file_edit.undo(path)
         if result.is_error:
-            return {"error": result.error}
-        return {"result": result.data}
+            return ToolResult.err(str(result.error), tool_name="file_undo")
+        return ToolResult.ok({"result": result.data})

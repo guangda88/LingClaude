@@ -175,12 +175,30 @@ class ToolResult(Generic[T]):
         )
 
 
+def _unwrap_nested_tool_result(tr: ToolResult[Any]) -> ToolResult[Any]:
+    """递归解包嵌套 ToolResult（handler 返回 ToolResult 又经 Result.ok 中转的场景）。
+
+    J1 全链路强制（2026-09-16）：handler 一律返回 ToolResult 后，消费链路
+    （tool_pipeline._dispatch_with_timeout / tools.execute）会做 `Result.ok(handler(...))`
+    包装，产生 `Result.ok(ToolResult)` → `ToolResult.ok(data=ToolResult)` 的嵌套。
+    若不解包，内层错误语义会被外层 ok 吞掉。此函数递归剥到最内层非 ToolResult。
+    """
+    while isinstance(tr, ToolResult):
+        if tr.is_error:
+            return tr
+        if isinstance(tr.data, ToolResult):
+            tr = tr.data
+            continue
+        return tr
+    return tr
+
+
 def parse_tool_result(value: Any, tool_name: str = "") -> ToolResult[Any]:
     """统一解析层：任意工具返回值 → ToolResult。
 
     接受:
-      - ToolResult（原样返回）
-      - Result（泛型成功/失败）
+      - ToolResult（原样返回；嵌套 ToolResult 递归解包）
+      - Result（泛型成功/失败；data 为 ToolResult 时解包）
       - dict（含 "error" 键视为失败，否则成功）
       - ToolError（直接失败）
       - 其他任意值（成功包裹）
@@ -189,7 +207,7 @@ def parse_tool_result(value: Any, tool_name: str = "") -> ToolResult[Any]:
     统一经此归一化，杜绝 `'"error"' in json` 字符串探测。
     """
     if isinstance(value, ToolResult):
-        return value
+        return _unwrap_nested_tool_result(value)
     if isinstance(value, ToolError):
         return ToolResult.err(
             value.message,
@@ -198,7 +216,8 @@ def parse_tool_result(value: Any, tool_name: str = "") -> ToolResult[Any]:
             detail=value.detail,
         )
     if isinstance(value, Result):
-        return ToolResult.from_result(value, tool_name)
+        inner = ToolResult.from_result(value, tool_name)
+        return _unwrap_nested_tool_result(inner)
     if isinstance(value, dict):
         return ToolResult.from_dict(value, tool_name)
     return ToolResult.ok(value)
