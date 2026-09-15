@@ -8,6 +8,7 @@ from lingclaude.core.gray_zone import gray_zone_escalate
 from lingclaude.core.model_call import _ToolLoopDetector
 from lingclaude.core.permissions import PermissionStore
 from lingclaude.core.session_runtime import SessionRuntime
+from lingclaude.engine.sensitive_path_gate import is_readonly_bash_command
 from lingclaude.engine.tool_registration import register_all_tools
 from lingclaude.self_optimizer import (
     OptimizationAdvisor,
@@ -292,7 +293,7 @@ class CodingRuntime(
             return GuardDecision(decision="deny", reason=err)
         return GuardDecision(decision="abstain")
 
-    def _tool_blocked(self, tool_name: str, store: Any, active_mode: str) -> bool:
+    def _tool_blocked(self, tool_name: str, store: Any, active_mode: str, kwargs: dict[str, Any] | None = None) -> bool:
         """权限判定（P0 主链统一 2026-09-12 提取，供 execute_tool 与 ToolExecutor 快路径共用）。
 
         注意（harness fix 2026-09-02）：原 `store.blocks(tool_name)` 在
@@ -320,13 +321,21 @@ class CodingRuntime(
             if blocked:
                 rule_id = "strict_mode.non_readonly"
         elif active_mode == "ask" and self._tool_scope(tool_name) != "read":
-            # H2 灰区：ask 模式下写/执行域工具需人工审批 — 拦截并转灰区
-            # （escalate 在 execute_tool 层做，此处仅判定 + rule_id 供台账统计）。
-            # 判定用 security_scope 而非 READ_ONLY_TOOLS 名单：plan_mode 等
-            # read 域工具（虽不在名单）必须始终可进入，不落入灰区。
-            blocked = not allowed
-            if blocked:
-                rule_id = "ask_mode.pending_approval"
+            # 2026-09-15 修复: bash 整体是 execute 域，ask 下一律进灰区导致
+            # ps/ls/git status 等只读命令全被拦。按命令内容白名单放行
+            # （fail-closed：不在名单仍拦）；敏感路径由 sensitive_path_gate 单独拦。
+            if tool_name in ("bash", "bash_lingxi"):
+                cmd = str(kwargs.get("command", ""))
+                if is_readonly_bash_command(cmd):
+                    blocked = False
+                else:
+                    blocked = not allowed
+                    if blocked:
+                        rule_id = "ask_mode.pending_approval"
+            else:
+                blocked = not allowed
+                if blocked:
+                    rule_id = "ask_mode.pending_approval"
         # R2：把 denial 喂给 DataFlywheel（不造新文件），让"同类 denial"
         # 统计可查（SYSTEMS_THEORY §一.4 摩擦台账 + R1 熔断前置）。
         # 5b：按 rule_id 喂 _ToolLoopDetector 熔断（执行层硬规则,非推理层）。
@@ -355,12 +364,12 @@ class CodingRuntime(
                 pass
         return blocked
 
-    def _blocks(self, tool_name: str) -> bool:
+    def _blocks(self, tool_name: str, kwargs: dict[str, Any] | None = None) -> bool:
         """权限判定入口（ToolExecutor 快路径预检复用；模式/store 实时读取）。"""
         from lingclaude.core.permissions import get_permission_mode, get_permission_store
 
         store = get_permission_store(getattr(self.config, "session_id", "default"))
-        return self._tool_blocked(tool_name, store, get_permission_mode())
+        return self._tool_blocked(tool_name, store, get_permission_mode(), kwargs)
 
     def _tool_scope_is_readonly(self, tool_name: str) -> bool:
         """工具是否只读域（security_scope == 'read'）— 灰区 escalate 只针对写/执行域。"""
@@ -444,7 +453,7 @@ class CodingRuntime(
         active_mode = get_permission_mode()
 
         def _blocks(tool_name: str) -> bool:
-            return self._tool_blocked(tool_name, store, active_mode)
+            return self._tool_blocked(tool_name, store, active_mode, kwargs)
 
         result = self.tool_pipeline.execute(
             name,

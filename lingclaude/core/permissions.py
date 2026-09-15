@@ -14,19 +14,15 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "cat", "view", "search", "list", "stat", "wc",
 })
 
-# R5 阶段2:resume 时需要用户二次确认的副作用工具（写/编辑/执行/网络）。
-# 集合与 READ_ONLY_TOOLS 互斥——理论上 = 全局工具名 \\ READ_ONLY_TOOLS,但
-# 显式列出更可读、误加新只读工具时不会自动降级为副作用。
+# R5 阶段2:resume 时需二次确认的副作用工具（与 READ_ONLY_TOOLS 互斥，显式列出防误降级）。
 SIDE_EFFECT_TOOLS: frozenset[str] = frozenset({
     "write", "edit", "bash", "rm", "mv", "cp",
     "curl", "wget", "ssh", "git", "python", "apply_patch",
     "request_user_input", "plan_mode",
 })
 
-# ── H1 (2026-09-15): 动作闸门常量单源 — 原 guard.py 定义迁移至此，guard 引用别名。
-# 只读名单唯一真源 = READ_ONLY_TOOLS（guard.READ_ONLY_ACTIONS 为其别名）。
+# ── H1 (2026-09-15): 动作闸门常量单源（guard 引用别名；只读真源=READ_ONLY_TOOLS）。
 VALID_MODES: tuple[str, ...] = ("auto", "ask", "strict")
-
 # ask 模式下待审批动作的落盘位置 (相对 CWD)
 PENDING_LOG_PATH: Path = Path(".lingclaude") / "guard_pending.jsonl"
 
@@ -43,16 +39,12 @@ REASON_AUTO = "auto_mode_pass"
 REASON_NEED_APPROVAL = "requires_approval"
 REASON_PENDING = "pending approval"
 
-
 @dataclass(frozen=True)
 class PermissionContext:
     deny_names: frozenset[str] = field(default_factory=frozenset)
     deny_prefixes: tuple[str, ...] = ()
     auto_approve_names: frozenset[str] = field(default_factory=lambda: READ_ONLY_TOOLS)
-    # T1-2: permission mode — auto / ask / strict
-    # auto:  非 deny 工具全部自动放行（含写工具）
-    # ask:   写工具需审批，读工具自动放行（默认）
-    # strict: 非 auto_approve 工具一律需审批
+    # T1-2: permission mode — auto(非deny全放行含写) / ask(写需审批,默认) / strict(非auto_approve需审批)
     mode: str = "ask"
 
     @classmethod
@@ -224,7 +216,7 @@ _STORES: dict[str, PermissionStore] = {}
 _STORES_LOCK = threading.Lock()
 _PERSIST_PATH = Path(__file__).resolve().parent.parent / "data" / "approvals.json"
 _PERSISTED_TOOLS: set[str] = set()
-# T1-2 深化: 全局 permission mode — auto/ask/strict，webUI 可读可设，落同一 JSON
+# T1-2: 全局 permission mode — auto/ask/strict（webUI 可读可设，落同一 JSON）
 _GLOBAL_MODE: str = "ask"
 
 
@@ -252,15 +244,19 @@ def set_permission_mode(mode: str) -> bool:
 
 
 def _load_persisted() -> None:
+    global _GLOBAL_MODE  # 2026-09-15 修复: 缺此声明，赋值成局部变量，mode 永远停在默认 ask
     try:
         if _PERSIST_PATH.exists():
             data = json.loads(_PERSIST_PATH.read_text(encoding="utf-8"))
             _PERSISTED_TOOLS.update(str(t).lower() for t in data.get("always_allow", []))
-            mode = data.get("mode")
-            if mode in ("auto", "ask", "strict"):
-                _GLOBAL_MODE = mode
+            if data.get("mode") in ("auto", "ask", "strict"):
+                _GLOBAL_MODE = data["mode"]
     except Exception as e:  # noqa: BLE001 — 持久化文件损坏不应阻塞启动
         logger.warning("approvals.json 读取失败: %s", e)
+    if _GLOBAL_MODE == "ask":  # 2026-09-15 修复: 兜底读 config.yaml（启动链此前从不读）
+        import os as _os
+        from lingclaude.core.guard import load_approval_mode
+        _GLOBAL_MODE = load_approval_mode(Path(_os.environ.get("LINGCLAUDE_CONFIG") or "config.yaml"))
 
 
 _load_persisted()
