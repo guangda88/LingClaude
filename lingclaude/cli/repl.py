@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from lingclaude.cli.commands import SLASH_COMPLETER_WORDS, SlashCommandProcessor
 from lingclaude.cli.display import SessionSummary
@@ -190,6 +190,45 @@ def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
         )
     except Exception:  # noqa: BLE001
         pass
+
+
+def _is_full_tui_session(session: Any) -> bool:
+    """是否为 P2 全屏 TUI 会话（Q4）。
+
+    全屏 Application 独占 stdin，Esc 归输入框编辑；调用方据此跳过
+    Esc 监听线程 / pump（避免 termios 抢占与双读者冲突）。导入失败
+    一律按非全屏处理（降级 P1 形态）。
+    """
+    try:
+        from lingclaude.cli.full_tui import FullTuiSession
+
+        return isinstance(session, FullTuiSession)
+    except Exception:  # noqa: BLE001 — 导入失败按非全屏处理
+        return False
+
+
+def _full_tui_output_source(engine: Any) -> Callable[[], list[str]]:
+    """构造全屏 TUI 输出窗内容源（会话历史行，用户/助手前缀）。
+
+    从 engine._messages 取用户/助手消息文本；无角色标签时按原样追加。
+    闭包内 getattr 防御：消息可能是对象（.role/.content）或 dict。
+    """
+    def _source() -> list[str]:
+        lines: list[str] = []
+        for msg in getattr(engine, "_messages", []) or []:
+            role = str(getattr(msg, "role", "") or (msg.get("role") if isinstance(msg, dict) else ""))
+            text = str(getattr(msg, "content", "") or (msg.get("content") if isinstance(msg, dict) else ""))
+            if not text:
+                continue
+            if role == "user":
+                lines.append(f"🧑 用户: {text}")
+            elif role == "assistant":
+                lines.append(f"🤖 灵克: {text}")
+            else:
+                lines.append(text)
+        return lines
+
+    return _source
 
 
 def _read_input(ctx: _ReplCtx) -> str:
@@ -488,7 +527,10 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
     # H17-TUI 架构定稿: pump 会话级运行（循环前已 start），生成期继续
     # 收文本入队，中断由 Ctrl+C 承担（pump 线程内 KeyboardInterrupt 清行）。
     # 仅当 pump 不可用（非 PT/非 TTY/pump 已死）时降级 Esc 监听线程。
-    if (_pump_mode and input_pump.dead or not _pump_mode) and sys.stdin.isatty():
+    # P2 全屏 TUI（Q4）：全屏 Application 独占 stdin，Esc 归输入框编辑，
+    # 中断由 Ctrl+C 承担 —— 不启动 Esc 监听（避免 termios 抢占冲突）。
+    _is_full_tui = _is_full_tui_session(session)
+    if not _is_full_tui and (_pump_mode and input_pump.dead or not _pump_mode) and sys.stdin.isatty():
         _esc_thread = threading.Thread(
             target=_esc_listen_loop, args=(session, _esc_stop), daemon=True,
         )
@@ -709,6 +751,18 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     session: PromptSessionInterface = create_session(completer=_completer)
     ctx.session = session
 
+    # P2 全屏 TUI（Q4）：注入输出窗内容源（会话历史行）。全屏模式下
+    # pump 自动跳过（FullTuiSession 非 PromptToolkitSession 子类，避免
+    # 双读者：全屏 Application 自身独占 stdin）。输出源取 engine._messages
+    # 的用户/助手消息文本（无角色标签时用前缀区分）。
+    try:
+        from lingclaude.cli.full_tui import FullTuiSession
+
+        if isinstance(session, FullTuiSession):
+            session.install_output_source(_full_tui_output_source(engine))
+    except Exception:  # noqa: BLE001 — 输出源注入失败不影响全屏输入
+        pass
+
     # H17-TUI: 状态栏 + 挂起队列接线 — 设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md
     # 组件（status.py/input_queue.py/interface.py）此前已就绪但从未被接线。
     # 三件套在此构造；仅 TTY+plain 生效，json/jsonl/Fallback 自动降级。
@@ -807,6 +861,9 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
 
         if ctx.queued_next is not None:
             prompt = ctx.queued_next
+            # 2026-09-15 修复: 取用后立即清空，否则同一插队文本被永久重复执行
+            # （P1-1 引入的回归："[排队执行] xxx" 无限循环刷屏）。
+            ctx.queued_next = None
             next_prompt_hint = f"[排队执行] {prompt[:40]}"
             if get_output_format() == "plain":
                 print(next_prompt_hint)

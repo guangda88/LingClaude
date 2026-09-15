@@ -183,20 +183,30 @@ def create_session(completer: Any | None = None) -> PromptSessionInterface:
     """入口选择（优先级从高到低，设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md §九）：
 
     1. LINGCLAUDE_TUI=0   → 强制 Fallback（CI/headless 关 TUI）
-    2. LINGCLAUDE_TUI=1   → TTY+PT 可用时强制启用（覆盖 CLI_MODE=plain）
-    3. LINGCLAUDE_CLI_MODE=plain → Fallback（原有开关）
-    4. 非 TTY / PT 未安装 / PT 构造失败 → Fallback
+    2. LINGCLAUDE_TUI=2   → 强制 P2 全屏 TUI（TTY+PT 可用时；Q4 落地 2026-09-15）
+    3. LINGCLAUDE_TUI=1   → TTY+PT 可用时强制启用（覆盖 CLI_MODE=plain；P1 形态）
+    4. LINGCLAUDE_CLI_MODE=plain → Fallback（原有开关）
+    5. 非 TTY / PT 未安装 / PT 构造失败 → Fallback
     """
     tui_env = os.environ.get("LINGCLAUDE_TUI")
     if tui_env == "0":
         return FallbackSession()
-    if tui_env != "1" and os.environ.get("LINGCLAUDE_CLI_MODE") == "plain":
-        # 未设置 TUI 开关时维持原有 plain 语义；=1 时 plain 被覆盖
+    if tui_env not in ("1", "2") and os.environ.get("LINGCLAUDE_CLI_MODE") == "plain":
+        # 未设置 TUI 开关时维持原有 plain 语义；=1/=2 时 plain 被覆盖
         return FallbackSession()
     if not sys.stdin.isatty():
         return FallbackSession()
     if not _HAS_PROMPT_TOOLKIT:
         return FallbackSession()
+    if tui_env == "2":
+        # P2 全屏 TUI（Q4 落地）：构造失败回退 P1 形态，再失败回退 Fallback。
+        # 全屏模式由 LINGCLAUDE_TUI=2 显式开启 —— 默认路径不受影响（P1 形态）。
+        try:
+            from lingclaude.cli.full_tui import FullTuiSession
+
+            return FullTuiSession(completer=completer)
+        except Exception:  # noqa: BLE001 — 全屏构造失败降级 P1，不崩
+            pass
     try:
         return PromptToolkitSession(completer=completer)
     except RuntimeError:
