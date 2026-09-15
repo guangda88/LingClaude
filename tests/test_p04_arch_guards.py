@@ -244,7 +244,6 @@ J4_STATE_MODULES = [
 # 存量直连登记（审计 J4 痕迹表 + 2026-09-16 实扫；迁移后逐条删除）
 # 只缩不放：收编一条删一条，全部清零即 J4 达标。
 J4_KNOWN_DIRECT = {
-    "core/governance.py": [43, 444],
     "core/meta_cognition.py": [249, 258],
 }
 
@@ -265,6 +264,8 @@ J4_EXPORT_VIEWS = {
     "core/topic_stack.py": [149],
     # reasoning_chain 推理链审计留档（带时间戳不可变记录，dump 导出物；load 为审计回放）
     "core/reasoning_chain.py": [122],
+    # governance gate 审计记录导出物（gate_{ts}.json，规则检查留档供审计）
+    "core/governance.py": [444],
 }
 
 _WRITE_MEDIA_RE = re.compile(
