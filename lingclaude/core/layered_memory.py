@@ -447,6 +447,7 @@ class LayeredMemory:
         working_capacity: int = 24,
         persist_dir: Path | None = None,
         memory_sink: object | None = None,
+        state_store: object | None = None,
     ) -> None:
         self.common = CommonKnowledge(common_extra)
         self.working = WorkingMemory(working_capacity)
@@ -468,6 +469,16 @@ class LayeredMemory:
         else:
             self._meta_path = self._DEFAULT_META_PATH
             self._shared_path = self._DEFAULT_SHARED_PATH
+        # J4 状态归原语：meta/shared 事实走 StateStore 接缝（record_type="memory"），
+        # 文件路径保留为向后兼容兜底（迁移期读旧数据 / 导出物）。
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore(root=persist_dir)
+            except Exception:
+                state_store = None
+        self._state_store = state_store
         self._load_facts()
 
     def inject_common_to_prompt(self) -> str:
@@ -522,8 +533,21 @@ class LayeredMemory:
     def decay(self) -> int:
         return self.experience.decay_all()
 
-    def _save_json(self, path: Path, facts: dict, label: str) -> None:
-        """收敛: _save_meta/_save_shared 逐字重复的落盘骨架（维护点 2→1）。"""
+    def _save_json(self, key: str, facts: dict, label: str) -> None:
+        """收敛: _save_meta/_save_shared 逐字重复的落盘骨架（维护点 2→1）。
+
+        J4 状态归原语：meta/shared 事实写入 StateStore（record_type="memory",
+        key=meta/shared），文件路径保留为向后兼容兜底（导出视图/存量消费）。
+        """
+        # 状态主通道：StateStore
+        if self._state_store is not None:
+            try:
+                self._state_store.save("memory", key, facts, root=self._meta_path.parent)
+                return
+            except Exception as e:
+                logger.warning("StateStore 写入 memory/%s 失败（回退文件）: %s", key, e)
+        # 兼容兜底：写文件
+        path = self._meta_path if key == "meta" else self._shared_path
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
@@ -534,13 +558,24 @@ class LayeredMemory:
             logger.warning("Failed to save %s facts to %s", label, path)
 
     def _save_meta(self) -> None:
-        self._save_json(self._meta_path, self._meta_facts, "meta")
+        self._save_json("meta", self._meta_facts, "meta")
 
     def _save_shared(self) -> None:
-        self._save_json(self._shared_path, self._shared_facts, "shared")
+        self._save_json("shared", self._shared_facts, "shared")
 
     def _load_facts(self) -> None:
-        for path, target in [(self._meta_path, "_meta_facts"), (self._shared_path, "_shared_facts")]:
+        for key, target in [("meta", "_meta_facts"), ("shared", "_shared_facts")]:
+            # 状态主通道：StateStore
+            if self._state_store is not None:
+                try:
+                    data = self._state_store.load("memory", key, root=self._meta_path.parent)
+                    if data is not None and isinstance(data, dict):
+                        setattr(self, target, data)
+                        continue
+                except Exception as e:
+                    logger.warning("StateStore 读取 memory/%s 失败（回退文件）: %s", key, e)
+            # 兼容兜底：读文件（迁移期旧数据）
+            path = self._meta_path if key == "meta" else self._shared_path
             if not path.exists():
                 continue
             try:

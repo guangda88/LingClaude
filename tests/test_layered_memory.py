@@ -543,9 +543,9 @@ class TestLayeredMemory:
         results_after = lm.experience.recall("查询")
         assert results_after[0].recall_count == 1
 
-    def test_meta_memory(self):
+    def test_meta_memory(self, tmp_path):
         """Test meta memory operations"""
-        lm = LayeredMemory()
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.record_meta("擅长领域", "Python编程")
         lm.record_meta("不擅长领域", "机器学习")
 
@@ -553,18 +553,18 @@ class TestLayeredMemory:
         assert lm.get_meta("不擅长领域") == "机器学习"
         assert lm.get_meta("未知") is None
 
-    def test_shared_memory(self):
+    def test_shared_memory(self, tmp_path):
         """Test shared memory operations"""
-        lm = LayeredMemory()
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.record_shared("团队共识", "使用TypeScript")
         lm.record_shared("架构决策", "微服务架构")
 
         assert lm.get_shared("团队共识") == "使用TypeScript"
         assert lm.get_shared("架构决策") == "微服务架构"
 
-    def test_build_context_injection(self):
+    def test_build_context_injection(self, tmp_path):
         """Test building context injection"""
-        lm = LayeredMemory()
+        lm = LayeredMemory(persist_dir=tmp_path)
         lm.record_meta("擅长", "Python")
         lm.record_experience(
             Experience.create(
@@ -612,9 +612,9 @@ class TestLayeredMemory:
         lm.close()
         # Should not raise any exception
 
-    def test_integration(self):
+    def test_integration(self, tmp_path):
         """Test full integration of layered memory"""
-        lm = LayeredMemory()
+        lm = LayeredMemory(persist_dir=tmp_path)
 
         # Record some experiences
         lm.record_experience(
@@ -656,3 +656,42 @@ class TestLayeredMemory:
 
         # Cleanup
         lm.close()
+
+    def test_state_store_seam_meta_and_shared(self, tmp_path):
+        """J4 接缝：meta/shared 事实走 StateStore（record_type=memory），跨实例可读。"""
+        from lingclaude.core.state_store import StateStore
+
+        store = StateStore(root=tmp_path)
+        lm = LayeredMemory(persist_dir=tmp_path, state_store=store)
+        lm.record_meta("擅长领域", "Python编程")
+        lm.record_shared("团队共识", "使用TypeScript")
+
+        # 跨实例重建：事实应从 StateStore 恢复（非文件兜底）
+        lm2 = LayeredMemory(persist_dir=tmp_path, state_store=store)
+        assert lm2.get_meta("擅长领域") == "Python编程"
+        assert lm2.get_shared("团队共识") == "使用TypeScript"
+
+        # 直接验证 StateStore 落盘（record_type="memory", key=meta/shared）
+        from lingclaude.core.state_store import JsonFileBackend
+
+        backend = JsonFileBackend(root=tmp_path)
+        meta = backend.load("memory", "meta", tmp_path)
+        assert meta == {"擅长领域": "Python编程"}
+        shared = backend.load("memory", "shared", tmp_path)
+        assert shared == {"团队共识": "使用TypeScript"}
+
+    def test_state_store_seam_fallback_to_file(self, tmp_path):
+        """J4 接缝：StateStore 不可用/写入失败时回退文件兜底（兼容迁移期存量）。"""
+        class _BrokenStore:
+            def save(self, *a, **k):
+                raise RuntimeError("store down")
+            def load(self, *a, **k):
+                raise RuntimeError("store down")
+
+        lm = LayeredMemory(persist_dir=tmp_path, state_store=_BrokenStore())
+        lm.record_meta("擅长领域", "Python编程")
+        # 文件兜底应落盘（meta_facts.json）
+        assert (tmp_path / "meta_facts.json").exists()
+        # 跨实例：StateStore 不可用时从文件恢复
+        lm2 = LayeredMemory(persist_dir=tmp_path, state_store=_BrokenStore())
+        assert lm2.get_meta("擅长领域") == "Python编程"
