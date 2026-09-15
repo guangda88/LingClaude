@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Generic, TypeVar
+from typing import Any, Callable, Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -228,3 +229,107 @@ def is_tool_error(value: Any) -> bool:
             return any(isinstance(p, dict) and p.get("error") is not None for p in parsed)
         return False
     return False
+
+
+# ---------------------------------------------------------------------------
+# P2 (2026-09-15, lingyuan audit): 工具类型/常量下沉 core — 消灭 core→engine 倒装。
+#
+# 原定义在 engine/tools.py / engine/verification_gate.py / engine/tool_router.py，
+# 被 core 侧 lazy import 反向引用。按"core 持数据/类型、engine 引用 core"正转：
+#   - ToolOutputDefinition / ToolDefinition: 纯数据类（无 engine 依赖）
+#   - WRITE_SCOPED_TOOLS / MAX_TOOLS_PER_REQUEST: 纯常量
+# engine 侧文件改为 re-export（from lingclaude.core.types import ...），
+# 18 处既有调用方（from lingclaude.engine.tools import ToolDefinition）零改动。
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ToolOutputDefinition:
+    """dsh ToolOutputDefinition Python 端实现。
+
+    Attributes:
+        schema: Raw JSON Schema node enforced against successful canonical value.
+        render: Pure projection from validated args+value to model-facing content blocks.
+        presentation_meta: Optional pure projection (UI metadata, replay only top-level).
+    """
+
+    schema: dict[str, Any]
+    render: Callable[[Any, Any], list[dict[str, Any]]]
+    presentation_meta: Callable[[Any, Any], Any] | None = None
+
+
+@dataclass(frozen=True)
+class ToolDefinition:
+    """A registered tool — model schema + canonical output + execution metadata.
+
+    dsh 对位：
+        name + description + parameters  → dsh ToolSchema
+        output → dsh ToolOutputDefinition
+        handler → dsh execute
+        finalize_content → dsh finalizeContent (sync last-mile content invariant)
+        is_concurrency_safe → dsh isConcurrencySafe (around-dispatch decision)
+        present_call / present_result → dsh presentCall/presentResult (UI hooks)
+    """
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    handler: Callable[..., Any] | None = None
+    security_scope: str = "read"
+    output: ToolOutputDefinition | None = None
+    is_concurrency_safe: bool = False
+    finalize_content: Callable[[Any, Any], Any] | None = None
+    present_call: Callable[[Any], Any] | None = None
+    present_result: Callable[[Any, Any], Any] | None = None
+    # T0-8: 显式 required 参数列表（空 = 全部参数视为 required，保持旧行为）。
+    # MCP 工具带完整 JSON Schema 时用它区分可选参数，避免模型被迫填所有参数。
+    required_params: tuple[str, ...] = ()
+    # T1-3 深化: 工具级超时（秒）— None = 用 pipeline 全局默认超时
+    timeout: float | None = None
+    # P1 解耦: handler_name 插片引用 — ToolDefinition 不直接绑定 handler Callable，
+    # 而是通过 HandlerRegistry 按名查找；这样定义（schema）与实现解耦。
+    # 优先级：handler (Callable, 向后兼容) > handler_name (按名查找) > None
+    handler_name: str | None = None
+
+    def __post_init__(self) -> None:
+        # T3 强制化（opencode 架构演进项）：handler 直传已废弃 — 定义（schema）
+        # 与实现（Callable）解耦后，直传使 ToolDefinition 不可序列化/复用。
+        # 迁移路径：register_handler(name, fn) + handler_name=name。
+        # 存量测试/边缘调用方允许 LINGCLAUDE_ALLOW_DIRECT_HANDLER=1 豁免。
+        if self.handler is not None:
+            import os
+            if not os.environ.get("LINGCLAUDE_ALLOW_DIRECT_HANDLER"):
+                warnings.warn(
+                    f"ToolDefinition(handler=...) 已废弃: '{self.name}' 应改用 "
+                    f"register_handler() + handler_name（T3 解耦纪律）",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
+    def to_dict(self) -> dict[str, Any]:
+        d = {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+            "security_scope": self.security_scope,
+            "is_concurrency_safe": self.is_concurrency_safe,
+        }
+        if self.timeout is not None:
+            d["timeout"] = self.timeout
+        if self.output is not None:
+            d["output_schema"] = self.output.schema
+        return d
+
+
+# 工具域白名单 — 写作用域（安全闸门判定用），单源定义，engine 引用 core。
+WRITE_SCOPED_TOOLS = frozenset({
+    "write",
+    "edit",
+    "file_create",
+    "file_insert",
+    "file_delete_lines",
+    "ast_replace",
+})
+
+# 单次工具选择请求的上限（ToolRouter 路由阈值）。
+MAX_TOOLS_PER_REQUEST = 30

@@ -75,7 +75,7 @@ class ToolCallExecutor:
         自动降级为顺序执行并记录警告。
         """
         from lingclaude.core.model_types import ModelMessage, MessageRole
-        from lingclaude.engine.verification_gate import WRITE_SCOPED_TOOLS
+        from lingclaude.core.types import WRITE_SCOPED_TOOLS
 
         engine = self._engine
 

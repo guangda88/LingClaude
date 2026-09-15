@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from lingclaude.core.types import MAX_TOOLS_PER_REQUEST  # noqa: F401 — re-export 单源
 from lingclaude.engine.tools import ToolDefinition
 
 
@@ -56,7 +57,7 @@ class RoutingResult:
 
 
 class ToolRouter:
-    MAX_TOOLS_PER_REQUEST = 30
+    # MAX_TOOLS_PER_REQUEST 已下沉 core.types（单源）— 经模块级 re-export 可见
 
     # Minimal concept seeds — bootstrapping vocabulary, NOT per-tool config.
     # Real vocabulary grows dynamically from tool metadata via _learn().
@@ -109,7 +110,7 @@ class ToolRouter:
     }
 
     def __init__(self, max_tools: int | None = None) -> None:
-        self._max_tools = max_tools or self.MAX_TOOLS_PER_REQUEST
+        self._max_tools = max_tools or MAX_TOOLS_PER_REQUEST
         self._always_include: set[str] = set()
         self._overrides: dict[str, ToolManifest] = {}
         self._vocab: dict[ToolCategory, set[str]] = defaultdict(set, {

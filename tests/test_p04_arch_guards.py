@@ -21,16 +21,17 @@ CORE_ENGINE_WHITELIST = [
     # 2026-09-14 (S2/S3): mcp_tools.py 模块级倒装已清零（原 :11/:12 删除），
     # 改为函数内延迟 import（:36/:65/:66/:102/:126/:127，运行时按需取，主干零持有）。
     # 这是「主干不 import 插片实现」的正解 —— 模块级倒装消除，函数内按需取。
-    "core/mcp_tools.py:36",
+    # 2026-09-15 (P2): A/C 类（ToolDefinition/MAX_TOOLS_PER_REQUEST）已下沉 core.types，
+    # mcp_tools.py :36/:65/:66 三处 engine 引用消除（原 :36 ToolRouter、:65 ToolDefinition）；
+    # B 类（mcp_proxy/discover_and_register 运行时单例）保留，行号顺延 1 行：
+    #   :66→:65（mcp_proxy）、:102→:101（mcp_proxy）、:126→:125（discover_and_register）、
+    #   :127→:126（mcp_proxy）。
     "core/mcp_tools.py:65",
-    "core/mcp_tools.py:66",
-    "core/mcp_tools.py:102",
+    "core/mcp_tools.py:101",
+    "core/mcp_tools.py:125",
     "core/mcp_tools.py:126",
-    "core/mcp_tools.py:127",
     "core/wiring.py:148",
     "core/wiring.py:216",
-    "core/tool_call_executor.py:77",
-    "core/tool_call_executor.py:78",
     "core/tool_executor.py:13",
     "core/tool_executor.py:168",
     # 2026-09-13: 补登记 9237537 已入库的合法懒加载（_execute_mcp_tool_typed

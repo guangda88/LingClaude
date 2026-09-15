@@ -11,6 +11,8 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from lingclaude.core.config import VerificationConfig
 
+from lingclaude.core.types import WRITE_SCOPED_TOOLS  # noqa: F401 — re-export 单源
+
 
 @dataclass(frozen=True)
 class VerificationResult:
@@ -213,15 +215,6 @@ class VerificationGate:
     def check_syntax(content: str, filename: str = "<string>") -> dict[str, Any]:
         return VerificationGate._check_syntax(content, filename)
 
-
-WRITE_SCOPED_TOOLS = frozenset({
-    "write",
-    "edit",
-    "file_create",
-    "file_insert",
-    "file_delete_lines",
-    "ast_replace",
-})
 
 CRITICAL_TOOLS = frozenset({
     "bash",

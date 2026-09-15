@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from lingclaude.core.types import MAX_TOOLS_PER_REQUEST, ToolDefinition
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,11 +33,9 @@ class McpToolsMixin:
 
         if not tool_defs:
             return None
-        # S3: 延迟 import —— 消除模块级 core→engine 倒装（主干不 import 插片实现）。
-        # 常量取值轻量（无副作用），仅此处使用；路由本身走 self._tool_router。
-        from lingclaude.engine.tool_router import ToolRouter
-
-        if not query or len(tool_defs) <= ToolRouter.MAX_TOOLS_PER_REQUEST:
+        # S3: 延迟 import 消除 core→engine 倒装 — 常量取值轻量，仅此处使用；
+        # 路由本身走 self._tool_router。MAX_TOOLS_PER_REQUEST 已下沉 core.types。
+        if not query or len(tool_defs) <= MAX_TOOLS_PER_REQUEST:
             return tuple(
                 {
                     "name": t.name,
@@ -62,7 +62,6 @@ class McpToolsMixin:
         return result.tools
 
     def _build_mcp_tool_defs(self) -> list[Any]:
-        from lingclaude.engine.tools import ToolDefinition
         from lingclaude.engine import mcp_proxy
 
         self._ensure_mcp()
