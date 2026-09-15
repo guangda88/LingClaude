@@ -268,16 +268,34 @@ def _cp_to_dict(cp: Checkpoint) -> dict:
 
 
 class HandoverWriter:
-    def __init__(self, handover_dir: Path, member_id: str) -> None:
+    def __init__(self, handover_dir: Path, member_id: str, state_store: Any = None) -> None:
         self.handover_dir = handover_dir
         self.member_id = member_id
         self.json_path = handover_dir / "handover.json"
         self.yaml_path = handover_dir / "handover.yaml"
         self.md_path = handover_dir / "handover.md"
         self._handover: HandoverV2 | None = None
+        # J4 状态归原语：优先注入 StateStore（状态事实走接缝），缺省自建
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore()
+            except Exception:
+                state_store = None
+        self._state_store = state_store
 
     def load_or_create(self) -> HandoverV2:
-        # Prefer yaml over json (全族标准迁移)
+        # J4 主读 StateStore（record_type="handover", key=member_id, root=handover_dir）
+        if self._state_store is not None:
+            try:
+                data = self._state_store.load("handover", self.member_id, root=self.handover_dir)
+                if data is not None:
+                    self._handover = HandoverV2.from_dict(data)
+                    return self._handover
+            except Exception as e:
+                logger.warning("StateStore 读取 handover 失败（回退文件）: %s", e)
+        # 兼容回退：读文件（yaml 优先，json 次之；存量旧数据）
         for path, loader in [(self.yaml_path, self._load_yaml), (self.json_path, self._load_json)]:
             if path.exists():
                 try:
@@ -308,7 +326,14 @@ class HandoverWriter:
             return Result.fail("No handover data to write", code="NO_DATA")
         try:
             self.handover_dir.mkdir(parents=True, exist_ok=True)
-            # Write yaml (primary) and json (backward compat)
+            # J4 状态归原语：状态事实写入 StateStore（record_type="handover", root=handover_dir）
+            if self._state_store is not None:
+                try:
+                    self._state_store.save("handover", self.member_id, self._handover._to_dict(), root=self.handover_dir)
+                except Exception as e:
+                    logger.warning("StateStore 写入 handover 失败: %s", e)
+            # 导出视图：yaml (primary) + json (backward compat) + markdown (for AI)
+            # 三件套为导出物（l5_audit / topic_drift_detector 消费 md），非状态主通道
             self.yaml_path.write_text(self._handover.to_yaml(), encoding="utf-8")
             self.json_path.write_text(self._handover.to_json(), encoding="utf-8")
             self.md_path.write_text(self._handover.to_markdown(), encoding="utf-8")
@@ -358,11 +383,29 @@ class HandoverWriter:
 
 
 class HandoverReader:
-    def __init__(self, handover_dir: Path) -> None:
+    def __init__(self, handover_dir: Path, state_store: Any = None, member_id: str | None = None) -> None:
         self.handover_dir = handover_dir
         self.json_path = handover_dir / "handover.json"
+        self._member_id = member_id
+        # J4 状态归原语：优先注入 StateStore（状态事实走接缝），缺省自建
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore()
+            except Exception:
+                state_store = None
+        self._state_store = state_store
 
     def read(self) -> Result[HandoverV2]:
+        # J4 主读 StateStore（需 member_id 作 key；无 key 时走文件导出物兼容）
+        if self._state_store is not None and self._member_id:
+            try:
+                data = self._state_store.load("handover", self._member_id, root=self.handover_dir)
+                if data is not None:
+                    return Result.ok(HandoverV2.from_dict(data))
+            except Exception as e:
+                logger.warning("StateStore 读取 handover 失败（回退文件）: %s", e)
         if not self.json_path.exists():
             return Result.fail("No handover.json found", code="NOT_FOUND")
         try:

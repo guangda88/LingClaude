@@ -193,12 +193,14 @@ class StateStore:
         dsn: str | None = None,
         dualwrite: bool = False,
         read_from_lingyi: bool = False,
+        root: Path | None = None,
     ) -> None:
         self._backend_name = backend or os.getenv(ENV_BACKEND, "json")
         self._dualwrite = dualwrite or os.getenv("LINGCLAUDE_MEMORY_DUALWRITE") == "1"
         self._read_from_lingyi = read_from_lingyi
+        self._root = root  # 可注入根目录（测试隔离）；None 时 JsonFileBackend 用默认 ~/.lingclaude/state
 
-        self._json_backend = JsonFileBackend()
+        self._json_backend = JsonFileBackend(root=root)
         self._lingyi_backend: LingYiBackend | None = None
 
         if self._backend_name == "lingyi":

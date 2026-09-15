@@ -163,8 +163,15 @@ class TestHandoverV2:
 
 
 class TestHandoverWriter:
+    @staticmethod
+    def _make_writer(tmp_path: Path, member_id: str = "test") -> HandoverWriter:
+        """J4 隔离：显式注入 StateStore(root=tmp_path)，避免缺省自建写全局 ~/.lingclaude/state。"""
+        from lingclaude.core.state_store import StateStore
+
+        return HandoverWriter(tmp_path, member_id=member_id, state_store=StateStore(root=tmp_path))
+
     def test_create_and_write(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         h = writer.load_or_create()
         assert h.member_id == "test"
 
@@ -185,17 +192,17 @@ class TestHandoverWriter:
         assert "test Handover" in md
 
     def test_load_existing(self, tmp_path: Path):
-        writer1 = HandoverWriter(tmp_path, member_id="test")
+        writer1 = self._make_writer(tmp_path)
         writer1.add_task("T1", "task one")
         writer1.write()
 
-        writer2 = HandoverWriter(tmp_path, member_id="test")
+        writer2 = self._make_writer(tmp_path)
         h = writer2.load_or_create()
         assert len(h.user_tasks) == 1
         assert h.user_tasks[0].task_id == "T1"
 
     def test_add_task_auto_writes(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_task("T1", "auto write task", user_raw="raw")
         json_path = tmp_path / "handover.json"
         assert json_path.exists()
@@ -203,14 +210,14 @@ class TestHandoverWriter:
         assert len(data["user_tasks"]) == 1
 
     def test_confirm_task(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_task("T1", "confirm me", user_raw="raw")
         assert writer.confirm_task("T1") is True
         assert writer.handover.user_tasks[0].user_confirmed is True
         assert writer.confirm_task("NONEXIST") is False
 
     def test_complete_task(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_task("T1", "complete me")
         assert writer.complete_task("T1", output="done.md") is True
         assert len(writer.handover.user_tasks) == 0
@@ -218,14 +225,14 @@ class TestHandoverWriter:
         assert writer.complete_task("NONEXIST") is False
 
     def test_block_task(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_task("T1", "block me")
         assert writer.block_task("T1", reason="waiting") is True
         assert len(writer.handover.blockers) == 1
         assert writer.block_task("NONEXIST") is False
 
     def test_add_discussion(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_discussion("topic A", "context A")
         assert len(writer.handover.pending_discussions) == 1
         json_path = tmp_path / "handover.json"
@@ -233,6 +240,13 @@ class TestHandoverWriter:
 
 
 class TestHandoverReader:
+    @staticmethod
+    def _make_writer(tmp_path: Path, member_id: str = "test") -> HandoverWriter:
+        """J4 隔离：显式注入 StateStore(root=tmp_path)，避免缺省自建写全局 ~/.lingclaude/state。"""
+        from lingclaude.core.state_store import StateStore
+
+        return HandoverWriter(tmp_path, member_id=member_id, state_store=StateStore(root=tmp_path))
+
     def test_read_not_found(self, tmp_path: Path):
         reader = HandoverReader(tmp_path)
         result = reader.read()
@@ -240,7 +254,7 @@ class TestHandoverReader:
         assert result.code == "NOT_FOUND"
 
     def test_read_valid(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_task("T1", "a task")
         writer.write()
 
@@ -251,7 +265,7 @@ class TestHandoverReader:
         assert len(result.data.user_tasks) == 1
 
     def test_has_pending_tasks(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_task("T1", "pending task")
         writer.write()
 
@@ -259,14 +273,14 @@ class TestHandoverReader:
         assert reader.has_pending_tasks() is True
 
     def test_has_pending_tasks_empty(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.write()
 
         reader = HandoverReader(tmp_path)
         assert reader.has_pending_tasks() is False
 
     def test_user_tasks_to_resume(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_task("T1", "user task", source=TaskSource.USER)
         writer.add_task("T2", "self task", source=TaskSource.SELF)
         writer.write()
@@ -277,7 +291,7 @@ class TestHandoverReader:
         assert tasks[0].task_id == "T1"
 
     def test_incomplete_discussions(self, tmp_path: Path):
-        writer = HandoverWriter(tmp_path, member_id="test")
+        writer = self._make_writer(tmp_path)
         writer.add_discussion("open topic", "needs followup")
         writer.write()
 
