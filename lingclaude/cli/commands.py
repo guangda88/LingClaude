@@ -8,12 +8,14 @@ quit_requested 由 nonlocal 改为实例属性（语义不变）。
 
 from typing import Any
 
+import os
+
 from lingclaude.cli.repl_turn import _record_long_task_metrics
 
 # Step 3: Tab 补全清单（F2 修复:删 /undo — handler 缺失不得留在补全里误导用户）
 SLASH_COMPLETER_WORDS = [
     "/help", "/clear", "/compact", "/model", "/schedule", "/lsp",
-    "/resume", "/continue", "/checkpoint", "/recover", "/rewind", "/quit",
+    "/resume", "/continue", "/session", "/checkpoint", "/recover", "/rewind", "/quit",
 ]
 
 
@@ -68,6 +70,11 @@ class SlashCommandProcessor:
             return True
         if name in ("/resume", "/continue"):
             self._cmd_resume(name, arg)
+            return True
+        if name == "/session":
+            # 2026-09-15（会话问题重构 P1-2）: /session 命令 —— 列出当前
+            # 项目会话（带摘要）/ 切换到指定会话。会话按当前工作目录隔离。
+            self._cmd_session(arg)
             return True
         return False
 
@@ -377,21 +384,24 @@ class SlashCommandProcessor:
         # 会话恢复:/resume [ID] 恢复指定会话、/continue 恢复最近一次。
         # 复用启动参数 --resume/--continue 的同一套持久化接口（load_session），
         # 语义与启动时一致：恢复 = 替换当前上下文。
-        sessions = engine.session_manager.list_sessions()
+        # 2026-09-15（会话问题重构 P1-2）: 按当前工作目录过滤 —— 此前
+        # list_sessions() 不带 project_path 取全局，/continue 会跨项目恢复
+        # 别的目录的会话（会话泄露）。现以 os.getcwd() 为项目归属过滤。
+        sessions = engine.session_manager.list_sessions(project_path=os.getcwd())
         if name == "/continue":
             # /continue = 无参恢复最近一次（对齐启动参数 --continue）
             if not sessions:
-                print("[恢复失败] 没有可恢复的历史会话")
+                print("[恢复失败] 没有可恢复的历史会话（当前目录下）")
                 return
             latest = max(sessions, key=lambda s: s.get("created_at", ""))
             target_id = str(latest.get("session_id", ""))
-            print(f"[目标] 最近会话: {target_id}")
+            print(f"[目标] 最近会话: {target_id}（当前目录）")
         elif not arg:
             # /resume 无参 = 列出全部（对齐帮助文本承诺；这是会话 ID 的发现入口）
             if not sessions:
-                print("[会话列表] 无历史会话")
+                print("[会话列表] 无历史会话（当前目录下）")
                 return
-            print(f"[会话列表] 共 {len(sessions)} 个（最近 10 个）：")
+            print(f"[会话列表] 共 {len(sessions)} 个（最近 10 个，当前目录）：")
             for s in sorted(sessions, key=lambda x: x.get("created_at", ""), reverse=True)[:10]:
                 print(f"  - {s.get('session_id')} | {s.get('created_at', '')}")
             return
@@ -410,3 +420,45 @@ class SlashCommandProcessor:
             print(f"[会话已恢复] {target_id}（{len(engine._conversation)} 轮对话；当前上下文已被替换）")
         else:
             print(f"[会话恢复失败] {target_id} 不存在或已损坏（当前上下文未受影响）")
+
+    def _cmd_session(self, arg: str) -> None:
+        """2026-09-15（会话问题重构 P1-2）: /session [list|switch <id>]。
+
+        会话按当前工作目录隔离（P1-2），列表带摘要（前 3 条对话）——
+        快速识别每个会话的内容，替代此前只能靠 session_id 猜。
+        """
+        engine = self.engine
+
+        arg = arg.strip()
+        sessions = engine.session_manager.list_sessions(project_path=os.getcwd())
+
+        if not arg or arg == "list":
+            # /session 或 /session list —— 列出当前项目会话（带摘要）
+            if not sessions:
+                print("[会话列表] 无历史会话（当前目录下）")
+                return
+            print(f"[会话列表] 当前目录共 {len(sessions)} 个（最近 10 个）：")
+            for s in sorted(sessions, key=lambda x: x.get("created_at", ""), reverse=True)[:10]:
+                print(f"  - {s.get('session_id', '')[:8]} | {s.get('summary', '')} | {s.get('created_at', '')}")
+            return
+
+        if arg in ("switch", "sw") and len(arg.split()) < 2:
+            print("[session] 用法: /session switch <session_id> 或 /session <session_id>")
+            return
+
+        # /session switch <id> 或 /session <id> —— 切换到指定会话
+        target_id = arg.split(maxsplit=1)[1] if arg.startswith(("switch", "sw")) else arg
+        target_id = target_id.strip()
+        # 短前缀匹配
+        matches = [s for s in sessions if str(s.get("session_id", "")).startswith(target_id)]
+        if len(matches) == 1:
+            target_id = str(matches[0]["session_id"])
+        elif len(matches) > 1:
+            print(f"[歧义] 有 {len(matches)} 个会话以 {target_id} 开头，请用更长的 ID：")
+            for s in matches[:5]:
+                print(f"  - {s.get('session_id', '')[:8]} | {s.get('summary', '')}")
+            return
+        if engine._session_persister.load_session(target_id):
+            print(f"[会话已切换] {target_id[:8]}（{len(engine._conversation)} 轮对话；当前上下文已替换）")
+        else:
+            print(f"[会话切换失败] {target_id} 不存在或已损坏（当前上下文未受影响）")

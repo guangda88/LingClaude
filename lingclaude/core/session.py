@@ -210,11 +210,22 @@ class SessionManager:
                 continue
             try:
                 data = json.loads(p.read_text())
+                # 2026-09-15（会话问题重构 P1-2）: 摘要字段 —— 取 messages 前
+                # 3 条非空文本拼接，/session list 快速识别会话内容。
+                msgs = data.get("messages", ()) or ()
+                summary_parts: list[str] = []
+                for m in msgs:
+                    if isinstance(m, str) and m.strip() and m.strip()[:1] != "/":
+                        summary_parts.append(m.strip())
+                    if len(summary_parts) >= 3:
+                        break
+                summary = " | ".join(x[:30] for x in summary_parts) or "(空会话)"
                 items.append({
                     "session_id": p.stem,
                     "project_path": data.get("project_path", project_hint),
                     "project_name": data.get("project_name", project_hint or "_default"),
                     "created_at": data.get("created_at", ""),
+                    "summary": summary,
                 })
             except Exception:
                 items.append({
@@ -222,6 +233,7 @@ class SessionManager:
                     "project_path": project_hint,
                     "project_name": project_hint or "_default",
                     "created_at": "",
+                    "summary": "(读取失败)",
                 })
         return items
 

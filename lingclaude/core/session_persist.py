@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +31,12 @@ class SessionPersister:
             messages=tuple(engine._messages),
             input_tokens=engine._usage.input_tokens,
             output_tokens=engine._usage.output_tokens,
+            # 2026-09-15（会话问题重构 P1-2）: 保存带 project_path —— 此前
+            # Session 的 project_path 字段存在但 persist 从不传，导致所有会话
+            # 落 _default/ 目录，跨项目混在一起（-continue 取全局最近）。现
+            # 以 os.getcwd() 为项目归属，list_sessions(project_path) 即可按
+            # 当前目录过滤，杜绝跨项目会话泄露。
+            project_path=os.getcwd(),
         )
         result = engine.session_manager.save(session)
         if result.is_error:

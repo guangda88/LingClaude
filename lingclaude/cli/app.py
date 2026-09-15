@@ -189,7 +189,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     resume_id = getattr(args, "resume", None)
     if resume_id is None and getattr(args, "continue_", False):
-        sessions = engine.session_manager.list_sessions()
+        # 2026-09-15（会话问题重构 P1-2）: --continue 按当前工作目录过滤
+        # —— 此前 list_sessions() 不带 project_path 取全局最近会话，跨项目
+        # 泄露（在 ~/lingflow 的会话被 ~/lingclaude 的 --continue 误恢复）。
+        sessions = engine.session_manager.list_sessions(project_path=os.getcwd())
         if sessions:
             latest = max(sessions, key=lambda s: s.get("created_at", ""))
             resume_id = latest.get("session_id")
