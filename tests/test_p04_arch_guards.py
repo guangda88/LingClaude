@@ -244,7 +244,6 @@ J4_STATE_MODULES = [
 # 存量直连登记（审计 J4 痕迹表 + 2026-09-16 实扫；迁移后逐条删除）
 # 只缩不放：收编一条删一条，全部清零即 J4 达标。
 J4_KNOWN_DIRECT = {
-    "core/session.py": [89, 111, 165, 173, 216, 282],
     "core/governance_verifier.py": [268, 294, 303],
     "core/topic_stack.py": [149, 158],
     "core/reasoning_chain.py": [122, 127],
@@ -261,6 +260,8 @@ J4_EXPORT_VIEWS = {
     "core/handover.py": [337, 338, 339],
     # layered_memory 文件兜底（StateStore 写入失败时的导出物/兼容回退，非状态主通道）
     "core/layered_memory.py": [553],
+    # session 文件仓库导出视图（save 的原子写 + snapshot 导出物；list/rewind 介质）
+    "core/session.py": [110, 186],
 }
 
 _WRITE_MEDIA_RE = re.compile(

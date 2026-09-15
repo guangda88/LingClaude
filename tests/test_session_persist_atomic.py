@@ -75,3 +75,47 @@ class TestEmptySessionSkip:
         sp = SessionPersister(engine)
         result = sp.persist_session()
         assert result.is_ok
+
+    def test_state_store_seam_save_load(self, tmp_path: Path) -> None:
+        """J4 接缝：session save 走 StateStore（record_type=session），跨实例可读。"""
+        from lingclaude.core.state_store import JsonFileBackend, StateStore
+
+        save_dir = tmp_path / "sessions"
+        store = StateStore(root=save_dir)
+        sm = SessionManager(save_dir=save_dir, state_store=store)
+
+        sess = sm.create(messages=("hello", "world"), input_tokens=3, output_tokens=5)
+        result = sm.save(sess)
+        assert result.is_ok
+
+        # StateStore 落盘（record_type="session", key=session_id）
+        backend = JsonFileBackend(root=save_dir)
+        data = backend.load("session", sess.session_id, save_dir)
+        assert data is not None
+        assert data["messages"] == ["hello", "world"]  # JSON 无 tuple，落盘为 list
+
+        # 跨实例：从 StateStore 恢复
+        sm2 = SessionManager(save_dir=save_dir, state_store=store)
+        loaded = sm2.load(sess.session_id)
+        assert loaded.is_ok
+        assert loaded.data.session_id == sess.session_id
+        assert loaded.data.messages == ("hello", "world")
+
+    def test_state_store_seam_fallback_to_file(self, tmp_path: Path) -> None:
+        """J4 接缝：StateStore 不可用时，文件仓库仍可用（导出视图兜底）。"""
+        class _BrokenStore:
+            def save(self, *a, **k):
+                raise RuntimeError("store down")
+
+        save_dir = tmp_path / "sessions"
+        sm = SessionManager(save_dir=save_dir, state_store=_BrokenStore())
+        sess = sm.create(messages=("a", "b"), input_tokens=1, output_tokens=1)
+        result = sm.save(sess)
+        # 文件导出视图仍写成功
+        assert result.is_ok
+        assert (save_dir / f"{sess.session_id}.json").exists()
+        # 跨实例可读（走文件）
+        sm2 = SessionManager(save_dir=save_dir, state_store=_BrokenStore())
+        loaded = sm2.load(sess.session_id)
+        assert loaded.is_ok
+        assert loaded.data.messages == ("a", "b")

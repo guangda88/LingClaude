@@ -57,13 +57,23 @@ def _global_sessions_root() -> Path:
 
 
 class SessionManager:
-    def __init__(self, save_dir: Path | None = None) -> None:
+    def __init__(self, save_dir: Path | None = None, state_store: object | None = None) -> None:
         if save_dir is not None:
             self.save_dir = save_dir
             self._global_mode = False
         else:
             self.save_dir = _global_sessions_root()
             self._global_mode = True
+        # J4 状态归原语：会话事实走 StateStore（record_type="session", key=session_id），
+        # 文件仓库保留为导出视图（list_sessions / snapshot / rewind 的介质）。
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore(root=self.save_dir)
+            except Exception:
+                state_store = None
+        self._state_store = state_store
 
     def _session_path(self, session: Session) -> Path:
         if not self._global_mode:
@@ -81,6 +91,17 @@ class SessionManager:
         try:
             path = self._session_path(session)
             path.parent.mkdir(parents=True, exist_ok=True)
+            # J4 状态归原语：状态事实写 StateStore（record_type="session", key=session_id）
+            if self._state_store is not None:
+                try:
+                    self._state_store.save(
+                        "session", session.session_id,
+                        dict(session.to_dict_redacted()),  # type: ignore[arg-type]
+                        root=self.save_dir,
+                    )
+                except Exception as e:
+                    logger.warning("StateStore 写入 session/%s 失败: %s", session.session_id, e)
+            # 导出视图：文件仓库（list_sessions / snapshot / rewind 的介质）
             # 原子写（tmp + replace）：2026-09-06 发现 7c643abc.json 被截断为
             # 0 字节——write_text 先 truncate 后写，进程恰在写入中被杀即丢档。
             import os
