@@ -16,8 +16,17 @@ logger = logging.getLogger(__name__)
 class SessionRuntime:
     """Encapsulates session runtime logic extracted from QueryEngine."""
 
-    def __init__(self, engine: Any) -> None:
+    def __init__(self, engine: Any, state_store: Any = None) -> None:
         self._engine = engine
+        # I1 状态接缝：优先注入 StateStore；缺省自建（json 后端，旧路径字节级兼容）
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore()
+            except Exception:
+                state_store = None
+        self._state_store = state_store
 
     def log_to_flywheel(
         self,
@@ -93,19 +102,31 @@ class SessionRuntime:
                 }
             blind_spots = engine._meta_cognition._blind_spot_detector.error_patterns
             state["blind_spot_patterns"] = {k: v for k, v in blind_spots.items()}
-            path = self.session_state_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+            if self._state_store is not None:
+                # I1 状态接缝：走 StateStore（json 后端落 ~/.lingclaude/session_state.json，
+                # _LEGACY_PATHS 保证字节级兼容旧路径；lingyi 后端可双写镜像）
+                self._state_store.save("session_state", engine.session_id, state)
+            else:
+                # 兜底：无 StateStore 时保持旧行为（手写 JSON）
+                path = self.session_state_path()
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
             logger.warning("会话状态保存失败: %s", e)
 
     def load_session_state(self) -> None:
         engine = self._engine
         try:
-            path = self.session_state_path()
-            if not path.exists():
-                return
-            data = json.loads(path.read_text(encoding="utf-8"))
+            if self._state_store is not None:
+                # I1 状态接缝：StateStore 读取（json 旧路径兼容 + lingyi 读切期 fallback）
+                data = self._state_store.load("session_state", engine.session_id)
+                if data is None:
+                    return
+            else:
+                path = self.session_state_path()
+                if not path.exists():
+                    return
+                data = json.loads(path.read_text(encoding="utf-8"))
             from lingclaude.core.meta_cognition import _DomainRecord
             if "calibrator_records" in data:
                 for domain, rec_data in data["calibrator_records"].items():

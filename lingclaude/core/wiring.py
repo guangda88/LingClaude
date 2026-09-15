@@ -172,7 +172,9 @@ def _make_session_persister(ctx: WiringContext) -> Any:
 def _make_session_runtime(ctx: WiringContext) -> Any:
     from lingclaude.core.session_runtime import SessionRuntime
 
-    return SessionRuntime(ctx.engine)
+    # I1: 注入共享 state_store（与 engine.state_store 同实例，避免双后端实例写竞争）
+    state_store = getattr(ctx.engine, "state_store", None)
+    return SessionRuntime(ctx.engine, state_store=state_store)
 
 
 def _make_intel_collector(ctx: WiringContext) -> Any:

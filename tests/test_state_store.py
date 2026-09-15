@@ -104,9 +104,12 @@ def test_lingyi_backend_ddl():
     assert "PRIMARY KEY" in source
 
 
-def test_state_store_integration_with_session_runtime():
-    """StateStore 与 SessionRuntime 集成验证。"""
+def test_state_store_integration_with_session_runtime(monkeypatch, tmp_path):
+    """I1: SessionRuntime 的 session_state 读写走 StateStore 接缝（json 后端，旧路径字节级兼容）。"""
+    import json
+
     from lingclaude.core.session_runtime import SessionRuntime
+    import lingclaude.core.state_store as ss_mod
 
     class MockEngine:
         def __init__(self):
@@ -120,22 +123,27 @@ def test_state_store_integration_with_session_runtime():
             self._l1_last_triggered_at = 10
             self.config = type("Config", (), {"structured_output": False})()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        store = StateStore(backend="json")
+    root = tmp_path
+    # I1: session_state 旧路径由 StateStore._LEGACY_PATHS 决定；monkeypatch 到临时目录隔离
+    monkeypatch.setitem(ss_mod._LEGACY_PATHS, "session_state", root / "session_state.json")
 
-        engine = MockEngine()
-        runtime = SessionRuntime(engine)
-        runtime.session_state_path = lambda: root / "session_state.json"
+    engine = MockEngine()
+    store = StateStore(backend="json")
+    runtime = SessionRuntime(engine, state_store=store)
 
-        runtime.save_session_state()
-        path = root / "session_state.json"
-        assert path.exists()
+    runtime.save_session_state()
+    path = root / "session_state.json"
+    assert path.exists()
 
-        engine2 = MockEngine()
-        runtime2 = SessionRuntime(engine2)
-        runtime2.session_state_path = lambda: root / "session_state.json"
-        runtime2.load_session_state()
+    # 写出的文件内容与手写 JSON 结构一致（字节级兼容）
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["behavior"]["score"] == 0.5
+    assert data["total_messages_sent"] == 5
+    assert data["l1_last_triggered_at"] == 10
 
-        assert engine2._total_messages_sent == 5
-        assert engine2._l1_last_triggered_at == 10
+    engine2 = MockEngine()
+    runtime2 = SessionRuntime(engine2, state_store=StateStore(backend="json"))
+    runtime2.load_session_state()
+
+    assert engine2._total_messages_sent == 5
+    assert engine2._l1_last_triggered_at == 10

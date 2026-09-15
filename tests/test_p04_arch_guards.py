@@ -41,7 +41,9 @@ CORE_ENGINE_WHITELIST = [
     # 此前漏登记致 g1 误报（HEAD bd64a11 已含，非本次引入）。
     # 2026-09-14 (S3): wiring.py:213 → :216（上方新增 _load_plugins_if_present 函数，
     # 行号顺延）；函数内 import 语义不变。
-    "core/wiring.py:216",
+    # 2026-09-15 (I1): wiring.py:216 → :218（_make_session_runtime 注入共享 state_store
+    # 增加 4 行，行号顺延）；函数内 import 语义不变。
+    "core/wiring.py:218",
     # 2026-09-14 (P19/P20): core/prior_verifier.py:113 —— P17 提交时遗漏入库的
     # _derive_evidence_map 函数内延迟 import SPECS（从工具注册表派生声明类型→证据
     # 工具名映射，防止工具名演化导致 cross-reference 映射失配）。属合法懒加载

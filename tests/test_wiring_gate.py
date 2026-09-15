@@ -230,6 +230,12 @@ class TestNoDeadModules:
         # `from lingclaude.core.policy_loader import get as policy_get` 消费，
         # AST 守卫只收集 ImportFrom 顶层别名，函数内 import 不在扫描集内 → 豁免。
         "load", "get", "hot_update", "policies_dir", "reset",
+        # 兼容别名（为旧引用保留的 API 兼容层，非死代码）：
+        # - message_builder.BASE_PROMPT = system_prompt_builder._BASE_PROMPT 的兼容别名
+        #   （模块内 _SYSTEM_BASE_PROMPT 是真实消费；BASE_PROMPT 供旧代码引用）
+        # - task_aggregation.AggregationTaskPriority = TaskPriority 的兼容别名
+        #   （真实类型 TaskPriority 有消费，AggregationTaskPriority 供旧代码引用）
+        "BASE_PROMPT", "AggregationTaskPriority",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:
