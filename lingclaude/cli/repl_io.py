@@ -168,16 +168,22 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         # `erase + replace` 在底部追加正式版,而非覆盖——避免与 PT 的 toolbar 控制权冲突。
         content = event.get("content", "")
         if content and sys.stdout.isatty():
+            # ANSI 光标下移一行(到达 stream 输出末尾之下),再向上滚回渲染
+            # ——比上移 N 行覆盖安全(N 不必精确)
+            sys.stdout.write("\x1b[1B\n")
             try:
-                from lingclaude.cli.display import print_markdown
+                # TUI 插片优先：免签 renderer（proposals/2026-09-09 Step B）
+                from lingclaude_plugins.tui import TUI_SEAM
 
-                # 用 ANSI 光标下移一行(到达 stream 输出末尾之下),再向上滚回渲染
-                # ——比上移 N 行覆盖安全(N 不必精确)
-                sys.stdout.write("\x1b[1B\n")  # 下移 1 行落到 stream 末尾
-                print_markdown(content)
-                sys.stdout.write("\n")
-            except Exception:  # noqa: BLE001 — Markdown 渲染失败时保底输出纯文本
-                sys.stdout.write("\n" + content + "\n\n")
+                _renderer = TUI_SEAM.get_provider("default_renderer")
+                _renderer.execute("markdown", content)
+            except Exception:  # noqa: BLE001 — 插片不可用/失败 → fallback 原实现
+                try:
+                    from lingclaude.cli.display import print_markdown
+
+                    print_markdown(content)
+                except Exception:  # noqa: BLE001 — Markdown 渲染失败时保底输出纯文本
+                    sys.stdout.write("\n" + content + "\n\n")
             globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
         else:
             sys.stdout.write("\n\n")

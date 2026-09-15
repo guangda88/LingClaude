@@ -28,7 +28,11 @@ class SignedProvider:
     
     def __init__(self, provider: CapabilityProvider, required_signers: list[str] = None):
         self._wrapped = provider
-        self.required_signers = set(required_signers or ["lingclaude", "lingminopt"])
+        # 空列表 [] = 免签（纯展示能力）；None = 默认双签
+        if required_signers is None:
+            self.required_signers = set(["lingclaude", "lingminopt"])
+        else:
+            self.required_signers = set(required_signers)
         self.signed_by: set[str] = set()
         self._approved = len(self.required_signers) == 0
     
@@ -82,9 +86,18 @@ class CapabilitySeam:
         self._default: str | None = None
         self._audit_log: list[dict] = []
     
-    def register_provider(self, provider: CapabilityProvider, default: bool = False) -> None:
-        """注册能力提供者 (默认加双签保护)."""
-        wrapped = SignedProvider(provider)
+    def register_provider(
+        self,
+        provider: CapabilityProvider,
+        default: bool = False,
+        required_signers: list[str] | None = None,
+    ) -> None:
+        """注册能力提供者 (默认加双签保护).
+
+        required_signers: 签名者白名单. None=默认双签("lingclaude","lingminopt");
+        [] = 免签（只读/纯展示能力用，如 TUI 渲染，不适用能力执行的双签安全模型）.
+        """
+        wrapped = SignedProvider(provider, required_signers=required_signers)
         self._providers[provider.name] = wrapped
         if default or self._default is None:
             self._default = provider.name

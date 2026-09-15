@@ -117,7 +117,10 @@ BASELINE_SYS_PATH = 14
                      # optimizer/mcp_proxy/mcp.server cross_repo_seam ×5（E4-E6 跨仓
                      # 显式化）。均为合法懒加载（S3 纪律），换来跨仓显式契约 + 插片
                      # 质量门禁，非膨胀。
-BASELINE_LAZY = 421
+                     # 2026-09-15 (Phase 3 灵族接入): 421 → 424 —— seams/multimodal_lingtong.py
+                     # 3 个跨仓 src. 导入（lingtongask 可选依赖，fail-closed 必须函数内）
+                     # + engine.mcp_client（S3 倒装例外），均为合法必需懒加载。
+BASELINE_LAZY = 424
 BASELINE_DICT_ERR = 52
 
 
