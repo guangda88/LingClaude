@@ -112,6 +112,199 @@ def _split_command_chain(command: str) -> list[str]:
     return out
 
 
+# ── 2026-09-15: bash 只读命令白名单（ask 模式放行判定，fail-closed）──
+# 背景：ask 按 scope 判定，bash 是 execute 域 → ps/ls/git status 也被拦进灰区。
+# 按子命令首 token 匹配；不在名单一律视为需审批（fail-closed）。
+# 敏感路径不在此层判定 — 仍由 check_sensitive_path 单独拦截。
+BASH_READONLY_LEADS: frozenset[str] = frozenset({
+    "ls", "pwd", "cat", "head", "tail", "grep", "find", "stat", "wc",
+    "file", "du", "df", "which", "whereis", "whoami", "id", "date",
+    "uname", "hostname", "echo", "printf", "env", "printenv", "type",
+    "realpath", "readlink", "dirname", "basename", "diff", "sort",
+    "uniq", "awk", "sed", "cut", "tr", "ps", "top", "free", "vmstat",
+    "lsof", "ss", "ip", "ping", "curl", "wget", "true", "test",
+    "cd",  # 仅切换目录；后续子命令仍逐段过白名单（cd x && rm 依旧拦）
+    "xargs", "/dev/null", "rg", "ag", "tree", "journalctl",
+    "git",  # git 有 push/clean 等副作用，须二级子命令白名单（见下）
+})
+# 2026-09-15 P0-5 修复：移除高危副作用命令
+# 从只读白名单移出的命令（因可写/可执行任意代码，ask 模式下须走审批）：
+#   tee(写文件) systemctl(系统管理) python/python3/node(解释器任意代码)
+#   npm/pip/pip3(装包写系统) make/pytest(写产物/执行任意命令)
+# 这些命令即使只读形态（python3 -c "print(1)"）也无法静态证明无副作用 → fail-closed 拦截。
+# curl/wget 保留但须通过二级参数白名单（仅纯查询形态放行，见 _is_curl_query_only）。
+# git 本体有 push/clean 等副作用，须二级子命令白名单
+BASH_READONLY_GIT_SUBS: frozenset[str] = frozenset({
+    "status", "log", "diff", "show", "branch", "remote", "rev-parse",
+    "describe", "ls-files", "ls-remote", "blame", "shortlog", "tag",
+})
+
+# ── 2026-09-15 P0-5: curl/wget 二级参数白名单（仅纯查询形态放行）──
+# curl 默认 GET 会输出内容、-o/-O 写文件、-d/-F/-X 发数据/改方法，均非只读；
+# 故保留在 BASH_READONLY_LEADS 但必须逐参数判定，fail-closed（未知标志即拦）。
+_CURL_NEUTRAL_FLAGS: frozenset[str] = frozenset({
+    "-s", "-S", "-q", "-L", "-k",
+    "--silent", "--show-error", "--location", "--insecure",
+})
+_CURL_QUERY_FLAGS: frozenset[str] = frozenset({"-I", "--head"})
+_CURL_HARMFUL_FLAGS: frozenset[str] = frozenset({
+    # 写文件
+    "-o", "--output", "-O", "--remote-name", "--remote-name-all",
+    # 发送数据/上传/自定义方法
+    "-d", "--data", "--data-raw", "--data-binary", "--data-urlencode",
+    "-F", "--form", "-T", "--upload-file", "-X", "--request",
+    # 状态写入
+    "-c", "--cookie-jar", "--post-data",
+})
+_WGET_QUERY_FLAGS: frozenset[str] = frozenset({"--spider", "-V", "--version", "-h", "--help"})
+_WGET_HARMFUL_FLAGS: frozenset[str] = frozenset({
+    # 写文件（wget 小写 -o 是日志文件，同样写盘）
+    "-O", "--output-document", "--output-file", "-o",
+    # 输入文件/发数据
+    "-i", "--input-file", "--post-data", "--post-file",
+})
+
+
+def _curl_merged_flags_ok(flag: str) -> tuple[bool, bool]:
+    """解析 curl 合并短标志（-sI = -s -I）。
+
+    :returns: (全部安全, 含查询标志)。未知/有害字符 → (False, _)。
+    """
+    safe_neutral = frozenset("sSqLk")
+    safe_query = frozenset("I")
+    harmful = frozenset("oOdFTeXcunp")  # output/data/form/upload/custom/cookie...
+    has_query = False
+    for ch in flag[1:]:  # 去掉前导 -
+        if ch in safe_query:
+            has_query = True
+        elif ch not in safe_neutral:
+            return False, has_query
+    return True, has_query
+
+
+def _is_curl_query_only(tokens: list[str]) -> bool:
+    """curl 是否纯查询形态（fail-closed：默认 GET 输出内容、未知标志一律拦截）。"""
+    args = tokens[1:]
+    if not args:
+        return False
+    # 版本/帮助：纯本地，无网络/文件副作用
+    if args[0] in ("-V", "--version", "-h", "--help"):
+        return True
+
+    def _has_query_flag(a: str) -> bool:
+        if a in _CURL_QUERY_FLAGS:
+            return True
+        if a.startswith("-") and not a.startswith("--") and len(a) > 2:
+            ok, q = _curl_merged_flags_ok(a)
+            return bool(ok and q)
+        return False
+
+    has_query = any(_has_query_flag(a) for a in args)
+    has_discard = "-o" in args or "--output" in args
+    # 无查询标志且不丢弃输出 → 默认 GET 输出内容，拦截
+    if not has_query and not has_discard:
+        return False
+
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in _CURL_NEUTRAL_FLAGS or a in _CURL_QUERY_FLAGS:
+            i += 1
+            continue
+        # 合并短标志（-sI / -sSL）：逐字符校验
+        if a.startswith("-") and not a.startswith("--") and len(a) > 2:
+            ok, _ = _curl_merged_flags_ok(a)
+            if not ok:
+                return False
+            i += 1
+            continue
+        if a in ("-o", "--output"):
+            nxt = args[i + 1] if i + 1 < len(args) else ""
+            if nxt == "/dev/null":  # 丢弃内容 → 状态码探测，无害
+                i += 2
+                continue
+            return False  # 写到真实文件 → 拦截
+        if a in _CURL_HARMFUL_FLAGS:
+            return False
+        if a.startswith("-"):
+            return False  # 未知 curl 标志 → fail-closed
+        i += 1  # URL 等普通参数
+    return True
+
+
+def _is_wget_query_only(tokens: list[str]) -> bool:
+    """wget 是否纯查询形态（fail-closed：只放行 --spider 探测与版本/帮助）。"""
+    args = tokens[1:]
+    if not args:
+        return False
+    if args[0] in ("-V", "--version", "-h", "--help"):
+        return True
+    if "--spider" in args:
+        return not any(a in _WGET_HARMFUL_FLAGS for a in args)
+    return False
+
+
+def is_readonly_bash_command(command: str) -> bool:
+    """判断 bash 命令是否整体只读（逐子命令判定，任一非只读 → False）。
+
+    拆分忽略引号内的分隔符（python3 -c "a; b" 不被误拆）；git 前置全局
+    选项（-C <path> / -c k=v）跳过后再取子命令。
+    """
+    if not command or not command.strip():
+        return False
+    # 引号感知拆分：; | & $() 在单双引号内不作为命令边界
+    parts: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    i = 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+            buf.append(ch)
+        elif ch in ";|&":
+            # 2>&1 / >&2 / &>file：& 紧邻 > 时是重定向，不是命令分隔符
+            prev = command[i - 1] if i > 0 else ""
+            nxt = command[i + 1] if i + 1 < len(command) else ""
+            if ch == "&" and (prev == ">" or nxt == ">"):
+                buf.append(ch)
+            else:
+                parts.append("".join(buf))
+                buf = []
+                if nxt == ch:  # && ||
+                    i += 1
+        else:
+            buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+
+    for part in parts:
+        tokens = part.strip().rstrip("`").split()
+        while tokens and "=" in tokens[0] and len(tokens) > 1:  # 跳过 FOO=bar 前缀
+            tokens = tokens[1:]
+        if not tokens:
+            continue
+        lead = Path(tokens[0].strip("\"'")).name
+        if lead == "git":
+            sub_i = 1
+            # 跳过 git 前置全局选项：-C <path> / -c <k=v>
+            while sub_i < len(tokens) and tokens[sub_i] in ("-C", "-c", "--git-dir", "--work-tree"):
+                sub_i += 2 if tokens[sub_i] in ("-C", "-c", "--git-dir", "--work-tree") else 1
+            if sub_i >= len(tokens) or tokens[sub_i].strip("\"'") not in BASH_READONLY_GIT_SUBS:
+                return False
+        elif lead in ("curl", "wget"):
+            # 二级参数白名单：仅纯查询形态放行（P0-5）
+            if not (_is_curl_query_only(tokens) if lead == "curl" else _is_wget_query_only(tokens)):
+                return False
+        elif lead not in BASH_READONLY_LEADS:
+            return False
+    return True
+
+
 def _cmd_intent(cmd: str) -> str:
     """判断子命令意图：metadata / read / unknown（未知按 fail-closed 保守拦截）。
 
