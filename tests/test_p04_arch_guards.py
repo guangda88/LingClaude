@@ -244,7 +244,6 @@ J4_STATE_MODULES = [
 # 存量直连登记（审计 J4 痕迹表 + 2026-09-16 实扫；迁移后逐条删除）
 # 只缩不放：收编一条删一条，全部清零即 J4 达标。
 J4_KNOWN_DIRECT = {
-    "core/topic_stack.py": [149, 158],
     "core/reasoning_chain.py": [122, 127],
     "core/governance.py": [43, 444],
     "core/meta_cognition.py": [249, 258],
@@ -263,6 +262,8 @@ J4_EXPORT_VIEWS = {
     "core/session.py": [110, 186],
     # governance_verifier 审计报告导出物（audit_*.json + latest_audit_summary.json，供外部消费）
     "core/governance_verifier.py": [294, 303],
+    # topic_stack 显式路径持久化（调用方注入 _persist_path，非私连介质；导出物语义）
+    "core/topic_stack.py": [149],
 }
 
 _WRITE_MEDIA_RE = re.compile(
