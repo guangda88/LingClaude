@@ -4,6 +4,10 @@
 - register(name, backend): 注册后端(实例或类), 支持别名(provider 名/后端名/别名)
 - get_backend(provider): 按 provider 名查找后端, 失败回退默认后端
 - run(request, ctx): 编排执行, 后端异常统一收敛为 SubagentResult
+
+内置后端: inprocess(默认) + acp(显式 set_endpoint 后可用)。
+MCP 后端(MCPSubagentBackend)需显式 register——它依赖 server 配置,
+默认注册会静默空转(对标 ACP E5 教训: 未配置即 fail-closed)。
 """
 from __future__ import annotations
 

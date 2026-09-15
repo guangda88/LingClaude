@@ -12,9 +12,11 @@ from lingclaude.engine.subagent.base import (
     SubagentContext,
     SubagentRequest,
     SubagentResult,
+    SubagentStatus,
 )
 from lingclaude.engine.subagent.inprocess import InProcessSubagentBackend
 from lingclaude.engine.subagent.acp import AcpSubagentBackend
+from lingclaude.engine.subagent.mcp import MCPBackendConfig, MCPSubagentBackend
 from lingclaude.engine.subagent.manager import SubagentManager
 
 __all__ = [
@@ -22,7 +24,10 @@ __all__ = [
     "SubagentContext",
     "SubagentRequest",
     "SubagentResult",
+    "SubagentStatus",
     "InProcessSubagentBackend",
     "AcpSubagentBackend",
+    "MCPBackendConfig",
+    "MCPSubagentBackend",
     "SubagentManager",
 ]
