@@ -117,8 +117,8 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "glm": {
         "type": "openai",
         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-4.7",
-        "models": ["glm-4.7", "glm-4-plus", "glm-4-air"],
+        "model": "glm-5.3-flash",
+        "models": ["glm-5.3", "glm-5.3-flash"],
     },
     "zhipu": {
         "type": "openai",
