@@ -127,6 +127,26 @@ def _restore_tty(ctx: _ReplCtx) -> None:
         pass
 
 
+def _reset_tty_now(ctx: _ReplCtx) -> None:
+    """重建输入泵前硬重置 tty（2026-09-15 tty 行规程损坏事故修复）。
+
+    与 _restore_tty 的差别：TCSAFLUSH 会同时丢弃输入队列中滞留的坏字节
+    （ICRNL 失效时 \r 不转 \n 留下的半截行），而 TCSADRAIN 只等输出排空。
+    重建后新线程面对干净的终端模式，否则换线程照样饿死。
+    """
+    # getattr 防御：测试 _make_ctx 为 SimpleNamespace 无此字段，非 TTY 场景
+    # 也从未写入 → 一律按「无 known-good 基线」处理（不重置，等同跳过）。
+    _saved_termios = getattr(ctx, "saved_termios", None)
+    if _saved_termios is None:
+        return
+    try:
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSAFLUSH, _saved_termios)
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:  # noqa: BLE001 — fd 已关等场景静默
+        pass
+
+
 def _status_prompt(ctx: _ReplCtx) -> str:
     """prompt 渲染回调：plain 模式显示简短的"灵克>"（保留可读性），
     状态信息走 bottom_toolbar（已有 toolbar_fragments 实现）。
@@ -168,6 +188,25 @@ def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
 
 
 def _read_input(ctx: _ReplCtx) -> str:
+    # P1（2026-09-15 tty 行规程损坏事故）:失活降级时若复用同一个 PT session，
+    # 其底层 asyncio Application 可能已损坏（pump 线程卡死/断言）→ 降级直读
+    # 同样失效。_next_input 在 pump 失活降级前置 ctx.fallback_read=True，这里
+    # 改用独立裸 input()（无 PT 事件循环依赖），彻底绕开损坏的 session ——
+    # 隔离是 P0 tty 重置的互补层。
+    if getattr(ctx, "fallback_read", False):
+        try:
+            _line = input(_status_prompt(ctx) if get_output_format() == "plain" else "灵克> ")
+            if _line.strip():
+                ctx.session.push_to_history(_line)
+            return _line
+        except EOFError:
+            raise
+        except KeyboardInterrupt:
+            return ""
+        except UnicodeDecodeError:
+            sys.stdin.buffer.readline()
+            print("[输入编码错误，请检查终端编码设置]")
+            return ""
     session = ctx.session
     try:
         text = session.prompt(_status_prompt(ctx))
@@ -264,14 +303,26 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
         input_pump.dead = True
         input_pump.death_reason = "失活:心跳超长停滞(select 疑似失效或上游输入断)"
         print("\n[输入泵失活] 心跳超长停滞，强制重建输入泵（可继续使用）", file=sys.stderr)
+        # 2026-09-15（tty 行规程损坏事故）:重建不能只换线程 —— 假死根因之一
+        # 是 tty 模式损坏（ICRNL 失效 → \r 不转 \n → read 永不返回），新线程面对
+        # 同一个坏 tty 照样饿死。重建前先恢复启动时保存的 known-good termios，
+        # 让新线程面对干净的终端模式（与 _restore_tty 同语义，TCSAFLUSH 清滞
+        # 留的坏字节；saved_termios 为 None 时静默跳过）。
+        _reset_tty_now(ctx)
         try:
             input_pump.stop()
             # 重建：dead 复位由 start() 内部处理（新线程独立 _stop 事件）；
             # start() 单读者防重入，旧线程未退时 join(2s) 后放弃。
             input_pump.dead = False
             input_pump.start()
-        except Exception:  # noqa: BLE001 — 重建失败不致命，主循环仍降级直读
-            pass
+        except Exception as _rebuild_err:  # noqa: BLE001 — 重建失败不致命，主循环仍降级直读
+            # P2: 重建失败必须留痕 —— 此前 except: pass 吞掉失败原因，无从诊断。
+            _logger.warning(
+                "输入泵重建失败（死因=%s，err=%s）",
+                input_pump.death_reason,
+                _rebuild_err,
+                exc_info=True,
+            )
         return 0
     # 未触发:打点重置探测窗口
     return last_check_t if last_check_t >= 0 and beat_idle >= 8.0 else -1.0
@@ -295,6 +346,14 @@ def _next_input(ctx: _ReplCtx) -> str:
             _t0 = time.monotonic()
             while input_pump.dead and input_pump.is_alive() and time.monotonic() - _t0 < 1.0:
                 time.sleep(0.05)
+            # P1（2026-09-15）:pump 失活/死亡说明 PT session 可能已损坏（线程卡
+            # select / Application 断言），复用同一 session 直读照样失效 → 置
+            # ctx.fallback_read 让 _read_input 走裸 input() 隔离读。仅 pump 模式
+            # （PT 后台线程）失活时需要隔离；非 pump 模式 session 本就是
+            # FallbackSession/主线程独占，走正常 prompt()。仅首次降级前重置 tty。
+            if input_pump.dead:
+                _reset_tty_now(ctx)
+            ctx.fallback_read = bool(input_pump.dead and _pump_mode)
             return _read_input(ctx)
         item = input_queue.get(timeout=0.3)
         if item is None:
