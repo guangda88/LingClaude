@@ -107,6 +107,7 @@ _PROVIDER_ENV_KEY_MAP: dict[str, str] = {
     "glm": "ZHIPU_API_KEY",
     "dashscope": "DASHSCOPE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "proxy3": "LINGCLAUDE_PROXY3_API_KEY",
 }
 
 # F12k:知名 provider 默认值表 — 当 config 里 provider 是字符串简写
@@ -121,6 +122,14 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
         "model": "glm-5.3-flash",
         "models": ["glm-5.3", "glm-5.3-flash"],
+    },
+    "proxy3": {
+        # 本机 proxy3 免费额度池（:8765），openai 协议；free/* 为虚拟模型
+        # （free_pool 插件调度），敏感任务由 openai_provider 的内容守卫自动
+        # 停发 opt-in。key 见 LINGCLAUDE_PROXY3_API_KEY（.ling_keys.env）。
+        "base_url": "http://127.0.0.1:8765/v1",
+        "model": "free/auto",
+        "models": ["free/auto", "free/code", "free/long", "free/vision", "free/fast"],
     },
     "zhipu": {
         "type": "openai",
