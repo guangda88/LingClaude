@@ -112,6 +112,10 @@ class _ReplCtx:
     status_bar_active: bool = False
     saved_termios: Any = None
     queued_next: str | None = None
+    # 2026-09-15（会话问题重构 P0-1）: 心跳超长停滞强制重建的冷却计数。
+    # 重建后若仍无心跳（重建无效——"强制重建也没用"的真实场景），第二次
+    # 直接置 dead + fallback_read 永久降级裸 input()，避免反复 churn。
+    stall_rebuilds: int = 0
 
 
 def _restore_tty(ctx: _ReplCtx) -> None:
@@ -296,10 +300,29 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
     # 状态损坏时 _stdin_readable(0.0) 恒 False，上方「readable」逃生门永不触发，
     # 主线程永久等 input_queue.get()，只能人肉 kill 重启。
     # 兜底：即便 stdin 判为不可读，心跳若超长停滞（select 失效/上游输入断的
-    # 强信号）也强制重建 pump。阈值 1800s 远大于正常「等输入」态（用户 30 分钟
-    # 不打字也不会误伤）；触发前记录死因留痕。input_pump.start() 已有单读者
-    # 防重入 + 旧线程 join(2s) 兜底（H17-TUI 修复），可安全重建。
-    if beat_idle >= 1800:
+    # 强信号）也强制重建 pump。触发前记录死因留痕。input_pump.start() 已有
+    # 单读者防重入 + 旧线程 join(2s) 兜底（H17-TUI 修复），可安全重建。
+    #
+    # 2026-09-15（会话问题重构 P0-1）：阈值 1800s → 60s + 重建冷却 + 二次降级。
+    # 1800s 意味着 select 状态损坏时用户被冻死 30 分钟才重建（把「等 30 分钟」
+    # 当作可接受，与"假死"体感一致）。60s 是安全上限：正常等输入态用户 1 分钟
+    # 不打字（读输出/思考）不会被误伤；select 失效的假死能在 1 分钟内自愈。
+    # 重建后设冷却：重建本身会打拍，若 30s 内再触发说明重建无效（tty 损坏/
+    # PT session 已不可救——"强制重建也没用"），第二次直接 dead + fallback_read
+    # 永久降级裸 input()（绕开损坏的 PT session，见 _read_input 的隔离读），
+    # 不再反复 churn。
+    if beat_idle >= 60:
+        # 二次触发：上次重建后仍无心跳 → 重建无效，永久降级（不再次重建）
+        if ctx.stall_rebuilds >= 1:
+            input_pump.dead = True
+            input_pump.death_reason = "失活:重建后心跳仍停滞(PT session 不可救,永久降级)"
+            print("\n[输入泵失活] 重建无效，已永久降级为阻塞输入模式（可继续使用）", file=sys.stderr)
+            try:
+                ctx.session.interrupt_event().set()
+            except Exception:  # noqa: BLE001
+                pass
+            ctx.fallback_read = True  # 永久裸 input() 隔离读（_read_input 路径）
+            return 0
         input_pump.dead = True
         input_pump.death_reason = "失活:心跳超长停滞(select 疑似失效或上游输入断)"
         print("\n[输入泵失活] 心跳超长停滞，强制重建输入泵（可继续使用）", file=sys.stderr)
@@ -315,6 +338,7 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
             # start() 单读者防重入，旧线程未退时 join(2s) 后放弃。
             input_pump.dead = False
             input_pump.start()
+            ctx.stall_rebuilds += 1  # 冷却：记录本次重建，供二次触发判定
         except Exception as _rebuild_err:  # noqa: BLE001 — 重建失败不致命，主循环仍降级直读
             # P2: 重建失败必须留痕 —— 此前 except: pass 吞掉失败原因，无从诊断。
             _logger.warning(
@@ -323,6 +347,8 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
                 _rebuild_err,
                 exc_info=True,
             )
+            # 重建失败（异常）→ 也走永久降级，避免下次再撞
+            ctx.fallback_read = True
         return 0
     # 未触发:打点重置探测窗口
     return last_check_t if last_check_t >= 0 and beat_idle >= 8.0 else -1.0
@@ -481,6 +507,16 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
                 sys.stdout.flush()
             _handle_stream_event(event)
+            if event.get("type") == "round_end":
+                # 2026-09-15（会话问题重构 P1-1）: round 边界消费挂起队列。
+                # 斜杠命令立即执行；普通文本插队（queued_next，turn 结束后
+                # 直接作为下一轮输入）；EOF/quit 中止当前 turn。
+                _consume_queue_round(ctx, int(event.get("round_idx", 0)))
+                if ctx.processor.quit_requested:
+                    interrupted = True
+                    print("\n[已中止]")
+                    break
+                continue
             if event.get("type") == "tool_call_start":
                 observed_tool_calls += 1
                 status.set_task(f"工具:{event.get('name', '?')}")
@@ -556,6 +592,50 @@ def _requeue_extras(ctx: _ReplCtx, extras: list[str]) -> None:
         ctx.input_queue.put(_x)
 
 
+def _consume_queue_round(ctx: _ReplCtx, round_idx: int) -> None:
+    """2026-09-15（会话问题重构 P1-1）: round 边界消费挂起队列。
+
+    与 _consume_queue（turn 结束才消费）不同，此函数在每一个 tool round
+    完成、下一 round 即将开始（或 turn 即将结束）时被调用，实现「一个
+    session round 完成后即可读被挂起的命令」：
+
+    - 斜杠命令（/model /schedule /help 等）→ 立即执行（改 CLI 状态/engine
+      配置，不进 engine._messages，无跨线程竞态——与 _consume_queue 同语义）
+    - 普通文本 → 记入 ctx.queued_next（插队：当前 tool 轮继续，turn 结束后
+      作为下一轮输入直接执行，不等用户再打字）
+    - EOF/quit → 记 quit_requested（流循环检查后中止）
+
+    纯消费不改引擎内部状态：引擎继续自己的 tool 轮，这里只读队列。
+    """
+    processor = ctx.processor
+    input_queue = ctx.input_queue
+    queued_next = None
+    extras: list[str] = []
+    while True:
+        item = input_queue.get(timeout=0.0)  # 非阻塞：round 边界不等队列
+        if item is None:
+            break
+        if InputQueue.is_eof(item):
+            _requeue_extras(ctx, extras)
+            processor.quit_requested = True
+            return
+        if processor.handle(item):
+            if processor.quit_requested:
+                _requeue_extras(ctx, extras)
+                return
+            continue
+        if queued_next is None:
+            queued_next = item
+        else:
+            extras.append(item)
+    _requeue_extras(ctx, extras)
+    if queued_next is not None:
+        # 插队：当前 round 的 tool 轮继续，turn 结束后作为下一轮输入
+        ctx.queued_next = queued_next
+        if get_output_format() == "plain":
+            print(f"\n[round {round_idx} 插队] {queued_next[:40]}")
+
+
 def _consume_queue(ctx: _ReplCtx) -> str:
     """H17-TUI: 消费生成期挂起队列（斜杠命令即时执行；首个文本成为下一轮输入，
     余下重新排队保持顺序；EOF/quit 视为退出请求）。原 _interactive_loop
@@ -590,7 +670,11 @@ def _consume_queue(ctx: _ReplCtx) -> str:
         else:
             extras.append(item)
     _requeue_extras(ctx, extras)
-    ctx.queued_next = queued_next
+    # 2026-09-15（会话问题重构 P1-1）: round 边界消费（_consume_queue_round）
+    # 可能已把普通文本记为 ctx.queued_next（插队）。此处仅当 round 未设置时
+    # 才覆盖 —— 插队的文本优先，避免 turn 结束后被覆盖丢失。
+    if ctx.queued_next is None:
+        ctx.queued_next = queued_next
     if processor.quit_requested:
         return _TURN_QUIT
     return queued_next if queued_next is not None else ""

@@ -673,6 +673,19 @@ class ModelCallMixin:
                            "usage": {"input_tokens": total_input, "output_tokens": total_output}}
                     return
 
+            # 2026-09-15（会话问题重构 P1-1）: round 边界事件 —— 一轮完成、
+            # 下轮即将开始（或结束）。CLI 层在此消费挂起队列：斜杠命令立即
+            # 执行（改 CLI 状态/engine 配置，不进 messages，无跨线程竞态），
+            # 普通文本记入 queued_next 插队（当前 tool 轮继续，turn 结束后
+            # 作为下一轮输入直接执行，不等用户再打字）。纯观察点，不改引擎
+            # 内部状态 —— 引擎继续自己的 tool 轮，CLI 只读队列。
+            yield {
+                "type": "round_end",
+                "round_idx": round_idx,
+                "has_tool_calls": bool(round_tool_calls),
+                "error_count": round_error_count,
+            }
+
         content = response_content or "[达到最大工具调用轮次]"
         final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
         yield {"type": "done", "content": final_content,

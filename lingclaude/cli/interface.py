@@ -26,7 +26,11 @@ except ImportError:
     _HAS_PROMPT_TOOLKIT = False
 
 
-DEFAULT_HISTORY_FILE = "~/.lingclaude/history"
+# 2026-09-15（会话问题重构 P1-2）: 命令历史从全局移到项目内 —— 此前
+# "~/.lingclaude/history" 被所有项目进程共享，在 ~/lingflow 输入的命令
+# 在 ~/lingclaude 按上键也会还原出来（跨项目泄露）。改为 ".lingclaude/history"
+# （相对当前工作目录）：每个项目独立历史，不跨项目污染。
+DEFAULT_HISTORY_FILE = ".lingclaude/history"
 
 
 @runtime_checkable
@@ -78,7 +82,14 @@ class PromptToolkitSession:
         try:
             return self._session.prompt(message)
         except KeyboardInterrupt:
-            # Ctrl+C 软中断：清空当前输入，返回空串让上层继续
+            # Ctrl+C 软中断：清空当前输入，返回空串让上层继续。
+            # 2026-09-15（会话问题重构 P0-2）：pump 模式下生成期 Ctrl+C 此前
+            # 在此被吞成 ""（清行），InputPump 的 except KeyboardInterrupt 分支
+            # 永不触发（异常已被本层捕获）→ 生成期中止无响应。修复：清行的
+            # 同时 set interrupt_event —— 主线程流循环（repl.py 检查
+            # interrupt_event）立即打断生成；空闲期 set 的 interrupt 由下一次
+            # prompt() 开头的 clear() 清除，无副作用。
+            self._interrupt.set()
             return ""
         # 审计#1/#7 修复:EOF（Ctrl+D / stdin 耗尽）直接传播让上层退出。
         # 此前默认吞成 ""，`lingclaude run -i < /dev/null` 会「空输入→continue→
