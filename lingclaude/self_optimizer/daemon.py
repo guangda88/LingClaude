@@ -400,6 +400,22 @@ class OptimizationDaemon:
                 "已应用优化参数 1/%d 到 config.yaml: %s=%s（复测通过前不再应用其余参数）",
                 len(pending), param_key, value,
             )
+            # P0-N5 (2026-09-15): 写配置成功路径补审计留痕 — 与灰区 escalate
+            # (state=pending) 形成「申请→审批→执行→留痕」闭环。审批人可依据
+            # params 核对入口(pending)与出口(approved_by_daemon)的动作域一致。
+            from lingclaude.core.permissions import log_pending_action
+
+            log_pending_action(
+                "optimize_write",
+                params={
+                    "applied_key": yaml_key,
+                    "applied_value": round(value, 2) if isinstance(value, float) else value,
+                    "patch_id": patch_id,
+                    "deferred": deferred,
+                },
+                mode=guard_mode,
+                state="approved_by_daemon",
+            )
             if deferred:
                 logger.info("[待复测] 暂缓参数建议: %s", deferred)
         except Exception:

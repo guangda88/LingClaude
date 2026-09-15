@@ -280,14 +280,26 @@ def _save_persisted() -> None:
         logger.warning("approvals.json 写入失败: %s", e)
 
 
-def log_pending_action(action: str, params: dict | None = None, mode: str | None = None) -> None:
-    """把待审批动作追加到 .lingclaude/guard_pending.jsonl（H1 单源）。
+def log_pending_action(
+    action: str,
+    params: dict | None = None,
+    mode: str | None = None,
+    state: str = "pending",
+) -> None:
+    """把审批动作追加到 .lingclaude/guard_pending.jsonl（H1 单源）。
 
     原 guard._log_pending 迁移至此 — 灰区 escalate 与 PermissionContext.check_action
     共用同一落盘点。落盘失败不影响判定结果（只对日志 fail-open）。
 
     mode 参数：记录实际判定用的模式（默认取全局 _GLOBAL_MODE；
     daemon 等独立判定场景应显式传 ctx.mode，保证落盘可考）。
+
+    state 参数（P0-N5, 2026-09-15）：
+      - "pending"            灰区 escalate 的待审批记录（默认）
+      - "approved_by_daemon" daemon 写配置成功后补录的已执行留痕
+    与灰区形成「申请→审批→执行→留痕」闭环：同一条 guard_pending.jsonl 里，
+    state=pending 是入口（申请），state=approved_by_daemon 是出口（执行），
+    审批人可依据 params 字段核对两端的动作域一致性。
     """
     try:
         PENDING_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -295,6 +307,7 @@ def log_pending_action(action: str, params: dict | None = None, mode: str | None
             "ts": datetime.now(timezone.utc).isoformat(),
             "action": action,
             "mode": mode or _GLOBAL_MODE,
+            "state": state,
         }
         # 2026-09-05 事故复盘: pending 只记 action 名导致被拦参数不可考 —
         # params 摘要必须随记录落盘, 审批人才有裁决依据。

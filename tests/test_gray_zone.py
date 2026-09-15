@@ -67,6 +67,7 @@ class TestGrayZoneEscalateUnit:
         rec = lines[0]
         assert rec["action"] == "write"
         assert rec["mode"] == "ask"
+        assert rec["state"] == "pending"  # 灰区默认 state=pending（P0-N5 闭环入口）
         assert rec["params"] == {"path": "t.txt", "content": "x"}
 
     def test_multiple_escalations_append(self, tmp_path):

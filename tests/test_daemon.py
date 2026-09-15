@@ -164,6 +164,22 @@ class TestOptimizationDaemon:
             import yaml
             raw = yaml.safe_load(config_path.read_text())
             assert raw["self_optimizer"]["triggers"]["max_complexity"] == 20
+            # P0-N5: 写成功路径补审计留痕 — guard_pending.jsonl 出现已执行记录
+            import json
+            pending_path = Path(".lingclaude") / "guard_pending.jsonl"
+            assert pending_path.exists(), "写配置成功应产生 guard_pending 留痕"
+            recs = [
+                json.loads(line)
+                for line in pending_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            assert any(
+                r["action"] == "optimize_write"
+                and r["state"] == "approved_by_daemon"
+                and r["params"]["applied_key"] == "max_complexity"
+                and r["params"]["applied_value"] == 20
+                for r in recs
+            ), "成功写入后应有 state=approved_by_daemon 的闭环留痕"
         finally:
             os.chdir(original_cwd)
             os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
