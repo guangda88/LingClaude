@@ -118,13 +118,15 @@ class TestCallLlmDirect:
         monkeypatch.delenv("GLM_CODING_PLAN_KEY", raising=False)
         monkeypatch.delenv("GLM_API_KEY", raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        import lingclaude.api as api_mod
+        import lingclaude.seams.external_query as eq_mod
         # 断 config 路径 (否则 _key 会绕过 env 检查)
+        # I3 (2026-09-15): _call_llm_direct 迁至 seams/external_query，patch 目标须为
+        # 实现所在模块（api 的 re-export 只是引用别名，patch 它不影响 external_query 内部调用）
         monkeypatch.setattr(
-            api_mod, "_resolve_llm_chain", lambda: list(api_mod._STATIC_LLM_FALLBACK)
+            eq_mod, "_resolve_llm_chain", lambda: list(eq_mod._STATIC_LLM_FALLBACK)
         )
 
-        assert api_mod._call_llm_direct("sys", "hi") == ""
+        assert eq_mod._call_llm_direct("sys", "hi") == ""
 
 
 # ───────────────── TARGET_MODEL: casefold 匹配 ─────────────────
