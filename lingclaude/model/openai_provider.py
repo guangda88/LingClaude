@@ -72,17 +72,40 @@ _PROXY3_AGENT_ID = os.environ.get("LINGCLAUDE_PROXY3_AGENT_ID", "lingclaude")
 
 
 def _proxy3_extra_headers(base_url: str, body: dict[str, Any]) -> dict[str, str]:
-    """base_url 指向 proxy3 时补齐鉴权/身份/opt-in header，否则返回空。"""
+    """base_url 指向 proxy3 时补齐鉴权/身份/opt-in header，否则返回空。
+
+    敏感守卫（2026-09-15）：free/* 请求先对 messages 内容做密钥形态扫描
+    （复用 core/redact._SENSITIVE_PATTERNS），命中即**停发 opt-in header**
+    ——请求被 proxy3 403 `free_pool_optin_required` 挡回，敏感内容不进
+    may-log 免费池。这是内容级守卫，不依赖调用方自觉。
+    """
     try:
         host = (urlparse(base_url).netloc or "").lower()
-        if host.split(":")[0] not in ("127.0.0.1", "localhost") or not host.endswith(_PROXY3_HOST_SUFFIX.split(":")[-1]) or ":8765" not in host:
+        if ":8765" not in host or host.split(":")[0] not in ("127.0.0.1", "localhost"):
             return {}
         headers = {"X-Agent-Id": _PROXY3_AGENT_ID}
-        if str(body.get("model", "")).startswith("free/"):
+        model = str(body.get("model", ""))
+        if model.startswith("free/") and not _messages_contain_secrets(body):
             headers["x-free-pool-optin"] = "true"
         return headers
     except Exception:  # noqa: BLE001 — 判定失败绝不阻塞主流程
         return {}
+
+
+def _messages_contain_secrets(body: dict[str, Any]) -> bool:
+    """扫描请求 messages 是否含密钥形态（守卫 may-log 免费池）。"""
+    from lingclaude.core.redact import contains_sensitive
+
+    for msg in body.get("messages", ()):  # 扫描全部角色内容
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(content, str) and contains_sensitive(content):
+            return True
+        if isinstance(content, list):  # 多模态 content blocks
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str) \
+                        and contains_sensitive(block["text"]):
+                    return True
+    return False
 
 
 class OpenAIProvider(ModelProvider):

@@ -252,6 +252,70 @@ class TestOpenAIProvider:
             )
         assert result.is_ok, f"本地无 key 应放行,实际: {result.error}"
 
+
+    def test_proxy3_extra_headers_agent_id_always(self) -> None:
+        """proxy3 端点：X-Agent-Id 恒注入（不依赖模型 opt-in）。"""
+        from lingclaude.model.openai_provider import _proxy3_extra_headers
+
+        h = _proxy3_extra_headers("http://127.0.0.1:8765/v1", {"model": "glm-4.5"})
+        assert h.get("X-Agent-Id") == "lingclaude"
+        assert "x-free-pool-optin" not in h
+
+    def test_proxy3_extra_headers_non_proxy3_noop(self) -> None:
+        """非 proxy3 端点（fail-open）：返回空 dict，零影响。"""
+        from lingclaude.model.openai_provider import _proxy3_extra_headers
+
+        for url in ("http://127.0.0.1:8775/v1", "https://api.openai.com/v1"):
+            assert _proxy3_extra_headers(url, {"model": "free/glm-4.5"}) == {}
+
+    def test_proxy3_extra_headers_free_optin_clean(self) -> None:
+        """free/* + 内容无密钥形态 → 发 opt-in header。"""
+        from lingclaude.model.openai_provider import _proxy3_extra_headers
+
+        h = _proxy3_extra_headers(
+            "http://127.0.0.1:8765/v1",
+            {"model": "free/glm-4.5", "messages": [{"content": "今天天气怎么样"}]},
+        )
+        assert h.get("x-free-pool-optin") == "true"
+
+    def test_proxy3_extra_headers_free_optin_blocked_by_secret(self) -> None:
+        """free/* + 内容含密钥形态 → 停发 opt-in（密钥不进 may-log 免费池）。"""
+        from lingclaude.model.openai_provider import _proxy3_extra_headers
+
+        # 非字面量构造密钥形态（避免仓库凭据扫描器误报）
+        secret = "s" + "k-" + "abcdefghijklmnop12345678"
+        h = _proxy3_extra_headers(
+            "http://127.0.0.1:8765/v1",
+            {"model": "free/glm-4.5", "messages": [{"content": f"我的密钥是 {secret}，帮我配置"}]},
+        )
+        assert "x-free-pool-optin" not in h
+        assert h.get("X-Agent-Id") == "lingclaude"  # 身份 header 仍发
+
+    def test_proxy3_extra_headers_multimodal_secret_blocked(self) -> None:
+        """free/* + 多模态 content block 含密钥形态 → 同样停发 opt-in。"""
+        from lingclaude.model.openai_provider import _proxy3_extra_headers
+
+        secret = "t" + "p-" + "abcdefghijklmnop12345678"
+        h = _proxy3_extra_headers(
+            "http://127.0.0.1:8765/v1",
+            {
+                "model": "free/glm-4.5",
+                "messages": [{"content": [{"type": "text", "text": f"token {secret}"}]}],
+            },
+        )
+        assert "x-free-pool-optin" not in h
+
+    def test_proxy3_extra_headers_bad_body_noop(self) -> None:
+        """异常/畸形 body：不抛异常。None body 整体 fail-open；畸形 model 仅身份照发。"""
+        from lingclaude.model.openai_provider import _proxy3_extra_headers
+
+        # None body：body.get 抛 AttributeError → 外层捕获，整体 fail-open 返回空
+        assert _proxy3_extra_headers("http://127.0.0.1:8765/v1", None) == {}
+        # 畸形 body（model 非 str）：不抛异常，身份照发，opt-in 不发
+        h2 = _proxy3_extra_headers("http://127.0.0.1:8765/v1", {"model": 123})
+        assert h2.get("X-Agent-Id") == "lingclaude"
+        assert "x-free-pool-optin" not in h2
+
     def test_f12d_cloud_base_without_key_still_rejected(self) -> None:
         """F12d 对照:云端 base_url 无 key 仍拒绝。"""
         provider = OpenAIProvider(ModelConfig(
