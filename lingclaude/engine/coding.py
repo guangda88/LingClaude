@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from lingclaude.core.config import lingclaudeConfig
+from lingclaude.core.gray_zone import gray_zone_escalate
 from lingclaude.core.model_call import _ToolLoopDetector
 from lingclaude.core.permissions import PermissionStore
 from lingclaude.core.session_runtime import SessionRuntime
@@ -298,6 +299,10 @@ class CodingRuntime(
         单例 store 与 runtime ctx 分离时会被模式污染或审批回灌吞掉。
         改用「runtime 静态配置 ∪ store 运行时 ctx」并集作为唯一真源；
         显式放行 (always_allow) 优先于 deny 翻转（业务约定）。
+
+        H2 (2026-09-15): ask 模式灰区拦截 — 写工具（非只读、非显式放行）在
+        ask 下被拦（blocked=True），由 execute_tool 层走 gray_zone_escalate
+        落盘+bus 通知（此处只做判定，不做副作用）。
         """
         from lingclaude.core.permissions import READ_ONLY_TOOLS
 
@@ -314,6 +319,14 @@ class CodingRuntime(
             blocked = not allowed
             if blocked:
                 rule_id = "strict_mode.non_readonly"
+        elif active_mode == "ask" and self._tool_scope(tool_name) != "read":
+            # H2 灰区：ask 模式下写/执行域工具需人工审批 — 拦截并转灰区
+            # （escalate 在 execute_tool 层做，此处仅判定 + rule_id 供台账统计）。
+            # 判定用 security_scope 而非 READ_ONLY_TOOLS 名单：plan_mode 等
+            # read 域工具（虽不在名单）必须始终可进入，不落入灰区。
+            blocked = not allowed
+            if blocked:
+                rule_id = "ask_mode.pending_approval"
         # R2：把 denial 喂给 DataFlywheel（不造新文件），让"同类 denial"
         # 统计可查（SYSTEMS_THEORY §一.4 摩擦台账 + R1 熔断前置）。
         # 5b：按 rule_id 喂 _ToolLoopDetector 熔断（执行层硬规则,非推理层）。
@@ -348,6 +361,27 @@ class CodingRuntime(
 
         store = get_permission_store(getattr(self.config, "session_id", "default"))
         return self._tool_blocked(tool_name, store, get_permission_mode())
+
+    def _tool_scope_is_readonly(self, tool_name: str) -> bool:
+        """工具是否只读域（security_scope == 'read'）— 灰区 escalate 只针对写/执行域。"""
+        return self._tool_scope(tool_name) == "read"
+
+    def _is_permission_block(self, result: dict[str, Any]) -> bool:
+        """result 是否属于权限拦截（非真实执行错误）。"""
+        err = result.get("error", "")
+        if not isinstance(err, str):
+            return False
+        return "blocked by permissions" in err or "Permission" in err
+
+    def _escalate_gray_zone(
+        self, tool_name: str, kwargs: dict[str, Any], store: Any
+    ) -> str:
+        """灰区 escalate：落盘 pending + LingBus 通知。返回 reason 字符串。"""
+        return gray_zone_escalate(
+            tool_name,
+            kwargs,
+            session_id=getattr(self.config, "session_id", None),
+        )
 
     def _auto_rollback_write(self, tool_name: str, args: dict[str, Any]) -> str | None:
         """P1-2 (2026-09-12): post-write 验证失败自动回滚。
@@ -423,6 +457,18 @@ class CodingRuntime(
             # undo 能力（write/edit/file_create/file_insert/file_delete_lines 均走此回滚）。
             rollback_callback=lambda n, a: self._auto_rollback_write(n, a),
         )
+        # H2 (2026-09-15): 灰区 escalate — ask 模式写工具被拦时，不是简单拒绝，
+        # 而是落盘 guard_pending.jsonl + LingBus 通知 + 结果标记 state=escalated。
+        if (
+            active_mode == "ask"
+            and not self._tool_scope_is_readonly(name)
+            and result.get("error") is not None
+            and self._is_permission_block(result)
+        ):
+            escalated = self._escalate_gray_zone(name, kwargs, store)
+            if escalated:
+                result["state"] = "escalated"
+                result["escalation"] = escalated
         # P0.2: 5b 熔断触发后把信号挂到本次工具结果上（模型可见），消费即清零,
         # 防止旧信号泄漏到后续无关调用。
         if getattr(self, "_denial_abort_log", None):

@@ -24,6 +24,7 @@ from lingclaude.core.permissions import (
     get_permission_store,
     record_permission_decision,
     reset_permission_stores,
+    set_permission_mode,
 )
 from lingclaude.engine.coding import CodingRuntime
 from lingclaude.engine.plan_mode import PlanMode
@@ -93,17 +94,24 @@ class TestSensitivePathGateWiring:
         assert "sensitive_path_gate" in res.get("error", "")
 
     def test_write_sensitive_blocked_via_pipeline_guard(self, runtime):
-        """写工具（write/edit/ast_replace 等）此前不经过门——pipeline 守卫补上。"""
+        """写工具（write/edit/ast_replace 等）此前不经过门——pipeline 守卫补上。
+
+        H2 (2026-09-15): ask 模式灰区拦截先于 sensitive gate 触发（写工具在
+        ask 下被灰区收走），故本测试显式切 auto 模式验证 sensitive gate 本身。
+        """
+        set_permission_mode("auto")
         res = runtime.execute_tool("write", path="/home/ai/.ssh/authorized_keys", content="x")
         assert "sensitive_path_gate" in res.get("error", "")
 
     def test_edit_sensitive_blocked(self, runtime):
+        set_permission_mode("auto")
         res = runtime.execute_tool(
             "edit", path="/home/ai/project/.env", old_text="A", new_text="B"
         )
         assert "sensitive_path_gate" in res.get("error", "")
 
     def test_normal_paths_pass(self, runtime, tmp_path):
+        set_permission_mode("auto")
         f = tmp_path / "normal.txt"
         res = runtime.execute_tool("write", path=str(f), content="ok")
         assert "sensitive_path_gate" not in res.get("error", "")
@@ -143,7 +151,12 @@ class TestApprovalLoop:
         assert "blocked by permissions" in res.get("error", "")
 
     def test_session_isolation(self, runtime):
-        """deny 只影响对应会话。"""
+        """deny 只影响对应会话。
+
+        H2 (2026-09-15): ask 模式下 bash（执行域）本就落灰区，会干扰本测试
+        对「session 隔离」的验证——显式切 auto 消除干扰。
+        """
+        set_permission_mode("auto")
         record_permission_decision("other-session", "bash", "deny")
         res = runtime.execute_tool("bash", command="echo hi")
         assert "blocked by permissions" not in res.get("error", "")

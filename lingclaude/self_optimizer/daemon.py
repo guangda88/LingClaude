@@ -295,17 +295,18 @@ class OptimizationDaemon:
         # P0-1 审批闸门：写 config.yaml 前必过 guard（第四重护栏）。
         # 2026-09-05 事故（会话执行 rm -rf .lingclaude）证明缺少此闸的风险。
         # 2026-09-06 fix：消除上游混合缩进造成的 SyntaxError，确保 daemon 可启动。
-        from lingclaude.core.guard import ApprovalGuard, load_approval_mode
+        # H1 (2026-09-15): 统一动作闸门 — 由 ApprovalGuard 改为 PermissionContext.check_action。
+        from lingclaude.core.permissions import PermissionContext, load_approval_mode
 
         lock_cm = None  # 提前 return 路径（未持锁）时 finally 需判空
         guard_mode = load_approval_mode(Path("config.yaml"))
-        guard = ApprovalGuard(mode=guard_mode)
-        allowed, reason = guard.check(
+        guard = PermissionContext(mode=guard_mode)
+        allowed, reason = guard.check_action(
             "optimize_write",
             params={"proposed": params, "deferred_hint": "见 daemon 日志"},
         )
         if not allowed:
-            if guard.mode == "strict":
+            if guard_mode == "strict":
                 raise PermissionError(
                     f"ApprovalGuard(strict): 写配置被拒绝（{reason}）— 动作 optimize_write"
                 )

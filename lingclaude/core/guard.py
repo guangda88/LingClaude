@@ -22,41 +22,35 @@ ask 模式落盘格式 (JSONL, 每行一条):
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
-# 合法模式
-VALID_MODES: tuple[str, ...] = ("auto", "ask", "strict")
+# H1 (2026-09-15): 全部语义/名单/落盘单源到 lingclaude.core.permissions。
+# 本模块保留兼容符号（测试/外部引用），实现一律委托。
+from lingclaude.core.permissions import (
+    DENY_ACTIONS,
+    PENDING_LOG_PATH,
+    READ_ONLY_TOOLS,
+    REASON_AUTO,
+    REASON_DENIED,
+    REASON_EMPTY,
+    REASON_NEED_APPROVAL,
+    REASON_PENDING,
+    REASON_READ_ONLY,
+    VALID_MODES,
+    PermissionContext,
+    load_approval_mode as _load_approval_mode,
+    log_pending_action,
+)
 
-# ask 模式下待审批动作的落盘位置 (相对 CWD)
-PENDING_LOG_PATH: Path = Path(".lingclaude") / "guard_pending.jsonl"
-
-# config.yaml 中审批模式的读取路径
-_CONFIG_MODE_PATH = ("guard", "approval_mode")
-
-# 只读动作 — 三种模式下均自动放行 (与 permissions.READ_ONLY_TOOLS 对齐)
-READ_ONLY_ACTIONS: frozenset[str] = frozenset({
-    "read", "grep", "glob", "ls", "find", "head", "tail",
-    "cat", "view", "search", "list", "stat", "wc",
-})
-
-# 硬拒绝动作 — 任何模式都不放行
-DENY_ACTIONS: frozenset[str] = frozenset({
-    "rm_rf_root", "sudo", "format_disk", "shutdown",
-})
-
-# reason 常量 — 管线按字符串匹配分流, 不要散落裸字符串
-REASON_DENIED = "denied_by_rule"
-REASON_EMPTY = "empty_action"
-REASON_READ_ONLY = "read_only_auto"
-REASON_AUTO = "auto_mode_pass"
-REASON_NEED_APPROVAL = "requires_approval"
-REASON_PENDING = "pending approval"
+# H1: 只读名单单源 = permissions.READ_ONLY_TOOLS，本别名仅做兼容。
+READ_ONLY_ACTIONS: frozenset[str] = READ_ONLY_TOOLS
 
 
 class ApprovalGuard:
-    """动作审批闸门。
+    """动作审批闸门 — H1 后为 PermissionContext.check_action 的薄包装（保持兼容）。
+
+    语义/落盘/名单全部单源到 lingclaude.core.permissions；本类仅保留
+    daemon 写配置场景的既有调用形态（mode + check(action, params)）。
 
     用法:
         guard = ApprovalGuard(mode="ask")
@@ -72,81 +66,16 @@ class ApprovalGuard:
                 f"ApprovalGuard: 未知 mode={mode!r}, 合法值: {VALID_MODES}"
             )
         self.mode: str = normalized
+        self._ctx = PermissionContext(mode=normalized)
 
     def check(self, action: str, params: dict | None = None) -> tuple[bool, str]:
-        """判定单个动作是否放行。
-
-        返回 (allowed, reason):
-          (True,  REASON_READ_ONLY)      只读动作, 任意模式放行
-          (True,  REASON_AUTO)           auto 模式放行
-          (False, REASON_PENDING)        ask 模式写动作: 已落盘待审批(params 摘要一并记录)
-          (False, REASON_NEED_APPROVAL)  strict 模式写动作: 需审批, 不落盘
-          (False, REASON_DENIED)         命中硬拒绝名单
-          (False, REASON_EMPTY)          空 action, fail-closed
-        """
-        if not action or not action.strip():
-            return (False, REASON_EMPTY)
-
-        lowered = action.strip().lower()
-
-        if lowered in DENY_ACTIONS:
-            return (False, REASON_DENIED)
-
-        if lowered in READ_ONLY_ACTIONS:
-            return (True, REASON_READ_ONLY)
-
-        if self.mode == "auto":
-            return (True, REASON_AUTO)
-
-        # strict: 写动作需审批 (不落盘, 由管线自行处理)
-        if self.mode == "strict":
-            return (False, REASON_NEED_APPROVAL)
-
-        # ask: 记录到待审批日志, 返回 pending approval
-        self._log_pending(lowered, params)
-        return (False, REASON_PENDING)
-
-    def _log_pending(self, action: str, params: dict | None = None) -> None:
-        """把待审批动作追加到 .lingclaude/guard_pending.jsonl。
-
-        落盘失败不影响 check() 的判定结果 (只对日志 fail-open)。
-        """
-        try:
-            PENDING_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            record = {
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "action": action,
-                "mode": self.mode,
-            }
-            # 2026-09-05 事故复盘:pending 只记 action 名导致被拦参数不可考 —
-            # params 摘要必须随记录落盘,审批人才有裁决依据。
-            if params:
-                record["params"] = params
-            with PENDING_LOG_PATH.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        except OSError:
-            pass
+        """判定单个动作是否放行 — 委托 PermissionContext.check_action（H1 单源）。"""
+        return self._ctx.check_action(action, params)
 
     def __repr__(self) -> str:
         return f"ApprovalGuard(mode={self.mode!r})"
 
 
 def load_approval_mode(config_path: Path | str | None = None) -> str:
-    """从 config.yaml 读取 guard.approval_mode,缺省 auto。
-
-    读取失败一律回退 auto(fail-open 仅限配置缺失场景;一旦读到非法值,
-    ApprovalGuard 构造会 fail-closed 抛错)。
-    """
-    if config_path is None:
-        return "auto"
-    try:
-        import yaml
-
-        raw = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
-        mode = raw
-        for key in _CONFIG_MODE_PATH:
-            mode = (mode or {}).get(key) if isinstance(mode, dict) else None
-        normalized = str(mode or "auto").strip().lower()
-        return normalized if normalized in VALID_MODES else "auto"
-    except Exception:  # noqa: BLE001 — 配置缺失/损坏时回退默认
-        return "auto"
+    """从 config.yaml 读取 guard.approval_mode — H1 后转发到 permissions 单源。"""
+    return _load_approval_mode(config_path)
