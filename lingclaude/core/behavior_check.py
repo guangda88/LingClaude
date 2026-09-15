@@ -37,13 +37,13 @@ READONLY_COMMANDS = frozenset({
     "less", "more", "tee", "basename", "dirname",
 })
 
-# 编辑类工具
+# 编辑类工具（E13: 外置到 policies/behavior_policy.yaml，此处为内置默认兜底）
 EDIT_TOOLS = frozenset({"edit_file", "write_file", "edit", "write"})
 
-# 连续重复工具阈值
+# 连续重复工具阈值（E13: 外置，读失败回退此默认）
 TOOL_REPEAT_LIMIT = 3
 
-# 明显不完整信号 (黑名单: 枚举"什么不算完整")
+# 明显不完整信号 (黑名单: 枚举"什么不算完整")（E13: 外置，读失败回退此默认）
 INCOMPLETE_SIGNALS = [
     r"^我不知道",
     r"^我无法",
@@ -54,8 +54,19 @@ INCOMPLETE_SIGNALS = [
     r"^$",
 ]
 
-# 连续失败阈值
+# 连续失败阈值（E13: 外置，读失败回退此默认）
 CONSECUTIVE_FAIL_LIMIT = 2
+
+
+def _load_behavior_policy() -> dict[str, Any]:
+    """E13: 从 policies/behavior_policy.yaml 加载行为检查策略。
+
+    读失败/缺失 → {}（调用方回退内置默认，graceful degrade）。
+    通过 PolicyLoader 走 mtime watch 热更，改 YAML 不重启进程。
+    """
+    from lingclaude.core.policy_loader import load
+
+    return load("behavior_policy")
 
 
 def _get_tool_name(args: dict[str, Any] | None) -> str:
@@ -65,15 +76,52 @@ def _get_tool_name(args: dict[str, Any] | None) -> str:
     return args.get("tool_name") or args.get("name") or args.get("command", "").split()[0] if args.get("command") else ""
 
 
+def _edit_tools_from_policy() -> frozenset[str]:
+    """E13: 编辑类工具集合 — YAML 优先，读失败回退内置默认。"""
+    policy = _load_behavior_policy()
+    tools = policy.get("edit_tools")
+    if isinstance(tools, list) and tools:
+        return frozenset(tools)
+    return EDIT_TOOLS
+
+
+def _repeat_limit_from_policy() -> int:
+    """E13: 连续重复阈值 — YAML 优先，读失败回退内置默认。"""
+    policy = _load_behavior_policy()
+    val = policy.get("tool_repeat_limit")
+    if isinstance(val, int) and val > 0:
+        return val
+    return TOOL_REPEAT_LIMIT
+
+
+def _fail_limit_from_policy() -> int:
+    """E13: 连续失败阈值 — YAML 优先，读失败回退内置默认。"""
+    policy = _load_behavior_policy()
+    val = policy.get("consecutive_fail_limit")
+    if isinstance(val, int) and val > 0:
+        return val
+    return CONSECUTIVE_FAIL_LIMIT
+
+
+def _incomplete_signals_from_policy() -> list[str]:
+    """E13: 不完整信号模式 — YAML 优先，读失败回退内置默认。"""
+    policy = _load_behavior_policy()
+    signals = policy.get("incomplete_signals")
+    if isinstance(signals, list) and signals:
+        return [str(s) for s in signals]
+    return INCOMPLETE_SIGNALS
+
+
 def check_edit_verify(tool_history: list[dict[str, Any]]) -> list[str]:
     """检查编辑后是否验证了 (模式匹配, 零推理)"""
     nudges = []
     last_edit_idx = -1
     has_verify = False
+    edit_tools = _edit_tools_from_policy()
 
     for i, entry in enumerate(tool_history):
         name = entry.get("tool_name", "")
-        if name in EDIT_TOOLS:
+        if name in edit_tools:
             last_edit_idx = i
             has_verify = False
         elif name == "bash":
@@ -93,8 +141,9 @@ def check_edit_verify(tool_history: list[dict[str, Any]]) -> list[str]:
 def check_tool_repetition(tool_history: list[dict[str, Any]]) -> list[str]:
     """检查工具是否重复调用"""
     nudges = []
-    recent = tool_history[-TOOL_REPEAT_LIMIT:] if len(tool_history) >= TOOL_REPEAT_LIMIT else []
-    if len(recent) < TOOL_REPEAT_LIMIT:
+    limit = _repeat_limit_from_policy()
+    recent = tool_history[-limit:] if len(tool_history) >= limit else []
+    if len(recent) < limit:
         return nudges
 
     names = [e.get("tool_name", "") for e in recent]
@@ -102,11 +151,11 @@ def check_tool_repetition(tool_history: list[dict[str, Any]]) -> list[str]:
 
     # 连续 N 次同一工具
     if len(set(names)) == 1 and names[0]:
-        nudges.append(f"已连续 {TOOL_REPEAT_LIMIT} 次调用同一工具 ({names[0]})，可能陷入循环。")
+        nudges.append(f"已连续 {limit} 次调用同一工具 ({names[0]})，可能陷入循环。")
 
     # 连续 N 次同一工具+同一参数
     if len(set(str(a) for a in args)) == 1 and names[0]:
-        nudges.append(f"已连续 {TOOL_REPEAT_LIMIT} 次调用同一参数，建议尝试其他方法。")
+        nudges.append(f"已连续 {limit} 次调用同一参数，建议尝试其他方法。")
 
     return nudges
 
@@ -114,22 +163,23 @@ def check_tool_repetition(tool_history: list[dict[str, Any]]) -> list[str]:
 def check_consecutive_failure(tool_history: list[dict[str, Any]]) -> list[str]:
     """检查连续失败后是否尝试了替代方案"""
     nudges = []
+    limit = _fail_limit_from_policy()
     fails = []
     for entry in reversed(tool_history):
         if entry.get("is_error"):
             fails.append(entry)
         else:
             break
-        if len(fails) >= CONSECUTIVE_FAIL_LIMIT:
+        if len(fails) >= limit:
             break
 
-    if len(fails) >= CONSECUTIVE_FAIL_LIMIT:
+    if len(fails) >= limit:
         last_cmd = fails[0].get("command", "")
         prev_cmd = fails[-1].get("command", "")
         if last_cmd == prev_cmd:
-            nudges.append(f"同一命令连续失败 {CONSECUTIVE_FAIL_LIMIT} 次 ({last_cmd[:40]})，建议尝试替代方案。")
+            nudges.append(f"同一命令连续失败 {limit} 次 ({last_cmd[:40]})，建议尝试替代方案。")
         else:
-            nudges.append(f"连续 {CONSECUTIVE_FAIL_LIMIT} 次操作失败，建议检查环境或换方法。")
+            nudges.append(f"连续 {limit} 次操作失败，建议检查环境或换方法。")
 
     return nudges
 
@@ -141,7 +191,7 @@ def check_output_completeness(output: str) -> list[str]:
         nudges.append("输出为空。")
         return nudges
 
-    for pattern in INCOMPLETE_SIGNALS:
+    for pattern in _incomplete_signals_from_policy():
         if re.search(pattern, output.strip()):
             nudges.append(f"输出包含不完整信号: 以「{pattern}」开头。")
             break

@@ -40,6 +40,8 @@ _REPO_DEFAULT = {
     "lingflow_plus": "/home/ai/lingflow_plus",
     "lingyang": "/home/ai/lingyang",
     "lingresearch": "/home/ai/lingresearch",
+    "lingtongask": "/home/ai/lingtongask",  # 灵通问道（E12 补充）
+    "lingclaude": "/home/ai/lingclaude",  # 本仓（E12 补充：VERSION/env 等路径单源）
     "lingmemory": "/home/ai/lingclaude/lingmemory",  # 本仓子目录(测试薄主干)
     "ling_lib": "/home/ai/.ling_lib",  # 共享工具目录（ling_key_store 等）
 }
@@ -54,6 +56,8 @@ _REPO_ENV_KEY = {
     "lingflow_plus": "LINGFLOW_PLUS_PATH",
     "lingyang": "LINGYANG_PATH",
     "lingresearch": "LINGRESEARCH_PATH",
+    "lingtongask": "LINGTONGASK_PATH",  # 灵通问道（E12）
+    "lingclaude": "LINGCLAUDE_PATH",  # 本仓（E12）
     "lingmemory": "LINGMEMORY_PATH",  # 本仓子目录(测试薄主干)
     "ling_lib": "LING_LIB_PATH",
 }

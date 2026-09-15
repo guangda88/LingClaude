@@ -22,11 +22,18 @@ from lingclaude.core.safe_db import safe_commit, safe_connect
 logger = logging.getLogger(__name__)
 
 
-class TaskPriority(str, Enum):
-    """任务优先级"""
+class AggregationTaskPriority(str, Enum):
+    """任务优先级（灵元 E10 去歧义：原 TaskPriority —— 与 task_scheduler 同名混淆）。
+
+    值域：high/medium/low（任务聚合域，英文枚举）。
+    """
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
+
+
+# 兼容别名：外部旧引用（from lingclaude.core.task_aggregation import TaskPriority）仍可用
+TaskPriority = AggregationTaskPriority
 
 
 class AggregationTaskStatus(str, Enum):

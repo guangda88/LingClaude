@@ -1,0 +1,39 @@
+# 认知节律策略（灵元 1.0：策略是 data，不是结构）
+# E13 (2026-09-15): core/cognitive_rhythm.py 的 _OVERTHINKING_THRESHOLDS /
+#   _OVERACTING_THRESHOLDS 从代码常量外置。原则：改阈值只改此文件，不动代码。
+# 走 PolicyLoader（mtime watch 热更，进程不重启）；读失败回退代码内置默认。
+
+# 过度思考（灵通模式：想太多不做）阈值
+overthinking:
+  max_consecutive_thinks: 5
+  max_think_chars_without_act: 5000
+  max_think_duration_seconds: 60.0
+
+# 过度行动（灵克模式：做太多不问）阈值
+overacting:
+  max_consecutive_acts: 3
+  min_think_chars_before_negative: 100
+
+# 否定性结论关键词
+negative_keywords:
+  - "从未"
+  - "没有"
+  - "不存在"
+  - "不可能"
+  - "不会"
+  - "不是"
+  - "无"
+  - "没"
+
+# 证伪关键词
+falsification_keywords:
+  - "反面"
+  - "矛盾"
+  - "推翻"
+  - "反例"
+  - "否证"
+  - "disprove"
+  - "contradict"
+  - "替代"
+  - "其他可能"
+  - "反面证据"

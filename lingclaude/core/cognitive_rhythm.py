@@ -80,6 +80,63 @@ _FALSIFICATION_KEYWORDS = (
 )
 
 
+def _load_rhythm_policy() -> dict[str, Any]:
+    """E13: 从 policies/cognitive_rhythm.yaml 加载认知节律策略。
+
+    读失败/缺失 → {}（调用方回退内置默认，graceful degrade）。
+    通过 PolicyLoader 走 mtime watch 热更，改 YAML 不重启进程。
+    """
+    from lingclaude.core.policy_loader import load
+
+    return load("cognitive_rhythm")
+
+
+def _overthinking_from_policy() -> dict[str, Any]:
+    """E13: 过度思考阈值 — YAML 优先，读失败/缺 key 回退内置默认。"""
+    policy = _load_rhythm_policy()
+    t = policy.get("overthinking")
+    if isinstance(t, dict) and t:
+        merged = dict(_OVERTHINKING_THRESHOLDS)
+        for k in merged:
+            v = t.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                merged[k] = v
+        return merged
+    return _OVERTHINKING_THRESHOLDS
+
+
+def _overacting_from_policy() -> dict[str, Any]:
+    """E13: 过度行动阈值 — YAML 优先，读失败/缺 key 回退内置默认。"""
+    policy = _load_rhythm_policy()
+    t = policy.get("overacting")
+    if isinstance(t, dict) and t:
+        merged = dict(_OVERACTING_THRESHOLDS)
+        for k in merged:
+            v = t.get(k)
+            if isinstance(v, (int, float)) and v > 0:
+                merged[k] = v
+        return merged
+    return _OVERACTING_THRESHOLDS
+
+
+def _negative_keywords_from_policy() -> tuple[str, ...]:
+    """E13: 否定结论关键词 — YAML 优先，读失败回退内置默认。"""
+    policy = _load_rhythm_policy()
+    kws = policy.get("negative_keywords")
+    if isinstance(kws, list) and kws:
+        return tuple(str(k) for k in kws)
+    return _NEGATIVE_KEYWORDS
+
+
+def _falsification_keywords_from_policy() -> tuple[str, ...]:
+    """E13: 证伪关键词 — YAML 优先，读失败回退内置默认。"""
+    policy = _load_rhythm_policy()
+    kws = policy.get("falsification_keywords")
+    if isinstance(kws, list) and kws:
+        return tuple(str(k) for k in kws)
+    return _FALSIFICATION_KEYWORDS
+
+
 @dataclass
 class CognitiveRhythm:
     """知行循环协调器。
@@ -108,11 +165,11 @@ class CognitiveRhythm:
         """记录一轮思考。"""
         if not had_negative_conclusion:
             had_negative_conclusion = any(
-                kw in content for kw in _NEGATIVE_KEYWORDS
+                kw in content for kw in _negative_keywords_from_policy()
             )
         if not had_falsification:
             had_falsification = any(
-                kw in content for kw in _FALSIFICATION_KEYWORDS
+                kw in content for kw in _falsification_keywords_from_policy()
             )
 
         self._history.append(_TurnRecord(
@@ -225,7 +282,7 @@ class CognitiveRhythm:
         duration: float,
     ) -> bool:
         """检测灵通模式：想太多不做。"""
-        t = _OVERTHINKING_THRESHOLDS
+        t = _overthinking_from_policy()
         if consecutive_thinks >= t["max_consecutive_thinks"]:
             return True
         if recent_think_chars >= t["max_think_chars_without_act"]:
@@ -247,7 +304,7 @@ class CognitiveRhythm:
         额外检查：如果最近的行动产出了否定性结论，
         但之前的思考字数很少，说明没有充分反思就下了结论。
         """
-        t = _OVERACTING_THRESHOLDS
+        t = _overacting_from_policy()
         if consecutive_acts >= t["max_consecutive_acts"]:
             if total_think_chars < t["min_think_chars_before_negative"]:
                 recent_outputs = [

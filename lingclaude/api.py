@@ -630,8 +630,16 @@ async def lingmessage_post(req: GovernedPostRequest, api_key: str = Security(ver
 
 
 def _load_env_keys() -> dict[str, str]:
+    from lingclaude.lacp.cross_repo_seam import repo_path
+
     keys: dict[str, str] = {}
-    for f in ["/home/ai/lingzhi/.env", "/home/ai/lingclaude/.env"]:
+    # E12(灵元1.0 再照): /home/ai 硬编码 → cross_repo_seam.repo_path（env 可覆盖）
+    env_files = []
+    for name in ("lingzhi", "lingclaude"):
+        p = repo_path(name)
+        if p is not None:
+            env_files.append(str(p / ".env"))
+    for f in env_files:
         p = Path(f)
         if p.exists():
             for line in p.read_text(encoding="utf-8").splitlines():
@@ -869,19 +877,25 @@ def _query_pypi_downloads(prompt: str) -> str:
 
 
 def _query_versions() -> str:
-    version_file = Path("/home/ai/lingclaude/VERSION")
+    from lingclaude.lacp.cross_repo_seam import repo_path
+
+    p_lc = repo_path("lingclaude")
+    # E12: /home/ai 硬编码 → cross_repo_seam（env 可覆盖）
+    version_file = Path(p_lc) / "VERSION" if p_lc else Path("/home/ai/lingclaude/VERSION")
     lc_ver = version_file.read_text().strip() if version_file.exists() else "未知"
     return f"灵克 (lingclaude) 当前版本: {lc_ver}"
 
 
 def _list_projects() -> list[dict]:
-    roots = {
-        "lingflow": "/home/ai/lingflow",
-        "lingclaude": "/home/ai/lingclaude",
-        "lingyang": "/home/ai/lingyang",
-        "lingtongask": "/home/ai/lingtongask",
-        "lingmessage": "/home/ai/lingmessage",
-    }
+    from lingclaude.lacp.cross_repo_seam import repo_path
+
+    # E12: /home/ai 硬编码 → cross_repo_seam（env 可覆盖）
+    names = ("lingflow", "lingclaude", "lingyang", "lingtongask", "lingmessage")
+    roots = {}
+    for name in names:
+        p = repo_path(name)
+        if p is not None:
+            roots[name] = str(p)
     projects = []
     for name, path in roots.items():
         p = Path(path)
@@ -902,17 +916,21 @@ def _format_projects() -> str:
 
 
 def _query_recent_commits(prompt: str) -> str:
-    roots = {
-        "灵克": "/home/ai/lingclaude",
-        "灵通": "/home/ai/lingflow",
-    }
+    from lingclaude.lacp.cross_repo_seam import repo_path
+
+    # E12: /home/ai 硬编码 → cross_repo_seam（env 可覆盖）
+    # 中文名 → 仓库名映射（保留原匹配语义：prompt 含"灵克"→lingclaude）
+    aliases = {"灵克": "lingclaude", "灵通": "lingflow"}
     target_dir = None
-    for name, path in roots.items():
-        if name in prompt:
-            target_dir = path
+    for cn_name, repo_name in aliases.items():
+        if cn_name in prompt:
+            p = repo_path(repo_name)
+            if p is not None:
+                target_dir = str(p)
             break
     if not target_dir:
-        target_dir = "/home/ai/lingclaude"
+        p_lc = repo_path("lingclaude")
+        target_dir = str(p_lc) if p_lc else "/home/ai/lingclaude"
 
     try:
         result = subprocess.run(

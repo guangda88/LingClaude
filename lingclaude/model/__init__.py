@@ -23,4 +23,6 @@ __all__ = [
     "is_rate_limit_error",
 ]
 # E3(灵元1.0 P1): create_hybrid_provider 已从主干导出摘除——无业务调用方的死插片。
-# hybrid_router/local_provider 保留源码(实验态), P2 manifest 定夺去留。
+# E14(灵元1.0 再照, 2026-09-15): hybrid_router 定夺为「去」——生产零消费(仅测试引用)，
+#   已删除。local_provider 保留：provider_registry 注册为 "local"(降级路径,
+#   task_router._is_local_base 放行语义), 有真实语义。

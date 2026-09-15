@@ -18,12 +18,19 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-class TaskPriority(str, Enum):
-    """任务优先级"""
+class SchedulerTaskPriority(str, Enum):
+    """任务优先级（灵元 E10 去歧义：原 TaskPriority —— 与 task_aggregation 同名混淆）。
+
+    值域：低/中/高/紧急（任务调度域，中文枚举）。
+    """
     LOW = "低"
     MEDIUM = "中"
     HIGH = "高"
     URGENT = "紧急"
+
+
+# 兼容别名：外部旧引用（from lingclaude.core.task_scheduler import TaskPriority）仍可用
+TaskPriority = SchedulerTaskPriority
 
 
 class SchedulerTaskStatus(str, Enum):

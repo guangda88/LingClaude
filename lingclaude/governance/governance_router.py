@@ -17,30 +17,6 @@ from lingclaude.governance.governance_v2 import GovernanceEngine, ProposalStatus
 logger = logging.getLogger("lingclaude.governance.governance_router")
 
 
-class UnifiedProposalStatus:
-    """统一提案状态 — 兼容governance_v2和proposal_lifecycle"""
-    PROPOSED = "proposed"
-    DISCUSSING = "discussing"
-    VOTING = "voting"
-    RESOLVED = "resolved"
-    EXPIRED = "expired"
-    WITHDRAWN = "withdrawn"
-
-    # 灵元V1.0 合法流转
-    TRANSITIONS = {
-        "proposed": ["discussing", "withdrawn"],
-        "discussing": ["voting", "withdrawn"],
-        "voting": ["resolved", "expired"],
-        "resolved": [],
-        "expired": [],
-        "withdrawn": [],
-    }
-
-    @classmethod
-    def can_transition(cls, from_state: str, to_state: str) -> bool:
-        return to_state in cls.TRANSITIONS.get(from_state, [])
-
-
 class GovernanceRouter:
     """灵元V1.0 治理路由薄主干
 
@@ -52,6 +28,11 @@ class GovernanceRouter:
     - 现在 propose() 接真引擎（create_proposal 签名匹配，uuid 补 proposal_id）；
       get_status/list_active/dashboard 按引擎真实字段（proosals/status 枚举）诚实接线；
       vote/resolve 无真实对应物，改显式 NotImplementedError（H1：诚实接口优于静默谎言）。
+
+    E11（灵元1.0 再照, 2026-09-15）：删除死状态机 UnifiedProposalStatus——
+    全仓零消费（类定义外无任何引用），且值域（proposed/discussing/voting/resolved/expired/withdrawn）
+    与真引擎 ProposalStatus（analysis/open/objection_raised/passed/failed/withdrawn）不一致，
+    是"幻觉状态机"。状态一律以 governance_v2.ProposalStatus 为单源。
     """
 
     def __init__(

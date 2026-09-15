@@ -9,13 +9,6 @@ from lingclaude.model.types import (
     ModelUsage,
     MessageRole,
 )
-from lingclaude.model.hybrid_router import HybridRouterProvider
-from lingclaude.model.intelligent_router import (
-    RoutingDecision,
-    TaskComplexity,
-    TaskType,
-    GLMModel,
-)
 
 
 class _FakeProvider:
@@ -36,21 +29,6 @@ class _FakeProvider:
 
     def count_tokens(self, text: str) -> int:
         return len(text) // 4
-
-
-class _FakeRouter:
-    def __init__(self, complexity: TaskComplexity, task_type: TaskType = TaskType.OTHER):
-        self._complexity = complexity
-        self._task_type = task_type
-
-    def route(self, query: str) -> RoutingDecision:
-        return RoutingDecision(
-            model=GLMModel.GLM_4_7,
-            complexity=self._complexity,
-            task_type=self._task_type,
-            reason="test",
-            confidence=0.9,
-        )
 
 
 class TestLocalModelProvider:
@@ -102,78 +80,3 @@ class TestLocalModelProvider:
         assert "<|im_start|>system" in prompt
         assert "<|im_start|>user" in prompt
         assert "<|im_start|>assistant" in prompt
-
-
-class TestHybridRouter:
-    def test_simple_task_goes_local(self) -> None:
-        local = _FakeProvider()
-        api = _FakeProvider()
-        router = _FakeRouter(TaskComplexity.SIMPLE)
-        hybrid = HybridRouterProvider(local, api, router)
-
-        msgs = (ModelMessage(role=MessageRole.USER, content="简单问题"),)
-        result = hybrid.complete(msgs)
-        assert result.is_ok
-        assert len(local.calls) == 1
-        assert len(api.calls) == 0
-
-    def test_complex_task_goes_api(self) -> None:
-        local = _FakeProvider()
-        api = _FakeProvider()
-        router = _FakeRouter(TaskComplexity.COMPLEX)
-        hybrid = HybridRouterProvider(local, api, router)
-
-        msgs = (ModelMessage(role=MessageRole.USER, content="复杂推理"),)
-        result = hybrid.complete(msgs)
-        assert result.is_ok
-        assert len(local.calls) == 0
-        assert len(api.calls) == 1
-
-    def test_fallback_on_local_failure(self) -> None:
-        from lingclaude.core.types import Result
-
-        failing_local = MagicMock()
-        failing_local.complete.return_value = Result.fail("OOM", code="ERR")
-        api = _FakeProvider()
-        router = _FakeRouter(TaskComplexity.SIMPLE)
-        hybrid = HybridRouterProvider(failing_local, api, router)
-
-        msgs = (ModelMessage(role=MessageRole.USER, content="test"),)
-        result = hybrid.complete(msgs)
-        assert result.is_ok
-        assert len(api.calls) == 1
-
-    def test_search_goes_local(self) -> None:
-        local = _FakeProvider()
-        api = _FakeProvider()
-        router = _FakeRouter(TaskComplexity.COMPLEX, TaskType.SEARCH)
-        hybrid = HybridRouterProvider(local, api, router)
-
-        msgs = (ModelMessage(role=MessageRole.USER, content="搜索文件"),)
-        result = hybrid.complete(msgs)
-        assert result.is_ok
-        assert len(local.calls) == 1
-
-    def test_stats(self) -> None:
-        local = _FakeProvider()
-        api = _FakeProvider()
-        router = _FakeRouter(TaskComplexity.SIMPLE)
-        hybrid = HybridRouterProvider(local, api, router)
-
-        msgs = (ModelMessage(role=MessageRole.USER, content="test"),)
-        hybrid.complete(msgs)
-        stats = hybrid.get_stats()
-        assert stats["local_requests"] == 1
-        assert stats["api_requests"] == 0
-        assert stats["savings_ratio"] == 1.0
-
-    def test_extract_query(self) -> None:
-        local = _FakeProvider()
-        api = _FakeProvider()
-        hybrid = HybridRouterProvider(local, api)
-        msgs = (
-            ModelMessage(role=MessageRole.SYSTEM, content="sys"),
-            ModelMessage(role=MessageRole.USER, content="user query here"),
-        )
-        assert hybrid._extract_query(msgs) == "user query here"
-

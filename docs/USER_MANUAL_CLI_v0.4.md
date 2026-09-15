@@ -229,13 +229,6 @@ result = manager.run(req, ctx)
 - `http` — HTTP/JSON-RPC
 - `sse` — Server-Sent Events（**HTTP/SSE 传输** MCP client）
 
-OAuth/PKCE（P1-3 落地）：
-```python
-from lingclaude.engine.mcp_oauth import (
-    OAuthDiscovery, PKCEGenerator, AuthorizationCodeFlow, TokenRefresh
-)
-```
-
 插件通过 LACP manifest 声明 transport：
 ```python
 plugin = Plugin(

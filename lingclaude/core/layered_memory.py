@@ -203,33 +203,29 @@ class WorkingMemory:
 
 
 class ExperienceStore(SqliteStoreBase):
+    # E16(灵元1.0 再照): 手写 _init_db 收敛为基类 _SCHEMA 机制（与 memory_engine/l7_cognitive 单源同款）
+    _SCHEMA = """
+        CREATE TABLE IF NOT EXISTS experiences (
+            id TEXT PRIMARY KEY,
+            problem TEXT NOT NULL,
+            hypothesis TEXT DEFAULT '',
+            action TEXT DEFAULT '',
+            result TEXT DEFAULT '',
+            reflection TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            last_recalled TEXT NOT NULL,
+            recall_count INTEGER DEFAULT 0,
+            deny_count INTEGER DEFAULT 0,
+            emotion TEXT DEFAULT 'none',
+            associations TEXT DEFAULT '[]',
+            weight REAL DEFAULT 1.0
+        );
+        CREATE INDEX IF NOT EXISTS idx_exp_weight ON experiences(weight);
+    """
+
     def __init__(self, db_path: str | None = None,
                  legacy_sink: object | None = None) -> None:
         super().__init__(db_path=db_path, legacy_sink=legacy_sink, db_name="experience.db")
-
-    def _init_db(self) -> None:
-        conn = self._get_conn()
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS experiences (
-                id TEXT PRIMARY KEY,
-                problem TEXT NOT NULL,
-                hypothesis TEXT DEFAULT '',
-                action TEXT DEFAULT '',
-                result TEXT DEFAULT '',
-                reflection TEXT DEFAULT '',
-                created_at TEXT NOT NULL,
-                last_recalled TEXT NOT NULL,
-                recall_count INTEGER DEFAULT 0,
-                deny_count INTEGER DEFAULT 0,
-                emotion TEXT DEFAULT 'none',
-                associations TEXT DEFAULT '[]',
-                weight REAL DEFAULT 1.0
-            )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_exp_weight ON experiences(weight)"
-        )
-        conn.commit()
 
     def store(self, exp: Experience) -> str:
         conn = self._get_conn()

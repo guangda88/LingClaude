@@ -1,0 +1,27 @@
+# 行为检查策略（灵元 1.0：策略是 data，不是结构）
+# E13 (2026-09-15): core/behavior_check.py 的 TOOL_REPEAT_LIMIT / CONSECUTIVE_FAIL_LIMIT
+#   从代码常量外置。原则：改阈值只改此文件，不动代码。
+# 走 PolicyLoader（mtime watch 热更，进程不重启）；读失败回退代码内置默认。
+
+# 连续重复调用同一工具/同一参数的阈值
+tool_repeat_limit: 3
+
+# 连续失败（is_error）阈值
+consecutive_fail_limit: 2
+
+# 编辑类工具集合（检查"编辑后是否验证"）
+edit_tools:
+  - "edit_file"
+  - "write_file"
+  - "edit"
+  - "write"
+
+# 明显不完整信号（黑名单：枚举"什么不算完整"）
+incomplete_signals:
+  - "^我不知道"
+  - "^我无法"
+  - "^我不确定"
+  - "^抱歉，我"
+  - "^根据以上[^，]*$"
+  - "^如上所述[^，]*$"
+  - "^$"
