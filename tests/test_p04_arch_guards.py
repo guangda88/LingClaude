@@ -243,9 +243,7 @@ J4_STATE_MODULES = [
 
 # 存量直连登记（审计 J4 痕迹表 + 2026-09-16 实扫；迁移后逐条删除）
 # 只缩不放：收编一条删一条，全部清零即 J4 达标。
-J4_KNOWN_DIRECT = {
-    "core/meta_cognition.py": [249, 258],
-}
+J4_KNOWN_DIRECT = {}
 
 # 导出视图豁免（J4 合规判定：状态主通道已走 StateStore，以下为导出物/兼容兜底，非状态私连）：
 #   - handover 三件套（yaml/json/md）为导出视图（l5_audit / topic_drift_detector 消费 md）
@@ -266,6 +264,8 @@ J4_EXPORT_VIEWS = {
     "core/reasoning_chain.py": [122],
     # governance gate 审计记录导出物（gate_{ts}.json，规则检查留档供审计）
     "core/governance.py": [444],
+    # meta_cognition 文件兜底（StateStore 写入失败时的导出物/兼容回退，非状态主通道）
+    "core/meta_cognition.py": [269],
 }
 
 _WRITE_MEDIA_RE = re.compile(

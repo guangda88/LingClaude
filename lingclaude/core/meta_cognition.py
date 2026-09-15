@@ -147,13 +147,23 @@ class BlindSpotDetector:
 class MetaCognition:
     _DEFAULT_PERSIST_PATH = Path(".lingclaude/meta_cognition.json")
 
-    def __init__(self, persist_path: Path | None = None) -> None:
+    def __init__(self, persist_path: Path | None = None, state_store: object | None = None) -> None:
         self._calibrator = ConfidenceCalibrator()
         self._blind_spot_detector = BlindSpotDetector()
         self._domain_map: dict[str, Domain] = {
             d.value: d for d in Domain
         }
         self._persist_path = persist_path or self._DEFAULT_PERSIST_PATH
+        # J4 状态归原语：校准器记录/盲区模式走 StateStore（record_type="meta_cognition"），
+        # 文件路径保留为向后兼容兜底（迁移期读旧数据 / 导出物）。
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore(root=self._persist_path.parent)
+            except Exception:
+                state_store = None
+        self._state_store = state_store
         self.load(self._persist_path)
 
     def record_success(self, domain: Domain) -> None:
@@ -244,6 +254,16 @@ class MetaCognition:
                 "error_descriptions": self._blind_spot_detector.error_descriptions,
             },
         }
+        # J4 状态归原语：状态事实写 StateStore（record_type="meta_cognition", key=文件名）
+        if self._state_store is not None:
+            try:
+                self._state_store.save(
+                    "meta_cognition", path.stem, data, root=path.parent,
+                )
+                return
+            except Exception as e:
+                logger.warning("StateStore 写入 meta_cognition/%s 失败（回退文件）: %s", path.stem, e)
+        # 兼容兜底：写文件
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -252,12 +272,23 @@ class MetaCognition:
 
     def load(self, path: Path | None = None) -> None:
         path = path or self._persist_path
-        if not path.exists():
-            return
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            logger.warning("Failed to load meta-cognition state from %s", path)
+        data: dict | None = None
+        # 状态主通道：StateStore
+        if self._state_store is not None:
+            try:
+                data = self._state_store.load("meta_cognition", path.stem, root=path.parent)
+            except Exception as e:
+                logger.warning("StateStore 读取 meta_cognition/%s 失败（回退文件）: %s", path.stem, e)
+        # 兼容兜底：读文件（迁移期旧数据）
+        if data is None:
+            if not path.exists():
+                return
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                logger.warning("Failed to load meta-cognition state from %s", path)
+                return
+        if not isinstance(data, dict):
             return
 
         for key, rec_data in data.get("calibrator", {}).items():
