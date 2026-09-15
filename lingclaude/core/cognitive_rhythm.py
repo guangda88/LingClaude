@@ -21,6 +21,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+# G1 (2026-09-15): policy_loader.load 提到模块顶层 —— E13 策略外置引入的函数内
+# import。policy_loader 是纯 core 模块（顶层仅标准库），无循环，可安全顶层导入。
+from lingclaude.core.policy_loader import load
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +89,6 @@ def _load_rhythm_policy() -> dict[str, Any]:
     读失败/缺失 → {}（调用方回退内置默认，graceful degrade）。
     通过 PolicyLoader 走 mtime watch 热更，改 YAML 不重启进程。
     """
-    from lingclaude.core.policy_loader import load
 
     return load("cognitive_rhythm")
 

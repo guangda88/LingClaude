@@ -23,6 +23,10 @@ from pydantic import BaseModel  # noqa: E402
 from lingclaude.core.permissions import record_permission_decision
 # P4: 引擎进程 LingBus 任务消费者（原仅 CLI 交互进程消费；env 门控启动，见 _start_bus_consumer_if_enabled）
 from lingclaude.coordination.bus_consumer import start_bus_consumer_background
+# G1 (2026-09-15): cross_repo_seam.repo_path 提到模块顶层 —— 消除 D6 跨仓收敛
+# 引入的 4 处重复函数内 import（api.py:633/880/890/919）。cross_repo_seam 顶层
+# 仅依赖标准库（logging/os/sys/pathlib/typing），无循环无副作用，可安全顶层导入。
+from lingclaude.lacp.cross_repo_seam import repo_path
 
 logger = logging.getLogger(__name__)
 
@@ -609,9 +613,8 @@ async def lingmessage_post(req: GovernedPostRequest, api_key: str = Security(ver
 
     ensure_import_path("lingmessage")
     from lingmessage.lingbus import LingBus
-    from pathlib import Path as _P
 
-    bus = LingBus(bus_dir=_P.home() / ".lingmessage")
+    bus = LingBus(bus_dir=Path.home() / ".lingmessage")
     try:
         msg_id = bus.post_reply(
             thread_id=req.thread_id,
@@ -630,8 +633,6 @@ async def lingmessage_post(req: GovernedPostRequest, api_key: str = Security(ver
 
 
 def _load_env_keys() -> dict[str, str]:
-    from lingclaude.lacp.cross_repo_seam import repo_path
-
     keys: dict[str, str] = {}
     # E12(灵元1.0 再照): /home/ai 硬编码 → cross_repo_seam.repo_path（env 可覆盖）
     env_files = []
@@ -877,8 +878,6 @@ def _query_pypi_downloads(prompt: str) -> str:
 
 
 def _query_versions() -> str:
-    from lingclaude.lacp.cross_repo_seam import repo_path
-
     p_lc = repo_path("lingclaude")
     # E12: /home/ai 硬编码 → cross_repo_seam（env 可覆盖）
     version_file = Path(p_lc) / "VERSION" if p_lc else Path("/home/ai/lingclaude/VERSION")
@@ -887,8 +886,6 @@ def _query_versions() -> str:
 
 
 def _list_projects() -> list[dict]:
-    from lingclaude.lacp.cross_repo_seam import repo_path
-
     # E12: /home/ai 硬编码 → cross_repo_seam（env 可覆盖）
     names = ("lingflow", "lingclaude", "lingyang", "lingtongask", "lingmessage")
     roots = {}
@@ -916,8 +913,6 @@ def _format_projects() -> str:
 
 
 def _query_recent_commits(prompt: str) -> str:
-    from lingclaude.lacp.cross_repo_seam import repo_path
-
     # E12: /home/ai 硬编码 → cross_repo_seam（env 可覆盖）
     # 中文名 → 仓库名映射（保留原匹配语义：prompt 含"灵克"→lingclaude）
     aliases = {"灵克": "lingclaude", "灵通": "lingflow"}
