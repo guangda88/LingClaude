@@ -158,6 +158,17 @@ class PluginLoader:
         if errors:
             return LoadResult(False, error="manifest 非法: " + "; ".join(errors), manifest=manifest)
 
+        # 铁律 2「停层声明」门禁（J3 制度化，2026-09-15）：
+        # 每插片必须声明自己的内核 / 子插片接缝 / 实现数（停层显式化）。
+        #   - 未声明 → warning 不阻断（存量兼容，审计留痕，限期补齐）
+        #   - 声明了但格式非法（validate 已报）→ fail fast 拒绝入册
+        if manifest.stop_layer is None:
+            logger.warning(
+                "PluginLoader: 插件 %s 未声明 stop_layer（铁律 2 停层显式化："
+                "内核 / 子插片接缝 / 实现数），建议补齐后声明",
+                manifest.name,
+            )
+
         if not manifest.enabled:
             return LoadResult(False, error=f"插件 {manifest.name} 被禁用（enabled=false）", manifest=manifest)
 

@@ -10,5 +10,12 @@
     "web_search"
   ],
   "enabled": true,
-  "test_entry": "lingclaude/plugins/tools/web/test_web_plugin.py"
+  "test_entry": "lingclaude/plugins/tools/web/test_web_plugin.py",
+  "stop_layer": {
+    "kernel": "execute 分派薄壳（工具名→engine/web_tools 委托）",
+    "seams": [
+      "engine/web_tools"
+    ],
+    "implementations": 1
+  }
 }

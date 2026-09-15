@@ -38,6 +38,17 @@ MANIFEST_SCHEMA: dict[str, Any] = {
         "entry": {"type": "string", "minLength": 1},
         "test_entry": {"type": "string", "minLength": 1},
         "description": {"type": "string"},
+        # 铁律 2（分形停层显式化）声明：内核 / 子插片接缝 / 实现数
+        "stop_layer": {
+            "type": "object",
+            "properties": {
+                "kernel": {"type": "string", "minLength": 1},
+                "seams": {"type": "array", "items": {"type": "string"}},
+                "implementations": {"type": "integer", "minimum": 1},
+            },
+            "required": ["kernel", "seams", "implementations"],
+            "additionalProperties": False,
+        },
         "requires": {
             "type": "array",
             "items": {"type": "string"},
@@ -64,6 +75,9 @@ class PluginManifest:
     entry: str                    # "module.py:ClassName" 或 "module.py"
     test_entry: str = ""          # 插片自带测试入口（灵元「插片无测试=非法插片」，加载门禁用）
     description: str = ""
+    # 铁律 2「停层显式化」：本插片的内核是什么 / 子插片接缝在哪 / 当前几个实现
+    # （见 docs/LINGYUAN_IRON_LAW.md 细则 5）。结构见 MANIFEST_SCHEMA.stop_layer。
+    stop_layer: dict[str, Any] | None = None
     requires: tuple[str, ...] = ()   # 依赖的插件/包名
     provides: tuple[str, ...] = ()   # 提供的能力名
     enabled: bool = True
@@ -79,6 +93,19 @@ class PluginManifest:
             errors.append(f"type {self.type!r} 非法（须 SeamType 枚举）")
         if not self.entry or ":" not in self.entry and "." not in self.entry:
             errors.append(f"entry {self.entry!r} 非法（须 'file.py:ClassName' 或 'file.py'）")
+        if self.stop_layer is not None:
+            sl = self.stop_layer
+            if not isinstance(sl, dict):
+                errors.append("stop_layer 必须是 object（{kernel, seams, implementations}）")
+            else:
+                if not isinstance(sl.get("kernel"), str) or not sl.get("kernel"):
+                    errors.append("stop_layer.kernel 缺失（本插片的内核是什么）")
+                seams = sl.get("seams")
+                if not isinstance(seams, list) or not seams:
+                    errors.append("stop_layer.seams 缺失（子插片接缝在哪）")
+                impl = sl.get("implementations")
+                if not isinstance(impl, int) or impl < 1:
+                    errors.append("stop_layer.implementations 缺失（当前几个实现，≥1）")
         return errors
 
     def to_dict(self) -> dict[str, Any]:
@@ -89,6 +116,7 @@ class PluginManifest:
             "type": self.type.value,
             "entry": self.entry,
             "description": self.description,
+            "stop_layer": self.stop_layer,
             "requires": list(self.requires),
             "provides": list(self.provides),
             "enabled": self.enabled,
@@ -111,6 +139,7 @@ class PluginManifest:
             entry=str(data["entry"]),
             test_entry=str(data.get("test_entry", "")),
             description=str(data.get("description", "")),
+            stop_layer=data.get("stop_layer"),
             requires=tuple(str(x) for x in data.get("requires", [])),
             provides=tuple(str(x) for x in data.get("provides", [])),
             enabled=bool(data.get("enabled", True)),
@@ -191,6 +220,21 @@ def validate_manifest_dict(data: dict[str, Any]) -> list[str]:
         val = data.get(key)
         if val is not None and not isinstance(val, list):
             errors.append(f"{key} 必须是数组")
+
+    # stop_layer（铁律 2 停层声明）：声明了就必须是完整合法结构
+    sl = data.get("stop_layer")
+    if sl is not None:
+        if not isinstance(sl, dict):
+            errors.append("stop_layer 必须是 object（{kernel, seams, implementations}）")
+        else:
+            if not isinstance(sl.get("kernel"), str) or not sl.get("kernel"):
+                errors.append("stop_layer.kernel 缺失（本插片的内核是什么）")
+            seams = sl.get("seams")
+            if not isinstance(seams, list) or not seams or not all(isinstance(s, str) for s in seams):
+                errors.append("stop_layer.seams 缺失（子插片接缝在哪，非空字符串数组）")
+            impl = sl.get("implementations")
+            if not isinstance(impl, int) or isinstance(impl, bool) or impl < 1:
+                errors.append("stop_layer.implementations 缺失（当前几个实现，≥1）")
 
     # enabled 布尔
     enabled = data.get("enabled")

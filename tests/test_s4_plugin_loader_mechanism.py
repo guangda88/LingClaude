@@ -108,3 +108,46 @@ def test_wiring_assemble_triggers_plugin_load(tmp_path: Path, monkeypatch):
     assert wired == []
     # 端到端：插件已注册，消费面可查
     assert SeamRegistry.get_optional(SeamType.TOOL, "echo") is not None
+
+
+def test_j3_stop_layer_required_by_validation(tmp_path: Path):
+    """J3（铁律 2 停层显式化）制度化：声明了就必须完整合法，缺失/非法拒绝入册。"""
+    from lingclaude.core.plugin_loader import PluginLoader
+
+    plugin_file = tmp_path / "echo_tool.py"
+    plugin_file.write_text(PLUGIN_BODY, encoding="utf-8")
+    loader = PluginLoader()
+
+    # 1) 无 stop_layer → warning 不阻断（存量兼容），仍可加载
+    mf = tmp_path / "echo_no_decl.plugin.json"
+    mf.write_text(
+        '{"name": "echo_no_decl", "version": "1.0.0", "type": "tool", '
+        '"entry": "%s:EchoTool"}' % plugin_file,
+        encoding="utf-8",
+    )
+    res = loader.load_plugins_from_dir(tmp_path)
+    assert res["echo_no_decl"].is_ok  # 存量无声明不拒绝
+
+    # 2) 声明了但格式非法（缺 kernel）→ 拒绝入册（fail fast）
+    bad = tmp_path / "echo_bad.plugin.json"
+    bad.write_text(
+        '{"name": "echo_bad", "version": "1.0.0", "type": "tool", '
+        '"entry": "%s:EchoTool", "stop_layer": {"seams": ["x"], "implementations": 1}}' % plugin_file,
+        encoding="utf-8",
+    )
+    res = loader.load_plugins_from_dir(tmp_path)
+    # 解析失败的 manifest 以 stem 作 key（bad.plugin.json → "echo_bad.plugin"）
+    bad_key = next(k for k in res if "echo_bad" in k)
+    assert not res[bad_key].is_ok
+    assert "stop_layer" in res[bad_key].error
+
+    # 3) 完整合法声明 → 加载成功
+    good = tmp_path / "echo_good.plugin.json"
+    good.write_text(
+        '{"name": "echo_good", "version": "1.0.0", "type": "tool", '
+        '"entry": "%s:EchoTool", "stop_layer": {"kernel": "execute 分派薄壳", '
+        '"seams": ["engine/echo"], "implementations": 1}}' % plugin_file,
+        encoding="utf-8",
+    )
+    res = loader.load_plugins_from_dir(tmp_path)
+    assert res["echo_good"].is_ok
