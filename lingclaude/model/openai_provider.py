@@ -5,6 +5,7 @@ import json
 import logging
 import ssl
 import time
+import os
 import urllib.error
 import urllib.request
 from typing import Any, Generator
@@ -60,6 +61,28 @@ def _effective_temperature(model: str, temperature: float) -> float:
     if any(m == p or m.startswith(p) for p in _temp_locked_prefixes()):
         return 1.0
     return temperature
+
+
+# ── proxy3 客户端支持（2026-09-15）：双 header 注入 + free/* opt-in ──
+# proxy3 (:8765) 鉴权要求 Authorization Bearer（api_keys.json）+ X-Agent-Id；
+# free/* 虚拟模型另需 opt-in 门（x-free-pool-optin: true，默认禁入防敏感
+# 内容外泄）。fail-open：非 proxy3 端点返回空 dict，零影响。
+_PROXY3_HOST_SUFFIX = "127.0.0.1:8765"
+_PROXY3_AGENT_ID = os.environ.get("LINGCLAUDE_PROXY3_AGENT_ID", "lingclaude")
+
+
+def _proxy3_extra_headers(base_url: str, body: dict[str, Any]) -> dict[str, str]:
+    """base_url 指向 proxy3 时补齐鉴权/身份/opt-in header，否则返回空。"""
+    try:
+        host = (urlparse(base_url).netloc or "").lower()
+        if host.split(":")[0] not in ("127.0.0.1", "localhost") or not host.endswith(_PROXY3_HOST_SUFFIX.split(":")[-1]) or ":8765" not in host:
+            return {}
+        headers = {"X-Agent-Id": _PROXY3_AGENT_ID}
+        if str(body.get("model", "")).startswith("free/"):
+            headers["x-free-pool-optin"] = "true"
+        return headers
+    except Exception:  # noqa: BLE001 — 判定失败绝不阻塞主流程
+        return {}
 
 
 class OpenAIProvider(ModelProvider):
@@ -179,6 +202,7 @@ class OpenAIProvider(ModelProvider):
         }
         if cfg.api_key:  # F12d:本地无 key 时省略 Authorization,不发空 Bearer
             headers["Authorization"] = f"Bearer {cfg.api_key}"
+        headers.update(_proxy3_extra_headers(base, body))
 
         content_parts: list[str] = []
         tool_call_accumulators: dict[int, dict[str, Any]] = {}
@@ -377,6 +401,7 @@ class OpenAIProvider(ModelProvider):
             "Authorization": f"Bearer {cfg.api_key}",
             "Content-Type": "application/json",
         }
+        headers.update(_proxy3_extra_headers(base, body))
         return url, body, headers
 
     def _call_api_sync(
