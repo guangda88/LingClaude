@@ -172,18 +172,12 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
             # ——比上移 N 行覆盖安全(N 不必精确)
             sys.stdout.write("\x1b[1B\n")
             try:
-                # TUI 插片优先：免签 renderer（proposals/2026-09-09 Step B）
-                from lingclaude_plugins.tui import TUI_SEAM
+                # TUI 插片优先（render_facade 内部: provider→cli.display 回退）
+                from lingclaude.cli.render_facade import print_markdown
 
-                _renderer = TUI_SEAM.get_provider("default_renderer")
-                _renderer.execute("markdown", content)
-            except Exception:  # noqa: BLE001 — 插片不可用/失败 → fallback 原实现
-                try:
-                    from lingclaude.cli.display import print_markdown
-
-                    print_markdown(content)
-                except Exception:  # noqa: BLE001 — Markdown 渲染失败时保底输出纯文本
-                    sys.stdout.write("\n" + content + "\n\n")
+                print_markdown(content)
+            except Exception:  # noqa: BLE001 — 渲染失败时保底输出纯文本
+                sys.stdout.write("\n" + content + "\n\n")
             globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
         else:
             sys.stdout.write("\n\n")

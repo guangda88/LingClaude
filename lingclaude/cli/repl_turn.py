@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lingclaude.cli.display import SessionSummary, print_session_summary
+from lingclaude.cli.display import SessionSummary
+from lingclaude.cli.render_facade import print_session_summary
 from lingclaude.cli.long_task_metrics import append_long_task_metrics
 from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
 from lingclaude.cli.n5_token_guard import check_token_exhaustion, resolve_max_tokens

@@ -21,13 +21,14 @@ from typing import Any
 from lingclaude.cli.display import (
     QualityReport,
     SessionSummary,
+)
+from lingclaude.cli.render_facade import (
     print_error,
     print_header,
     print_info,
     print_kv,
     print_metrics_stats,
     print_quality_report,
-    print_session_summary,
     print_success,
     print_trend,
     print_warning,

@@ -94,3 +94,44 @@ TUI 插片化清的是 A3 的一部分 + E 类哲学反例，E6 一处不减，�
 
 - P2 全屏 TUI（Application+Layout 状态栏常驻）——V2 A1 范畴，独立工期
 - prompt 内嵌轮次显示——toolbar 已有，避免信息冗余
+
+## 六、v3 修订：Step B/C 落地记录（2026-09-15 实测）
+
+### 6.1 实际改缝 8 处（v2 记 7 处，漏 repl_turn）
+
+| 文件 | 处 | 处理 |
+|---|---|---|
+| cli/app.py | L21 | display 数据类保留（SessionSummary/QualityReport），渲染函数 → render_facade |
+| cli/repl.py | L23 | display 数据类保留，print_session_summary → render_facade |
+| cli/repl_io.py | L182 | print_markdown → render_facade（原 TUI_SEAM 直调简化为单层 try） |
+| cli/repl_turn.py | L15 | **v2 遗漏** — print_session_summary → render_facade |
+
+### 6.2 落地修正（相对 v2 三处）
+
+1. **新增 `cli/render_facade.py`**（~160 行）：渲染门面——`render(method)` 优先 tui provider（解包 SignedProvider、查 is_approved），失败回退 cli.display。**15 个同名薄代理**（print_* / format_*）让调用点零改动，仅换 import 源。
+2. **边界修正（v2 未区分）**：
+   - display **数据类**（SessionSummary/QualityReport）→ 保持 cli 直引（类型契约）
+   - interface **create_session/会话类** → 保持 cli 直引（输入工厂；simple_prompt provider 内部也调它）
+   - status **StatusModel/toolbar_fragments** → 保持 cli 直引（状态流；tui_toolbar provider 内部持有独立 StatusModel 实例，硬缝会造成状态不同步）
+   - input_queue → 保持 cli 直引（v2 明示例外）
+3. **default_renderer 补全 5 能力**：session_summary/quality_report/kv/trend/metrics_stats（对齐 display 全 15 个渲染能力）。
+
+### 6.3 递归陷阱（v2 未预警）
+
+default_renderer 的 capabilities 值**就是** cli.display 函数（print_markdown 等）。若把 display.py 门面化（内部转发到 tui provider）→ provider 又调 display → **无限递归**。因此不采用"display.py 变门面"，改为"调用点缝化 + 插件补全"。
+
+### 6.4 Step C 验收（实测通过）
+
+```
+grep "from lingclaude.cli.display import" → 仅剩数据类（SessionSummary/QualityReport）
+全库 cli.display 渲染函数直接 import 清零 ✅
+```
+
+### 6.5 测试（新增 tests/test_render_facade_stepb.py，10 用例）
+
+- 路径 1：provider 缺省 → cli.display 回退（4 用例）
+- 路径 2：provider 可用 → 走 provider（2 用例）
+- 同名薄代理 15 个可 import + 4 消费方已改缝（2 用例）
+- Step C 验收：全库 display 渲染 import 清零 + render_facade 唯一落点（2 用例）
+
+**commit**：`refactor(cli): TUI 渲染门面 render_facade — Step B 8 处改缝 + Step C 渲染 import 清零`

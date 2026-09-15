@@ -14,8 +14,13 @@ from lingclaude.cli.display import (
     print_error,
     print_header,
     print_info,
+    print_kv,
     print_markdown,
+    print_metrics_stats,
+    print_quality_report,
+    print_session_summary,
     print_success,
+    print_trend,
     print_warning,
     print_welcome,
 )
@@ -40,6 +45,11 @@ class DefaultRendererProvider:
             "tool_call": format_tool_call,
             "tool_result": format_tool_result,
             "diff": print_diff,
+            "session_summary": print_session_summary,
+            "quality_report": print_quality_report,
+            "kv": print_kv,
+            "trend": print_trend,
+            "metrics_stats": print_metrics_stats,
         }
 
     def execute(self, method: str, *args: Any, **kwargs: Any) -> Any:

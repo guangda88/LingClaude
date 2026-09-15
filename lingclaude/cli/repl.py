@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lingclaude.cli.commands import SLASH_COMPLETER_WORDS, SlashCommandProcessor
-from lingclaude.cli.display import SessionSummary, print_session_summary
+from lingclaude.cli.display import SessionSummary
 from lingclaude.cli.input_queue import InputQueue
 from lingclaude.cli.interface import (
     create_session,
@@ -28,6 +28,7 @@ from lingclaude.cli.interface import (
     PromptSessionInterface,
     PromptToolkitSession,
 )
+from lingclaude.cli.render_facade import print_session_summary
 from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
 from lingclaude.cli.repl_io import (
     _esc_listen_loop,
