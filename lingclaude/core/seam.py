@@ -23,6 +23,7 @@ P3-1 (2026-09-14, 以灵元 1.0 为尺):
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
@@ -41,6 +42,9 @@ class SeamType(str, Enum):
     MEMORY = "memory"            # 记忆策略层
     GOVERNANCE = "governance"    # 治理插片
     SELF_OPT = "self_opt"        # 自优化插片
+    AGENT = "agent"              # 外部 Agent 插片（灵研/灵知/灵信/灵极优/灵通问道…，对标 Ekko Studio 挂载）
+    MULTIMODAL = "multimodal"    # 多模态任务插片（灵通问道 analyze_emotion/synthesize_speech/…）
+    ORCHESTRATOR = "orchestrator"  # 跨 Agent 编排插片（CrewOrchestrator，对标 Multi-Agent Crews）
 
 
 @runtime_checkable
@@ -76,6 +80,52 @@ class SandboxPlugin(Protocol):
         ...
 
 
+# ── Agent 插片协议（Phase 2：对标 Ekko Studio 多 Agent 挂载调度）──
+@dataclass(frozen=True)
+class AgentCapability:
+    """Agent 插片能力元数据（挂载时注册进 SeamRegistry）。"""
+
+    name: str
+    description: str = ""
+    version: str = "0.1.0"
+    kind: str = "agent"
+    methods: tuple[str, ...] = field(default_factory=tuple)
+    transport: str = "in-process"
+
+
+@runtime_checkable
+class AgentSeam(Protocol):
+    """外部 Agent 插片协议（对齐 SubagentBackend，可互操作调度）。"""
+
+    name: str
+
+    def run(self, *args: Any, **kwargs: Any) -> Any: ...
+    def abort(self, agent_id: str) -> bool: ...
+    def status(self, agent_id: str) -> str: ...
+
+
+@runtime_checkable
+class MultimodalTask(Protocol):
+    """多模态任务插片协议（灵通问道 analyze_emotion/synthesize_speech/...）。"""
+
+    name: str
+
+    def task_type(self) -> str: ...
+    def input_schema(self) -> dict[str, Any]: ...
+    def execute(self, **kwargs: Any) -> Any: ...
+
+
+@runtime_checkable
+class CrewOrchestrator(Protocol):
+    """跨 Agent 编排插片协议（对标 Multi-Agent Crews）。"""
+
+    name: str
+
+    def create_crew(self, members: list[str], **kwargs: Any) -> str: ...
+    def dispatch(self, crew_id: str, task: str, mode: str = "sequential") -> Any: ...
+    def status(self, crew_id: str) -> dict[str, Any]: ...
+
+
 # SeamType → 期望的 Protocol（结构性检查用；None=不检查）
 _EXPECTED_PROTOCOL: dict[SeamType, type[Protocol] | None] = {
     SeamType.PROVIDER: ProviderPlugin,
@@ -85,6 +135,9 @@ _EXPECTED_PROTOCOL: dict[SeamType, type[Protocol] | None] = {
     SeamType.MEMORY: None,
     SeamType.GOVERNANCE: None,
     SeamType.SELF_OPT: None,
+    SeamType.AGENT: AgentSeam,
+    SeamType.MULTIMODAL: MultimodalTask,
+    SeamType.ORCHESTRATOR: CrewOrchestrator,
 }
 
 
