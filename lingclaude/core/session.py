@@ -194,6 +194,10 @@ class SessionManager:
                 target_dir = self.save_dir / _project_dir_name(project_path)
                 if target_dir.exists():
                     results.extend(self._list_sessions_in(target_dir, project_path))
+                    # 2026-09-15 修复: 历史会话未写 project_path 全落 _default，须纳入（P1-2 回归）。
+                    default_dir = self.save_dir / "_default"
+                    if default_dir.exists():
+                        results.extend(s for s in self._list_sessions_in(default_dir, "") if not s.get("project_path"))
             else:
                 for d in sorted(self.save_dir.iterdir()):
                     if d.is_dir():
