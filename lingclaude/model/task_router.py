@@ -116,7 +116,9 @@ _PROVIDER_ENV_KEY_MAP: dict[str, str] = {
 _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "glm": {
         "type": "openai",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        # 智谱 Coding 套餐端点（OpenAI Chat Completion 协议）；/api/paas/v4 是开放
+        # 平台端点，套餐 key 走它会报 1211 模型不存在（2026-09-15 实测）。
+        "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
         "model": "glm-5.3-flash",
         "models": ["glm-5.3", "glm-5.3-flash"],
     },

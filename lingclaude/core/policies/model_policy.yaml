@@ -10,3 +10,7 @@ temp_locked_model_prefixes:
   - "k3"
   - "kimi-k3"
   - "kimi-k2-thinking"
+  # GLM-5 系列官方推荐 temperature=1（docs.bigmodel.cn GLM-5.3-Flash 页：
+  # 推荐设置 temperature: 1, top_p: 0.95）；旧值会偏离官方采样建议。
+  - "glm-5.3"
+  - "glm-5"
