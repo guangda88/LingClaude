@@ -8,7 +8,9 @@ bash.py 通过 re-export 保持向后兼容（tests 直接 from bash import _is_
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from typing import Any
 
 
@@ -149,10 +151,59 @@ _GIT_DANGEROUS_PARAMS = (
     "--namespace=",
 )
 # 远程白名单（git push/fetch/pull/clone/ls-remote 的 remote 目标）
-# 空 = 不限制（保持向后兼容）；可配置时仅放行已登记的 remote。
-_ALLOWED_GIT_REMOTES: frozenset[str] = frozenset({"origin", "github", "upstream", "gh"})
+# 动态读取：优先从当前 git 仓库的 `git remote` 实际登记远程名（运行时权威来源），
+# 读取失败/非仓库目录时回退内置默认（graceful degrade，与 _network_allowed_commands 同模式）。
+# 2026-09-15 修复：此前硬编码 {origin,github,upstream,gh}，仓库真实远程 gitea 不在其中 →
+# git push gitea master 被判非白名单 → 注入 --unshare-net → git 无法联网（自缚手脚）。
+# 改为动态读取后，任意实际注册的远程名（gitea/gitlab/bitbucket/...）无需改代码即可放行；
+# 安全性不降级：只放行仓库里真实登记的 remote，git push evil-remote 这类不存在的远程仍被拦。
+_ALLOWED_GIT_REMOTES: frozenset[str] = frozenset({"origin", "github", "upstream", "gh", "gitea"})
 # 明确允许的 git 子命令（其余 git 子命令不放行网络）
 _GIT_NETWORK_SUBCOMMANDS = frozenset({"push", "fetch", "pull", "clone", "ls-remote", "remote"})
+
+# 动态读取 git remote 的运行参数（2026-09-15 新增）
+_GIT_REMOTE_CMD = ["git", "remote"]
+_GIT_REMOTE_TIMEOUT_S = 5
+# 模块级缓存：cwd → frozenset[remote 名]，避免每次判定都跑 subprocess（性能）。
+# 上限 32 个目录，LRU 淘汰；键是绝对路径（os.path.abspath 规范化，防 /a/b 与 /a/b/ 双缓存）。
+_GIT_REMOTES_CACHE: dict[str, frozenset[str]] = {}
+
+
+def _discover_git_remotes(cwd: str | None = None) -> frozenset[str] | None:
+    """动态读取当前 git 仓库实际登记的远程名（`git remote` 输出）。
+
+    返回 None 表示「无法确定」（非 git 仓库 / git 不可用 / 超时）——
+    此时调用方应回退 _ALLOWED_GIT_REMOTES 内置默认（graceful degrade）。
+    只放行真实登记的远程名：git push 不存在的远程（如 evil-remote）仍被拦。
+    """
+    key = os.path.abspath(cwd or os.getcwd())
+    cached = _GIT_REMOTES_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        out = subprocess.run(
+            _GIT_REMOTE_CMD,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_REMOTE_TIMEOUT_S,
+            cwd=key,
+        )
+        if out.returncode != 0:
+            return None  # 非 git 仓库（fatal: not a git repository）→ 回退默认
+        names = {
+            ln.strip()
+            for ln in out.stdout.splitlines()
+            if ln.strip()
+        }
+        if not names:
+            return None
+        result = frozenset(names)
+    except Exception:
+        return None  # git 缺失 / 超时 / 权限 → 回退默认（fail-closed 不误放行）
+    if len(_GIT_REMOTES_CACHE) >= 32:
+        _GIT_REMOTES_CACHE.clear()  # 简单上限：满 32 清空，避免无界增长
+    _GIT_REMOTES_CACHE[key] = result
+    return result
 # P0-②（灵安审计）：git 本地只读子命令（status/log/diff/show 等）不访问网络，
 # 但 _is_network_allowed 判 False 会被 --unshare-net 隔离（无害但语义错误）。
 # 这些只读子命令放行网络是安全的——它们本来就不联网。
@@ -195,18 +246,27 @@ def _git_network_safe(sub: str) -> bool:
             return False
     # remote 白名单（clone/ls-remote/push/fetch/pull 的目标）
     if subcmd in ("push", "fetch", "pull", "clone", "ls-remote"):
+        remote_token: str | None = None
         for t in toks[2:]:
             # 选项参数与重定向（2>&1 / >log / 1>>log）跳过
             if t.startswith("-") or t.startswith(">") or (
                 len(t) >= 2 and t[0].isdigit() and t[1] in ">"
             ):
                 continue
-            # 第一个非选项参数是 remote/url — 仅放行白名单内或 URL 形
-            if subcmd == "clone":
-                return True  # clone 的 URL 由用户显式指定，白名单难覆盖，保持放行（网络面=git 自身）
-            if _ALLOWED_GIT_REMOTES and t not in _ALLOWED_GIT_REMOTES and "://" not in t and "@" not in t:
-                return False
+            # 第一个非选项参数是 remote/url
+            remote_token = t
             break
+        if subcmd == "clone":
+            return True  # clone 的 URL 由用户显式指定，白名单难覆盖，保持放行（网络面=git 自身）
+        if remote_token is None:
+            return True  # 无 remote token（git push -f origin 只剩 -f 等纯选项/重定向）→ 短路放行，不触发 subprocess
+        if "://" in remote_token or "@" in remote_token:
+            return True  # URL / user@host 形态：目标显式指定，放行（网络面=git 自身）
+        # 远程名形态（origin / gitea / ...）→ 动态读取仓库实际远程名；失败回退内置默认
+        discovered = _discover_git_remotes()
+        allowed = discovered if discovered is not None else _ALLOWED_GIT_REMOTES
+        if remote_token not in allowed:
+            return False
     return True
 
 

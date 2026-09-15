@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lingclaude.engine.bash import (  # noqa: E402
     BashExecutor,
+    _discover_git_remotes,
     _is_network_allowed,
     _looks_like_network_failure,
     _strip_transparent_prefix,
@@ -108,6 +109,22 @@ class TestNetworkAllowed(unittest.TestCase):
         self.assertFalse(_is_network_allowed("git push --upload-pack='evil' origin main"))
         self.assertFalse(_is_network_allowed("git -c core.sshCommand='evil' push origin main"))
         self.assertFalse(_is_network_allowed("git push origin main $(echo evil)"))
+
+    # --- 2026-09-15：git remote 动态读取（gitea 等真实远程名不再被误隔离）---
+    def test_discover_git_remotes_in_repo(self) -> None:
+        # 在当前仓库（/home/ai/lingclaude 有 git remote gitea/github/origin）中动态读取
+        remotes = _discover_git_remotes()
+        self.assertIsNotNone(remotes)
+        self.assertIn("gitea", remotes or frozenset())
+
+    def test_git_push_gitea_allowed_in_repo(self) -> None:
+        # 修复前：gitea 不在硬编码白名单 → 判 False → 注入 --unshare-net → git 无法联网
+        self.assertTrue(_is_network_allowed("git push gitea master"))
+        self.assertTrue(_is_network_allowed("git push gitea master 2>&1 | head -5"))
+
+    def test_git_push_unknown_remote_blocked(self) -> None:
+        # 动态读取只放行真实登记的远程名：不存在的远程仍被拦（fail-closed）
+        self.assertFalse(_is_network_allowed("git push evil-remote master"))
 
 
 class TestApiHostGate(unittest.TestCase):

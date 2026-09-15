@@ -151,6 +151,7 @@ from lingclaude.engine.bash_network import (  # noqa: F401,E402
     _strip_transparent_prefix,
     _is_output_modifier,
     _git_network_safe,
+    _discover_git_remotes,
     _is_network_allowed,
     _looks_like_network_failure,
     _split_chain,
