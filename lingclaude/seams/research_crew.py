@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from lingclaude.core.seam import SeamRegistry, SeamType
+from lingclaude.core.seam import CrewOrchestrator, SeamRegistry, SeamType
 from lingclaude.engine.subagent.base import (
     SubagentContext,
     SubagentRequest,
@@ -284,9 +284,19 @@ class ResearchCrew:
 
 
 def register_research_crew(name: str = "research_crew") -> bool:
-    """把 ResearchCrew 注册进 SeamRegistry（SeamType.ORCHESTRATOR）。"""
+    """把 ResearchCrew 注册进 SeamRegistry（SeamType.ORCHESTRATOR）。
+
+    注册前做 CrewOrchestrator 协议结构校验（fail-closed）：
+    缺成员即拒绝注册，杜绝残缺实例进入注册表。
+    """
     try:
         crew = ResearchCrew()
+        missing = SeamRegistry.check_protocol(SeamType.ORCHESTRATOR, crew)
+        if missing:
+            logger.error(
+                "ResearchCrew 缺少 CrewOrchestrator 协议成员 %s，拒绝注册", missing
+            )
+            return False
         SeamRegistry.register(SeamType.ORCHESTRATOR, name, crew)
         logger.info("ResearchCrew 已注册: %s (orchestrator)", name)
         return True

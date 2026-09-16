@@ -19,7 +19,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from lingclaude.core.seam import SeamRegistry, SeamType
+from lingclaude.core.seam import MultimodalTask, SeamRegistry, SeamType
 
 logger = logging.getLogger("lingclaude.seams.multimodal_lingtong")
 
@@ -202,6 +202,12 @@ def register_lingtong_multimodal(name: str = "lingtong_multimodal") -> bool:
     """
     try:
         task = LingTongMultimodalTask()
+        missing = SeamRegistry.check_protocol(SeamType.MULTIMODAL, task)
+        if missing:
+            logger.error(
+                "灵通问道插片缺少 MultimodalTask 协议成员 %s，拒绝注册", missing
+            )
+            return False
         SeamRegistry.register(SeamType.MULTIMODAL, name, task)
         logger.info("灵通问道多模态插片已注册: %s (available=%s)", task.name, task._available)
         return True
