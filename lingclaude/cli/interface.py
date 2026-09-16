@@ -202,6 +202,8 @@ class FallbackSession:
         self._streaming = False
         # readline 历史翻页位置（-1 = 最末，即新输入位置）
         self._rl_pos = -1
+        # H19:streaming 非阻塞读超时时遗留的半行（下轮拼接续传，不再凭空丢失）
+        self._rl_pending = b""
 
     def set_streaming(self, streaming: bool) -> None:
         self._streaming = streaming
@@ -252,7 +254,17 @@ class FallbackSession:
                 os.write(sys.stdout.fileno(), message.encode())
 
             while True:
+                # H19:上轮超时遗留的半行先续传（必须在 drain 之前拼接，否则
+                # 新到字节先进 buf、pending 尾随 → 顺序颠倒 "defabc"）
+                if self._rl_pending:
+                    buf.extend(self._rl_pending)
+                    os.write(sys.stdout.fileno(), self._rl_pending)
+                    self._rl_pending = b""
+
                 # drain 残留字节（Ctrl+C / 方向键序列首字节触发 UnicodeDecodeError）
+                # H19:此前读后即弃 — 粘贴大文本分片在 select 空窗期落入时
+                # 被整片丢弃，是"长文本分段丢失"的第一来源。现把文本字节
+                # 追加进 buf（顺带修退格回显错位）。
                 while True:
                     r, _, _ = select.select([fd], [], [], 0.0)
                     if not r:
@@ -263,11 +275,27 @@ class FallbackSession:
                             raise EOFError
                     except OSError:  # noqa: BLE001
                         break
+                    if leftover.startswith(b"\x1b[200~"):
+                        # bracketed paste 段:剥开/闭标记后正文照常入 buf
+                        # （降级路径无行编辑器，标记留着会污染输入）；
+                        # 整块只有标记时剥完为空，跳过。
+                        leftover = leftover.replace(b"\x1b[200~", b"", 1).replace(
+                            b"\x1b[201~", b""
+                        )
+                        if not leftover:
+                            continue
+                    elif leftover.startswith(b"\x1b"):
+                        continue  # 其他转义序列残骸，丢弃
+                    buf.extend(leftover)
+                    os.write(sys.stdout.fileno(), leftover)
 
                 # 等键盘（0.05s 超时，避免卡住流式输出）
                 r, _, _ = select.select([fd], [], [], 0.05)
                 if not r:
-                    # 超时：无完整行，返回空串让流式输出继续
+                    # 超时：无完整行 — 半行留到下轮拼接，不再凭空丢失
+                    if buf:
+                        self._rl_pending = bytes(buf)
+                        buf = bytearray()
                     os.write(sys.stdout.fileno(), b"\r\x1b[K")
                     return ""
 

@@ -21,6 +21,9 @@ _stream_lines_emitted = 0  # 本轮已输出行数(done 时用于 ANSI 擦除重
 _OUTPUT_FORMAT = "plain"  # P0-2: plain | json | jsonl
 _json_event_buffer: list[dict[str, Any]] = []  # json 模式事件缓冲
 
+# H19: bracketed paste 包裹标记（\x1b[200~ 开 / \x1b[201~ 闭）
+_PASTE_START = b"\x1b[200~"
+_PASTE_END = b"\x1b[201~"
 
 
 def set_output_format(fmt: str) -> None:
@@ -71,15 +74,26 @@ def _esc_pressed() -> bool:
             if not r2:
                 return True
             # 转义序列（方向键/粘贴包裹等）:整体排空,不留残字节,不算打断。
-            # 粘贴正文可能分片到达,读到静默或已见结束标记为止。
+            # H19 粘贴段识别:分片到达时以 \x1b[200~ 为界——paste 段内只认
+            # 结束标记,静默超时不再提前放弃(否则粘贴首个分片慢于 20ms
+            # 到达时,\x1b[200~ 前缀会被误判为孤立 Esc,正文全部丢失);
+            # paste 段外维持旧语义(20ms 静默即孤立序列,整体消费丢弃)。
+            in_paste = False
             for _ in range(256):  # 上限防异常输入流死循环
                 chunk = os.read(fd, 4096)
                 if not chunk:
                     break
-                if bytes(chunk).endswith(b"\x1b[201~"):
+                if in_paste:
+                    # 粘贴正文不做打断信号(正确语义),整段消费到闭合标记为止
+                    if bytes(chunk).endswith(_PASTE_END):
+                        in_paste = False
+                        break
+                elif bytes(chunk).endswith(_PASTE_END):
                     break
+                elif bytes(chunk).endswith(_PASTE_START):
+                    in_paste = True
                 r2, _, _ = select.select([fd], [], [], 0.05)
-                if not r2:
+                if not r2 and not in_paste:
                     break
             return False
         finally:

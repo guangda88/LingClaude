@@ -268,7 +268,11 @@ def _drain_stdin_buffer() -> None:
     multiline 模式下 Ctrl+C 等特殊序列跨多字节触发 UnicodeDecodeError，
     只读一行不足以清空残留字节 → 同一条消息无限循环报错。
     这里用非阻塞 read(4096) 一次性清空缓冲区（TTY 下 safe）。
+    H19:粘贴段感知 — 本片含未闭合的 \\x1b[200~（bracketed paste 开标记）
+    时立即停手，后续字节留在缓冲区由正常输入路径消费到 \\x1b[201~ 闭合；
+    否则粘贴正文会被本函数当"残留字节"整段吞掉。
     """
+    paste_start = b"\x1b[200~"
     try:
         if sys.stdin.isatty():
             import select
@@ -278,7 +282,12 @@ def _drain_stdin_buffer() -> None:
                 r, _, _ = select.select([fd], [], [], 0.01)
                 if not r:
                     break
-                os.read(fd, 4096)
+                chunk = os.read(fd, 4096)
+                if not chunk:
+                    break
+                if paste_start in chunk and not chunk.endswith(b"\x1b[201~"):
+                    # 未闭合粘贴段:立即停手,正文留给正常输入路径
+                    break
     except Exception:  # noqa: BLE001 — 非 TTY/无 termios 时静默跳过
         pass
 
