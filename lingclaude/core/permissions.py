@@ -254,9 +254,14 @@ def _load_persisted() -> None:
     except Exception as e:  # noqa: BLE001 — 持久化文件损坏不应阻塞启动
         logger.warning("approvals.json 读取失败: %s", e)
     if _GLOBAL_MODE == "ask":  # 2026-09-15 修复: 兜底读 config.yaml（启动链此前从不读）
+        # 2026-09-16 修复: 打破循环导入 —— 原实现 from lingclaude.core.guard import
+        # load_approval_mode 绕道 guard 中转，而 guard 模块级又从本模块反向导入，
+        # 模块未加载完即循环炸。H1 单源本体的 load_approval_mode 就在本模块（322 行），
+        # 但模块级 _load_persisted()（264 行）先于其定义执行，故用 globals() 延迟取。
         import os as _os
-        from lingclaude.core.guard import load_approval_mode
-        _GLOBAL_MODE = load_approval_mode(Path(_os.environ.get("LINGCLAUDE_CONFIG") or "config.yaml"))
+        fn = globals().get("load_approval_mode")
+        if fn is not None:
+            _GLOBAL_MODE = fn(Path(_os.environ.get("LINGCLAUDE_CONFIG") or "config.yaml"))
 
 
 _load_persisted()
