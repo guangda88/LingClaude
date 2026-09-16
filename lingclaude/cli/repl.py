@@ -590,6 +590,10 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
     _wd = StreamWatchdog()
     _wd.start()
     try:
+        # 2026-09-16（TUI 输入泵问题修复）: streaming 期间 prompt() 不阻塞，
+        # pump 线程异步收集用户输入（方向键等），主线程不被 session.prompt()
+        # 卡死，防止 pump 线程 + 主线程双阻塞导致假死。
+        session.set_streaming(True)
         for event in engine.stream_call_model(prompt):
             _wd.touch(str(event.get("type", "")))
             if session.interrupt_event().is_set():
@@ -635,6 +639,7 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         # 也不泄漏监听线程。审计#6: 先停线程再清 interrupt。
         # pump 会话级运行，此处不再 stop（唯一 stdin 读者地位不变）。
         _wd.stop()  # N5b: 流收尾（正常/打断/异常），watchdog 停表
+        session.set_streaming(False)  # 流结束，恢复阻塞 prompt()
         _flush_stream_line()
         if _esc_thread is not None:
             _esc_stop.set()

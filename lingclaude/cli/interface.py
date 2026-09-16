@@ -57,6 +57,10 @@ class PromptSessionInterface(Protocol):
         """返回 threading.Event，set 后取消当前生成（Esc / Ctrl+C 触发）。"""
         ...
 
+    def set_streaming(self, streaming: bool) -> None:
+        """标记当前是否在流式输出期间（影响 prompt() 行为）。"""
+        ...
+
 
 class PromptToolkitSession:
     """L1 实现 — 包 prompt_toolkit.PromptSession + FileHistory。"""
@@ -82,6 +86,10 @@ class PromptToolkitSession:
             key_bindings=self._build_key_bindings(),
         )
         self._interrupt = threading.Event()
+        # 2026-09-16（TUI 输入泵问题修复）: streaming 标志。streaming 期间
+        # prompt() 不阻塞（流式输出占用主线程，输入由 pump 线程异步收集），
+        # 防止 session.prompt() 和 pump 线程双阻塞导致假死。
+        self._streaming = False
 
     @staticmethod
     def _build_key_bindings() -> Any:
@@ -116,8 +124,23 @@ class PromptToolkitSession:
 
         return kb
 
+    def set_streaming(self, streaming: bool) -> None:
+        """标记当前是否在流式输出期间。
+
+        streaming=True 时 prompt() 返回 ""（不阻塞），让主线程继续流式输出。
+        pump 线程异步收集输入，用户随时可打字；流结束后调用 prompt() 正常读取。
+        """
+        self._streaming = streaming
+
     def prompt(self, message: str = "") -> str:
         self._interrupt.clear()
+        # 2026-09-16（TUI 输入泵问题修复）: streaming 期间不阻塞。
+        # pump 线程在读 stdin，主线程阻塞 prompt() 会形成双阻塞：
+        # 主线程等 prompt() 返回 ← 用户按 Enter ← pump 线程读完 ← 流结束
+        # → pump 线程永远等用户按 Enter（因为 prompt() 在等）→ 假死。
+        # 返回 "" 让上层立即处理队列已有输入（pump 已收集），不等待。
+        if self._streaming:
+            return ""
         try:
             return self._session.prompt(message)
         except KeyboardInterrupt:
@@ -166,6 +189,8 @@ class FallbackSession:
     """兜底实现 — 原裸 input() + sys.stdout.write + threading.Event。
 
     WebUI/IDE/CI 强制走这个；非 TTY 下 prompt_toolkit 不可用时的安全回退。
+    streaming 期间用 termios 非阻塞 select 读单行（不卡死流式输出）。
+    支持方向键上/下翻历史。
     """
 
     def __init__(self, history_file: str = DEFAULT_HISTORY_FILE) -> None:
@@ -173,9 +198,19 @@ class FallbackSession:
         self._history_file = Path(history_file).expanduser()
         self._interrupt = threading.Event()
         self._load_history()
+        # 2026-09-16（TUI 输入泵问题修复）: streaming 标志
+        self._streaming = False
+        # readline 历史翻页位置（-1 = 最末，即新输入位置）
+        self._rl_pos = -1
+
+    def set_streaming(self, streaming: bool) -> None:
+        self._streaming = streaming
 
     def prompt(self, message: str = "") -> str:
         self._interrupt.clear()
+        # 2026-09-16（TUI 输入泵问题修复）: streaming 期间非阻塞读。
+        if self._streaming:
+            return self._nonblocking_readline(message)
         try:
             return input(message)
         except EOFError:
@@ -184,6 +219,148 @@ class FallbackSession:
             raise
         except KeyboardInterrupt:
             return ""
+
+    def _nonblocking_readline(self, message: str = "") -> str:
+        """streaming 期间非阻塞读一行。
+
+        用 termios + select 非阻塞读取，键盘缓冲区有完整行时立即返回，
+        无数据时返回空串（不卡死流式输出主线程）。
+        支持方向键上/下翻历史（readline 序列：\\x1b[A 上 / \\x1b[B 下）。
+        """
+        import select
+        import termios
+
+        if not sys.stdin.isatty():
+            return ""
+
+        try:
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+        except Exception:  # noqa: BLE001
+            return ""
+
+        try:
+            # 原始模式：读单字节，不回显
+            new = [list(x) if isinstance(x, list) else x for x in old]
+            new[3] &= ~(termios.ICANON | termios.ECHO)
+            new[6][termios.VMIN] = 0
+            new[6][termios.VTIME] = 0
+            termios.tcsetattr(fd, termios.TCSANOW, new)
+
+            buf = bytearray()
+            if message:
+                os.write(sys.stdout.fileno(), message.encode())
+
+            while True:
+                # drain 残留字节（Ctrl+C / 方向键序列首字节触发 UnicodeDecodeError）
+                while True:
+                    r, _, _ = select.select([fd], [], [], 0.0)
+                    if not r:
+                        break
+                    try:
+                        leftover = os.read(fd, 4096)
+                        if not leftover:
+                            raise EOFError
+                    except OSError:  # noqa: BLE001
+                        break
+
+                # 等键盘（0.05s 超时，避免卡住流式输出）
+                r, _, _ = select.select([fd], [], [], 0.05)
+                if not r:
+                    # 超时：无完整行，返回空串让流式输出继续
+                    os.write(sys.stdout.fileno(), b"\r\x1b[K")
+                    return ""
+
+                ch = os.read(fd, 1)
+                if not ch:
+                    raise EOFError
+                buf.extend(ch)
+                os.write(sys.stdout.fileno(), ch)
+
+                # Enter 提交
+                if ch == b"\n":
+                    break
+
+                # 退格
+                if ch in (b"\x7f", b"\x08"):
+                    if buf:
+                        buf = buf[:-1]
+                        os.write(sys.stdout.fileno(), b"\x08 \x08")
+                    continue
+
+                # 方向键序列：\\x1b[A (上) / \\x1b[B (下)
+                if ch == b"\x1b":
+                    seq = bytearray(ch)
+                    for _ in range(2):
+                        r2, _, _ = select.select([fd], [], [], 0.05)
+                        if r2:
+                            b2 = os.read(fd, 1)
+                            seq.extend(b2)
+                            os.write(sys.stdout.fileno(), b2)
+                        else:
+                            break
+                    full = bytes(seq)
+                    if full == b"\x1b[A":  # 上
+                        if self._history and self._rl_pos < len(self._history) - 1:
+                            self._rl_pos += 1
+                            line = self._history[-(self._rl_pos + 1)]
+                        else:
+                            line = ""
+                        self._erase_and_show(fd, buf, line)
+                        buf = bytearray(line.encode())
+                    elif full == b"\x1b[B":  # 下
+                        if self._rl_pos > 0:
+                            self._rl_pos -= 1
+                            line = self._history[-(self._rl_pos + 1)]
+                        elif self._rl_pos == 0:
+                            self._rl_pos = -1
+                            line = ""
+                        else:
+                            line = ""
+                        self._erase_and_show(fd, buf, line)
+                        buf = bytearray(line.encode())
+                    else:
+                        self._erase_and_show(fd, buf, "")
+                        buf = bytearray()
+                    continue
+
+                # Ctrl+C
+                if ch == b"\x03":
+                    os.write(sys.stdout.fileno(), b"^C\n")
+                    self._interrupt.set()
+                    return ""
+
+                # Ctrl+D
+                if ch == b"\x04":
+                    os.write(sys.stdout.fileno(), b"^D\n")
+                    raise EOFError
+
+                # CR → LF
+                if ch == b"\r":
+                    os.write(sys.stdout.fileno(), b"\n")
+                    buf = buf[:-1] + b"\n"
+                    break
+
+                # 其他控制字符忽略
+                if ch[0] < 32:
+                    continue
+
+            result = bytes(buf).decode("utf-8", errors="replace").rstrip("\n")
+            if result:
+                self._history.append(result)
+                self._save_history()
+            self._rl_pos = -1
+            return result
+
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    @staticmethod
+    def _erase_and_show(fd: int, old_buf: bytearray, new_line: str) -> None:
+        """擦掉旧行内容，显示新内容。"""
+        spaces = " " * max(len(old_buf), 1)
+        new_bytes = new_line.encode()
+        os.write(fd, (f"\r\x1b[K{spaces}\r{new_bytes}").encode())
 
     def push_to_history(self, text: str) -> None:
         if text.strip():

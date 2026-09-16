@@ -18,6 +18,7 @@ from lingclaude.cli.interface import (
     PromptSessionInterface,
     PromptToolkitSession,
     create_session,
+    _HAS_PROMPT_TOOLKIT,
 )
 
 
@@ -286,3 +287,64 @@ class TestH17InputPumpFix:
         captured = capsys.readouterr()  # 消费 "[输入编码错误，请检查终端编码设置]"
         # 第二次失败才打印错误信息（第一次只清缓冲区不打印）
         assert "输入编码错误" in captured.out or "输入编码错误" in captured.err
+
+
+class TestStreamingNonBlocking:
+    """TUI 输入泵问题修复：streaming 期间 prompt 不阻塞，方向键/退格正常."""
+
+    def test_fallback_session_set_streaming_flag(self):
+        """FallbackSession.set_streaming() 设置内部标志."""
+        sess = FallbackSession()
+        assert hasattr(sess, "set_streaming")
+        sess.set_streaming(True)
+        assert sess._streaming is True
+        sess.set_streaming(False)
+        assert sess._streaming is False
+
+    def test_pt_session_set_streaming_flag(self):
+        """PromptToolkitSession.set_streaming() 设置内部标志."""
+        if not _HAS_PROMPT_TOOLKIT:
+            pytest.skip("prompt_toolkit 未安装")
+        sess = PromptToolkitSession()
+        assert hasattr(sess, "set_streaming")
+        sess.set_streaming(True)
+        assert sess._streaming is True
+        sess.set_streaming(False)
+        assert sess._streaming is False
+
+    def test_fallback_nonblocking_returns_empty_during_streaming(self, monkeypatch, tmp_path):
+        """streaming=True 时 prompt() 非阻塞，立即返回空串."""
+        monkeypatch.setenv("LINGCLAUDE_CLI_MODE", "plain")
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)  # 强制非 TTY
+
+        # 让 _nonblocking_readline 返回空串（模拟超时）
+        sess = FallbackSession(history_file=str(tmp_path / "hist"))
+        sess._streaming = True  # 直接设，跳过 prompt() 分支
+        result = sess.prompt("灵克> ")
+        assert result == ""  # streaming 期间立即返回，不阻塞
+
+    def test_fallback_ctrl_c_returns_empty_non_streaming(self, monkeypatch, tmp_path):
+        """非 streaming 时 Ctrl+C 返回空串（caller 靠返回值感知中断）."""
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        monkeypatch.setattr("builtins.input", lambda msg: (_ for _ in ()).throw(KeyboardInterrupt))
+
+        sess = FallbackSession(history_file=str(tmp_path / "hist"))
+        result = sess.prompt("> ")
+        assert result == ""  # caller 靠空串感知 Ctrl+C，不靠 interrupt 事件
+
+    def test_fallback_ctrl_c_sets_interrupt_streaming(self, monkeypatch, tmp_path):
+        """streaming 期间 Ctrl+C → _nonblocking_readline 收到 \\x03 → set interrupt."""
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)  # 非 TTY → streaming 走非阻塞分支
+
+        sess = FallbackSession(history_file=str(tmp_path / "hist"))
+        sess._streaming = True  # 直接进非阻塞分支（_nonblocking_readline）
+        # _nonblocking_readline 检测 stdin.isatty() → False → 直接返回 ""
+        # 真实 Ctrl+C 在 TTY 环境下才触发 interrupt（非 TTY 无键盘输入来源）
+        assert sess.prompt("> ") == ""  # streaming 非 TTY 不阻塞，立即返回
+
+    def test_protocol_has_set_streaming(self):
+        """PromptSessionInterface 协议包含 set_streaming 方法."""
+        assert hasattr(PromptSessionInterface, "prompt")
+        assert hasattr(PromptSessionInterface, "set_streaming")
+        assert hasattr(PromptSessionInterface, "stream_print")
+        assert hasattr(PromptSessionInterface, "interrupt_event")

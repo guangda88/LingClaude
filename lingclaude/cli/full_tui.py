@@ -170,6 +170,15 @@ class FullTuiSession:
     def interrupt_event(self) -> threading.Event:
         return self._interrupt
 
+    def set_streaming(self, streaming: bool) -> None:
+        """全屏 TUI 全程渲染输入框，streaming 期间不改变行为（no-op）。
+
+        FullTuiSession 的全屏 Application 独占整个终端，输入框始终可见。
+        streaming 输出写入 output_area（通过 install_output_source 注入历史源）。
+        pump 不在 FullTuiSession 期间运行（repl.py 检测到全屏即跳过 pump）。
+        """
+        _ = streaming  # 全屏 TUI 不需要此标志改变行为
+
     # ── 扩展接口（调用方可选注入） ──
 
     def install_output_source(self, source: Callable[[], list[str]]) -> None:
