@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import logging
 import queue
 import sys
 import threading
@@ -103,6 +104,10 @@ class InputPump:
             self._thread.join(timeout=2.0)
             if self._thread.is_alive():
                 self.dead = True
+                logging.getLogger(__name__).warning(
+                    "[输入泵] 旧线程 join 超时未退出，标记 dead 并放弃重建，"
+                    "主循环将降级为直读。请检查输入泵线程是否卡死。"
+                )
                 return
         self._stop = threading.Event()
         self._start_t = time.monotonic()  # 诊断/测试:启动时刻基线
