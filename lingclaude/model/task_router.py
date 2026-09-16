@@ -170,10 +170,11 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "kimi": {
         # Kimi Code 官方套餐直连（key 前缀 sk-kimi-，见 codex-providers/INSTALL.md）。
         # api.moonshot.cn/v1 是 Moonshot 开放平台，套餐 key 在那边 401。
+        # 模型名仅认小写 k3 系（K3-256K 会 401 "set model id as `k3`"，2026-09-16 实测）。
         "type": "openai",
         "base_url": "https://api.kimi.com/coding/v1",
-        "model": "k3-256k",
-        "models": ["k3-256k", "k3", "kimi-for-coding"],
+        "model": "k3",
+        "models": ["k3", "kimi-for-coding"],
     },
     "mimo": {
         # Xiaomi MiMo token plan (key 前缀 tp-).套餐 key 走 token-plan-cn 域名直连,
