@@ -361,6 +361,13 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
                 ctx.session.interrupt_event().set()
             except Exception:  # noqa: BLE001
                 pass
+            # 2026-09-16: 永久降级前停掉 pump 线程（唤醒则干净退出），
+            # 确保主线程成为唯一 stdin 读者 —— 与 _next_input dead 分支
+            # 同款双读者防护（PT 并发 AssertionError，2026-09-08 事故）。
+            try:
+                input_pump.stop()
+            except Exception:  # noqa: BLE001
+                pass
             ctx.fallback_read = True  # 永久裸 input() 隔离读（_read_input 路径）
             return 0
         input_pump.dead = True
@@ -405,13 +412,22 @@ def _next_input(ctx: _ReplCtx) -> str:
     _idle_loops = 0
     while True:
         if input_pump.dead or not _pump_mode:
-            # 失活/死亡降级为阻塞直读前，先给 pump 线程 1s 退出窗口
-            # （stop() 的 join(timeout=2) 唤醒失败时线程仍存活）。interrupt_event
-            # 已 set，正常会被唤醒；1s 后仍未退说明唤醒失败 —— 不再死等
-            # （极端卡死时死等=用户彻底无法输入），直接降级直读。
-            _t0 = time.monotonic()
-            while input_pump.dead and input_pump.is_alive() and time.monotonic() - _t0 < 1.0:
-                time.sleep(0.05)
+            # 失活/死亡降级为阻塞直读前，必须先 stop() 停掉 pump 线程
+            # （set _stop + interrupt_event 唤醒阻塞 read + join 2s 兜底）。
+            # 此前只「等 1s 退出窗口」不唤醒不 stop —— pump 卡 select 时线程
+            # 仍存活，主线程裸 session.prompt() 直读构成双读者（PT 并发
+            # AssertionError，2026-09-08 事故）。stop() 不重置 dead，
+            # 下方 fallback_read 判定不受影响。
+            if input_pump.dead:
+                try:
+                    input_pump.stop()
+                except Exception:  # noqa: BLE001 — 极端卡死时 stop 失败不致命
+                    pass
+                # stop() 的 join(2s) 唤醒失败时线程仍存活 —— 再给 1s 兜底
+                # 窗口；仍不退说明彻底卡死（死等=用户无法输入），直接降级直读。
+                _t0 = time.monotonic()
+                while input_pump.is_alive() and time.monotonic() - _t0 < 1.0:
+                    time.sleep(0.05)
             # P1（2026-09-15）:pump 失活/死亡说明 PT session 可能已损坏（线程卡
             # select / Application 断言），复用同一 session 直读照样失效 → 置
             # ctx.fallback_read 让 _read_input 走裸 input() 隔离读。仅 pump 模式

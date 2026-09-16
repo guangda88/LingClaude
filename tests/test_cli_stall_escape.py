@@ -172,6 +172,8 @@ class TestStallEscape:
             assert ctx.input_pump.dead
             assert "不可救" in ctx.input_pump.death_reason
             assert ctx.fallback_read  # 永久降级隔离读
+            # 2026-09-16: 永久降级前必须停掉 pump 线程（双读者防护）
+            assert ctx.input_pump._stopped  # noqa: SLF001
             # 不再次调用 start（不再 churn）
             ctx.input_pump.start = MagicMock()
             ctx.input_pump.start.assert_not_called()
@@ -200,4 +202,25 @@ class TestNextInputFallback:
         with patch("lingclaude.cli.repl._read_input", return_value="hi") as m:
             result = _next_input(ctx)
             assert result == "hi"
+            m.assert_called_once_with(ctx)
+
+    def test_dead_pump_stops_thread_before_blocking_read(self) -> None:
+        """2026-09-16:dead 分支降级直读前必须 stop() 停掉 pump 线程。
+
+        回归:此前只「等 1s 退出窗口」不唤醒不 stop —— pump 卡 select 时
+        线程仍存活,主线程裸 session.prompt() 直读构成双读者(PT 并发
+        AssertionError,2026-09-08 事故)。stop() 必须被调用,且不重置 dead。
+        """
+        ctx = _make_ctx(readable=True)
+        ctx.pump_mode = True
+        ctx.input_pump.dead = True
+        ctx.input_pump.stop = MagicMock(wraps=ctx.input_pump.stop)
+        ctx.session = MagicMock()
+        ctx.session.prompt.return_value = "你好"
+        with patch("lingclaude.cli.repl._read_input", return_value="你好") as m:
+            result = _next_input(ctx)
+            assert result == "你好"
+            # 关键:降级直读前已 stop() pump(双读者防护)
+            ctx.input_pump.stop.assert_called_once_with()
+            assert ctx.input_pump.dead  # stop() 不重置 dead,fallback 判定不受影响
             m.assert_called_once_with(ctx)
