@@ -102,3 +102,35 @@ def log_degradation_alert(
         "msg_index": msg_index,
     }
     _write_event(event)
+
+
+def log_model_call(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    finish_reason: str,
+    latency_ms: float,
+    path: str = "stream",
+) -> None:
+    """记录一次模型调用（stream/complete 统一埋点）。
+
+    atomcode#1 (P0): datalog cost 字段此前从未被填充，Token 开销
+    无法量化。usage 由 openai 协议 response.usage 现成返回，本函数
+    只做纯接缝写入：事件落 JSONL，异常静默（不干扰主链路）。
+    """
+    event = {
+        "event_type": "model.call",
+        "member": "lingclaude",
+        "model": model,
+        "cost": {
+            "in": int(input_tokens),
+            "out": int(output_tokens),
+        },
+        "finish_reason": finish_reason,
+        "latency_ms": round(latency_ms, 1),
+        "path": path,
+    }
+    try:
+        _write_event(event)
+    except Exception as e:  # noqa: BLE001 — 遥测绝不反噬主链路
+        logger.warning("datalog log_model_call failed: %s", e)

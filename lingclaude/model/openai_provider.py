@@ -13,6 +13,7 @@ from typing import Any, Generator
 from urllib.parse import urlparse
 
 from lingclaude.core.types import Result
+from lingclaude.core.datalog import log_model_call
 from lingclaude.model.retry import (
     GlmRetryPolicy,
     is_hard_quota_error,
@@ -243,6 +244,7 @@ class OpenAIProvider(ModelProvider):
         tool_call_accumulators: dict[int, dict[str, Any]] = {}
         finish_reason = "stop"
         usage = ModelUsage()
+        _t0 = time.monotonic()
 
         # F12i:流挂起可见性 — readline 最长阻塞 120s,期间零事件用户以为卡死。
         yield {"type": "status", "message": f"连接 {host}:{port} 等待首 token..."}
@@ -345,6 +347,15 @@ class OpenAIProvider(ModelProvider):
                 "usage": usage,
                 "model": cfg.model,
             }
+            # atomcode#1 (P0): usage 在流中到达，此处置记 cost
+            log_model_call(
+                model=cfg.model,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                finish_reason=finish_reason,
+                latency_ms=(time.monotonic() - _t0) * 1000,
+                path="stream",
+            )
         except http.client.HTTPException as e:
             yield {"type": "error", "error": f"HTTP 错误: {e}"}
         except OSError as e:
@@ -368,6 +379,9 @@ class OpenAIProvider(ModelProvider):
             "max_tokens": cfg.max_tokens,
             "temperature": _effective_temperature(cfg.model, cfg.temperature),
         }
+        # atomcode#1 (P0): SSE 默认不带 usage，显式请求使 cost 可统计。
+        # 不支持该字段的端点会忽略它（OpenAI 协议对未知字段宽容）。
+        body["stream_options"] = {"include_usage": True}
         if tools:
             body["tools"] = [
                 {"type": "function", "function": t} for t in tools
@@ -452,6 +466,7 @@ class OpenAIProvider(ModelProvider):
         tools: tuple[dict[str, Any], ...] | None = None,
     ) -> Result[ModelResponse]:
         url, body, headers = self._prepare_request(messages, cfg, tools)
+        _t0 = time.monotonic()
 
         req = urllib.request.Request(
             url,
@@ -468,7 +483,7 @@ class OpenAIProvider(ModelProvider):
         except urllib.error.URLError as e:
             return Result.fail(f"网络错误: {e.reason}。请检查网络连接")
 
-        return self._parse_response(data, cfg.model)
+        return self._parse_response(data, cfg.model, latency_ms=(time.monotonic() - _t0) * 1000)
 
     async def _call_api_async(
         self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
@@ -477,6 +492,7 @@ class OpenAIProvider(ModelProvider):
         import aiohttp
 
         url, body, headers = self._prepare_request(messages, cfg, tools)
+        _t0 = time.monotonic()
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -490,10 +506,10 @@ class OpenAIProvider(ModelProvider):
                     return Result.fail(f"OpenAI API 返回 HTTP {resp.status}: {text}")
                 data = await resp.json()
 
-        return self._parse_response(data, cfg.model)
+        return self._parse_response(data, cfg.model, latency_ms=(time.monotonic() - _t0) * 1000)
 
     def _parse_response(
-        self, data: dict[str, Any], model: str
+        self, data: dict[str, Any], model: str, latency_ms: float = 0.0
     ) -> Result[ModelResponse]:
         choices = data.get("choices", [])
         if not choices:
@@ -524,10 +540,21 @@ class OpenAIProvider(ModelProvider):
             output_tokens=usage_raw.get("completion_tokens", 0),
         )
 
+        model_used = data.get("model", model)
+        # atomcode#1 (P0): 非流式路径 cost 埋点（sync/async 共用本出口）
+        log_model_call(
+            model=model_used,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            finish_reason=finish_reason,
+            latency_ms=latency_ms,
+            path="complete",
+        )
+
         return Result.ok(
             ModelResponse(
                 content=content,
-                model=data.get("model", model),
+                model=model_used,
                 usage=usage,
                 finish_reason=finish_reason,
                 raw=data,
