@@ -7,6 +7,7 @@ from lingclaude.model.retry import (
     GlmRetryPolicy,
     RetrySnapshot,
     handle_429,
+    is_hard_quota_error,
     is_rate_limit_error,
 )
 
@@ -26,6 +27,38 @@ class TestIsRateLimitError(unittest.TestCase):
 
     def test_empty(self):
         self.assertFalse(is_rate_limit_error(""))
+
+
+class TestIsHardQuotaError(unittest.TestCase):
+    """2026-09-16 GLM 1308 5h 限额事故回归：硬配额必须与普通限流区分。"""
+
+    def test_glm_1308_real_error(self):
+        # 真实事故报文体（含 code + 重置时间戳语义）
+        err = '{"error":{"code":"1308","message":"已达到 5 小时的使用上限，请于 2026-09-16 23:59 重置后重试"}}'
+        self.assertTrue(is_hard_quota_error(err))
+
+    def test_usage_limit_en(self):
+        self.assertTrue(is_hard_quota_error("usage limit reached for org"))
+
+    def test_quota_exceeded(self):
+        self.assertTrue(is_hard_quota_error("billing_hard_limit_reached"))
+
+    def test_combo_form(self):
+        # code 变化时的组合形态：已达到 + 上限 + 重置
+        self.assertTrue(is_hard_quota_error("额度已达到套餐上限，将于稍后重置"))
+
+    def test_not_hard_quota_429(self):
+        # 普通限流不能误判为硬配额（否则退避重试被跳过）
+        self.assertFalse(is_hard_quota_error("HTTP 429 Too Many Requests"))
+
+    def test_not_hard_quota_busy(self):
+        self.assertFalse(is_hard_quota_error("模型访问量过大，请稍后再试"))
+
+    def test_not_hard_quota_other(self):
+        self.assertFalse(is_hard_quota_error("Connection refused"))
+
+    def test_not_hard_quota_empty(self):
+        self.assertFalse(is_hard_quota_error(""))
 
 
 class TestGlmRetryPolicy(unittest.TestCase):
