@@ -40,6 +40,14 @@ DEFAULT_POLL_INTERVAL_S = 5.0
 
 _LINGBUS_ALERT_SUBJECT = "[N5b守卫] 流内停滞"
 
+# 推理思考型窗口: 这些事件之后模型进同步推理/重排，零事件合法可达分钟级
+# （P0.1 案例 4096 全程 0 delta），按 BEFORE_FIRST_WARN_S 放宽，只 WARNING 一次。
+#   ""            = 首事件前（模型首次推理思考期）
+#   tool_call_end = 工具结果回传后的模型再推理期（model_call.py 事件流：
+#                   tool_call_end -> 重新进 provider.stream_complete -> 下个 delta）
+#   status        = 换候选重试 / 幻觉闭环修正的同步推理期（provider 调用零 yield）
+_REASONING_LIKE_EVENTS = frozenset({"", "tool_call_end", "status"})
+
 
 class StreamWatchdog:
     """流内事件心跳监视器。
@@ -93,8 +101,9 @@ class StreamWatchdog:
     def touch(self, event_type: str) -> None:
         """流循环每收到一个事件调用一次。
 
-        tool_call_start 会把窗口切到「工具执行期」（跳过计时），
-        其余事件把窗口切回「事件间隙」。
+        tool_call_start 会把窗口切到「工具执行期」（跳过计时）；
+        "" / tool_call_end / status 归入推理思考型窗口（120s 放宽）；
+        其余事件把窗口切回「事件间隙」（60s → 300s）。
         """
         with self._lock:
             self._last_event_at = time.monotonic()
@@ -123,13 +132,13 @@ class StreamWatchdog:
         if last_type == "tool_call_start":
             return  # 工具执行期: 生成器零 yield 是常态，跳过计时
 
-        if not last_type:
-            # 首事件前 = 推理思考期: 只 WARNING 一次，不升 ERROR
+        if last_type in _REASONING_LIKE_EVENTS:
+            # 推理思考型窗口（首事件前/再推理期/重试期）: 只 WARNING 一次，不升 ERROR
             if since >= BEFORE_FIRST_WARN_S and not self._warned:
                 self._warned = True
                 _logger.warning(
-                    "[N5b守卫] 流停滞 WARNING: 首事件前已 %.0fs 无事件（推理慢或流未建立）",
-                    since,
+                    "[N5b守卫] 流停滞 WARNING: 推理期已 %.0fs 无新事件（上个事件=%s）",
+                    since, last_type or "首事件前",
                 )
             return
 
