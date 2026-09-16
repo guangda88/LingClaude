@@ -57,6 +57,38 @@ class _ModuleCache:
 _SERVERS: dict[str, MCPServerInfo] = {}
 
 
+from contextlib import contextmanager
+
+
+@contextmanager
+def _root_logger_guard():
+    """跨仓/模块导入窗口的 root logger 守卫（R-logfix）。
+
+    背景: lingclaude/mcp/server.py 模块级 FastMCP(...) 构造会触发
+    mcp 包 configure_logging() -> basicConfig() 往 root logger 塞
+    RichHandler；此后宿主进程内所有沿 root 传播的日志（session_store
+    "Checkpoint saved"、N5b 守卫告警等）被第三方 handler 劫持成
+    rich 时间戳格式，插入 TUI 输出流形成乱入行。
+
+    协议: root logger 归宿主独占管理，第三方只许配置自己的子树。
+    实现: 差集式剥离——只移除窗口内新增的 handler，宿主既有配置零影响。
+    附带收益: 独立 MCP server 进程若经此路径加载，被剥离后其日志走
+    lastResort(stderr)，不会污染 stdio JSON-RPC 通道。
+    """
+    root = logging.getLogger()
+    pre = list(root.handlers)
+    try:
+        yield
+    finally:
+        for h in list(root.handlers):
+            if h not in pre:
+                root.removeHandler(h)
+                logger.debug(
+                    "MCP Proxy: 已剥离第三方注入 root 的 handler: %s",
+                    type(h).__module__ + "." + type(h).__name__,
+                )
+
+
 def register_server(
     key: str,
     name: str,
@@ -203,7 +235,8 @@ def _load_module(server: MCPServerInfo) -> Any:
 
     module = None
 
-    if server.module_path:
+    with _root_logger_guard():
+      if server.module_path:
         p = Path(server.module_path)
         ALLOWED_MODULE_DIRS = {Path("/home/ai/lingclaude"), Path("/home/ai/lingmessage"), Path("/tmp")}  # nosec B108 — /tmp 用于 MCP 模块热加载，已有白名单约束
         if not any(p.resolve().is_relative_to(d) for d in ALLOWED_MODULE_DIRS):
@@ -216,7 +249,7 @@ def _load_module(server: MCPServerInfo) -> Any:
             if spec and spec.loader:
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-    elif server.working_dir:
+      elif server.working_dir:
         _ensure_path(server.working_dir)
         module = _try_import(server)
 
@@ -493,6 +526,15 @@ def clear_cache() -> None:
 
 
 def init_from_lingflow_registry() -> int:
+    # Root logger 守卫（R-logfix）: lingflow_plus 被导入时会往 root logger 塞
+    # RichHandler(fmt="%(message)s")，此后包内所有沿 root 传播的日志
+    # （如 session_store "Checkpoint saved"、N5b 守卫告警）被第三方 handler
+    # 劫持成 rich 时间戳格式，插入 TUI 输出流形成乱入行。
+    # 协议: root 归宿主独占管理，第三方只许配置自己的子树。
+    # 差集式剥离——只移除本次导入窗口内新增的 handler，宿主既有配置零影响；
+    # finally 同时覆盖正常路径与 ImportError 提前返回（return 也会走 finally）。
+    _root_logger = logging.getLogger()
+    _pre_handlers = list(_root_logger.handlers)
     try:
         # 跨仓契约：显式声明依赖 lingflow_plus 仓库（env 可覆盖 LINGFLOW_PLUS_PATH），
         # 不依赖隐式 editable 安装布局（灵元「跨仓 = 显式插片契约」）。
@@ -503,6 +545,14 @@ def init_from_lingflow_registry() -> int:
     except ImportError:
         logger.warning("MCP Proxy: lingflow_plus not available, skipping registry init")
         return 0
+    finally:
+        for _h in list(_root_logger.handlers):
+            if _h not in _pre_handlers:
+                _root_logger.removeHandler(_h)
+                logger.debug(
+                    "MCP Proxy: 已剥离第三方注入 root 的 handler: %s",
+                    type(_h).__module__ + "." + type(_h).__name__,
+                )
 
     count = 0
     for key, cfg in REGISTRY.items():

@@ -23,10 +23,26 @@ from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP(
-    name="lingclaude",
-    instructions="灵克（lingclaude）MCP Server — 自学习AI编程助手核心能力",
-)
+_MCP_SINGLETON: list = []
+
+
+def get_mcp():
+    """FastMCP 惰性单例（R-logfix）。
+
+    不能模块级构造 FastMCP: 其 __init__ 会无条件调 configure_logging()
+    -> basicConfig() 往 root logger 塞 RichHandler，宿主 CLI 进程
+    (import lingclaude.engine 链) 一启动 root 就被污染，包内日志
+    （Checkpoint saved / N5b 守卫告警等）被劫持成 rich 时间戳格式
+    插进 TUI 输出流。独立 MCP server 进程经 main() 进来时才构造。
+    """
+    if not _MCP_SINGLETON:
+        _MCP_SINGLETON.append(
+            FastMCP(
+                name="lingclaude",
+                instructions="灵克（lingclaude）MCP Server — 自学习AI编程助手核心能力",
+            )
+        )
+    return _MCP_SINGLETON[0]
 
 
 def _to_dict(obj: Any) -> dict:
@@ -48,7 +64,7 @@ def _unwrap(result: Any) -> Any:
 # ── 核心编码（8个工具） ──
 
 
-@mcp.tool(name="read_file", description="智能读取文件（灵读）")
+@get_mcp().tool(name="read_file", description="智能读取文件（灵读）")
 def tool_read_file(
     path: str,
     offset: int = 0,
@@ -65,7 +81,7 @@ def tool_read_file(
     return _unwrap(result)
 
 
-@mcp.tool(name="write_file", description="写入或创建文件（灵写）")
+@get_mcp().tool(name="write_file", description="写入或创建文件（灵写）")
 def tool_write_file(path: str, content: str, working_dir: str = "") -> dict:
     """创建新文件或覆盖已有文件。working_dir 为空时使用当前目录。"""
     from ..engine.file_edit import FileEditTool
@@ -76,7 +92,7 @@ def tool_write_file(path: str, content: str, working_dir: str = "") -> dict:
     return _unwrap(result)
 
 
-@mcp.tool(name="edit_code", description="精确编辑代码（灵编）")
+@get_mcp().tool(name="edit_code", description="精确编辑代码（灵编）")
 def tool_edit_code(
     path: str,
     old_text: str,
@@ -93,7 +109,7 @@ def tool_edit_code(
     return _unwrap(result)
 
 
-@mcp.tool(name="search_code", description="代码搜索（灵查）")
+@get_mcp().tool(name="search_code", description="代码搜索（灵查）")
 def tool_search_code(
     pattern: str,
     include: str = "*.py",
@@ -117,7 +133,7 @@ def tool_search_code(
     return _unwrap(result)
 
 
-@mcp.tool(name="run_bash", description="执行Shell命令（灵动）")
+@get_mcp().tool(name="run_bash", description="执行Shell命令（灵动）")
 def tool_run_bash(
     command: str,
     working_dir: str = "",
@@ -131,7 +147,7 @@ def tool_run_bash(
     return _to_dict(bash_result)
 
 
-@mcp.tool(name="index_project", description="项目代码索引（灵索）")
+@get_mcp().tool(name="index_project", description="项目代码索引（灵索）")
 def tool_index_project(path: str = ".", max_files: int = 200) -> dict:
     """索引项目代码结构，提取类、函数、导入等符号。"""
     from ..engine.indexer import index_project
@@ -140,7 +156,7 @@ def tool_index_project(path: str = ".", max_files: int = 200) -> dict:
     return _unwrap(result)
 
 
-@mcp.tool(name="list_functions", description="列出函数定义（灵析）")
+@get_mcp().tool(name="list_functions", description="列出函数定义（灵析）")
 def tool_list_functions(file_path: str) -> list[dict]:
     """列出文件中所有函数和方法的定义。"""
     from ..engine.ast_edit import list_functions
@@ -152,7 +168,7 @@ def tool_list_functions(file_path: str) -> list[dict]:
     return [unwrapped]
 
 
-@mcp.tool(name="replace_function", description="替换函数体（灵构）")
+@get_mcp().tool(name="replace_function", description="替换函数体（灵构）")
 def tool_replace_function(
     file_path: str,
     function_name: str,
@@ -176,7 +192,7 @@ def tool_replace_function(
 # ── 版本控制（3个工具） ──
 
 
-@mcp.tool(name="git_status", description="Git仓库状态（灵态）")
+@get_mcp().tool(name="git_status", description="Git仓库状态（灵态）")
 def tool_git_status(path: str = ".", short: bool = True) -> dict:
     """查看Git仓库状态，包括修改、暂存、未跟踪文件。"""
     from ..engine.git import git_status
@@ -185,7 +201,7 @@ def tool_git_status(path: str = ".", short: bool = True) -> dict:
     return _unwrap(result)
 
 
-@mcp.tool(name="git_log", description="Git提交历史（灵史）")
+@get_mcp().tool(name="git_log", description="Git提交历史（灵史）")
 def tool_git_log(
     path: str = ".",
     count: int = 10,
@@ -199,7 +215,7 @@ def tool_git_log(
     return _unwrap(result)
 
 
-@mcp.tool(name="git_diff", description="Git差异对比（灵异）")
+@get_mcp().tool(name="git_diff", description="Git差异对比（灵异）")
 def tool_git_diff(
     path: str = ".",
     target: str = "",
@@ -216,7 +232,7 @@ def tool_git_diff(
 # ── 自优化（4个工具） ──
 
 
-@mcp.tool(name="evaluate_code", description="代码结构评估（灵评）")
+@get_mcp().tool(name="evaluate_code", description="代码结构评估（灵评）")
 def tool_evaluate_code(target_path: str = ".") -> dict:
     """评估代码结构质量，返回圈复杂度、类规模等指标。"""
     from ..self_optimizer.evaluator import StructureEvaluator
@@ -226,7 +242,7 @@ def tool_evaluate_code(target_path: str = ".") -> dict:
     return metrics
 
 
-@mcp.tool(name="run_optimization", description="运行代码优化（灵优）")
+@get_mcp().tool(name="run_optimization", description="运行代码优化（灵优）")
 def tool_run_optimization(
     target: str = ".",
     goal: str = "structure",
@@ -266,7 +282,7 @@ def tool_run_optimization(
     return _to_dict(result)
 
 
-@mcp.tool(name="get_advice", description="获取优化建议（灵谏）")
+@get_mcp().tool(name="get_advice", description="获取优化建议（灵谏）")
 def tool_get_advice(
     goal: str = "structure",
     target: str = ".",
@@ -311,7 +327,7 @@ def _optimization_context(
     }
 
 
-@mcp.tool(name="check_triggers", description="检查优化触发条件（灵检）")
+@get_mcp().tool(name="check_triggers", description="检查优化触发条件（灵检）")
 def tool_check_triggers(
     target_path: str = ".",
     total_files: int = 0,
@@ -334,7 +350,7 @@ def tool_check_triggers(
 # ── 新增工具（11个） ──
 
 
-@mcp.tool(name="glob", description="按模式查找文件（灵巡）")
+@get_mcp().tool(name="glob", description="按模式查找文件（灵巡）")
 def tool_glob(pattern: str, working_dir: str = "") -> dict:
     """按glob模式查找文件，如 '*.py', 'src/**/*.ts'。返回匹配文件列表。"""
     from ..engine.file_ops import FileOps
@@ -347,7 +363,7 @@ def tool_glob(pattern: str, working_dir: str = "") -> dict:
     return {"files": list(result.data)}
 
 
-@mcp.tool(name="file_create", description="创建新文件（灵创）")
+@get_mcp().tool(name="file_create", description="创建新文件（灵创）")
 def tool_file_create(path: str, content: str, working_dir: str = "") -> dict:
     """创建新文件并写入内容。如果文件已存在则返回错误。working_dir 为空时使用当前目录。"""
     from ..engine.file_edit import FileEditTool
@@ -358,7 +374,7 @@ def tool_file_create(path: str, content: str, working_dir: str = "") -> dict:
     return _unwrap(result)
 
 
-@mcp.tool(name="file_insert", description="在指定行号插入文本（灵插）")
+@get_mcp().tool(name="file_insert", description="在指定行号插入文本（灵插）")
 def tool_file_insert(path: str, line: int, text: str, working_dir: str = "") -> dict:
     """在文件的指定行号处插入文本。行号从1开始。working_dir 为空时使用当前目录。"""
     from ..engine.file_edit import FileEditTool
@@ -369,7 +385,7 @@ def tool_file_insert(path: str, line: int, text: str, working_dir: str = "") -> 
     return _unwrap(result)
 
 
-@mcp.tool(name="file_delete_lines", description="删除指定行范围（灵删）")
+@get_mcp().tool(name="file_delete_lines", description="删除指定行范围（灵删）")
 def tool_file_delete_lines(
     path: str, start_line: int, end_line: int, working_dir: str = ""
 ) -> dict:
@@ -382,7 +398,7 @@ def tool_file_delete_lines(
     return _unwrap(result)
 
 
-@mcp.tool(name="file_undo", description="撤销上次编辑（灵撤）")
+@get_mcp().tool(name="file_undo", description="撤销上次编辑（灵撤）")
 def tool_file_undo(path: str, working_dir: str = "") -> dict:
     """撤销文件的最后一次编辑操作，恢复到编辑前状态。"""
     from ..engine.file_edit import FileEditTool
@@ -393,7 +409,7 @@ def tool_file_undo(path: str, working_dir: str = "") -> dict:
     return _unwrap(result)
 
 
-@mcp.tool(name="analyze_full", description="完整代码分析（灵鉴）")
+@get_mcp().tool(name="analyze_full", description="完整代码分析（灵鉴）")
 def tool_analyze_full(target: str = ".") -> dict:
     """对代码进行完整分析：结构指标 + 6种模式检测（长方法、未使用变量、硬编码密钥、重复代码、空块、圈复杂度）。"""
     from ..engine.coding import CodingRuntime
@@ -402,7 +418,7 @@ def tool_analyze_full(target: str = ".") -> dict:
     return runtime.analyze(target)
 
 
-@mcp.tool(name="git_blame", description="行级作者追溯（灵溯）")
+@get_mcp().tool(name="git_blame", description="行级作者追溯（灵溯）")
 def tool_git_blame(
     file_path: str,
     cwd: str = ".",
@@ -421,7 +437,7 @@ def tool_git_blame(
     return _unwrap(result)
 
 
-@mcp.tool(name="knowledge_search", description="搜索知识库（灵忆）")
+@get_mcp().tool(name="knowledge_search", description="搜索知识库（灵忆）")
 def tool_knowledge_search(keyword: str, limit: int = 10) -> dict:
     """搜索灵克自学习知识库中的规则和模式。返回匹配的已学习规则。"""
     from ..self_optimizer.learner.knowledge import KnowledgeBase
@@ -440,7 +456,7 @@ def tool_knowledge_search(keyword: str, limit: int = 10) -> dict:
         kb.close()
 
 
-@mcp.tool(name="session_list", description="列出会话历史（灵簿）")
+@get_mcp().tool(name="session_list", description="列出会话历史（灵簿）")
 def tool_session_list(project_path: str = "") -> dict:
     """列出灵克的会话历史记录。project_path 为空时列出所有项目的会话。"""
     from ..core.session import SessionManager
@@ -450,7 +466,7 @@ def tool_session_list(project_path: str = "") -> dict:
     return {"total": len(sessions), "sessions": list(sessions)}
 
 
-@mcp.tool(name="stt", description="语音录制转文字（灵听）")
+@get_mcp().tool(name="stt", description="语音录制转文字（灵听）")
 def tool_stt(
     duration: int = 5,
     file: str = "",
@@ -477,7 +493,7 @@ def tool_stt(
     }
 
 
-@mcp.tool(name="check_and_optimize", description="自动检测并优化（灵自审）")
+@get_mcp().tool(name="check_and_optimize", description="自动检测并优化（灵自审）")
 def tool_check_and_optimize(
     target: str = ".",
     goal: str = "structure",

@@ -22,9 +22,9 @@ def create_app():
     from starlette.responses import JSONResponse
     from starlette.routing import Mount, Route
 
-    from .server import mcp
+    from .server import get_mcp
 
-    mcp_app = mcp.streamable_http_app()
+    mcp_app = get_mcp().streamable_http_app()
     start_time = time.time()
 
     async def health(request):

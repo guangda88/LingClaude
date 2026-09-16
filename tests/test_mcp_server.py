@@ -8,7 +8,9 @@ import pytest
 
 @pytest.fixture
 def mcp_server():
-    from lingclaude.mcp.server import mcp
+    from lingclaude.mcp.server import get_mcp
+
+    mcp = get_mcp()
     return mcp
 
 
