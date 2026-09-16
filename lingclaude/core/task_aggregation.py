@@ -122,16 +122,29 @@ class TaskAggregator:
         db_path: str | Path | None = None,
         max_group_size: int = 5,
         max_wait_seconds: int = 30,
+        state_store: Any | None = None,
     ):
         """初始化聚合器
 
         Args:
-            db_path: 数据库路径
+            db_path: 数据库路径（J4 迁移后为导出视图介质：列表/统计查询）
             max_group_size: 最大组大小
             max_wait_seconds: 最大等待时间（秒）
+            state_store: 状态接缝（J4 归原语主通道，record_type="task"/"task_group"；
+                缺省自建 StateStore，测试可注入 StateStore(root=tmp_path) 隔离）
         """
         self.max_group_size = max_group_size
         self.max_wait_seconds = max_wait_seconds
+
+        # J4 状态归原语：优先注入 StateStore（状态事实走接缝），缺省自建
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore()
+            except Exception:
+                state_store = None
+        self._state_store = state_store
 
         if db_path is None:
             db_path = Path.home() / ".lingclaude" / "task_aggregation.db"
@@ -225,6 +238,26 @@ class TaskAggregator:
         context = context or {}
         metadata = metadata or {}
 
+        created_at = datetime.now(timezone.utc).isoformat()
+        task_fact = {
+            "id": task_id,
+            "query": query,
+            "task_type": task_type,
+            "priority": priority.value,
+            "context": context,
+            "created_at": created_at,
+            "metadata": metadata,
+            "status": TaskStatus.PENDING.value,
+        }
+
+        # J4 状态归原语：任务事实主通道走 StateStore（record_type="task", key=task_id）
+        if self._state_store is not None:
+            try:
+                self._state_store.save("task", task_id, task_fact)
+            except Exception as e:
+                logger.warning("StateStore 写入 task 失败: %s", e)
+
+        # SQLite 三表降级为导出视图（列表/统计查询介质，非状态主通道）
         conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 
@@ -238,7 +271,7 @@ class TaskAggregator:
             task_type,
             priority.value,
             json.dumps(context, ensure_ascii=False),
-            datetime.now(timezone.utc).isoformat(),
+            created_at,
             json.dumps(metadata, ensure_ascii=False),
             TaskStatus.PENDING.value,
         ))
@@ -344,8 +377,22 @@ class TaskAggregator:
             # 只有多于一个任务时才创建组
             if len(tasks) > 1:
                 group_id = f"group_{uuid.uuid4().hex[:12]}"
+                group_created_at = datetime.now(timezone.utc).isoformat()
 
-                # 保存任务组
+                # J4 状态归原语：任务组事实主通道走 StateStore（record_type="task_group"）
+                if self._state_store is not None:
+                    try:
+                        self._state_store.save("task_group", group_id, {
+                            "id": group_id,
+                            "created_at": group_created_at,
+                            "status": TaskStatus.QUEUED.value,
+                            "relevance_key": key,
+                            "task_ids": [t.id for t in tasks],
+                        })
+                    except Exception as e:
+                        logger.warning("StateStore 写入 task_group 失败: %s", e)
+
+                # SQLite 导出视图：任务组关联表（列表/统计查询介质）
                 conn = safe_connect(self.db_path)
                 cursor = conn.cursor()
 
@@ -355,7 +402,7 @@ class TaskAggregator:
                     VALUES (?, ?, ?, ?)
                 """, (
                     group_id,
-                    datetime.now(timezone.utc).isoformat(),
+                    group_created_at,
                     TaskStatus.QUEUED.value,
                     key,
                 ))
@@ -368,7 +415,7 @@ class TaskAggregator:
                         VALUES (?, ?)
                     """, (group_id, task.id))
 
-                    # 更新任务状态
+                    # 更新任务状态（SQLite 导出视图）
                     cursor.execute("""
                         UPDATE tasks
                         SET status = ?
@@ -385,7 +432,6 @@ class TaskAggregator:
                     status=TaskStatus.QUEUED,
                 )
                 task_groups.append(task_group)
-
         return task_groups
 
     def get_task_group(self, group_id: str) -> TaskGroup | None:
@@ -433,11 +479,23 @@ class TaskAggregator:
         )
 
     def mark_group_completed(self, group_id: str) -> None:
-        """标记任务组为完成
+        """标记任务组为完成（J4：状态事实更新走 StateStore，SQLite 导出视图同步）"""
+        # J4 状态归原语：组/任务状态事实更新走 StateStore
+        if self._state_store is not None:
+            try:
+                group_fact = self._state_store.load("task_group", group_id)
+                if group_fact is not None:
+                    group_fact["status"] = TaskStatus.COMPLETED.value
+                    self._state_store.save("task_group", group_id, group_fact)
+                    for tid in group_fact.get("task_ids", []):
+                        task_fact = self._state_store.load("task", tid)
+                        if task_fact is not None:
+                            task_fact["status"] = TaskStatus.COMPLETED.value
+                            self._state_store.save("task", tid, task_fact)
+            except Exception as e:
+                logger.warning("StateStore 更新 task_group 状态失败: %s", e)
 
-        Args:
-            group_id: 任务组 ID
-        """
+        # SQLite 导出视图（列表/统计查询介质）
         conn = safe_connect(self.db_path)
         cursor = conn.cursor()
 

@@ -193,6 +193,49 @@ class TestOptimizationConfiguration:
         db_path = Path.home() / ".lingclaude" / "token_monitor.db"
         assert db_path.exists(), "Database should be created"
 
+    def test_aggregator_state_store_facts(self, tmp_path):
+        """J4 归原语：任务/组事实主通道走 StateStore（record_type=task/task_group），
+        SQLite 降级为导出视图（列表/统计查询介质）。"""
+        from lingclaude.core.state_store import StateStore
+
+        store = StateStore(root=tmp_path / "state")
+        db = tmp_path / "agg.db"
+        aggregator = TaskAggregator(
+            db_path=db,
+            max_group_size=3,
+            state_store=store,
+        )
+
+        # 添加任务 → StateStore 应有 task 事实
+        tid = aggregator.add_task(query="任务A", task_type="code", priority=TaskPriority.MEDIUM)
+        task_fact = store.load("task", tid)
+        assert task_fact is not None, "任务事实应写入 StateStore"
+        assert task_fact["query"] == "任务A"
+        assert task_fact["status"] == "pending"
+
+        # 相关任务分组 → StateStore 应有 task_group 事实
+        tid2 = aggregator.add_task(query="任务A2", task_type="code", priority=TaskPriority.MEDIUM)
+        groups = aggregator.aggregate_tasks()
+        assert len(groups) == 1, "相关任务应聚合成一个组"
+        gid = groups[0].id
+        group_fact = store.load("task_group", gid)
+        assert group_fact is not None, "组事实应写入 StateStore"
+        assert set(group_fact["task_ids"]) == {tid, tid2}
+
+        # 标记完成 → StateStore 状态事实更新
+        aggregator.mark_group_completed(gid)
+        group_fact = store.load("task_group", gid)
+        assert group_fact["status"] == "completed", "组状态应更新为 completed"
+        task_fact = store.load("task", tid)
+        assert task_fact["status"] == "completed", "任务状态应更新为 completed"
+
+        # DB 导出视图仍可读（列表/统计查询介质）
+        stats = aggregator.get_stats()
+        assert stats.total_tasks == 2, "DB 导出视图统计应反映任务数"
+        assert stats.total_groups == 1
+        retrieved = aggregator.get_task_group(gid)
+        assert retrieved is not None and retrieved.status.value == "completed"
+
 
 class TestOptimizationDataflow:
     """Test data flow between optimization components."""
