@@ -19,7 +19,12 @@ from typing import Any
 import pytest
 
 from lingclaude.cli import interface
-from lingclaude.cli.full_tui import MAX_OUTPUT_LINES, FullTuiSession
+from lingclaude.cli.full_tui import (
+    EOF_SENTINEL,
+    MAX_OUTPUT_LINES,
+    FullTuiSession,
+    _StdoutProxy,
+)
 
 
 @pytest.fixture()
@@ -220,3 +225,127 @@ class TestReplWiring:
         assert _full_tui_output_source(SimpleNamespace(_messages=[]))() == []
         # 无 _messages 属性也安全
         assert _full_tui_output_source(SimpleNamespace())() == []
+
+
+class TestResidentFullTui:
+    """常驻全屏形态（2026-09-16 v2 重写）——纯逻辑测试，不依赖真实终端。
+
+    覆盖：提交队列 FIFO / EOF 哨兵 / Ctrl+C 软中断（空闲 vs 流式）/
+    stdout 代理逐行路由 / 输出窗上限截断 / close 后 prompt 优雅 EOF /
+    未启动降级 input()。
+    """
+
+    def _make(self, tmp_path: Path, started: bool = False) -> FullTuiSession:
+        s = FullTuiSession(history_file=str(tmp_path / "h"))
+        if started:
+            s._ever_started = True  # noqa: SLF001 — 模拟已启动（不真开全屏）
+        return s
+
+    def test_submit_fifo_and_pending(self, _pt_available: None, tmp_path: Path) -> None:
+        s = self._make(tmp_path, started=True)
+        s._submit("第一行")
+        s._submit("第二行")
+        s._submit(EOF_SENTINEL)
+        assert s.pending_submissions() == 2
+        assert s.prompt() == "第一行"
+        assert s.prompt() == "第二行"
+        assert s.pending_submissions() == 0
+        with pytest.raises(EOFError):
+            s.prompt()
+        assert s.pending_submissions() == 0
+
+    def test_prompt_eof_sentinel_raises(self, _pt_available: None, tmp_path: Path) -> None:
+        s = self._make(tmp_path, started=True)
+        s._submit(EOF_SENTINEL)
+        with pytest.raises(EOFError):
+            s.prompt()
+
+    def test_idle_interrupt_cleared_and_empty(self, _pt_available: None, tmp_path: Path) -> None:
+        """空闲期（streaming=False）Ctrl+C → prompt 返回 "" 且事件被清。"""
+        s = self._make(tmp_path, started=True)
+        s._interrupt.set()
+        assert s.prompt() == ""
+        assert not s._interrupt.is_set()  # noqa: SLF001
+
+    def test_streaming_interrupt_not_consumed(self, _pt_available: None, tmp_path: Path) -> None:
+        """流式期 Ctrl+C → prompt 不消费 interrupt（打断归流循环检查）。"""
+        s = self._make(tmp_path, started=True)
+        s.set_streaming(True)
+        s._interrupt.set()
+        s._submit("稍后处理")
+        # prompt 返回提交内容，事件保持 set —— 流循环才能看到打断
+        assert s.prompt() == "稍后处理"
+        assert s._interrupt.is_set()  # noqa: SLF001
+        s.set_streaming(False)
+        assert s.prompt() == ""  # 空闲期消费 interrupt
+
+    def test_stdout_proxy_routes_lines(self, _pt_available: None, tmp_path: Path) -> None:
+        """print / sys.stdout.write 按行追加进输出窗。
+
+        \r（进度式覆写）语义：丢弃当前半行 —— 中和 repl 的 " "*40+"\r"
+        清列技巧（否则输出窗出现 40 空格行）。
+        """
+        import io as _io
+
+        s = self._make(tmp_path)
+        proxy = _StdoutProxy(s, _io.StringIO())
+        sys.stdout, real = proxy, sys.stdout
+        try:
+            print("第一行")
+            print("第二行", end="")
+            proxy.write("\n")
+            proxy.write(" " * 40 + "\r")  # 清列技巧：应被完全中和
+            proxy.write("第三行\n")
+            proxy.flush()
+        finally:
+            sys.stdout = real
+        text = s._output_area.text  # noqa: SLF001
+        assert "第一行" in text
+        assert "第二行" in text
+        assert "第三行" in text
+        assert "\r" not in text
+        # 40 空格清列不应产生纯空白行
+        assert not any(line and not line.strip() for line in text.split("\n"))
+
+    def test_output_area_line_cap(self, _pt_available: None, tmp_path: Path) -> None:
+        s = self._make(tmp_path)
+        s._append_output_lines([f"l{i}" for i in range(MAX_OUTPUT_LINES + 50)])
+        lines = s._output_area.text.split("\n")  # noqa: SLF001
+        assert len(lines) == MAX_OUTPUT_LINES
+        assert lines[0] == "l50"  # 最旧的 50 行被丢弃
+
+    def test_close_then_prompt_raises_eof(self, _pt_available: None, tmp_path: Path) -> None:
+        """close 后 prompt 必须 EOFError（不得回退 input() 与终端抢读）。"""
+        s = self._make(tmp_path)
+        s._ever_started = True  # 模拟已启动（不真开全屏，避免 CI 无 tty）
+        s.close()
+        with pytest.raises(EOFError):
+            s.prompt()
+
+    def test_never_started_prompt_falls_back(self, _pt_available: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """从未启动 → 降级裸 input()（P1 逃生语义）。"""
+        s = self._make(tmp_path)
+        monkeypatch.setattr("builtins.input", lambda _msg="": "降级输入")
+        assert s.prompt("灵克> ") == "降级输入"
+
+    def test_start_close_lifecycle(self, _pt_available: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """start/close 生命周期：stdout 被代理接管又还原（无头环境 app.run
+        可能失败，_run_app 异常路径也要保证 stdout 还原）。"""
+        s = self._make(tmp_path)
+        real_stdout = sys.stdout
+        try:
+            s.start()
+        except Exception:  # noqa: BLE001 — 无头环境 app 构造/线程失败不视为断言失败
+            sys.stdout = real_stdout
+            pytest.skip("无头环境无法启动全屏 Application")
+        # app 线程在无头环境可能立即死亡并还原 stdout —— 两种状态皆合法
+        assert sys.stdout is s._stdout_proxy or s._stdout_proxy is None  # noqa: SLF001
+        s.close()
+        assert sys.stdout is real_stdout  # 收尾不变量：stdout 必还原
+        assert s._stdout_proxy is None  # noqa: SLF001
+
+    def test_set_streaming_flag(self, _pt_available: None, tmp_path: Path) -> None:
+        s = self._make(tmp_path)
+        assert s._streaming is False  # noqa: SLF001
+        s.set_streaming(True)
+        assert s._streaming is True  # noqa: SLF001

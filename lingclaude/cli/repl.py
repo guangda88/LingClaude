@@ -29,6 +29,7 @@ from lingclaude.cli.interface import (
     PromptToolkitSession,
 )
 from lingclaude.cli.render_facade import print_session_summary
+from lingclaude.cli.status import toolbar_fragments
 from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
 from lingclaude.cli.repl_io import (
     _esc_listen_loop,
@@ -36,6 +37,7 @@ from lingclaude.cli.repl_io import (
     _handle_stream_event,
     get_output_format,
 )
+from lingclaude.cli.full_tui import FullTuiSession
 from lingclaude.cli.repl_turn import (
     _feed_behavior_to_daemon,
     _maybe_run_daemon_cycle,
@@ -172,6 +174,39 @@ def _status_prompt(ctx: _ReplCtx) -> str:
     return "灵克> "
 
 
+def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
+    """工具栏回调的状态快照（2026-09-16 常驻全屏 TUI 配套）。
+
+    原实现快照在 _status_prompt（即 pump 每次调 prompt 时）刷新，全屏形态下
+    状态栏由 PT 每帧渲染回调 toolbar_fragments —— 快照必须在此刷新，否则
+    cwd/ctx/挂起数永远停在启动值。全屏挂起数取内部提交队列（InputQueue 只
+    反映 pump 已搬运的），两项相加去重不必要：提交队列被 prompt 取走后才进
+    InputQueue，是先后两级缓冲。
+
+    节流：PT refresh_interval=0.2s 每帧回调，token 估算（遍历全部消息）与
+    cwd 探测是重操作 —— 限频 1s；挂起数（两个 deque/queue size）每帧刷新。
+    """
+    status = ctx.status
+    try:
+        now = time.monotonic()
+        if now - getattr(_toolbar_snapshot, "_last_heavy", 0.0) >= 1.0:
+            _toolbar_snapshot._last_heavy = now  # type: ignore[attr-defined]
+            _refresh_ctx_tokens(ctx)
+            status.refresh_cwd()
+        pending = ctx.input_queue.pending() if ctx.input_queue is not None else 0
+        full_tui = getattr(ctx.session, "pending_submissions", None)
+        if callable(full_tui):
+            pending += full_tui()
+        status.set_pending(pending)
+    except Exception:  # noqa: BLE001 — 状态刷新失败不阻塞渲染
+        pass
+    return status.snapshot()
+
+
+# 模块级节流游标（函数属性在多 repl 实例间共享无碍：只是限频，不影响正确性）
+_toolbar_snapshot._last_heavy = 0.0  # type: ignore[attr-defined]
+
+
 def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
     """刷新底部状态栏的 ctx tokens（_status_prompt 与 _status_refresh 共用）。
 
@@ -196,15 +231,9 @@ def _is_full_tui_session(session: Any) -> bool:
     """是否为 P2 全屏 TUI 会话（Q4）。
 
     全屏 Application 独占 stdin，Esc 归输入框编辑；调用方据此跳过
-    Esc 监听线程 / pump（避免 termios 抢占与双读者冲突）。导入失败
-    一律按非全屏处理（降级 P1 形态）。
+    Esc 监听线程 / pump（避免 termios 抢占与双读者冲突）。
     """
-    try:
-        from lingclaude.cli.full_tui import FullTuiSession
-
-        return isinstance(session, FullTuiSession)
-    except Exception:  # noqa: BLE001 — 导入失败按非全屏处理
-        return False
+    return isinstance(session, FullTuiSession)
 
 
 def _full_tui_output_source(engine: Any) -> Callable[[], list[str]]:
@@ -311,6 +340,23 @@ def _drain_pending_notice(ctx: _ReplCtx) -> None:
             print(f"  - {d[:60]}")
         if len(dropped) > 5:
             print(f"  … 等共 {len(dropped)} 条")
+
+
+def _bye(ctx: _ReplCtx, newline_first: bool = False) -> None:
+    """统一退出致意（2026-09-16 常驻全屏 TUI 配套）。
+
+    全屏会话必须先 close()：退出全屏 alt-screen + 还原 stdout 代理，
+    否则「再见！/丢弃清单」会被写进输出窗随全屏一起消失（用户看不到退出）。
+    非全屏会话（无 close 方法）保持原 _drain + print 序列不变。
+    """
+    try:
+        close = getattr(ctx.session, "close", None)
+        if callable(close) and getattr(ctx.session, "_running", False):
+            close()
+    except Exception:  # noqa: BLE001 — 退出路径不因收尾失败而挂死
+        pass
+    _drain_pending_notice(ctx)
+    print("\n再见！" if newline_first else "再见！")
 
 
 def _stdin_readable(timeout: float = 0.0) -> bool:
@@ -481,8 +527,12 @@ def _next_input(ctx: _ReplCtx) -> str:
                 item = input_queue.get(timeout=0.5)
                 if item is None:
                     raise EOFError
-            else:
-                # pump 活着但队列空:区分「正常等输入」与「病态卡死」
+            elif not _is_full_tui_session(ctx.session):
+                # pump 活着但队列空:区分「正常等输入」与「病态卡死」。
+                # 常驻全屏形态跳过失活探测（2026-09-16）:pump 阻塞在内部提交
+                # 队列（Condition 轮询，不碰 stdin），不可能楔死；而探测依赖
+                # 「心跳停滞 + stdin 可读」——用户合法发呆 8s 即被误判失活，
+                # 触发 stop() + 降级直读，直接与 PT 事件循环构成双读者。
                 _stall_check_t = _maybe_stall_escape(ctx, _idle_loops, _stall_check_t)
                 if _stall_check_t > 0:
                     _idle_loops += 1
@@ -813,23 +863,19 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     session: PromptSessionInterface = create_session(completer=_completer)
     ctx.session = session
 
-    # P2 全屏 TUI（Q4）：注入输出窗内容源（会话历史行）。全屏模式下
-    # pump 自动跳过（FullTuiSession 非 PromptToolkitSession 子类，避免
-    # 双读者：全屏 Application 自身独占 stdin）。输出源取 engine._messages
-    # 的用户/助手消息文本（无角色标签时用前缀区分）。
-    try:
-        from lingclaude.cli.full_tui import FullTuiSession
-
-        if isinstance(session, FullTuiSession):
-            session.install_output_source(_full_tui_output_source(engine))
-    except Exception:  # noqa: BLE001 — 输出源注入失败不影响全屏输入
-        pass
+    # P2 常驻全屏 TUI：输出源注入 + 会话级启动（stdout 代理接管，生成期
+    # 输入框常驻）。pump 启动条件放行 FullTuiSession（InputPump 调
+    # session.prompt() 阻塞在内部提交队列，stdin 唯一读者仍是 PT 事件循环，
+    # 无双读者；生成期 prompt 不消费 interrupt，Ctrl+C 打断归流循环）。
+    _is_full_tui_session_obj = isinstance(session, FullTuiSession)
+    if _is_full_tui_session_obj:
+        session.install_output_source(_full_tui_output_source(engine))
 
     # H17-TUI: 状态栏 + 挂起队列接线 — 设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md
     # 组件（status.py/input_queue.py/interface.py）此前已就绪但从未被接线。
     # 三件套在此构造；仅 TTY+plain 生效，json/jsonl/Fallback 自动降级。
-    from lingclaude.cli.input_queue import InputPump, InputQueue
-    from lingclaude.cli.status import StatusModel, toolbar_fragments
+    from lingclaude.cli.input_queue import InputPump
+    from lingclaude.cli.status import StatusModel
 
     status = StatusModel()
     ctx.status = status
@@ -856,19 +902,37 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     ctx.status_bar_active = False
     if get_output_format() == "plain":
         try:
-            session.install_bottom_toolbar(lambda: toolbar_fragments(status.snapshot()))
+            session.install_bottom_toolbar(
+                lambda: toolbar_fragments(_toolbar_snapshot(ctx))
+            )
             ctx.status_bar_active = not isinstance(session, FallbackSession)
         except Exception:  # noqa: BLE001 — 状态栏安装失败不阻塞交互
             ctx.status_bar_active = False
 
-        # H17-TUI: pump 会话级启动 — 唯一 stdin 读者（H17 架构：PT Application
-        # 并发运行 → AssertionError，2026-09-08 事故）。
+        # H17-TUI: pump 会话级启动 — PT 形态下唯一 stdin 读者（H17 架构：PT
+        # Application 并发运行 → AssertionError，2026-09-08 事故）。
+        # P2 常驻全屏：InputPump 调 session.prompt() 只等内部提交队列（不碰
+        # stdin），PT 事件循环仍唯一读 stdin —— 同样满足单读者，放行。
         if (
             ctx.status_bar_active
-            and isinstance(session, PromptToolkitSession)
             and sys.stdin.isatty()
+            and (
+                isinstance(session, PromptToolkitSession)
+                or _is_full_tui_session_obj
+            )
         ):
             ctx.pump_mode = True
+            if _is_full_tui_session_obj:
+                # 先启动常驻全屏（stdout 代理接管 → 状态栏/输出进窗），
+                # 再启动 pump（pump 线程阻塞在提交队列）。
+                session.start()
+                # 欢迎横幅打印在 start() 之前的主屏缓冲，alt-screen 下不可见
+                # —— 补写进输出窗（Ctrl+C 语义按全屏键位描述）。
+                session.append_output(
+                    f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，"
+                    "Ctrl+C 中断/清行）\n"
+                    f"Provider: {_provider_status(engine)}\n"
+                )
             ctx.input_pump.start()
 
     prompt = first_prompt or ""
@@ -877,20 +941,17 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             try:
                 prompt = _next_input(ctx).strip()
             except (EOFError, KeyboardInterrupt):
-                _drain_pending_notice(ctx)
-                print("\n再见！")
+                _bye(ctx, newline_first=True)
                 break
         if prompt.lower() in ("exit", "quit", "q"):
-            _drain_pending_notice(ctx)
-            print("再见！")
+            _bye(ctx)
             break
         if not prompt:
             continue
         # T1-7: 斜杠命令优先消费
         if ctx.processor.handle(prompt):
             if ctx.processor.quit_requested:
-                _drain_pending_notice(ctx)
-                print("再见！")
+                _bye(ctx)
                 break
             prompt = ""
             continue
@@ -898,8 +959,7 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
         if engine._provider:
             action = _run_stream_turn(ctx, prompt)
             if action == _TURN_QUIT:
-                _drain_pending_notice(ctx)
-                print("\n再见！")
+                _bye(ctx, newline_first=True)
                 break
         else:
             result = engine.submit(prompt)
@@ -915,8 +975,7 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
         # H17-TUI: 消费生成期挂起队列
         action = _consume_queue(ctx)
         if action == _TURN_QUIT:
-            _drain_pending_notice(ctx)
-            print("\n再见！")
+            _bye(ctx, newline_first=True)
             break
 
         _feed_behavior_to_daemon(engine, None)
@@ -934,8 +993,7 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             try:
                 prompt = _next_input(ctx).strip()
             except (EOFError, KeyboardInterrupt):
-                _drain_pending_notice(ctx)
-                print("\n再见！")
+                _bye(ctx, newline_first=True)
                 break
 
     _shutdown_pump(ctx)
