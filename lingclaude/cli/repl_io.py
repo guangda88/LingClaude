@@ -31,8 +31,16 @@ def get_output_format() -> str:
 
 
 def _esc_pressed() -> bool:
-    """T1-7: 非阻塞检测 Esc(0x1b) 按键。POSIX select + tty 原始模式，超时 0.05s。"""
+    """T1-7: 非阻塞检测 Esc(0x1b) 按键。POSIX select + tty 半原始模式，超时 0.05s。
+
+    2026-09-16 修复「[201~ 残留」: 此前读到 \\x1b 单字节即返回 True，
+    转义序列（方向键 \\x1b[A、粘贴包裹 \\x1b[200~..\\x1b[201~）的剩余字节
+    留在内核缓冲区，稍后被 prompt_toolkit/裸读回显成 "[201~" 等残骸。
+    现改为: \\x1b 后 20ms 静默（孤立 Esc）才判打断；多字节序列整体排空
+    消费，返回 False 不误触、不留残字节；非 ESC 杂散字节同样静默吞掉。
+    """
     try:
+        import os
         import select
         import termios
 
@@ -44,7 +52,7 @@ def _esc_pressed() -> bool:
             # 修复:此前 tty.setraw 会清除 OPOST(输出后处理),而本线程生成期间
             # 每 50ms 循环进出 raw 模式 → 流式输出大多落在 OPOST 关闭窗口,
             # 终端收到裸 LF 不回车 → "空格逐行累加"阶梯缩进。
-            # 只关 ICANON/ECHO(非阻塞读单字节所需),保留 OPOST/ISIG:
+            # 只关 ICANON/ECHO(非阻塞读所需),保留 OPOST/ISIG:
             # \n 仍被内核转 \r\n,Ctrl+C 中断语义不变。
             new = [list(x) if isinstance(x, list) else x for x in old]
             new[3] &= ~(termios.ICANON | termios.ECHO)  # lflag
@@ -52,11 +60,28 @@ def _esc_pressed() -> bool:
             new[6][termios.VTIME] = 0
             termios.tcsetattr(fd, termios.TCSANOW, new)
             readable, _, _ = select.select([fd], [], [], 0.05)
-            if readable:
-                import os
-
-                ch = os.read(fd, 1)
-                return ch == b"\x1b"
+            if not readable:
+                return False
+            first = os.read(fd, 1)
+            if not first:
+                return False
+            if first != b"\x1b":
+                return False  # 杂散字节静默吞掉(不回显),避免污染输入行
+            # \x1b 后 20ms 无跟随字节 → 孤立 Esc → 打断
+            r2, _, _ = select.select([fd], [], [], 0.02)
+            if not r2:
+                return True
+            # 转义序列（方向键/粘贴包裹等）:整体排空,不留残字节,不算打断。
+            # 粘贴正文可能分片到达,读到静默或已见结束标记为止。
+            for _ in range(256):  # 上限防异常输入流死循环
+                chunk = os.read(fd, 4096)
+                if not chunk:
+                    break
+                if bytes(chunk).endswith(b"\x1b[201~"):
+                    break
+                r2, _, _ = select.select([fd], [], [], 0.05)
+                if not r2:
+                    break
             return False
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)

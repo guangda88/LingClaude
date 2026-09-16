@@ -121,8 +121,18 @@ BASELINE_SYS_PATH = 14
                      # 2026-09-15 (Phase 3 灵族接入): 421 → 424 —— seams/multimodal_lingtong.py
                      # 3 个跨仓 src. 导入（lingtongask 可选依赖，fail-closed 必须函数内）
                      # + engine.mcp_client（S3 倒装例外），均为合法必需懒加载。
-BASELINE_LAZY = 424
-
+                     # 2026-09-16 (今日 5 提交逐项审计): 424 → 439 —— 均合法：
+                     # ① J4 归原语 +9: handover/meta_cognition/session/task_aggregation/
+                     #   layered_memory —— StateStore 按需倒装 + 导出视图 json 序列化
+                     #   （状态模块禁触介质纪律的必然形态）；
+                     # ② model 层 +3: openai_provider(proxy3 free/* 密钥扫描)、
+                     #   provider_registry(glm provider 注册)、task_router(proxy3 客户端)；
+                     # ③ core +2: permissions 循环导入修复(c9a30e7 兜底直调)、session(J4)；
+                     # ④ cli 净移: input_queue -1、repl_io -1、repl +3、interface 新文件 +4、
+                     #   render_facade +1 —— H17/TUI 输入泵修复 4 提交，streaming prompt
+                     #   非阻塞按需 import。全部 S3 纪律（循环规避/可选依赖/介质隔离），
+                     #   非膨胀，基线同步消除慢性告警。
+BASELINE_LAZY = 439
 
 def _py_files(root: Path):
     return [f for f in sorted(root.rglob("*.py")) if "__pycache__" not in f.parts]

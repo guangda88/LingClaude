@@ -288,16 +288,21 @@ class FallbackSession:
                         os.write(sys.stdout.fileno(), b"\x08 \x08")
                     continue
 
-                # 方向键序列：\\x1b[A (上) / \\x1b[B (下)
+                # 转义序列：\x1b[A (上) / \x1b[B (下)。其余（F键/Home/粘贴
+                # 包裹 \x1b[200~/\x1b[201~ 等）整体排空后忽略 —— 不回显、
+                # 不清空已输入内容、不留残字节（H18: 此前只补读 2 字节，
+                # \x1b[201~ 剩余字节被当文本回显；未知序列误清 buf）。
                 if ch == b"\x1b":
                     seq = bytearray(ch)
-                    for _ in range(2):
+                    while True:
                         r2, _, _ = select.select([fd], [], [], 0.05)
-                        if r2:
-                            b2 = os.read(fd, 1)
-                            seq.extend(b2)
-                            os.write(sys.stdout.fileno(), b2)
-                        else:
+                        if not r2:
+                            break
+                        b2 = os.read(fd, 4096)
+                        if not b2:
+                            break
+                        seq.extend(b2)
+                        if bytes(b2).endswith(b"\x1b[201~"):
                             break
                     full = bytes(seq)
                     if full == b"\x1b[A":  # 上
@@ -319,9 +324,7 @@ class FallbackSession:
                             line = ""
                         self._erase_and_show(fd, buf, line)
                         buf = bytearray(line.encode())
-                    else:
-                        self._erase_and_show(fd, buf, "")
-                        buf = bytearray()
+                    # 其他转义序列:整体消费,忽略(保留已输入 buf)
                     continue
 
                 # Ctrl+C

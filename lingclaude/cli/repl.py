@@ -275,13 +275,13 @@ def _read_input(ctx: _ReplCtx) -> str:
             # 清空缓冲区（最多 4KB）后重试一次 prompt，再失败才放弃。
             _drain_stdin_buffer()
             try:
-                return session.prompt(_status_prompt(ctx))
+                return ctx.session.prompt(_status_prompt(ctx))
             except UnicodeDecodeError:
                 print("[输入编码错误，请检查终端编码设置]")
                 return ""
     session = ctx.session
     try:
-        text = session.prompt(_status_prompt(ctx))
+        text = ctx.session.prompt(_status_prompt(ctx))
         # 审计#11 修复:prompt_toolkit 的 PromptSession 已自动写 FileHistory,
         # 这里再 push 一次导致 ~/.lingclaude/history 每条重复。
         # push_to_history 语义改为「仅兜底实现需要手动记」→ 见 interface.py。
@@ -292,7 +292,7 @@ def _read_input(ctx: _ReplCtx) -> str:
         # H17-输入泵修复:同上，清全部缓冲区后重试，再失败才放弃。
         _drain_stdin_buffer()
         try:
-            text = session.prompt(_status_prompt(ctx))
+            text = ctx.session.prompt(_status_prompt(ctx))
             if text.strip():
                 session.push_to_history(text)
             return text
@@ -445,6 +445,7 @@ def _next_input(ctx: _ReplCtx) -> str:
     # 失活探测游标（2026-09-12）:小于 0 表示未进入疑区
     _stall_check_t = -1.0
     _idle_loops = 0
+    _seen_degraded = False  # P1-Interrupt 残留修复:避免重复 stop() 自残
     while True:
         if input_pump.dead or not _pump_mode:
             # 失活/死亡降级为阻塞直读前，必须先 stop() 停掉 pump 线程
@@ -468,8 +469,9 @@ def _next_input(ctx: _ReplCtx) -> str:
             # ctx.fallback_read 让 _read_input 走裸 input() 隔离读。仅 pump 模式
             # （PT 后台线程）失活时需要隔离；非 pump 模式 session 本就是
             # FallbackSession/主线程独占，走正常 prompt()。仅首次降级前重置 tty。
-            if input_pump.dead:
+            if input_pump.dead and not _seen_degraded:
                 _reset_tty_now(ctx)
+                _seen_degraded = True
             ctx.fallback_read = bool(input_pump.dead and _pump_mode)
             return _read_input(ctx)
         item = input_queue.get(timeout=0.3)
@@ -590,6 +592,10 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
     _wd = StreamWatchdog()
     _wd.start()
     try:
+        # P0-Interrupt 残留修复（2026-09-16）: 失活重建路径 set 的 interrupt
+        # 本意是唤醒阻塞中的 PT prompt，降级裸 input() 后没人清它，永久残留
+        # → 每条输入进流循环即被判打断。此处清空确保流启动时状态干净。
+        session.interrupt_event().clear()
         # 2026-09-16（TUI 输入泵问题修复）: streaming 期间 prompt() 不阻塞，
         # pump 线程异步收集用户输入（方向键等），主线程不被 session.prompt()
         # 卡死，防止 pump 线程 + 主线程双阻塞导致假死。
