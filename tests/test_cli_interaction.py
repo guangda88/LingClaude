@@ -204,3 +204,85 @@ class TestDisplayComponents:
         assert "deepseek-v4-flash" in text
         assert "1234 tokens" in text
         assert "auto" in text
+
+
+class TestH17InputPumpFix:
+    """H17-输入泵修复:UnicodeDecodeError 不再只清一行导致无限循环。"""
+
+    def test_drain_stdin_buffer_does_not_raise_on_non_tty(self):
+        """非 TTY 下 _drain_stdin_buffer 静默跳过，不抛异常。"""
+        import os
+        from unittest.mock import patch
+
+        # 模拟非 TTY：isatty() -> False
+        with patch.object(os, "read", side_effect=OSError("should not be called")):
+            with patch("sys.stdin.isatty", return_value=False):
+                from lingclaude.cli.repl import _drain_stdin_buffer
+                # 不抛异常即通过
+                _drain_stdin_buffer()
+
+    def test_read_input_retries_after_drain(self, monkeypatch, capsys):
+        """UnicodeDecodeError 后清缓冲区再重试 prompt，不立即 return ''。"""
+        from lingclaude.cli import repl as _repl
+        from lingclaude.cli.interface import PromptSessionInterface
+
+        retry_count = [0]
+
+        class _FakeSession(PromptSessionInterface):
+            def prompt(self, *args, **kwargs):
+                retry_count[0] += 1
+                if retry_count[0] == 1:
+                    raise UnicodeDecodeError("utf-8", b"\x80", 0, 1, "invalid start byte")
+                return "user input after retry"
+
+            def push_to_history(self, text):
+                pass
+
+            def interrupt_event(self):
+                import threading
+                return threading.Event()
+
+        class _FakeCtx:
+            session = _FakeSession()
+            fallback_read = False
+
+        # Mock _status_prompt 和 _drain_stdin_buffer，避免 toolbar/TTY 依赖
+        monkeypatch.setattr(_repl, "_status_prompt", lambda ctx: "灵克> ")
+        monkeypatch.setattr(_repl, "_drain_stdin_buffer", lambda: None)
+
+        result = _repl._read_input(_FakeCtx())
+        assert result == "user input after retry"
+        assert retry_count[0] == 2, "UnicodeDecodeError 后应重试一次"
+
+    def test_read_input_gives_up_after_two_failures(self, monkeypatch, capsys):
+        """连续两次 UnicodeDecodeError 才打印错误并返回空字符串。"""
+        from lingclaude.cli import repl as _repl
+        from lingclaude.cli.interface import PromptSessionInterface
+
+        call_count = [0]
+
+        class _FakeSession(PromptSessionInterface):
+            def prompt(self, *args, **kwargs):
+                call_count[0] += 1
+                raise UnicodeDecodeError("utf-8", b"\x80", 0, 1, "invalid start byte")
+
+            def push_to_history(self, text):
+                pass
+
+            def interrupt_event(self):
+                import threading
+                return threading.Event()
+
+        class _FakeCtx:
+            session = _FakeSession()
+            fallback_read = False
+
+        monkeypatch.setattr(_repl, "_status_prompt", lambda ctx: "灵克> ")
+        monkeypatch.setattr(_repl, "_drain_stdin_buffer", lambda: None)
+
+        result = _repl._read_input(_FakeCtx())
+        assert result == ""
+        assert call_count[0] == 2, "应恰好重试一次后放弃"
+        captured = capsys.readouterr()  # 消费 "[输入编码错误，请检查终端编码设置]"
+        # 第二次失败才打印错误信息（第一次只清缓冲区不打印）
+        assert "输入编码错误" in captured.out or "输入编码错误" in captured.err

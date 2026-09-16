@@ -231,6 +231,28 @@ def _full_tui_output_source(engine: Any) -> Callable[[], list[str]]:
     return _source
 
 
+
+
+def _drain_stdin_buffer() -> None:
+    """H17-输入泵修复:清空 stdin 缓冲区（最多 4KB 兜底）。
+
+    multiline 模式下 Ctrl+C 等特殊序列跨多字节触发 UnicodeDecodeError，
+    只读一行不足以清空残留字节 → 同一条消息无限循环报错。
+    这里用非阻塞 read(4096) 一次性清空缓冲区（TTY 下 safe）。
+    """
+    try:
+        if sys.stdin.isatty():
+            import select
+
+            fd = sys.stdin.fileno()
+            while True:
+                r, _, _ = select.select([fd], [], [], 0.01)
+                if not r:
+                    break
+                os.read(fd, 4096)
+    except Exception:  # noqa: BLE001 — 非 TTY/无 termios 时静默跳过
+        pass
+
 def _read_input(ctx: _ReplCtx) -> str:
     # P1（2026-09-15 tty 行规程损坏事故）:失活降级时若复用同一个 PT session，
     # 其底层 asyncio Application 可能已损坏（pump 线程卡死/断言）→ 降级直读
@@ -248,9 +270,15 @@ def _read_input(ctx: _ReplCtx) -> str:
         except KeyboardInterrupt:
             return ""
         except UnicodeDecodeError:
-            sys.stdin.buffer.readline()
-            print("[输入编码错误，请检查终端编码设置]")
-            return ""
+            # H17-输入泵修复:multiline 模式下 Ctrl+C 等特殊序列跨多字节，
+            # 残留字节会触发循环报错导致用户无法继续输入。
+            # 清空缓冲区（最多 4KB）后重试一次 prompt，再失败才放弃。
+            _drain_stdin_buffer()
+            try:
+                return session.prompt(_status_prompt(ctx))
+            except UnicodeDecodeError:
+                print("[输入编码错误，请检查终端编码设置]")
+                return ""
     session = ctx.session
     try:
         text = session.prompt(_status_prompt(ctx))
@@ -261,9 +289,16 @@ def _read_input(ctx: _ReplCtx) -> str:
             session.push_to_history(text)
         return text
     except UnicodeDecodeError:
-        sys.stdin.buffer.readline()
-        print("[输入编码错误，请检查终端编码设置]")
-        return ""
+        # H17-输入泵修复:同上，清全部缓冲区后重试，再失败才放弃。
+        _drain_stdin_buffer()
+        try:
+            text = session.prompt(_status_prompt(ctx))
+            if text.strip():
+                session.push_to_history(text)
+            return text
+        except UnicodeDecodeError:
+            print("[输入编码错误，请检查终端编码设置]")
+            return ""
 
 
 def _drain_pending_notice(ctx: _ReplCtx) -> None:

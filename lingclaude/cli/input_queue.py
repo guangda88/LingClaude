@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import queue
+import sys
 import threading
 import time
 
@@ -144,13 +145,15 @@ class InputPump:
             except KeyboardInterrupt:
                 # Ctrl+C 清行语义：pump 独占 prompt() 后，空闲期 Ctrl+C 在本线程
                 # 触发。清行重绘提示符，不退出线程（退出走 EOF 哨兵/quit）。
+                # H17-输入泵修复:静默 continue 让 pump 线程被 Ctrl+C 中断时用户无感知，
+                # 主循环若在 pump 重启前下一轮又调用 stream，会产生"stream 无故跳过"的
+                # 假象。与主循环的 "[已打断]" 对齐，留痕不泄漏。
+                print("[已打断]", file=sys.stderr)
                 continue
             except Exception as e:
                 # prompt_toolkit 在极端终端下可能抛意外异常：标记死亡，
                 # 主循环 is_alive() 检查后降级阻塞输入。死因必须留痕
                 # （2026-09-09 静默死亡 → 挂起队列 6 条未消费，无从诊断）。
-                import sys
-
                 self.death_reason = f"{type(e).__name__}: {e}"
                 print(f"[输入泵异常退出] {self.death_reason}", file=sys.stderr)
                 self.dead = True
