@@ -132,7 +132,10 @@ BASELINE_SYS_PATH = 14
                      #   render_facade +1 —— H17/TUI 输入泵修复 4 提交，streaming prompt
                      #   非阻塞按需 import。全部 S3 纪律（循环规避/可选依赖/介质隔离），
                      #   非膨胀，基线同步消除慢性告警。
-BASELINE_LAZY = 439
+                     # 2026-09-16 (G3 收紧): 439 → 437 —— repl_io._esc_pressed 内
+                     #   os/select/termios 属标准库无需懒加载（cbbcfaa 修复带入的
+                     #   import os 纯计数污染），上提模块级。只缩不放纪律。
+BASELINE_LAZY = 437
 
 def _py_files(root: Path):
     return [f for f in sorted(root.rglob("*.py")) if "__pycache__" not in f.parts]

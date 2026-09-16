@@ -4,8 +4,11 @@
 """
 
 import json
+import os
+import select
 import shutil
 import sys
+import termios
 import threading
 from typing import TYPE_CHECKING, Any
 
@@ -40,10 +43,6 @@ def _esc_pressed() -> bool:
     消费，返回 False 不误触、不留残字节；非 ESC 杂散字节同样静默吞掉。
     """
     try:
-        import os
-        import select
-        import termios
-
         if not sys.stdin.isatty():
             return False
         fd = sys.stdin.fileno()
