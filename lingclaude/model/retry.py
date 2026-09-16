@@ -273,6 +273,31 @@ def is_rate_limit_error(error_text: str) -> bool:
     return any(m in lower for m in markers)
 
 
+def is_hard_quota_error(error_text: str) -> bool:
+    """硬性配额耗尽（GLM 1308 5 小时限额等）：重试/退避无意义，必须换 provider。
+
+    2026-09-16 事故：GLM 套餐 5h 限额触顶（code 1308，含重置时间戳），
+    is_rate_limit_error 误判为普通限流 → 3 轮退避重试全空烧 60s + 降级到
+    glm-5.1 同账号仍 429 → 连续成功阈值触发"自动切回主模型"再次撞墙。
+    硬配额特征：错误体含配额耗尽语义 + 明确重置时间。命中即让上层跳过
+    重试循环直接失败/切 provider。
+    """
+    lower = error_text.lower()
+    hard_markers = [
+        "1308",  # GLM: 已达到 5 小时的使用上限
+        "使用上限",
+        "usage limit",
+        "quota exceeded",
+        "billing_hard_limit",
+        "套餐限额",
+        "5 小时的使用上限",
+    ]
+    if any(m in lower for m in hard_markers):
+        return True
+    # "已达到" + "上限" + "重置" 组合形态（防 code 变化）
+    return ("已达到" in error_text and "上限" in error_text and "重置" in error_text)
+
+
 def handle_429(policy: GlmRetryPolicy, attempt: int) -> str | None:
     policy.record_failure(is_rate_limit=True)
     if policy.circuit_open:

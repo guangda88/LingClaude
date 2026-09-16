@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from lingclaude.core.types import Result
 from lingclaude.model.retry import (
     GlmRetryPolicy,
+    is_hard_quota_error,
     is_rate_limit_error,
 )
 from lingclaude.model.types import (
@@ -184,6 +185,13 @@ class OpenAIProvider(ModelProvider):
 
             if not got_429:
                 self._retry_policy.record_success(actual_model=retry_cfg.model)
+                return
+
+            # 2026-09-16: 硬性配额耗尽（GLM 1308 5h 限额等）——退避重试无意义
+            # （重置时间在小时级），直接终止让上层切 provider，不再空烧 60s。
+            if is_hard_quota_error(error_text):
+                logger.warning("硬配额耗尽，跳过退避重试直接失败: %s", error_text[:120])
+                yield {"type": "error", "error": f"硬配额耗尽（需等待重置或切换 provider）: {error_text}"}
                 return
 
             if attempt < max_retries:
