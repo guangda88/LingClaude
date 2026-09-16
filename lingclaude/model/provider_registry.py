@@ -149,6 +149,29 @@ def _register_builtins() -> None:
     except ImportError:  # pragma: no cover
         logger.warning("ProviderRegistry: anthropic_provider 导入失败，跳过注册")
 
+    # glm: 复用 OpenAIProvider 类 + 智谱 Coding 套餐端点（与 task_router
+    # _KNOWN_PROVIDER_DEFAULTS["glm"] 同源，2026-09-15 实测套餐 key 走
+    # /api/paas/v4 报 1211 模型不存在，须走 /api/coding/paas/v4）。
+    # key 单点存 ~/.ling_keys.env 的 ZHIPU_API_KEY（factory 回退链会接管）。
+    try:
+        from lingclaude.model.openai_provider import OpenAIProvider as _GlmOpenAIProvider
+
+        def _glm_factory(config: ModelConfig) -> ModelProvider:
+            if not config.base_url:
+                config = ModelConfig(
+                    model=config.model,
+                    api_key=config.api_key,
+                    base_url="https://open.bigmodel.cn/api/coding/paas/v4",
+                    max_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    system_prompt=config.system_prompt,
+                )
+            return _GlmOpenAIProvider(config)
+
+        ProviderRegistry.register("glm", _GlmOpenAIProvider, factory=_glm_factory)
+    except ImportError:  # pragma: no cover
+        logger.warning("ProviderRegistry: glm provider 注册失败（openai_provider 不可用）")
+
     # local: 签名不同（model_path），用构造器适配
     try:
         from lingclaude.model.local_provider import LocalModelProvider

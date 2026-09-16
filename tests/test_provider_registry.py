@@ -85,3 +85,35 @@ def test_detect_provider_default_openai():
     r = create_provider(_cfg("gpt-4o", "https://api.openai.com/v1"))
     assert r.is_ok
     assert type(r.data).__name__ == "OpenAIProvider"
+
+
+def test_glm_provider_registered_and_created():
+    """启动默认 glm-5.3-flash@glm: glm provider 必须在注册表且可创建。
+
+    J 任务: glm-5.3-flash@glm 为启动时默认值 — provider 'glm' 复用
+    OpenAIProvider + 智谱 Coding 套餐端点（与 task_router 同源）。
+    """
+    assert "glm" in ProviderRegistry.registered_names()
+
+    r = create_provider(_cfg("glm-5.3-flash", ""), provider_name="glm")
+    assert r.is_ok
+    assert type(r.data).__name__ == "OpenAIProvider"
+    # 未显式 base_url 时，glm 工厂补齐智谱 Coding 端点
+    coding_url = "https://open.bigmodel.cn/api/coding/paas/v4"
+    assert r.data._config.base_url == coding_url
+
+
+def test_glm_provider_respects_explicit_base_url():
+    """显式传入 base_url 时，glm 工厂不覆盖（透传自定义端点）。"""
+    r = create_provider(_cfg("glm-5.3-flash", "https://custom.example.com/v1"), provider_name="glm")
+    assert r.is_ok
+    assert r.data._config.base_url == "https://custom.example.com/v1"
+
+
+def test_glm_provider_keeps_model_and_key():
+    """glm provider 透传 model 与 api_key，不吞字段。"""
+    coding_url = "https://open.bigmodel.cn/api/coding/paas/v4"
+    r = create_provider(_cfg("glm-5.3-flash", coding_url), provider_name="glm")
+    assert r.is_ok
+    assert r.data._config.model == "glm-5.3-flash"
+    assert r.data._config.api_key == "test-key"
