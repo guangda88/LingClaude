@@ -145,6 +145,14 @@ class QueryEngineTurnMixin:
             self._conversation.append(("assistant", final_content))
             self._layered_memory.working.append("user", prompt)
             self._layered_memory.working.append("assistant", final_content)
+            # H20 (2026-09-16): _messages 镜像在此统一写入 — 此前只有非流式
+            # submit 在 submission.py 显式 append(str)，stream_call_model 从不写，
+            # 流式会话中 _messages 恒空 → 状态栏上下文恒 0%、turn_count 恒 0、
+            # 压缩 message_count 触发门禁失效。canonical 源是 _conversation
+            # （_build_messages:84 从它构建请求），镜像内容与其对齐（原文）；
+            # 非流式 submit 的显式 append 已同步删除，防双写。
+            self._messages.append(prompt)
+            self._messages.append(final_content)
 
             # 幻觉治理守卫：输出前强制验证（fail-soft，不阻断主流程）
             # T9 (2026-09-14): should_validate 传真实任务名（prompt）而非空串，

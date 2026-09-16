@@ -100,6 +100,7 @@ class SubmissionMixin:
         # T1-1: turn 内触发 — 模型请求前预检预算，超预算先压缩再请求（原仅 turn 后触发）
         self._pre_check_compact()
 
+        n_msgs_before = len(self._messages)
         output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
 
         projected = self._usage.add_turn(prompt, output)
@@ -118,8 +119,12 @@ class SubmissionMixin:
         self._cognitive_rhythm.record_action(content=output)
         rhythm = self._cognitive_rhythm.diagnose()
 
-        self._messages.append(prompt)
-        self._messages.append(output)
+        # H20: 正常轮的 _messages 镜像由 _finalize_turn 写入（与流式统一）。
+        # 失败/硬中断轮不走 _finalize_turn，但旧语义（test_provider_error_returns_gracefully
+        # 钉住）是失败轮也计一条 turn —— 此处兜底补记，保持失败轮可见性。
+        if len(self._messages) == n_msgs_before:
+            self._messages.append(prompt)
+            self._messages.append(output)
         self._transcript.append(output)
         self._denials.extend(denied_tools)
         # R2: 逐条记录 denial 到 flywheel + journal
@@ -417,8 +422,6 @@ class SubmissionMixin:
                 final_content = self._finalize_turn(
                     prompt, response.content, used_tools, total_input, total_output, resolved_config,
                 )
-                self._messages.append(prompt)
-                self._messages.append(final_content)
                 self._transcript.append(final_content)
                 self._clear_checkpoint()
                 journal.clear()
@@ -437,8 +440,6 @@ class SubmissionMixin:
         final_content = self._finalize_turn(
             prompt, content, used_tools, total_input, total_output, resolved_config,
         )
-        self._messages.append(prompt)
-        self._messages.append(final_content)
         self._transcript.append(final_content)
         self._clear_checkpoint()
         journal.clear()

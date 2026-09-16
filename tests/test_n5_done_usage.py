@@ -237,3 +237,44 @@ class TestNoneUsageRobustness:
         assert cli_extract({"type": "done", "content": "x"}) == 0
         assert cli_extract({"type": "done", "content": "x",
                             "usage": {"output_tokens": 42}}) == 42
+
+
+class TestMessagesMirrorH20:
+    """H20 (2026-09-16): _messages 镜像写入收口进 _finalize_turn。
+
+    病灶：stream_call_model 从不写 _messages（只有非流式 submit 在
+    submission.py 显式 append），流式会话中 _messages 恒空 →
+    状态栏上下文恒 0%、turn_count 恒 0、压缩 message_count 门禁失效。
+    修复：_finalize_turn 统一 append，非流式显式 append 删除防双写。
+    """
+
+    def test_stream_turn_populates_messages_mirror(self) -> None:
+        engine = _make_engine(_UsageStreamProvider())
+        assert engine._messages == []
+        list(engine.stream_call_model("问题"))
+        assert len(engine._messages) == 2
+        assert engine._messages[0] == "问题"
+        assert "回答正文" in engine._messages[1]
+        assert engine.turn_count == 1
+
+    def test_stream_ctx_estimate_nonzero(self) -> None:
+        """状态栏 0% 的直接病灶：流式后 _estimate_message_tokens > 0。"""
+        from lingclaude.core.tool_executor import _estimate_message_tokens
+
+        engine = _make_engine(_UsageStreamProvider())
+        list(engine.stream_call_model("问题"))
+        assert _estimate_message_tokens(engine._messages) > 0
+
+    def test_stream_two_turns_accumulate(self) -> None:
+        engine = _make_engine(_UsageStreamProvider())
+        list(engine.stream_call_model("第一问"))
+        list(engine.stream_call_model("第二问"))
+        assert engine.turn_count == 2
+
+    def test_nonstream_no_double_write(self) -> None:
+        """非流式 submit 的显式 append 已删，镜像只写一次。"""
+        provider = _UsageStreamProvider()
+        engine = _make_engine(provider)
+        engine.submit("非流式问题")
+        assert len(engine._messages) == 2
+        assert engine.turn_count == 1
