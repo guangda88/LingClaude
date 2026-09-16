@@ -71,11 +71,50 @@ class PromptToolkitSession:
         history_path = Path(history_file).expanduser()
         history_path.parent.mkdir(parents=True, exist_ok=True)
         self._history = FileHistory(str(history_path))
+        # 2026-09-16（长文截断修复）:multiline=True — 单行模式粘贴长文/多行文本
+        # 时 prompt_toolkit 只保留第一行、其余行被当作 Enter 提交丢弃（「长文字
+        # 被截断吞没」）。多行模式下 Enter 重绑为提交、Shift+Enter 换行（见下方
+        # _build_key_bindings），保持 CLI「敲 Enter 提交」习惯不变。
         self._session = _PTSession(
             history=self._history,
             completer=completer,
+            multiline=True,
+            key_bindings=self._build_key_bindings(),
         )
         self._interrupt = threading.Event()
+
+    @staticmethod
+    def _build_key_bindings() -> Any:
+        """多行模式键位：Enter（无修饰）提交、Esc+Enter 换行。
+
+        2026-09-16（长文截断修复）:multiline=True 后 prompt_toolkit 默认
+        Enter 是换行、Meta+Enter 才提交 —— 不符合 CLI 习惯。按官方配方重绑：
+        - Enter       → 提交（validate_and_handle）
+        - Esc + Enter → 插入换行（粘贴长文/显式多行时用）
+        单缓冲 PromptSession 无需 HasFocus 过滤；自动补全未展开时 Enter 仍
+        先收下补全选择。
+        """
+        try:
+            from prompt_toolkit.key_binding import KeyBindings
+        except Exception:  # noqa: BLE001 — PT 版本差异时静默回退默认键位
+            return None
+
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        def _submit(event: Any) -> None:
+            buffer = event.app.current_buffer
+            if buffer.complete_state is not None:
+                # 自动补全下拉未关闭：Enter 先确认补全候选，不提交整行
+                event.app.current_buffer.complete_state = None
+                return
+            buffer.validate_and_handle()
+
+        @kb.add("escape", "enter")
+        def _newline(event: Any) -> None:
+            event.app.current_buffer.insert_text("\n")
+
+        return kb
 
     def prompt(self, message: str = "") -> str:
         self._interrupt.clear()

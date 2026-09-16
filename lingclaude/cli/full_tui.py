@@ -80,7 +80,11 @@ class FullTuiSession:
         )
         self._input_area = TextArea(
             text="",
-            multiline=False,
+            # 2026-09-16（长文截断修复）:multiline=True — 单行模式粘贴长文/多行
+            # 文本时 prompt_toolkit 只保留第一行、其余被当 Enter 提交丢弃。多行
+            # 模式下 Enter 重绑为提交（_kb 里 "enter" 键绑定调 _on_accept），
+            # Esc+Enter 换行，保持「敲 Enter 提交」习惯不变。
+            multiline=True,
             completer=self._completer,
             history=self._history,
             accept_handler=self._on_accept,
@@ -94,6 +98,21 @@ class FullTuiSession:
 
         # 键绑定：Ctrl+C 清行/中断，Ctrl+D 空行退出，Esc 让位输入框编辑
         self._kb = KeyBindings()
+
+        # 2026-09-16（长文截断修复）:multiline=True 后 Enter 默认换行、不提交。
+        # 重绑 Enter 为提交（复用 _on_accept），Esc+Enter 换行 —— 保持 CLI
+        # 「敲 Enter 提交」习惯，同时支持多行输入不截断。
+        @self._kb.add("enter")
+        def _on_enter(event: Any) -> None:
+            buf = event.app.layout.current_buffer
+            if buf is not None:
+                self._on_accept(buf)
+
+        @self._kb.add("escape", "enter")
+        def _on_newline(event: Any) -> None:
+            buf = event.app.layout.current_buffer
+            if buf is not None:
+                buf.insert_text("\n")
 
         @self._kb.add("c-c")
         def _on_ctrl_c(event: Any) -> None:

@@ -154,6 +154,29 @@ class TestPromptToolkitSession:
         sess = PromptToolkitSession(completer=c)
         assert sess._session.completer is not None
 
+    def test_multiline_enabled_no_truncation(self):
+        """长文截断修复（2026-09-16）：多行模式开启，粘贴长文不被截断。
+
+        回归锁定：multiline=True 是「长文字被截断吞没」（单行模式只保留
+        第一行、其余当 Enter 提交丢弃）的根治配置。断言 session 的
+        multiline 为真，且 Enter 提交 / Esc+Enter 换行绑定已注入。
+        """
+        import lingclaude.cli.interface as iface
+
+        if not iface._HAS_PROMPT_TOOLKIT:
+            pytest.skip("prompt_toolkit 未安装")
+
+        sess = PromptToolkitSession(history_file="/tmp/lingclaude_pt_multiline_test.json")
+        assert getattr(sess._session, "multiline", False) is True
+
+        kb = sess._session.key_bindings
+        assert kb is not None
+        keys_desc = [str(k) for k in {b.keys: b.handler for b in kb.bindings}.keys()]
+        assert any("ControlM" in k for k in keys_desc), "Enter 提交绑定缺失"
+        assert any(
+            "Escape" in k and "ControlM" in k for k in keys_desc
+        ), "Esc+Enter 换行绑定缺失"
+
 
 class TestDisplayComponents:
     def test_print_markdown_exists(self):

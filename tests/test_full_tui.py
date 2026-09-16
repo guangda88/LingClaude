@@ -40,6 +40,27 @@ class TestFullTuiSession:
         assert s._history is not None  # noqa: SLF001
         assert isinstance(s.interrupt_event().is_set(), bool)
 
+    def test_input_multiline_no_truncation(self, _pt_available: None, tmp_path: Path) -> None:
+        """长文截断修复（2026-09-16）：全屏输入框多行模式开启。
+
+        回归锁定：FullTuiSession 输入框 multiline=True（粘贴长文不被
+        截断成第一行），且 Enter 提交 / Esc+Enter 换行 / Ctrl+C / Ctrl+D
+        键位全部保留。
+        """
+        s = FullTuiSession(history_file=str(tmp_path / "h"))
+        # 输入框 buffer 的 multiline filter 求值为 True
+        ml = s._input_area.buffer.multiline  # noqa: SLF001
+        assert (ml() if callable(ml) else bool(ml)) is True
+
+        kb = s._kb  # noqa: SLF001
+        keys_desc = [str(k) for k in {b.keys: b.handler for b in kb.bindings}.keys()]
+        assert any("ControlM" in k for k in keys_desc), "Enter 提交绑定缺失"
+        assert any(
+            "Escape" in k and "ControlM" in k for k in keys_desc
+        ), "Esc+Enter 换行绑定缺失"
+        assert any("c-c" in k or "ControlC" in k for k in keys_desc), "Ctrl+C 缺失"
+        assert any("c-d" in k or "ControlD" in k for k in keys_desc), "Ctrl+D 缺失"
+
     def test_output_source_injection_and_truncation(
         self, _pt_available: None, tmp_path: Path
     ) -> None:
