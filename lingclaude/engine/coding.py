@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -224,10 +225,33 @@ class CodingRuntime(
             prompt += "请输入选项编号（多个用逗号分隔）："
 
         print(prompt, flush=True)
+        stdin = sys.stdin
+        try:
+            is_tty = bool(stdin and stdin.isatty())
+        except (ValueError, OSError):
+            is_tty = False
+
+        if not is_tty:
+            # P0-3b: 非交互上下文（LACP remote / CI / 管道）下 stdin 阻塞 =
+            # 整条 agent loop 卡死。立即返回 pending，把 prompt 原样带回，
+            # 由上层决定转交前端或放弃，绝不 input() 挂起。
+            return {
+                "ok": False,
+                "pending": True,
+                "answer": None,
+                "prompt": prompt,
+                "error": "stdin not a tty; interactive input unavailable",
+            }
+
         try:
             answer = input().strip()
         except (EOFError, KeyboardInterrupt):
-            return {"ok": False, "error": "input cancelled", "answer": None}
+            return {
+                "ok": False,
+                "pending": False,
+                "answer": None,
+                "error": "input cancelled",
+            }
 
         # 解析选项编号
         selected: str | list[str] = answer
