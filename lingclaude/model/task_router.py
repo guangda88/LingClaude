@@ -189,14 +189,6 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "Qwen/Qwen2.5-72B-Instruct",
         "models": ["Qwen/Qwen2.5-72B-Instruct", "deepseek-ai/DeepSeek-V3"],
     },
-    "siliconflow_disabled": {
-        # 同源 defaults,标记为 disabled 跳过路由池(账号欠费 / 临时下架)
-        "type": "openai",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "model": "deepseek-ai/DeepSeek-V4-Flash",
-        "models": ["deepseek-ai/DeepSeek-V4-Flash"],
-        "enabled": False,
-    },
     "dashscope": {
         "type": "openai",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
