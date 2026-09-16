@@ -78,7 +78,7 @@ class QueryEngineTurnMixin:
 
         def _build_messages(self, prompt: str) -> list:
             messages: list[ModelMessage] = []
-            system_prompt = self._build_adaptive_system_prompt()
+            system_prompt = self._build_adaptive_system_prompt(current_query=prompt)
             if system_prompt:
                 messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
             for role, content in self._conversation:

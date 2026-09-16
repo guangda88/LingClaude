@@ -68,6 +68,54 @@ def _complexity_keywords(level: str) -> list[str]:
     return builtin.get(level, [])
 
 
+# R9 (2026-09-16): 长任务首 turn 拆解信号。
+# 动机：R8 提示只在会话烧了 N 次工具调用后才注入(事后补救), 首 turn 明知是大任务
+# 却先硬扛。此判定让"第 0 次工具调用就知道该拆"。
+# 动作词表复用 router_keywords.task_keywords(与任务分类同源, 策略热更生效),
+# 不新增第二份词表——改动词只改 YAML。
+_R9_MIN_LEN = 200
+_R9_MIN_VERBS = 2
+_BUILTIN_TASK_KEYS = (
+    "code_generation", "code_analysis", "code_refactoring", "debugging",
+    "documentation", "search", "analysis", "optimization", "testing",
+)
+
+
+def _action_verbs() -> list[str]:
+    """聚合 task_keywords 全部关键词为动作词表；策略缺失回退内置默认。"""
+    verbs: list[str] = []
+    try:
+        mapping = _load_policy().get("task_keywords", {})
+        if isinstance(mapping, dict) and mapping:
+            for lst in mapping.values():
+                if isinstance(lst, list):
+                    verbs.extend(str(v) for v in lst)
+    except Exception:  # noqa: BLE001
+        pass
+    if not verbs:
+        for key in _BUILTIN_TASK_KEYS:
+            verbs.extend(_task_keywords(key))
+    return sorted(set(verbs))
+
+
+def is_decomposition_candidate(query: str) -> bool:
+    """R9: 判断 query 是否为"长任务拆解候选"（首 turn 提示用, 不强制）。
+
+    判据: 长度 > 200 字符 且 命中动作词 >= 2（与外部建议对齐, 与
+    _evaluate_complexity 的长度分档同源）。动作词表来自
+    router_keywords.task_keywords（策略热更），含少量名词性关键词,
+    判定偏宽——误报代价仅是多注入一条建议提示, 漏报则浪费整段 token。
+
+    Returns:
+        True = 建议上层注入"先拆解"提示。
+    """
+    if not query or len(query) <= _R9_MIN_LEN:
+        return False
+    q = query.lower()
+    hits = sum(1 for v in _action_verbs() if v and v.lower() in q)
+    return hits >= _R9_MIN_VERBS
+
+
 class TaskType(Enum):
     """任务类型"""
     CODE_GENERATION = auto()

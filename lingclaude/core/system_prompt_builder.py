@@ -99,6 +99,7 @@ def build_adaptive_system_prompt(
     dementia_detector: Any,
     project_index: dict[str, Any] | None,
     tool_call_count: int = 0,  # R8: 用于触发 sub_agent 推荐提示
+    current_query: str = "",  # R9: 当前 turn 的用户 query，用于首 turn 拆解判定
 ) -> str:
     """Build the adaptive system prompt.
 
@@ -114,6 +115,7 @@ def build_adaptive_system_prompt(
         dementia_detector: DementiaDetector instance (diagnose).
         project_index: Project file index dict or None.
         tool_call_count: R8：当前会话已执行的工具调用总数;超过阈值时注入 sub_agent 推荐。
+        current_query: R9：当前 turn 的用户输入原文；命中长任务判据时首 turn 即注入拆解建议。
 
     Returns:
         Complete system prompt string.
@@ -207,9 +209,11 @@ def build_adaptive_system_prompt(
         logger.warning("knowledge base close failed: %s", e)
 
     try:
-        current_query = messages[-1] if messages else ""
+        # R9 修复(2026-09-16): 局部变量改用 _last_msg, 不得遮蔽函数参数 current_query
+        # （原先 current_query = messages[-1] 会把 R9 判定入参覆盖为 messages 尾元素）
+        _last_msg = messages[-1] if messages else ""
         experience_text = layered_memory.build_context_injection(
-            current_query=current_query,
+            current_query=_last_msg,
         )
         if experience_text and len(experience_text) > 50:
             extras.append("\n\n" + experience_text)
@@ -239,6 +243,25 @@ def build_adaptive_system_prompt(
             )
     except Exception:  # noqa: BLE001 — 提示注入失败不影响主 prompt
         pass
+
+    # R9 (2026-09-16): 长任务首 turn 拆解信号 —— R8 的前置补位。
+    # R8 在 tool_call_count >= threshold 时才提示(事后补救); R9 在第 0 次工具调用
+    # 时就依据 query 特征(长度+动作词, intelligent_router.is_decomposition_candidate)
+    # 提前建议拆解。软引导不强制, 与 R8 同一调用面(sub_agent), 不引入新执行机制。
+    if current_query:
+        try:
+            from lingclaude.model.intelligent_router import is_decomposition_candidate
+
+            if is_decomposition_candidate(current_query):
+                extras.append(
+                    "\n\n💡 R9 提示:当前任务较长且含多个操作目标。"
+                    "**建议先做计划拆解(3-7 个子任务)**, 明确各子任务的验收标准, "
+                    "再按序执行; 其中探索/搜索/审查类工作优先拆给 sub_agent:"
+                    "\n  sub_agent(task=\"<具体子目标>\", max_rounds=10, provider=\"inprocess\")"
+                    "\n 拆解是建议而非强制——若任务实际很短, 直接完成即可。"
+                )
+        except Exception:  # noqa: BLE001 — 提示注入失败不影响主 prompt
+            logger.warning("R9 提示注入失败", exc_info=True)
 
     if project_index:
         pkg_summary = "\n".join(

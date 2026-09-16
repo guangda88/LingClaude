@@ -23,7 +23,8 @@ from lingclaude.core.degradation_detector import DegradationAlert, DegradationDe
 from lingclaude.core.meta_cognition import MetaCognition, Domain
 from lingclaude.core.layered_memory import LayeredMemory, Experience, EmotionIntensity
 from lingclaude.core.context_cache import ContextCache
-from lingclaude.core.task_aggregation import TaskAggregator
+# R9 清理(2026-09-16): 删除死 import TaskAggregator —— 从未实例化,
+# 实际写入方在 tool_executor.py:416 (engine._aggregator), 本模块零消费。
 from lingclaude.core.token_monitor import TokenMonitor
 from lingclaude.core.dementia_detector import DementiaDetector
 from lingclaude.core.data_flywheel import DataFlywheel

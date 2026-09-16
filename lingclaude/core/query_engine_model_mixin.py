@@ -167,8 +167,11 @@ class QueryEngineModelMixin:
         def _resolve_model_config(self, prompt: str) -> tuple[ModelConfig | None, Any]:
             return self._tool_executor._resolve_model_config(prompt)
 
-        def _build_adaptive_system_prompt(self) -> str:
+        def _build_adaptive_system_prompt(self, current_query: str = "") -> str:
             from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+            # R9: current_query 必须由 _build_messages(prompt) 显式传入 ——
+            # 此处 _conversation 里还没有本轮 prompt（turn 结束才 append,
+            # query_engine_turn_mixin.py:144）, 倒序扫会拿到上一轮旧 query。
             return build_adaptive_system_prompt(
                 behavior=self._behavior,
                 layered_memory=self._layered_memory,
@@ -178,4 +181,5 @@ class QueryEngineModelMixin:
                 dementia_detector=self._dementia_detector,
                 project_index=self._project_index,
                 tool_call_count=self._tool_call_count,  # R8: 触发 sub_agent 推荐提示
+                current_query=current_query,  # R9: 首 turn 拆解判定
             )

@@ -289,7 +289,8 @@ class ModelCallMixin:
 
 
     def _call_model(self, prompt: str) -> str:
-        decision = self._router.route(prompt)
+        # R9 清理(2026-09-16): 原此处有 decision = self._router.route(prompt),
+        # 结果在下一行就被 _resolve_model_config 的返回值覆盖, 纯死计算, 删除。
         messages = self._build_messages(prompt)
         tools = self._build_openai_tools(query=prompt)
         resolved_config, decision = self._resolve_model_config(prompt)
