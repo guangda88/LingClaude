@@ -8,6 +8,11 @@ logger = logging.getLogger(__name__)
 # plan 模式下的退出通道：plan_mode 工具自身始终可见（否则模型无法退出）。
 PLAN_MODE_EXIT_TOOL = "plan_mode"
 
+# plan 模式下额外显式封禁的工具：security_scope 虽标 read，但语义不属于
+# 只读探索。request_user_input 在 plan 中提问会打断规划流；非 TTY 上下文
+# （LACP remote/CI）下更会以 pending 空转（b68feb5 防卡死修复的配套收口）。
+PLAN_MODE_DENY_TOOLS: frozenset[str] = frozenset({"request_user_input"})
+
 
 class PlanMode:
     """Plan mode — 只读探索，封禁一切写/执行工具。
@@ -36,9 +41,11 @@ class PlanMode:
         return {"status": "inactive"}
 
     def allows(self, tool_name: str, security_scope: str = "read") -> bool:
-        """plan 模式下是否放行该工具：仅读域工具 + plan_mode 自身。"""
+        """plan 模式下是否放行该工具：读域工具 + plan_mode 自身，显式清单除外。"""
         if not self._active:
             return True
+        if tool_name in PLAN_MODE_DENY_TOOLS:
+            return False
         return tool_name == PLAN_MODE_EXIT_TOOL or security_scope == "read"
 
     def filter_tools(self, tools: list[Any]) -> list[Any]:
@@ -57,5 +64,8 @@ class PlanMode:
         return [
             t for t in tools
             if _field(t, "name", "") == PLAN_MODE_EXIT_TOOL
-            or _field(t, "security_scope", "read") == "read"
+            or (
+                _field(t, "name", "") not in PLAN_MODE_DENY_TOOLS
+                and _field(t, "security_scope", "read") == "read"
+            )
         ]
