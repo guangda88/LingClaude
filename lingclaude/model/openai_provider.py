@@ -8,6 +8,7 @@ import time
 import os
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from typing import Any, Generator
 from urllib.parse import urlparse
 
@@ -195,7 +196,10 @@ class OpenAIProvider(ModelProvider):
                 return
 
             if attempt < max_retries:
-                self._retry_policy.record_failure()
+                # is_rate_limit=True: 连续 429 必须累积熔断计数（默认 False
+                # 会清零 _circuit_consecutive_429，导致熔断器永不开启——
+                # 1308 事故中连续 429 未熔断即此因）。
+                self._retry_policy.record_failure(is_rate_limit=True)
                 backoff = self._retry_policy.get_backoff(attempt + 1)
                 logger.warning(
                     "流式 429 限流 (attempt %d/%d)，%s 退避 %.1fs",
@@ -385,8 +389,17 @@ class OpenAIProvider(ModelProvider):
 
             error = result.error or ""
             if is_rate_limit_error(error):
+                # 2026-09-16: 硬配额耗尽与流式路径同语义（见 stream_complete
+                # 429 分支）——GLM 1308 5h 限额退避重试无意义，直接失败让
+                # 上层切 provider，不再空烧 60s。
+                if is_hard_quota_error(error):
+                    logger.warning("硬配额耗尽，跳过退避重试直接失败: %s", error[:120])
+                    return Result.fail(f"硬配额耗尽（需等待重置或切换 provider）: {error}")
+
                 if attempt < max_retries:
-                    self._retry_policy.record_failure()
+                    # is_rate_limit=True: 连续 429 必须累积熔断计数（默认 False
+                    # 会清零 _circuit_consecutive_429，导致熔断器永不开启）。
+                    self._retry_policy.record_failure(is_rate_limit=True)
                     backoff = self._retry_policy.get_backoff(attempt + 1)
                     logger.warning(
                         "429 限流 (attempt %d/%d)，%s 退避 %.1fs",
@@ -413,7 +426,6 @@ class OpenAIProvider(ModelProvider):
         target_model = self._retry_policy.current_model
         is_glm = any(m in cfg.model for m in ("glm-", "GLM-"))
         if is_glm and target_model != cfg.model:
-            from dataclasses import replace
             return replace(cfg, model=target_model)
         return cfg
 
