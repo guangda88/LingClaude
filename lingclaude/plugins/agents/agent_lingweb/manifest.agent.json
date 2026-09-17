@@ -1,0 +1,35 @@
+{
+  "name": "agent/lingweb",
+  "target": "lingweb-carrier",
+  "display_name": "灵网",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "service",
+    "mode": "registry",
+    "cwd": "/home/ai/lingweb",
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "服务型载体（start_services.sh：lingbus-browser :8300 uvicorn，脚本实锤）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family 基类参数化实现）"
+  },
+  "capabilities": [
+    "lingbus_browser"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "carrier_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingweb",
+  "org_member": "lingweb",
+  "notes": "家族批量插片化批3（用户 2026-09-18 指令 20 实体全量插片化）。服务探活走 HTTP :8300（批3 清偿），当前 absent 属预期。债务总账：family-carriers-batch2-4（due 2026-10-15）。"
+}

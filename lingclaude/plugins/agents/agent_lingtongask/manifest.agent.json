@@ -1,0 +1,45 @@
+{
+  "name": "agent/lingtongask",
+  "target": "lingtongask-mcp",
+  "display_name": "灵通问道",
+  "version": "1.0.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": [
+      "python3",
+      "-m",
+      "mcp_server"
+    ],
+    "cwd": "/home/ai/lingtongask",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "MCP stdio（mcp_server 包）→ 情感分析/语音合成/选题工具集（9 tools 实测）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family.McpAgentPluginBase 参数化实现）；本成员是该接缝下的一个实现"
+  },
+  "capabilities": [
+    "analyze_emotion",
+    "synthesize_speech",
+    "list_voices",
+    "generate_topics",
+    "check_episode_quality"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "initialize",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingtongask",
+  "org_member": "lingtongask",
+  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。载体实测：healthy（实测 2026-09-18）。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
+}

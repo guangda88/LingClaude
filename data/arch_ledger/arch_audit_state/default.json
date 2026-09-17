@@ -1,8 +1,8 @@
 {
-  "head": "96f5955",
+  "head": "cb5f2e9",
   "fingerprints": {
-    "docs/LINGYUAN_IRON_LAW.md": "4844ee606eeb",
-    "tests/test_iron_law_guards.py": "7eeb171046b2",
+    "docs/LINGYUAN_IRON_LAW.md": "262d9e28230f",
+    "tests/test_iron_law_guards.py": "5c177c8cdfb5",
     "tests/fixtures/core_vocabulary.yaml": "81d01e149d98",
     "scripts/arch_ledger.py": "abf50504cd3c",
     "scripts/seam_trend_inspect.py": "aa3a4688213e",
@@ -21,11 +21,13 @@
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
     "arch_debt:handover-export-view-j4": "3b3dfa2d0763",
     "arch_debt:layered-memory-export-view-j4-migration": "9815996cd9fb",
+    "arch_debt:lingcreate-mcp-coldstart": "10766af23488",
     "arch_debt:meta-cognition-export-view-j4-migration": "a0d20e7ce718",
     "arch_debt:reasoning-chain-export-view-j4-migration": "8ec6819215de",
     "arch_debt:seamtype-specialcase-plugin-loader": "691918e5f7e6",
     "arch_debt:session-export-view-j4-migration": "692d826693f9",
     "arch_debt:topic-stack-export-view-j4-migration": "bd90a94f8d64",
+    "arch_debt:zhibridge-mcp-unbuilt": "3a01b8358e40",
     "arch_exemption:__init__.py": "0e8898f347fd",
     "arch_exemption:audit_collector.py": "98429efef8e9",
     "arch_exemption:behavior.py": "e8b60cb05758",
@@ -121,5 +123,5 @@
     "arch_exemption:wakeup_channel.py": "edf4f812a90c",
     "arch_exemption:wiring.py": "411460a4744d"
   },
-  "checked": "2026-09-17T21:08:22+00:00"
+  "checked": "2026-09-17T22:05:26+00:00"
 }

@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-18",
+  "event": "enacted",
+  "note": "N7 横向耦合守卫升格（用户裁决'升格'，2026-09-18）：plugins/ 下插片禁止 import 他插片内部符号（隐性横向耦合：他插片一改本插片即断，M3 只查纵向不拦），共享只走显式公共接缝（plugins/<域>/ 直置共享模块，如 agents/mcp_common.py）。判法=AST 静态口径（对齐 M3 家法，含函数内 lazy import），插片目录=含 plugin.py 的事实边界，豁免走 arch_exemption guard=N7 只缩不放。来源：lc 审查发现清单 P2-1（lc_mcp_guard 函数内 import agent_lingxi 内部 _health_key/_domain_of）；整改已先行（mcp_common.py 公共接缝 + 两插片切换），升格时全仓违规=0（拦未来不罚存量）。执行载体：tests/test_iron_law_guards.py _n7_scan() + test_n7_no_cross_plugin_internal_imports。至此依赖图三向封闭：主干↔插片走 M3，插片↔插片走 N7，插片状态↔StateStore 走 J4",
+  "doc": "tests/test_iron_law_guards.py（N7 扫描+测试）+ docs/LINGYUAN_IRON_LAW.md §二守卫件套表",
+  "recorded": "2026-09-18T00:00:00+00:00"
+}

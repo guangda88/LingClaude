@@ -1,0 +1,37 @@
+{
+  "name": "proj/lingyi",
+  "target": "lingyi-carrier",
+  "display_name": "灵依",
+  "version": "0.1.0",
+  "trust_level": "T3",
+  "plug_level": "L3",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "library",
+    "mode": "registry",
+    "cwd": "/home/ai/lingyi",
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "库型载体实锤（/home/ai/lingyi src/ + pyproject）→ 依规划/日程/备忘工具面",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family 基类参数化实现）"
+  },
+  "capabilities": [
+    "plan",
+    "schedule",
+    "memo"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "carrier_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingyi",
+  "org_member": "lingyi",
+  "notes": "家族批量插片化批3（用户 2026-09-18 指令 20 实体全量插片化）。对外工程（external_project T3/L3）：入口确认后批3 清偿。债务总账：family-carriers-batch2-4（due 2026-10-15）。"
+}

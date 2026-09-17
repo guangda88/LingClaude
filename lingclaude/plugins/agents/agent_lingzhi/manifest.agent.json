@@ -1,0 +1,37 @@
+{
+  "name": "agent/lingzhi",
+  "target": "lingzhi-carrier",
+  "display_name": "灵知",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "service",
+    "mode": "registry",
+    "cwd": "/home/ai/lingzhi",
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "服务型载体（docker-compose 实锤：pgvector/pg16 等 3 服务多端口）→ 知识管理面",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family 基类参数化实现）"
+  },
+  "capabilities": [
+    "knowledge_search",
+    "ask_question",
+    "generate_training_data"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "carrier_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingzhi",
+  "org_member": "lingzhi",
+  "notes": "家族批量插片化批3（用户 2026-09-18 指令 20 实体全量插片化）。docker 服务栈探活（批3 清偿）；本沙箱无 docker 权限，须载体侧配合。债务总账：family-carriers-batch2-4（due 2026-10-15）。"
+}

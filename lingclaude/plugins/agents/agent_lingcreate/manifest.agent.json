@@ -1,0 +1,45 @@
+{
+  "name": "agent/lingcreate",
+  "target": "lingcreate-mcp",
+  "display_name": "灵创",
+  "version": "1.0.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": [
+      "python3",
+      "-m",
+      "lingcreate_mcp.server"
+    ],
+    "cwd": "/home/ai/lingcreate",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "MCP stdio（lingcreate_mcp.server，1663 行 FastMCP）→ 图/视频/3D/纹理生成工具集（源码 30 个 @mcp.tool）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family.McpAgentPluginBase 参数化实现）；本成员是该接缝下的一个实现"
+  },
+  "capabilities": [
+    "generate_image",
+    "generate_video",
+    "generate_3d_model",
+    "generate_texture",
+    "list_images"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "initialize",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingcreate",
+  "org_member": "lingcreate",
+  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。载体实测：探针超时（冷启动重 import >5s，tools/list 未按时返回；server 本体实锤存在）。债务挂账：lingcreate-mcp-coldstart（due 2026-09-25）——tuning startup_timeout 或 server 侧惰性 import 重工具模块。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
+}

@@ -1,0 +1,35 @@
+{
+  "name": "proj/lingkang",
+  "target": "lingkang-carrier",
+  "display_name": "灵康",
+  "version": "0.1.0",
+  "trust_level": "T3",
+  "plug_level": "L3",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "library",
+    "mode": "registry",
+    "cwd": "/home/ai/linghealth",
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "库型载体实锤（/home/ai/linghealth，AGENTS.md 自述独立外部商业项目，API 编排 lingvoice/lingyi）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family 基类参数化实现）"
+  },
+  "capabilities": [
+    "health_api"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "carrier_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingkang",
+  "org_member": "lingkang",
+  "notes": "家族批量插片化批4（用户 2026-09-18 指令 20 实体全量插片化）。载体在册但为独立商业项目：接口授权待定（批4）。债务总账：family-carriers-batch2-4（due 2026-10-15）。"
+}

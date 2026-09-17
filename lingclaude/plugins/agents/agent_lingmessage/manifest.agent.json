@@ -1,0 +1,46 @@
+{
+  "name": "agent/lingmessage",
+  "target": "lingmessage-mcp",
+  "display_name": "灵信",
+  "version": "1.0.0",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": [
+      "/usr/bin/python3",
+      "-m",
+      "mcp_servers.lingbus_server"
+    ],
+    "cwd": "/home/ai/lingmessage",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "MCP stdio（lingbus 消息总线 server）→ 跨 agent 消息投递/签核工具集（21 tools 实测）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family.McpAgentPluginBase 参数化实现）；本成员是该接缝下的一个实现"
+  },
+  "capabilities": [
+    "open_thread",
+    "post_reply",
+    "poll_messages",
+    "ack_message",
+    "sign_tool",
+    "annotate"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "initialize",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingmessage",
+  "org_member": "lingmessage",
+  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。载体实测：healthy（实测 2026-09-18：initialize 回标准 result）。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
+}

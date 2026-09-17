@@ -1,0 +1,16 @@
+{
+  "id": "20260918-07",
+  "date": "2026-09-18",
+  "kind": "verified",
+  "title": "家族批1-4独立复核：test_agent_family六缺陷修复 + G3基线+48归档收口（lc复核-06）",
+  "verified": true,
+  "facts": [
+    "-06声称'契约测试28 passed'账实不符：实为收集期错误（parametrize名mid vs 签名seam_or_mid）致全文件未运行——红灯被静态绿灯文案掩盖，恰为审计P2-2'G3告警淹在输出尾部'同构问题；lc修复后真全集128例",
+    "测试六缺陷逐一修复（tests/agents/test_agent_family.py，行为锚定不变）：①收集错误签名改seam_key；②_mid_dir裸mid丢失域信息（proj/lingyi被默认agent_前缀→FileNotFoundError）——统一<域>_<mid>目录映射；③test_manifest_matches将转换后裸mid回传_manifest——改传原缝key；④schema_contract对缺席载体断言capabilities非空与absent_carriers断言空自相矛盾——按transport.kind==absent分流（铁律8如实缺席）；⑤REGISTRY_MEMBERS键proj/linglv应为账本原样proj/linglü；⑥全集对账19应20且org_keys-mine=={lingxi}算术错（lingxi目录本就在扫描集）——改org_keys==mine全等",
+    "契约测试终态128 passed（108s，全离线hermetic）：MCP批1×5+登记型批2-4×14+基类单实现锚定+J4失败入账+铁律8缺席查",
+    "G3基线485 vs 437净增+48收口：+28已由-05归档；余+20=批1-4登记型薄壳register()内SeamType懒加载×19（同款接缝协议惯例防循环）+agent_family.py:168 _extract_response内mcp_common延迟import（P2-1公共接缝方向，判合法）——全部入账，守卫口径教训（-05）：新插片入册即随修订史清点，不依赖warning被看到",
+    "iron_law+G守卫回归21 passed零红灯（G3告警仅提示，已归档消化）；work_claim/worktree/agents全绿"
+  ],
+  "debts": [],
+  "next": "-06列批2-4载体登记型已随本轮入库；后续新成员按agent_family参数化基类+薄壳范式，lazy增量随修订史当场清点"
+}

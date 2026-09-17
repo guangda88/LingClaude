@@ -1,0 +1,9 @@
+{
+  "kind": "probe_timeout",
+  "location": "/home/ai/lingcreate/lingcreate_mcp/server.py（1663 行，30 个 @mcp.tool）",
+  "reason": "灵创 MCP server 冷启动重 import >5s：initialize 实测回包正常但 tools/list 未在探针 5s 窗口内返回；server 本体实锤存在（源码 30 个 @mcp.tool：图/视频/3D/纹理生成），非载体缺席",
+  "due": "2026-09-25",
+  "resolve_hint": "server 侧重工具模块改惰性 import（冷启动降到 5s 内探针即 healthy），或 manifest 探针 timeout_s 上调并在 command_note 声明取舍",
+  "state": "open",
+  "created": "2026-09-18T05:50:00+00:00"
+}

@@ -1,0 +1,40 @@
+{
+  "name": "agent/zhibridge",
+  "target": "zhibridge-mcp",
+  "display_name": "智桥",
+  "version": "1.0.0",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": [
+      "node",
+      "dist/index.js"
+    ],
+    "cwd": "/home/ai/zhibridge/mcp-server",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "MCP stdio（zhineng-bridge-mcp，TS 源码）→ 智桥网关工具（源码 hello_world 等）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family.McpAgentPluginBase 参数化实现）；本成员是该接缝下的一个实现"
+  },
+  "capabilities": [
+    "hello_world"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "initialize",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:zhibridge",
+  "org_member": "zhibridge",
+  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。载体实测：载体未构建（TS 源码无 dist，tsx 实测沙箱 OOM）→ 探针 absent 属预期，不假活。债务挂账：zhibridge-mcp-unbuilt（due 2026-09-25）——载体侧 tsc 构建产出 dist/index.js，或声明可执行替代入口。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
+}

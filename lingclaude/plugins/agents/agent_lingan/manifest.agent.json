@@ -1,0 +1,38 @@
+{
+  "name": "agent/lingan",
+  "target": "lingan-carrier",
+  "display_name": "灵安",
+  "version": "0.1.0",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "library",
+    "mode": "registry",
+    "cwd": "/home/ai/lingan",
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "Python 库型载体（security_gate/secret_scan/audit_trail 等安全审计工具集，源码实锤）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family 基类参数化实现）"
+  },
+  "capabilities": [
+    "secret_scan",
+    "security_gate",
+    "audit_trail",
+    "bypass_monitor"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "carrier_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingan",
+  "org_member": "lingan",
+  "notes": "家族批量插片化批2（用户 2026-09-18 指令 20 实体全量插片化）。库型无 MCP 入口：调用经 sidecar CLI（批2 清偿），当前 run 一律 failed 入账不假活。债务总账：family-carriers-batch2-4（due 2026-10-15）。"
+}

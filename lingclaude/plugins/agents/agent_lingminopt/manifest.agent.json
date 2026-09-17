@@ -1,0 +1,40 @@
+{
+  "name": "agent/lingminopt",
+  "target": "lingminopt-carrier",
+  "display_name": "灵敏优",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cli",
+    "mode": "registry",
+    "command": [
+      "python3",
+      "-m",
+      "lingminopt.cli.commands"
+    ],
+    "cwd": "/home/ai/lingminopt",
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "CLI 载体（pyproject 实锤 lingminopt.cli.commands:cli）→ 模型轻量化/微调评测工具面",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "子插片接缝=family_agent（agent_family 基类参数化实现）"
+  },
+  "capabilities": [
+    "cli"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "carrier_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingminopt",
+  "org_member": "lingminopt",
+  "notes": "家族批量插片化批2（用户 2026-09-18 指令 20 实体全量插片化）。CLI 未实测探活（批2 清偿：--help 判活）。债务总账：family-carriers-batch2-4（due 2026-10-15）。"
+}
