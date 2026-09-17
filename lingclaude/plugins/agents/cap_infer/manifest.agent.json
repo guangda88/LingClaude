@@ -1,0 +1,42 @@
+{
+  "name": "cap/infer",
+  "target": "lingyuan-inference-stack",
+  "display_name": "灵元推理栈",
+  "version": "1.0.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "http",
+    "mode": "openai-compat",
+    "config_source": "/home/ai/lingminopt/lingyuan/plugins.yaml",
+    "base_url_template": "{url}/chat/completions",
+    "models_endpoint": "{url}/models",
+    "startup_timeout_s": 5,
+    "call_timeout_s": 600,
+    "note": "OpenAI 兼容 HTTP（/v1/models + /v1/chat/completions），配置驱动：plugins.yaml 中 enabled=true 的 llama-server 端口全在语义。引擎仓 ~/lingminopt/lingyuan（engine.py 按需拉起，MEMORY 记载 2026-08 假值审计后未再拉起 35B MoE 大档，可按需加配）。"
+  },
+  "on_demand": true,
+  "on_demand_note": "未拉起端口=absent（不是 dead）；engine.py 可按需拉起，manifest 不锁定 13 端口，而是由 plugins.yaml 驱动按需加配。",
+  "stop_layer": {
+    "kernel": "llama-server 常驻（OpenAI 兼容 HTTP）→ 模型推理调用",
+    "seams": ["model_provider"],
+    "implementations": 1,
+    "note": "内核=llama-server 多端口（plugins.yaml 驱动），子插片接缝=model_provider（可替换为其他 OpenAI 兼容端点，L1 替换）"
+  },
+  "capabilities": [
+    "list_models",
+    "infer",
+    "health_probe",
+    "on_demand_launch"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 3,
+    "method": "GET /v1/models",
+    "absent_after": 2,
+    "note": "每端口独立探活；未拉起=absent（on_demand 语义），连续 2 次探活失败=故障 absent（N4 缺席查）。"
+  },
+  "state_record": "infer_run",
+  "notes": "Phase A cap/infer 还债（2026-09-18）：封灵元推理栈为 lc 插片，record 化推理调用（infer_run type，J4 语义）。铁律 7：缝 key 带域前缀 cap/；铁律 6：T2 契约审计（灵元栈是独立仓，协议 OpenAI 标准）+ L1 替换（unregister 后 lc 主干照跑）；铁律 8：单端口故障圈死（缺席=absent，不扩散到其他端口）；on_demand 语义：未拉起端口不算缺陷，engine.py 可按需拉起（MEMORY 记载 engine.py 升级 + plugins.yaml 驱动）。"
+}
