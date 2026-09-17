@@ -103,3 +103,12 @@ jobs:
           pip install -e .
       - name: pytest iron law guards
         run: python -m pytest tests/test_iron_law_guards.py -q -p no:cacheprovider
+      # 2026-09-17 整改（audit-lingke-report-verified P0-1）：旧 G 守卫此前
+      # 不在任何 CI 路径（守卫真空复发），G10 红灯本地挂无人知。纳入本
+      # 必过 job：G1-G10b 含守卫债务感知（豁免必须挂账）。
+      - name: pytest legacy G guards
+        run: python -m pytest tests/test_p04_arch_guards.py -q -p no:cacheprovider
+      # 2026-09-17 Phase 1 试验田：agent 插片测试（N2/N3/J4/缺席语义守卫）
+      # 纯离线（hermetic，不依赖真实 lingxi 进程），随 arch-guards 必过。
+      - name: pytest agent plugins
+        run: python -m pytest tests/agents/ -q -p no:cacheprovider

@@ -26,6 +26,7 @@
 import ast
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -108,6 +109,37 @@ def test_debts_not_expired():
         "架构债务到期未清（修剪语法：debt 到期即红；清偿用 "
         f"`scripts/arch_ledger.py debt resolve <slug>` 或申请延期）:\n  "
         + "\n  ".join(expired)
+    )
+
+
+def test_exemptions_not_past_review():
+    """豁免复审到期自动红：豁免≠永续（债务语法化，2026-09-17 整改）。
+
+    铁律 4 语法：M1 批量豁免 94/95「转债务语法追踪」——豁免记录必须带
+    复审账期 review_due（或结构性永久豁免 permanent=true + permanent_reason）。
+    review_due < 今日且未复审（granted/reviewed 未更新）即红，与债务到期同款
+    语义：可以豁免，但到期必须重新定价。
+    """
+    from datetime import date as _date
+
+    today = _date.today().isoformat()
+    stale = []
+    for key, rec in _ledger_records(T_EXEMPT):
+        if rec.get("state") != "active":
+            continue
+        if rec.get("permanent"):
+            if not rec.get("permanent_reason"):
+                stale.append(f"{key}: permanent 豁免缺 permanent_reason")
+            continue
+        due = rec.get("review_due")
+        if not due:
+            stale.append(f"{key}: 豁免无 review_due 账期（豁免不得永续）")
+        elif due < today:
+            stale.append(f"{key}: 复审到期 {due} 未复审（复审后更新 granted 或延期）")
+    assert not stale, (
+        "豁免复审到期未处理（债务语法：豁免须带账期，到期未复审即红；"
+        "复审通过更新 granted/reviewed，延期改 review_due）:\n  "
+        + "\n  ".join(stale)
     )
 
 
@@ -317,7 +349,14 @@ def test_m3_dependency_direction():
 # 合成 registry（人造业务域：订单+工单，灵元诞生同款）装配 StateStore，
 # 跑通三原语 —— "换个 registry 就是另一个系统"的可测化。
 def test_m4_domain_portability():
-    """M4（法）：主干原语在从未见过的业务域上原样跑通。"""
+    """M4（法）：主干原语在从未见过的业务域上原样跑通。
+
+    2026-09-17 失败模式声明（audit-lingke-report-verified P1，如实入档）：
+    条文原文「主干测试套件级换域」，本实现验证 StateStore 原语级换域
+    （人造域 order/ticket 跑通三原语）。守卫强度低于条文处已如实声明：
+    测试套件级换域（整套测试跑在陌生域 fixture 上）待 CI 侧改造后升格，
+    当前以原语级换域 + M4 快照纪律（单口径结论不背书新行为）过渡。
+    """
     import shutil
 
     from lingclaude.core.state_store import StateStore
@@ -346,8 +385,30 @@ def test_m4_domain_portability():
 # 逐级 unregister 插片：主干与其余插片不感知、不崩溃（J2 的机械化，
 # 覆盖 L1 替换/L3 缺席语义 —— 拔光后 registry 仍可查、可再注册）。
 def test_m5_amputation():
-    """M5（法）：逐级拔插片，主干运转不中断；拔光后可重建。"""
-    from lingclaude.core.seam import SeamRegistry, SeamType
+    """M5（法）：逐级拔插片，主干运转不中断；拔光后可重建。
+
+    2026-09-17 整改（audit-lingke-report-verified P1）：原实现只拔自造 _Probe
+    （单槽位），守卫强度低于条文「逐级 unregister（1→全部）+ 各 SeamType
+    兑现等级」。现升格为三段：
+      ① 声明完备性：PLUG_LEVELS 必须覆盖全部 SeamType，值域 {L1,L2,L3}
+        （声明义务本身的机械化；未声明=默认 L3 最严检验）。
+      ② _Probe 原语级拔插（L1 替换/L3 缺席语义，保留）。
+      ③ 真实运行时插片逐级拔（1→全部）：快照→逐个 unregister→每步主干
+        原语（registry 查询）不崩→恢复→恢复后与快照一致。
+    守卫强度边界（如实声明）：L2 降级路径（Noop 范式）的行为级验证属各插片
+    J2 域（sandbox fallback 实测在册），本守卫验证注册表层面的等级兑现。
+    """
+    from lingclaude.core.seam import PLUG_LEVELS, SeamRegistry, SeamType
+
+    # ① 声明完备性：每类 SeamType 必须显式声明拔插等级（M5 前置义务）
+    undeclared = [st.value for st in SeamType if st not in PLUG_LEVELS]
+    assert not undeclared, (
+        "M5 违规：SeamType 未声明拔插等级（铁律 §二 拔插等级声明义务，"
+        f"未声明默认按 L3 检验）: {undeclared}"
+    )
+    bad_level = [f"{st.value}={lv}" for st, lv in PLUG_LEVELS.items()
+                 if lv not in {"L1", "L2", "L3"}]
+    assert not bad_level, f"M5 违规：PLUG_LEVELS 值域越界（合法 L1/L2/L3）: {bad_level}"
 
     class _Probe:
         name = "probe"
@@ -358,17 +419,45 @@ def test_m5_amputation():
     class _Probe2(_Probe):
         name = "probe2"
 
-    # L3 缺席：get_optional 返回 None，主干原语照常
+    # ② 原语级：L3 缺席 + L1 替换 + 拔光可重建
     assert SeamRegistry.get_optional(SeamType.AGENT, "never-registered") is None
-    # L1 替换：换实现不崩（probe → probe2 → probe）
     SeamRegistry.register(SeamType.AGENT, "probe", _Probe())
     assert SeamRegistry.get(SeamType.AGENT, "probe").run() == "ok"
     assert SeamRegistry.unregister(SeamType.AGENT, "probe") is True
     SeamRegistry.register(SeamType.AGENT, "probe", _Probe2())
     assert SeamRegistry.get(SeamType.AGENT, "probe").name == "probe2"
-    # 拔光后 registry 仍可用（可再注册，主干零依赖具体插片）
     SeamRegistry.unregister(SeamType.AGENT, "probe")
     assert SeamRegistry.get_optional(SeamType.AGENT, "probe") is None
     SeamRegistry.register(SeamType.AGENT, "probe", _Probe())
     assert SeamRegistry.get(SeamType.AGENT, "probe") is not None
     SeamRegistry.unregister(SeamType.AGENT, "probe")  # 清场，不污染其他测试
+
+    # ③ 真实运行时插片逐级拔（1→全部）：只对当前有真实注册的 SeamType 执行；
+    #    全程 try/finally 保证恢复，恢复后逐键比对快照。
+    touched: list[tuple[SeamType, str, Any]] = []
+    try:
+        for st in SeamType:
+            snapshot = dict(SeamRegistry.get_all(st))
+            if not snapshot:
+                continue  # 无真实实现（测试进程未启动该域）不构造假象
+            names = list(snapshot)
+            for i, name in enumerate(names):  # 逐级：1 → 全部
+                assert SeamRegistry.unregister(st, name) is True, \
+                    f"M5 拔除失败（第 {i + 1}/{len(names)} 个）：{st.value}/{name}"
+                # 主干原语不崩：拔插过程中 registry 查询语义恒常
+                assert SeamRegistry.get_optional(st, name) is None
+                assert isinstance(SeamRegistry.list_names(st), list)
+            # 全部拔光：可查、可再注册（L3 缺席裸奔语义）
+            assert SeamRegistry.get_all(st) == {}
+            # 恢复（逆序无必要，registry 是名字寻址的平面表）
+            for name, inst in snapshot.items():
+                SeamRegistry.register(st, name, inst)
+                touched.append((st, name, inst))
+            # 恢复后与快照一致
+            assert SeamRegistry.get_all(st) == snapshot, \
+                f"M5 恢复失配：{st.value} 拔后重建与快照不一致"
+    finally:
+        # 双保险恢复：即使中途断言失败也要还原所有动过的槽位
+        for st, name, inst in touched:
+            if not SeamRegistry.has(st, name):
+                SeamRegistry.register(st, name, inst)

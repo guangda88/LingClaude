@@ -252,7 +252,9 @@ def test_g3_no_lazy_import_growth():
 #   ② 文件介质读：json.loads(x.read_text()/read_bytes())、json.load(open(...))
 # 豁免：state_store.py 本身（介质所有者）、sqlite/DB 字段 json 序列化（row["..."]）。
 J4_MEDIA_OWNERS = {"core/state_store.py"}
-# 状态模块清单（存活状态模块，J4 迁移范围；behavior_aware_router 在 model/）
+# 状态模块清单（存活状态模块，J4 迁移范围；behavior_aware_router 在 model/；
+# governance/governance_v2 提案存储为 2026-09-17 对账新收编——审计所称
+# 「9 处直写盲区」逐行核对后确认清单内 12 处全为豁免导出物，真实盲区仅此一处）
 J4_STATE_MODULES = [
     "core/handover.py", "core/layered_memory.py", "core/memory_engine.py",
     "core/session.py", "core/task_aggregation.py", "core/governance_verifier.py",
@@ -260,11 +262,16 @@ J4_STATE_MODULES = [
     "core/meta_cognition.py", "core/query_engine.py",
     "core/cognitive_rhythm.py", "core/skill_parser.py", "core/context_cache.py",
     "model/behavior_aware_router.py",
+    "governance/governance_v2.py",
 ]
 
 # 存量直连登记（审计 J4 痕迹表 + 2026-09-16 实扫；迁移后逐条删除）
 # 只缩不放：收编一条删一条，全部清零即 J4 达标。
-J4_KNOWN_DIRECT = {}
+# governance_v2 提案存储：2026-09-17 审计对账收编，对应债务
+# governance-v2-proposals-j4-migration（due 2026-11-30，迁 StateStore 后同撤）。
+J4_KNOWN_DIRECT = {
+    "governance/governance_v2.py": [640],
+}
 
 # 导出视图豁免（J4 合规判定：状态主通道已走 StateStore，以下为导出物/兼容兜底，非状态私连）：
 #   - handover 三件套（yaml/json/md）为导出视图（l5_audit / topic_drift_detector 消费 md）
@@ -272,7 +279,7 @@ J4_KNOWN_DIRECT = {}
 # 注意：读文件兼容回退（json.loads(path.read_text(...))）不构成「私连存储介质」——
 #       读旧数据是迁移期允许的兜底（StateStore 自身也读 json），守卫只盯【写】直连。
 J4_EXPORT_VIEWS = {
-    "core/handover.py": [337, 338, 339],
+    "core/handover.py": [337, 338, 339, 340],
     # layered_memory 文件兜底（StateStore 写入失败时的导出物/兼容回退，非状态主通道）
     "core/layered_memory.py": [553],
     # session 文件仓库导出视图（save 的原子写 + snapshot 导出物；list/rewind 介质）
@@ -337,6 +344,53 @@ def test_g10_no_private_media_access():
     assert not violations, (
         "J4 违规：状态模块私连文件存储介质（应走 StateStore 消费点，"
         f"见 lingclaude/core/state_store.py）:\n  " + "\n  ".join(violations)
+    )
+
+
+def test_g10b_export_view_exemptions_must_carry_debt():
+    """G10b（守卫债务感知，2026-09-17 整改 audit-g10-j4-handover）：豁免必须挂账。
+
+    铁律 4 语法：任何守卫豁免（J4_EXPORT_VIEWS / J4_KNOWN_DIRECT）都必须有
+    对应的 arch_debt 债务记录（kind=export_view_j4 / hardcoded_direct），
+    且 debt 未过期（due >= 今日）。否则视为「无账期永续豁免」——红灯。
+
+    该检查直接查询台账（守卫即台账查询的执行点）：
+      data/arch_ledger/arch_debt/<slug>.json, state=open, due >= today
+    J4_EXPORT_VIEWS 每个文件 → 期望 debt slug：
+      core/handover.py → handover-export-view-j4
+      其余文件共用 slug 后缀 -export-view-j4-migration（未挂账则列出待补）。
+    """
+    from datetime import date as _date
+
+    debt_root = ROOT / "data" / "arch_ledger" / "arch_debt"
+    today = _date.today().isoformat()
+
+    def _debt_ok(slug: str) -> bool:
+        p = debt_root / f"{slug}.json"
+        if not p.exists():
+            return False
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return rec.get("state") == "open" and rec.get("due", "") >= today
+
+    expected = {
+        "core/handover.py": "handover-export-view-j4",
+        "core/layered_memory.py": "layered-memory-export-view-j4-migration",
+        "core/session.py": "session-export-view-j4-migration",
+        "core/governance_verifier.py": "governance-verifier-export-view-j4-migration",
+        "core/topic_stack.py": "topic-stack-export-view-j4-migration",
+        "core/reasoning_chain.py": "reasoning-chain-export-view-j4-migration",
+        "core/governance.py": "governance-export-view-j4-migration",
+        "core/meta_cognition.py": "meta-cognition-export-view-j4-migration",
+    }
+    missing = [f"{rel} → 期望 debt: {slug}" for rel, slug in sorted(expected.items())
+               if not _debt_ok(slug)]
+    assert not missing, (
+        "G10b 违规：导出视图豁免无账期（铁律 4：豁免必须挂债，不得永续）:\n  "
+        + "\n  ".join(missing)
+        + "\n  整改：python3 scripts/arch_ledger.py debt add <slug> --due <date> ..."
     )
 
 
@@ -448,15 +502,27 @@ def test_g11_no_core_import_plugins():
 
 
 def test_g12_plugins_self_contained():
-    """G12：plugins/ 每插件自包含 manifest.plugin.json（载体完整性）。"""
+    """G12：plugins/ 每插件自包含 manifest（载体完整性）。
+
+    2026-09-17 schema 并存期（Phase 1 试验田部署撞名，audit 留痕）：
+      - tools/ 载体：manifest.plugin.json（stop_layer 三要素 schema）
+      - agents/ 载体：manifest.agent.json（trust_level/plug_level/
+        health_probe/state_record schema，候选铁律 5/6/8 落地形态）
+    守卫意图不变：每插件必须有 manifest 证明自包含；两套 schema 后续
+    应统一（统一前本守卫认两者，防止载体裸奔）。
+    """
     if not _PLUGINS_DIR.is_dir():
         return  # 无插件目录 → 跳过（未启用插件化）
     for sub in sorted(_PLUGINS_DIR.glob("*/*")):
         if not sub.is_dir():
             continue
-        manifest = sub / "manifest.plugin.json"
-        assert manifest.is_file(), (
-            f"插件目录 {_label(sub)} 缺 manifest.plugin.json（灵元：每插片自包含载体）"
+        has_manifest = any(
+            (sub / name).is_file()
+            for name in ("manifest.plugin.json", "manifest.agent.json")
+        )
+        assert has_manifest, (
+            f"插件目录 {_label(sub)} 缺 manifest（manifest.plugin.json 或 "
+            f"manifest.agent.json，灵元：每插片自包含载体）"
         )
 
 

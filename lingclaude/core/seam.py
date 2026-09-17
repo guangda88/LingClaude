@@ -47,6 +47,26 @@ class SeamType(str, Enum):
     ORCHESTRATOR = "orchestrator"  # 跨 Agent 编排插片（CrewOrchestrator，对标 Multi-Agent Crews）
 
 
+# 拔插等级声明（M5 前置义务，铁律 §二「拔插等级声明义务」，2026-09-17 整改补齐）：
+#   L1 替换：A 拔下 B 插上，接口一致即不崩（J2 现行测的等级）；
+#   L2 缺席降级：拔掉后走降级路径——降级实现本身必须是插片（Noop 范式），禁止主干 if-else 降级；
+#   L3 缺席裸奔：拔掉后功能消失但系统不崩，主干零依赖具体功能。
+# 等级未声明默认按 L3（最严）检验（M5 条文）。每类声明其承诺兑现的最高等级；
+# 更低等级自动被更高等级蕴含（L2 ⊃ L1，L3 ⊃ L1）。
+PLUG_LEVELS: dict[SeamType, str] = {
+    SeamType.PROVIDER: "L1",      # provider 可替换（openai/anthropic/local 互换，接口一致）
+    SeamType.TOOL: "L3",          # 工具缺席 = 少一个功能，主干不崩
+    SeamType.SANDBOX: "L2",       # NoopSandboxProvider 缺席降级范式（J2 实测在册）
+    SeamType.TRANSPORT: "L1",     # 传输实现可互换（LACP/mcp）
+    SeamType.MEMORY: "L1",        # 记忆策略可替换
+    SeamType.GOVERNANCE: "L1",    # 治理插片可替换
+    SeamType.SELF_OPT: "L1",      # 自优化插片可替换
+    SeamType.AGENT: "L3",         # 外部 Agent 缺席 = 功能消失不崩
+    SeamType.MULTIMODAL: "L3",    # 多模态任务缺席 = 功能消失不崩
+    SeamType.ORCHESTRATOR: "L3",  # 编排缺席 = 功能消失不崩
+}
+
+
 @runtime_checkable
 class ProviderPlugin(Protocol):
     """provider 插片协议：可调用（构造器）或提供 create()。"""

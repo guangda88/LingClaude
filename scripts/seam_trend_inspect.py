@@ -128,6 +128,41 @@ def load_last_snapshot() -> dict | None:
     return recs[-1] if recs else None
 
 
+def load_closed_reviews() -> dict[str, dict]:
+    """加载 arch_review/ 台账中 state=closed 的接缝审查卷宗。
+
+    M6 静态口径盲区修复（m6-static-only-blindspot，2026-09-17 整改）：
+    仪表此前不查司法卷宗，静态单实现结论（TOOL=1 回收候选观察）与
+    已结案审查（first-seam-recycling-review 实测运行时 26 实现、裁定留任）
+    直接矛盾且无分歧警报——②③联合否决①的收敛机制没接上。
+    现仪表输出对每条单实现观察标注卷宗审查状态，静态结论只作线索。
+    """
+    review_dir = ROOT / "data" / "arch_ledger" / "arch_review"
+    out: dict[str, dict] = {}
+    if not review_dir.is_dir():
+        return out
+    for p in sorted(review_dir.glob("*.json")):
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if rec.get("state") != "closed":
+            continue
+        subject = str(rec.get("subject", ""))
+        # 从卷宗 subject 提取接缝关键词（如 "SeamType.TOOL"）
+        import re as _re
+        m = _re.search(r"SeamType\.([A-Z_]+)", subject)
+        if m:
+            out[m.group(1)] = {
+                "case": rec.get("case"),
+                "verdict": rec.get("verdict"),
+                "opened": rec.get("opened"),
+                "static_count_M6": rec.get("evidence", {}).get("static_count_M6"),
+                "runtime_count": rec.get("evidence", {}).get("runtime_count"),
+            }
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true", help="输出机器可读 JSON")
@@ -135,6 +170,8 @@ def main() -> int:
 
     regs = scan_seam_registrations()
     specs = scan_wiring_specs()
+    # 司法卷宗口径（m6-static-only-blindspot 整改）：单实现观察查卷宗标注
+    reviews = load_closed_reviews()
 
     # 1) 实现数分布
     dist = {k: len(v) for k, v in sorted(regs.items())}
@@ -160,7 +197,22 @@ def main() -> int:
         "total_specs": total_specs,
         "specs_by_file": specs,
         "total_specs_delta_vs_last": spec_delta,
+        # 静态口径盲区修复：单实现观察必须带卷宗审查状态（如有）。
+        # 静态计数与卷宗运行时计数分歧时，以卷宗为准并显式标 reviewed，
+        # 静态结论降级为线索（J5 四条件之 2：单口径不作裁定）。
+        "closed_reviews": reviews,
     }
+    for st in list(single_impl_ages):
+        if st in reviews:
+            rv = reviews[st]
+            single_impl_ages[st]["review_status"] = "reviewed"
+            single_impl_ages[st]["review_case"] = rv["case"]
+            single_impl_ages[st]["review_verdict"] = rv["verdict"]
+            if rv.get("runtime_count") and rv["runtime_count"] != 1:
+                single_impl_ages[st]["static_count_divergence"] = (
+                    f"静态=1 但卷宗实测运行时={rv['runtime_count']}，静态口径失真，"
+                    "以卷宗为准（②③联合否决①）"
+                )
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -169,7 +221,14 @@ def main() -> int:
         print(f"时间: {report['ts']}")
         print("\n[1] SeamType 实现数分布")
         for st, n in dist.items():
-            mark = "  ← 单实现（回收候选观察）" if n == 1 else ""
+            if n == 1:
+                rv = reviews.get(st)
+                if rv:
+                    mark = f"  ← 单实现（已审查：{rv['verdict']}，卷宗 {rv['case']}；静态口径仅线索）"
+                else:
+                    mark = "  ← 单实现（回收候选观察，未见审查卷宗）"
+            else:
+                mark = ""
             print(f"  {st:<14} {n}{mark}")
         print("\n[2] 单实现接缝龄期（修剪语法：龄期长且无扩展意图 → 回收候选）")
         if single_impl_ages:
