@@ -83,30 +83,41 @@ class TodoToolsMixin:
             )
 
         # 1) 校验 active_id 与 todos 的 in_progress 一致性（纪律①恰好一个）
-        active_content = (active_id or "none").strip().lower()
+        # 2026-09-17 修复 (双匹配): active_id 归一只用于"是否存在"判断，
+        # 改写按精确原文匹配 —— 原两处 .lower() 归一使仅大小写不同的
+        # 重复 content 全部命中 → 多个 in_progress，违反纪律①。
+        active_given = bool((active_id or "").strip()) and (active_id or "").strip().lower() != "none"
         in_prog = [t for t in todos if t.get("status") == "in_progress"]
-        if active_content and active_content != "none":
-            # active_id 指定了内容 → 该条必须存在且 in_progress，其余禁止 in_progress
-            for t in in_prog:
-                if t.get("content", "").strip().lower() != active_content:
-                    t["status"] = "pending"
-            for t in todos:
-                if t.get("content", "").strip().lower() == active_content:
+        if active_given:
+            active_exact = (active_id or "").strip()
+            matched = [t for t in todos if t.get("content", "").strip() == active_exact]
+            if matched:
+                for t in in_prog:
+                    if t not in matched:
+                        t["status"] = "pending"
+                for t in matched:
                     t["status"] = "in_progress"
+            else:
+                # active_id 指向不存在项 → 视同未指定，全部退回 pending
+                for t in in_prog:
+                    t["status"] = "pending"
         else:
             # 无 active_id → 全部退回 pending
             for t in in_prog:
                 t["status"] = "pending"
 
-        # 2) 全量覆写：移除旧项，插入新清单（保留已完成项的 id 作历史）
+        # 2) 全量覆写：移除旧项，插入新清单（id 全部重新生成）
+        # 2026-09-17 更正注释: 原注释声称"保留已完成项的 id 作历史"，
+        # 实现是全删后 uuid4 重造 —— id 引用（跨轮 active_id）会断，如实标注。
         now = time.time()
         for old in store.list():
             store.delete(old.id)
+        inserted = 0
         new_ids: dict[str, str] = {}
         for t in todos:
             content = t.get("content", "").strip()
             if not content:
-                continue
+                continue  # 空 content 跳过且不计入统计（下方计数基于 inserted）
             st = t.get("status", "pending")
             st = st if st in ("pending", "in_progress", "completed") else "pending"
             item = TodoItem(
@@ -118,17 +129,29 @@ class TodoToolsMixin:
             )
             store.add(item)
             new_ids[content.lower()] = item.id
+            inserted += 1
 
-        active_count = sum(1 for t in todos if t.get("status") == "in_progress")
-        pending_count = sum(1 for t in todos if t.get("status") == "pending")
-        completed_count = sum(1 for t in todos if t.get("status") == "completed")
+        # 2026-09-17 修复 (统计口径): 原按入参 todos 计数，空 content 被跳过
+        # 却照常计入 → 返回统计与实际入库不一致。改为只统计实际入库项。
+        active_count = sum(
+            1 for t in todos
+            if t.get("content", "").strip() and t.get("status") == "in_progress"
+        )
+        pending_count = sum(
+            1 for t in todos
+            if t.get("content", "").strip() and t.get("status") == "pending"
+        )
+        completed_count = sum(
+            1 for t in todos
+            if t.get("content", "").strip() and t.get("status") == "completed"
+        )
         return ToolResult.ok({
             "ok": True,
             "count": len(new_ids),
             "in_progress": active_count,
             "pending": pending_count,
             "completed": completed_count,
-            "active_id": active_content if active_content != "none" else None,
+            "active_id": (active_id or "").strip() if active_given else None,
             "message": (
                 f"任务清单已更新：{len(new_ids)} 项"
                 f"（{active_count} 进行中 / {pending_count} 待办 / {completed_count} 完成）。"

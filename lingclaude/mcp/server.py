@@ -512,12 +512,13 @@ def tool_check_and_optimize(
 
 def main():
     """stdio transport entry point."""
+    server = get_mcp()  # 惰性单例（R-logfix）：仅独立 server 进程允许构造
     try:
         from lingmessage.registry import register_fastmcp_server
-        register_fastmcp_server("lingclaude", "灵克", mcp, "编程助手")
+        register_fastmcp_server("lingclaude", "灵克", server, "编程助手")
     except Exception as e:
         logger.warning("lingmessage registry unavailable, MCP runs without it: %s", e)
-    mcp.run()
+    server.run()
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import yaml
 from enum import Enum
 from pathlib import Path
+from typing import Any  # 2026-09-17: HandoverWriter/Reader 注解用（原靠 future annotations 掩护，F821）
 
 from lingclaude.core.types import Result
 

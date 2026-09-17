@@ -53,10 +53,15 @@ class TestLoadApprovalMode:
         p.write_text("guard:\n  approval_mode: ask\n", encoding="utf-8")
         assert load_approval_mode(p) == "ask"
 
-    def test_invalid_value_falls_back_auto(self, tmp_path: Path) -> None:
+    def test_invalid_value_fails_closed_ask(self, tmp_path: Path) -> None:
+        """2026-09-17 fail-closed: 非法值不再回 auto（防配置手坏提权）。"""
         p = tmp_path / "config.yaml"
         p.write_text("guard:\n  approval_mode: yolo\n", encoding="utf-8")
-        assert load_approval_mode(p) == "auto"
+        assert load_approval_mode(p) == "ask"
+
+    def test_missing_file_fails_closed_ask(self, tmp_path: Path) -> None:
+        """2026-09-17 fail-closed: 配置文件缺失不等于授权 auto。"""
+        assert load_approval_mode(tmp_path / "nope.yaml") == "ask"
 
 
 class TestDaemonApplyGate:
@@ -108,3 +113,38 @@ class TestDaemonApplyGate:
         daemon, _ = self._make_daemon(tmp_path, "strict", monkeypatch)
         with pytest.raises(PermissionError):
             daemon._apply_params({"max_nesting_depth": 6.5})
+
+
+class TestWithAllowDenyPreserveMode:
+    """2026-09-17 回归: with_allow/with_deny 必须保持 mode（原实现丢失 mode 回落 ask）。"""
+
+    def test_with_allow_preserves_mode(self) -> None:
+        from lingclaude.core.permissions import PermissionContext
+
+        for m in ("auto", "ask", "strict"):
+            ctx = PermissionContext(mode=m)
+            assert ctx.with_allow("bash").mode == m, f"with_allow 丢失 mode={m}"
+
+    def test_with_deny_preserves_mode(self) -> None:
+        from lingclaude.core.permissions import PermissionContext
+
+        for m in ("auto", "ask", "strict"):
+            ctx = PermissionContext(mode=m)
+            assert ctx.with_deny("bash").mode == m, f"with_deny 丢失 mode={m}"
+
+    def test_record_approval_no_mode_downgrade(self) -> None:
+        """审批回灌（PermissionStore.record_approval）不得静默降级全局 mode。"""
+        import pytest as _pytest
+
+        from lingclaude.core import permissions as perms
+
+        _pytest.MonkeyPatch().setenv("HOME", "/tmp/fake-home-verify")
+        perms._PERSIST_PATH = __import__("pathlib").Path("/tmp/fake-home-verify/.lingclaude/no approvals.json")
+        perms.reset_permission_stores()
+        store = perms.get_permission_store("verify-mode")
+        from lingclaude.core.permissions import PermissionContext
+
+        store._ctx = PermissionContext(mode="auto")
+        store.record_approval("bash", "allow")
+        assert store._ctx.mode == "auto", "审批回灌后 mode 被降级"
+        perms.reset_permission_stores()

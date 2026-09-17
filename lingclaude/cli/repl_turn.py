@@ -195,6 +195,8 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         observed_stream_error = False
         turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
         turn_t0 = time.monotonic()  # P1.1: turn 级耗时计时起点
+        # 2026-09-17 双写修复: 流未到 done 即结束时（打断/异常）按 engine 未写处理
+        turn_finalized = False
         usage_t0 = dict(engine.get_stats().get("usage") or {})  # P1.1: delta 基线
         # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
         _wd = StreamWatchdog()
@@ -216,6 +218,8 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
                     response_content += event.get("text", "")
                 elif event.get("type") == "done":
                     response_content = event.get("content", response_content)
+                    # 2026-09-17 双写修复: 记录 engine 是否已写 _messages 镜像
+                    turn_finalized = bool(event.get("finalized", False))
                     turn_output_tokens = int(
                         (event.get("usage") or {}).get("output_tokens", 0) or 0
                     )
@@ -225,8 +229,11 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
             _wd.stop()
         _flush_stream_line()  # P0:打断/异常退出时补冲残行,防污染下一轮
         if response_content:
-            engine._messages.append(prompt)
-            engine._messages.append(response_content)
+            # 2026-09-17 双写修复: 正常 done 时 engine._finalize_turn 已写入
+            # _messages 镜像（done.finalized=True），仅 engine 未写时兜底。
+            if not turn_finalized:
+                engine._messages.append(prompt)
+                engine._messages.append(response_content)
             engine._compact_if_needed()
             # R5-fix: history 由 engine.stream_call_model 的 done 分支写入
             # (model_call.py)，CLI 层不重复调用 _append_to_session_history

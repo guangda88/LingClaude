@@ -115,6 +115,9 @@ class _ReplCtx:
     status_bar_active: bool = False
     saved_termios: Any = None
     queued_next: str | None = None
+    # 2026-09-17 双写修复: 本 turn engine 是否已写 _messages 镜像
+    # （由 done 事件的 finalized 标志置位，_run_stream_turn 收尾消费）。
+    turn_finalized: bool = False
     # 2026-09-15（会话问题重构 P0-1）: 心跳超长停滞强制重建的冷却计数。
     # 重建后若仍无心跳（重建无效——"强制重建也没用"的真实场景），第二次
     # 直接置 dead + fallback_read 永久降级裸 input()，避免反复 churn。
@@ -630,6 +633,8 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
     observed_stream_error = False
     turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
     turn_t0 = time.monotonic()  # P1.1: turn 级耗时计时起点
+    # 2026-09-17 双写修复: 每回合开始重置镜像写入标记（防上一回合残留误判）
+    ctx.turn_finalized = False
     usage_t0 = dict(engine.get_stats().get("usage") or {})  # P1.1: delta 基线
     status.set_task("生成中")
     # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成；
@@ -692,6 +697,8 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 observed_stream_error = True
             elif event.get("type") == "done":
                 response_content = event.get("content", response_content)
+                # 2026-09-17 双写修复: 记录 engine 是否已写 _messages 镜像
+                ctx.turn_finalized = bool(event.get("finalized", False))
                 turn_output_tokens = int(
                     (event.get("usage") or {}).get("output_tokens", 0) or 0
                 )
@@ -730,8 +737,14 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 except Exception:  # noqa: BLE001 — 面板刷新失败不影响主循环
                     pass
     if response_content and not interrupted:
-        engine._messages.append(prompt)
-        engine._messages.append(response_content)
+        # 2026-09-17 双写修复: 正常 done 时 engine._finalize_turn 已写入
+        # _messages 镜像（H20 统一点，done.finalized=True）。此前 CLI 无条件
+        # append 导致正常轮与 engine 各写一遍，存档里每个回合成对翻倍
+        # （用户消息×2 + 回复×2）—— 即"消息被处理两轮"的表象。
+        # 现仅在 engine 未写时兜底（打断/流错误/loop-abort/半路异常）。
+        if not getattr(ctx, "turn_finalized", False):
+            engine._messages.append(prompt)
+            engine._messages.append(response_content)
         engine._compact_if_needed()
         # R5-fix: history 由 engine.stream_call_model 的 done 分支写入
         # (model_call.py)，CLI 层不重复调用 _append_to_session_history

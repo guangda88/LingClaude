@@ -456,7 +456,13 @@ class DailyDigestGenerator:
 
         quality_items = [i for i in items if i.category == IntelCategory.QUALITY]
         if quality_items:
-            low_quality = [i for i in quality_items if "质量评分" in i.content and float(i.metadata[0][1]) < 70 if i.metadata]
+            # 2026-09-17 修复 (IndexError): 原多重 if 从左到右求值，
+            # float(i.metadata[0][1]) 先于 if i.metadata → metadata 空即炸。
+            low_quality = [
+                i for i in quality_items
+                if i.metadata and "质量评分" in i.content
+                and float(i.metadata[0][1]) < 70
+            ]
             if low_quality:
                 recs.append("代码质量偏低，考虑进行结构优化")
 

@@ -293,7 +293,9 @@ SPECS: tuple[ToolSpec, ...] = (
             },
         },
         handler_attr='_todo_write_handler',
-        security_scope='read',
+        # 2026-09-17 修复: 原 'read' —— todo_write 全量删除+重插任务存储，
+        # 是状态写入型工具，挂 read scope 绕开了 write 闸门语义。
+        security_scope='write',
         concurrency_safe=False,
     ),
     ToolSpec(

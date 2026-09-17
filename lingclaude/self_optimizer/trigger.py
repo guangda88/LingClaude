@@ -273,7 +273,9 @@ class OptimizationTrigger:
             if isinstance(last_opt_time, str):
                 last_opt_time = datetime.fromisoformat(last_opt_time)
             days_since = (datetime.now() - last_opt_time).days
-            threshold = self.config.min_interval_hours // 24 or 7
+            # 2026-09-17 修复 (阈值语义反转): min_interval_hours=12 → 12//24=0 →
+            # falsy → or 7 天。配得越短等越久。改为向上取整的天数，保底 1 天。
+            threshold = max(1, self.config.min_interval_hours // 24)
             if days_since >= threshold:
                 return TriggerInfo(
                     type="time",

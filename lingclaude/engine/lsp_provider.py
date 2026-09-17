@@ -11,10 +11,12 @@ from __future__ import annotations
 import asyncio
 import json
 import subprocess
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
+from urllib.parse import quote, unquote, urlparse
 
 import logging
 
@@ -131,7 +133,8 @@ class StdioLspProvider:
         # 2026-09-17 (诊断化): server stderr 尾部环形缓冲 — rustup shim
         # 等启动即退的场景，initialize 超时若不含 stderr 会不可诊断
         # （实测 "Unknown binary 'rust-analyzer'" 曾被完全吞掉）。
-        self._stderr_tail: list[str] = []
+        # 2026-09-17 (统一): 删除死字段 _stderr_tail（实际使用的是
+        # _start_stderr_collector 动态创建的 _stderr_tail_ref）。
         self._stderr_thread: threading.Thread | None = None
 
     # ----- LspProvider interface -----
@@ -152,18 +155,31 @@ class StdioLspProvider:
 
         reader = asyncio.create_task(self._read_loop())
 
-        # send initialize request
         # 2026-09-17 修复: rootUri 此前传裸路径，违反 LSP spec（须 file:// URI），
         # 部分 server（如 rust-analyzer）会拒收或行为异常。
-        resp = await self._call(
-            "initialize",
-            {
-                "processId": None,
-                "rootUri": _path_to_uri(workspace_root),
-                "rootPath": str(workspace_root),
-                "capabilities": {},
-            },
-        )
+        try:
+            resp = await self._call(
+                "initialize",
+                {
+                    "processId": None,
+                    "rootUri": _path_to_uri(workspace_root),
+                    "rootPath": str(workspace_root),
+                    "capabilities": {},
+                },
+            )
+        except BaseException:
+            # 2026-09-17 修复 (初始化失败泄漏): _call 失败（超时/进程秒退）时
+            # reader task 尚未挂到 self._reader_task、无 shutdown 清理 →
+            # 孤儿进程 + 孤儿 task + stderr 线程残留。此处就地回收。
+            reader.cancel()
+            proc = self._proc
+            self._proc = None
+            if proc is not None:
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+            raise
         self._caps = resp.get("capabilities", {})
         self._initialized = True
 
@@ -180,16 +196,35 @@ class StdioLspProvider:
             return
         try:
             await self._call("shutdown", {})
-            asyncio.create_task(self._notify("exit", {}))
+            # 2026-09-17 修复: 原 create_task fire-and-forget 后立即 terminate,
+            # exit notification 可能尚未写出; 改为确定性 await。
+            await self._notify("exit", {})
         except Exception:
             pass
         finally:
             if self._reader_task:
                 self._reader_task.cancel()
-            self._proc.terminate()
-            self._proc.wait(timeout=5)
-            self._proc = None
+                self._reader_task = None
+            proc, self._proc = self._proc, None
             self._initialized = False
+            if proc is not None:
+                try:
+                    proc.terminate()
+                except Exception:  # noqa: BLE001
+                    pass
+                # 2026-09-17 修复: 原 wait(timeout=5) 超时抛 TimeoutExpired →
+                # self._proc=None 不执行 → 二次 shutdown 重复 terminate；
+                # wait 也置 None 后兜底 kill，保证状态一致。
+                try:
+                    proc.wait(timeout=5)
+                except Exception:  # noqa: BLE001
+                    try:
+                        proc.kill()
+                    except Exception:  # noqa: BLE001
+                        pass
+            th = self._stderr_thread
+            if th is not None and th.is_alive():
+                th.join(timeout=1.0)
 
     async def go_to_definition(
         self, file_path: str, line: int, character: int
@@ -279,14 +314,45 @@ class StdioLspProvider:
 
     # ----- internal -----
 
+    # 2026-09-17 修复 (P0: LSP 帧格式违规): LSP 标准是 JSON-RPC over stdio
+    # 的 Content-Length 帧协议（LSP spec: Base Protocol），此前发送裸 JSON+\n、
+    # 按行解析——pylsp/pyright/rust-analyzer 等标准 server 无法解析请求，
+    # initialize 都过不去。改为统一帧读写。
+    def _write_frame(self, body: str) -> None:
+        if self._proc is None or self._proc.stdin is None:
+            raise RuntimeError("LSP provider not initialized")
+        payload = body.encode("utf-8")
+        self._proc.stdin.write(f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii") + payload)
+        self._proc.stdin.flush()
+
+    def _read_frame(self) -> str | None:
+        """阻塞读一帧; EOF 返回 None。须在 executor 中调用（阻塞 IO）。"""
+        if self._proc is None or self._proc.stdout is None:
+            return None
+        headers: dict[str, str] = {}
+        while True:
+            line = self._proc.stdout.readline()
+            if not line:
+                return None  # EOF
+            if line in (b"\r\n", b"\n"):
+                break  # 空行 = 头部结束
+            key, _, val = line.decode("ascii", errors="replace").partition(":")
+            headers[key.strip().lower()] = val.strip()
+        length = headers.get("content-length")
+        if length is None:
+            return None  # 非法帧（无 Content-Length 头）
+        body = self._proc.stdout.read(int(length))
+        if not body:
+            return None
+        return body.decode("utf-8", errors="replace")
+
     async def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         if self._proc is None or self._proc.stdin is None:
             raise RuntimeError("LSP provider not initialized")
         self._counter += 1
         msg_id = self._counter
         body = json.dumps({"jsonrpc": "2.0", "id": msg_id, "method": method, "params": params})
-        self._proc.stdin.write(body.encode() + b"\n")
-        self._proc.stdin.flush()
+        self._write_frame(body)
 
         future: asyncio.Future = asyncio.get_event_loop().create_future()
         self._pending[msg_id] = _PendingCall(future=future, id=msg_id)
@@ -331,22 +397,22 @@ class StdioLspProvider:
         if self._proc is None or self._proc.stdin is None:
             return
         body = json.dumps({"jsonrpc": "2.0", "method": method, "params": params})
-        self._proc.stdin.write(body.encode() + b"\n")
-        self._proc.stdin.flush()
+        self._write_frame(body)
 
     async def _read_loop(self) -> None:
         if self._proc is None or self._proc.stdout is None:
             return
-        reader = asyncio.get_event_loop()
+        loop = asyncio.get_event_loop()
         while True:
             try:
-                line = await reader.run_in_executor(None, self._proc.stdout.readline)
+                # 2026-09-17: Content-Length 帧读取（阻塞 IO 走 executor）。
+                frame = await loop.run_in_executor(None, self._read_frame)
             except Exception:
                 break
-            if not line:
+            if not frame:
                 break
             try:
-                msg = json.loads(line)
+                msg = json.loads(frame)
             except json.JSONDecodeError:
                 continue
             if "id" in msg:
@@ -373,10 +439,20 @@ class StdioLspProvider:
 
 
 def _path_to_uri(path: str | Path) -> str:
-    path = str(Path(path).resolve())
-    if path.startswith("/"):
-        return f"file://{path}"
-    return f"file:///{path}"
+    # 2026-09-17 修复 (URI 编码): 此前裸拼 file://{path}，含空格/#/? 等保留字
+    # 的路径生成非法 URI（LSP spec 要求 percent-encoding）。
+    path = quote(str(Path(path).resolve()))
+    return f"file://{path}"
+
+
+def _uri_to_path(uri: str) -> str:
+    # 2026-09-17 修复: 只剥前缀不解码 — server 回 %20 等编码路径时被当字面量,
+    # definition/references 定位失败。urlparse + unquote 正规解码;
+    # 非 file:// scheme 原样返回（防御）。
+    parsed = urlparse(uri)
+    if parsed.scheme != "file":
+        return uri
+    return unquote(parsed.path)
 
 
 def _language_id(path: str | Path) -> str:
@@ -395,12 +471,6 @@ def _language_id(path: str | Path) -> str:
         ".cpp": "cpp",
         ".hpp": "cpp",
     }.get(suffix, "plaintext")
-
-
-def _uri_to_path(uri: str) -> str:
-    if uri.startswith("file://"):
-        return uri[7:]
-    return uri
 
 
 def _parse_range(rng: dict[str, Any]) -> Range:

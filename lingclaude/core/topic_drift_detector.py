@@ -37,27 +37,40 @@ class TopicDriftDetector:
         self._load_active_topics()
     
     def _load_active_topics(self) -> None:
-        """Load active tasks from handover.md"""
+        """Load active tasks from handover.md
+
+        2026-09-17 修复（双重失能）:
+        1. 章节标题/格式对齐 handover.to_markdown 实际产出 —— 原找
+           "## 当前用户任务"+Markdown表格，实际是 "## 进行中的用户任务"+
+           项目符号列表 `- **id** [status] ...` → 恒解析为空（功能死亡）。
+        2. 开头 clear() —— 原只 append 不清空，__post_init__ + reset() 双次
+           调用 → _active_topics 逐次翻倍。
+        """
+        self._active_topics.clear()
         if not self.handover_path.exists():
             logger.warning("handover.md not found at %s", self.handover_path)
             return
-        
+
         try:
             content = self.handover_path.read_text(encoding="utf-8")
             lines = content.split("\n")
             in_section = False
             for line in lines:
-                if "## 当前用户任务" in line:
+                if "## 进行中的用户任务" in line or "## 当前用户任务" in line:
                     in_section = True
                     continue
                 if in_section and line.startswith("##"):
                     break
-                if in_section and line.strip().startswith("|") and "---" not in line:
-                    parts = [p.strip() for p in line.split("|")[1:-1]]
-                    if len(parts) >= 2 and parts[1] not in ("状态", ""):
-                        status = parts[1] if len(parts) > 1 else ""
-                        if status not in ("completed", "已完成"):
-                            self._active_topics.append(parts[0])
+                # to_markdown 契约: `- **{task_id}** [{status}] (confirmed=…)`
+                stripped = line.strip()
+                if in_section and stripped.startswith("- **"):
+                    body = stripped[4:]
+                    task_id = body.split("**", 1)[0].strip()
+                    status = ""
+                    if "[" in body:
+                        status = body.split("[", 1)[1].split("]", 1)[0].strip().lower()
+                    if task_id and status not in ("completed", "已完成", "cancelled"):
+                        self._active_topics.append(task_id)
             logger.info("Loaded active topics from handover: %s", self._active_topics)
         except Exception as e:
             logger.warning("Failed to load active topics: %s", e)

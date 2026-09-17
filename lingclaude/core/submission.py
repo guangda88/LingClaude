@@ -103,7 +103,14 @@ class SubmissionMixin:
         n_msgs_before = len(self._messages)
         output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
 
-        projected = self._usage.add_turn(prompt, output)
+        # 2026-09-17 修复 (usage 双计): provider 路径 _finalize_turn 已按真实
+        # token add_usage（query_engine_turn_mixin.py），此处 add_turn 再叠一份
+        # 词数估算 → usage 虚高、max_budget_tokens 提前熔断。仅无 provider 的
+        # 本地 fallback 路径（不走 _finalize_turn）才需要此处估算记账。
+        if self._provider is None:
+            projected = self._usage.add_turn(prompt, output)
+        else:
+            projected = self._usage
         stop_reason = StopReason.COMPLETED
 
         diagnosis = self._dementia_detector.diagnose()
@@ -264,6 +271,14 @@ class SubmissionMixin:
                 return
             elif event["type"] == "done":
                 final_content = event.get("content", "")
+                # 2026-09-17 修复 (流式 usage/stop_reason 恒空): done 分支此前
+                # 只取 content，usage_data/stop_reason 初始化值原样上抛 →
+                # 流式 API 永远上报 usage={}、stop_reason=end_turn。
+                usage_data = event.get("usage") or {}
+                if event.get("finalized"):
+                    stop_reason = "end_turn"
+                else:
+                    stop_reason = "max_turns"
                 transcript_size = len(self._transcript)
         yield {
             "type": "message_stop",

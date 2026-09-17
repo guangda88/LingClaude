@@ -73,10 +73,20 @@ def _load_behavior_policy() -> dict[str, Any]:
 
 
 def _get_tool_name(args: dict[str, Any] | None) -> str:
-    """从 tool call 参数中提取工具名"""
+    """从 tool call 参数中提取工具名。
+
+    2026-09-17 修复 (运算符优先级): 原三元表达式
+    `A or B or C if args.get("command") else ""` 解析为
+    `(A or B or C) if command else ""` —— 无 command 时直接返回 ""，
+    忽略 tool_name/name。改显式 if/else。
+    """
     if args is None:
         return ""
-    return args.get("tool_name") or args.get("name") or args.get("command", "").split()[0] if args.get("command") else ""
+    name = args.get("tool_name") or args.get("name")
+    if name:
+        return name
+    command = args.get("command", "")
+    return command.split()[0] if command else ""
 
 
 def _edit_tools_from_policy() -> frozenset[str]:

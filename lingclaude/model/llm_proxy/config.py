@@ -67,7 +67,10 @@ class ProxyConfig:
         for name, pdef in routing.get("providers", {}).items():
             rate = pdef.get("rate_limit", {})
             key = pdef.get("api_key", "")
-            if key.startswith("$"):
+            if key.startswith("${") and key.endswith("}"):
+                # 2026-09-17 修复: "${KEY}" 原查 "{KEY}" 恒空 → API key 永远取不到。
+                key = os.environ.get(key[2:-1], "")
+            elif key.startswith("$"):
                 key = os.environ.get(key[1:], "")
             cfg.providers[name] = ProviderConfig(
                 name=name,

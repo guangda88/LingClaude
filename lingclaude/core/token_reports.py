@@ -315,7 +315,8 @@ def generate_html_report(
 
     conn.close()
 
-    html += """
+    # 2026-09-17 修复 (f 前缀缺失): 普通三引号串里 {datetime...} 原样显示占位符。
+    html += f"""
     </table>
 </div>
 

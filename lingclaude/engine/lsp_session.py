@@ -177,6 +177,10 @@ def get_pool() -> LspSessionPool:
 
 
 def _path_to_uri(path: str | Path) -> str:
-    """与 lsp_provider._path_to_uri 同构（避免 import 私有符号）。"""
-    path = str(Path(path).resolve())
-    return f"file://{path}" if path.startswith("/") else f"file:///{path}"
+    """与 lsp_provider._path_to_uri 同构（避免 import 私有符号）。
+
+    2026-09-17 对齐 percent-encoding 修复（原裸拼对含空格/# 路径生成非法 URI）。
+    """
+    from urllib.parse import quote
+
+    return f"file://{quote(str(Path(path).resolve()))}"

@@ -933,3 +933,12 @@ def main() -> int:
     else:
         parser.print_help()
         return 0
+
+
+# 2026-09-17 修复 (CI selftest 空门): `python -m lingclaude.cli.app selftest`
+# 此前只定义/分发 main，无 __main__ guard 时 -m 直接 import 完就退出，
+# exit 0 且零输出 — CI 门禁永远绿，插件测试全红也放行。
+# console script `lingclaude` 走 __main__.py 有 guard 不受影响；此 guard
+# 兜底 `-m lingclaude.cli.app` 形式（ci.yml:86 在用）。
+if __name__ == "__main__":
+    raise SystemExit(main())

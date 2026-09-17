@@ -188,14 +188,19 @@ class TodoStore:
         """纪律化 start：置该项 in_progress，同时把其他 in_progress 退回 pending。
 
         返回 {ok, id, released:[...]}，released 是被中断退回 pending 的项。
+        2026-09-17: 已完成/已取消项拒绝复活（atomcode B3）—— 误触会污染
+        进度统计；复活语义需要显式重建任务。
         """
         conn = self._connect()
         target = conn.execute(
-            "SELECT id FROM todos WHERE id=? AND session_id=?",
+            "SELECT id, status FROM todos WHERE id=? AND session_id=?",
             (id, self.session_id),
         ).fetchone()
         if not target:
             return {"ok": False, "id": id, "error": "not_found"}
+        if target["status"] in (TodoStatus.COMPLETED.value, TodoStatus.CANCELLED.value):
+            return {"ok": False, "id": id, "error": "already_finished",
+                    "status": target["status"]}
         released = self._release_in_progress(conn, id)
         conn.execute(
             "UPDATE todos SET status=?, updated_at=? WHERE id=? AND session_id=?",
@@ -305,7 +310,7 @@ def make_handlers(store: TodoStore) -> dict:
     def delete(id: str) -> dict:
         """Delete a todo item."""
         ok = store.delete(id)
-        return {"ok": ok, "id": id, "deleted": ok} if not ok else {"ok": False, "error": "not_found"}
+        return {"ok": True, "id": id, "deleted": True} if ok else {"ok": False, "error": "not_found"}
 
     return {
         "create": create,

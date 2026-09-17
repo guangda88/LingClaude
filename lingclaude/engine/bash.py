@@ -154,7 +154,6 @@ from lingclaude.engine.bash_network import (  # noqa: F401,E402
     _discover_git_remotes,
     _is_network_allowed,
     _looks_like_network_failure,
-    _split_chain,
     _DEFAULT_MEMORY_LIMIT,
     _DEFAULT_CPU_LIMIT,
     _NETWORK_ALLOWED_MEMORY_LIMIT,
@@ -417,15 +416,8 @@ class BashExecutor:
         )
         return normalized.lower()
 
-    @staticmethod
-    def _glob_aware_contains(haystack: str, needle: str) -> bool:
-        """检查 needle 是否出现在 haystack 中，允许 ? 作为单字符通配符。"""
-        if needle in haystack:
-            return True
-        for i in range(len(needle)):
-            if needle[:i] + "?" + needle[i + 1:] in haystack:
-                return True
-        return False
+    # 2026-09-17 卫生清理: 删除死代码 _glob_aware_contains —— 已被词边界
+    # 正则版 _rule_matches 取代，全仓无调用方（cc 报告轻微项，grep 计数 0）。
 
     @classmethod
     def _rule_matches(cls, text: str, needle: str) -> bool:

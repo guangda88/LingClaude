@@ -488,6 +488,11 @@ class ModelCallMixin:
         total_input = 0
         total_output = 0
         consecutive_failures = 0
+        # 2026-09-17 双写修复: 标记本 turn 的 _messages 镜像是否已由 engine
+        # 写入（_finalize_turn 是唯一写入点）。CLI 层据 done.finalized 决定
+        # 是否兜底 append —— 正常完成/超轮次路径 engine 已写，CLI 不再写；
+        # 打转熔断（loop abort）engine 不写，CLI 兜底（旧行为保留）。
+        finalized = False
 
         loop_detector = _ToolLoopDetector()
         for round_idx in range(_resolve_max_tool_rounds(self)):
@@ -584,6 +589,11 @@ class ModelCallMixin:
                 self._learn_from_turn(prompt, final_content)
                 # R5 阶段1: turn 正常完成 → 清 checkpoint + journal turn_end
                 self._clear_checkpoint()
+                # 2026-09-17 双写修复: finalized=True 告知 CLI 层本 turn 的
+                # _messages 镜像已由 _finalize_turn 写入（H20 统一点），CLI
+                # 不得再 append —— 此前正常 done 与 CLI 兜底各写一遍，存档
+                # 里每个回合成对翻倍（用户消息×2+回复×2）。
+                finalized = True
                 # P0: journal 兜底 — usage 全 0 时估算, 保证遥测非 0
                 j_in, j_out = total_input, total_output
                 if j_in == 0 and j_out == 0:
@@ -594,7 +604,8 @@ class ModelCallMixin:
                     "total_input": j_in, "total_output": j_out,
                 })
                 yield {"type": "done", "content": final_content,
-                       "usage": {"input_tokens": j_in, "output_tokens": j_out}}
+                       "usage": {"input_tokens": j_in, "output_tokens": j_out},
+                       "finalized": finalized}
                 return
 
             used_tools = True
@@ -671,7 +682,8 @@ class ModelCallMixin:
                 elif verdict == "abort":
                     yield {"type": "text_delta", "text": _LOOP_ABORT_MSG}
                     yield {"type": "done", "content": response_content + _LOOP_ABORT_MSG,
-                           "usage": {"input_tokens": total_input, "output_tokens": total_output}}
+                           "usage": {"input_tokens": total_input, "output_tokens": total_output},
+                           "finalized": False}
                     return
 
             # 2026-09-15（会话问题重构 P1-1）: round 边界事件 —— 一轮完成、
@@ -680,6 +692,14 @@ class ModelCallMixin:
             # 普通文本记入 queued_next 插队（当前 tool 轮继续，turn 结束后
             # 作为下一轮输入直接执行，不等用户再打字）。纯观察点，不改引擎
             # 内部状态 —— 引擎继续自己的 tool 轮，CLI 只读队列。
+            # 2026-09-17 修复 (response_content 恒空): 累积每轮文本 —— 原实现
+            # 初始化后全函数体零赋值，loop-abort/超轮次 done 的 content 恒回退
+            # 占位文案，最后一轮真实回复被丢弃。
+            if round_content:
+                response_content = (
+                    round_content if not response_content
+                    else response_content + "\n" + round_content
+                )
             yield {
                 "type": "round_end",
                 "round_idx": round_idx,
@@ -689,8 +709,11 @@ class ModelCallMixin:
 
         content = response_content or "[达到最大工具调用轮次]"
         final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+        # 超轮次路径 engine 已写镜像（同正常 done），CLI 不再兜底
+        finalized = True
         yield {"type": "done", "content": final_content,
-               "usage": {"input_tokens": total_input, "output_tokens": total_output}}
+               "usage": {"input_tokens": total_input, "output_tokens": total_output},
+               "finalized": finalized}
 
     def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
         bm = self._behavior
@@ -743,6 +766,15 @@ class ModelCallMixin:
             # P17 修复 (2026-09-14): 幻觉修正路径工具执行必须与主路径对称写 journal——
             # 否则 _finalize_turn 从 journal 取 tool_evidence 为空，修正轮真实执行的
             # bash/write 等会被 prior_verifier 当「无据」打 ⚠ [工具结果未验证]（误报）。
+            # 2026-09-17 修复 (消息序契约): assistant 消息移出循环 —— 原实现在
+            # for 循环体内 append，N 个 tool_calls 产生 N 条重复 ASSISTANT 且与
+            # TOOL 结果交错，违反 OpenAI/Anthropic「assistant.tool_calls 必须紧跟
+            # 其全部 tool 结果」契约。
+            messages.append(ModelMessage(
+                role=MessageRole.ASSISTANT,
+                content=response.content,
+                tool_calls=response.tool_calls,
+            ))
             for tc in response.tool_calls:
                 self._journal_append("tool_call", {
                     "tool_call_id": tc.id, "name": tc.name, "arguments": tc.arguments,
@@ -754,11 +786,6 @@ class ModelCallMixin:
                     "output_preview": preview,
                     "is_error": is_tool_error(tool_output),
                 })
-                messages.append(ModelMessage(
-                    role=MessageRole.ASSISTANT,
-                    content=response.content,
-                    tool_calls=response.tool_calls,
-                ))
                 messages.append(ModelMessage(
                     role=MessageRole.TOOL,
                     content=tool_output,

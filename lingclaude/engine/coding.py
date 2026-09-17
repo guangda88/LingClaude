@@ -49,8 +49,17 @@ class CodingRuntime(
         self.verification_gate = VerificationGate()
         self._setup_tools()
         # P0-1: todo store (session-scoped SQLite)
-        data_dir = Path("/home/ai/lingclaude/data")
-        data_dir.mkdir(exist_ok=True)
+        # 2026-09-17 修复 (硬编码绝对路径): 原 /home/ai/lingclaude/data 换机即崩，
+        # 与 safe_db.fallback_dir 的项目根相对定位哲学冲突 —— 改为
+        # 项目根(本文件 parents[2])/data，并保留 env 覆盖口。
+        import os as _os
+
+        env_data = _os.environ.get("LINGCLAUDE_DATA_DIR")
+        if env_data:
+            data_dir = Path(env_data)
+        else:
+            data_dir = Path(__file__).resolve().parents[2] / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
         session_id = getattr(self.config, "session_id", "default")
         self._todo_store = TodoStore(data_dir / "todos.db", session_id=session_id)
         self._todo_handlers = _make_todo_handlers(self._todo_store)

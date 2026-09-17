@@ -149,6 +149,7 @@ class PermissionContext:
         """
         lowered = tool_name.lower()
         return PermissionContext(
+            mode=self.mode,
             deny_names=self.deny_names - {lowered},
             deny_prefixes=self.deny_prefixes,
             auto_approve_names=self.auto_approve_names | {lowered},
@@ -158,6 +159,7 @@ class PermissionContext:
         """T0-3: 返回新的 PermissionContext，将 tool_name 加入 deny"""
         new_deny = self.deny_names | {tool_name.lower()}
         return PermissionContext(
+            mode=self.mode,
             deny_names=new_deny,
             deny_prefixes=self.deny_prefixes,
             auto_approve_names=self.auto_approve_names - {tool_name.lower()},
@@ -245,21 +247,21 @@ def set_permission_mode(mode: str) -> bool:
 
 def _load_persisted() -> None:
     global _GLOBAL_MODE  # 2026-09-15 修复: 缺此声明，赋值成局部变量，mode 永远停在默认 ask
+    mode_from_persist: str | None = None
     try:
         if _PERSIST_PATH.exists():
             data = json.loads(_PERSIST_PATH.read_text(encoding="utf-8"))
             _PERSISTED_TOOLS.update(str(t).lower() for t in data.get("always_allow", []))
             if data.get("mode") in ("auto", "ask", "strict"):
                 _GLOBAL_MODE = data["mode"]
+                mode_from_persist = data["mode"]
     except Exception as e:  # noqa: BLE001 — 持久化文件损坏不应阻塞启动
         logger.warning("approvals.json 读取失败: %s", e)
-    if _GLOBAL_MODE == "ask":  # 2026-09-15 兜底: approvals.json 未设 mode 时读 config.yaml
-        # 2026-09-17 修复 (guard.approval_mode 永不生效): 原实现用
-        # globals().get("load_approval_mode") 延迟取函数，但 _load_persisted()
-        # 在导入期（本函数定义处立即调用）执行时该函数尚未定义，fn 恒为
-        # None → 兜底是死代码，config.yaml 的 guard.approval_mode 从未生效，
-        # 进程 mode 恒默认 "ask"。现将调用点延后到模块尾部（见文件末尾），
-        # 此处可直接引用；approvals.json 优先级高于 config 的语义不变。
+    if mode_from_persist is None and _GLOBAL_MODE == "ask":
+        # 2026-09-17 修复: 仅当 approvals.json 未显式设置 mode 时才读 config.yaml
+        # （原条件 `if _GLOBAL_MODE == "ask"` 会把 approvals.json 显式写的
+        #  "mode": "ask" 也覆盖掉 — 注释声称 approvals.json 优先级更高，
+        #  实现却相反）。兜底读 config 的调用点延后至模块尾部（见文件末尾）。
         import os as _os
 
         _GLOBAL_MODE = load_approval_mode(
@@ -324,24 +326,31 @@ _CONFIG_MODE_PATH = ("guard", "approval_mode")
 
 
 def load_approval_mode(config_path: Path | str | None = None) -> str:
-    """从 config.yaml 读取 guard.approval_mode, 缺省 auto。
+    """从 config.yaml 读取 guard.approval_mode, 缺省按调用场景区分。
 
-    读取失败一律回退 auto (fail-open 仅限配置缺失场景; 一旦读到非法值,
-    PermissionContext/ApprovalGuard 构造会 fail-closed 抛错)。
+    权限语义 fail-closed（2026-09-17）：
+      - config 存在但 guard.approval_mode 缺省 → "auto"（合法的部署选择）；
+      - config 缺失/不可读/解析失败 → "ask"（fail-closed，异常状态不提权）；
+      - 值非法（不在 VALID_MODES）→ "ask"（防配置手坏导致意外提权）。
     """
     if config_path is None:
         return "auto"
+    p = Path(config_path)
+    if not p.exists():
+        return "ask"  # fail-closed: 配置缺失不等于授权 auto
     try:
         import yaml
 
-        raw = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         mode = raw
         for key in _CONFIG_MODE_PATH:
             mode = (mode or {}).get(key) if isinstance(mode, dict) else None
-        normalized = str(mode or "auto").strip().lower()
-        return normalized if normalized in VALID_MODES else "auto"
-    except Exception:  # noqa: BLE001 — 配置缺失/损坏时回退默认
-        return "auto"
+        if mode is None:  # guard 段缺失 → 合法默认 auto
+            return "auto"
+        normalized = str(mode).strip().lower()
+        return normalized if normalized in VALID_MODES else "ask"  # 非法值 fail-closed
+    except Exception:  # noqa: BLE001 — 解析损坏时回退 ask（不提权）
+        return "ask"
 
 
 def get_permission_store(session_id: str = "default") -> PermissionStore:

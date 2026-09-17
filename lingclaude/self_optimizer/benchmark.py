@@ -64,11 +64,16 @@ class BenchmarkEvaluator:
         benchmark_path: str | Path | None = None,
     ) -> None:
         self.target_path = Path(target_path)
-        self._checks: list[dict[str, str]] = list(_BUILTIN_CHECKS)
+        # 注意: 必须 dict 级拷贝 —— list(_BUILTIN_CHECKS) 是浅拷贝, 各实例共享
+        # 同一批 dict, adopt_params 改写阈值时会污染模块级常量（跨实例串味）。
+        self._checks: list[dict[str, str]] = [dict(c) for c in _BUILTIN_CHECKS]
         if benchmark_path is not None:
             custom = json.loads(Path(benchmark_path).read_text(encoding="utf-8"))
             if isinstance(custom, list) and custom:
                 self._checks = custom
+        # 「复杂方法」判定线（_scan 用）: 默认 15, 可被 adopt_params 映射为
+        # config 的 triggers.max_complexity —— 打通 参数→分数 耦合通道。
+        self._complex_threshold: float = 15.0
         self._last_result: BenchmarkResult | None = None
 
     # ---- 内部：一次 AST 扫描提取全部指标（题集共享，避免重复遍历） ----
@@ -114,7 +119,7 @@ class BenchmarkEvaluator:
                 for fn in body_fns:
                     c = StructureEvaluatorLike.complexity(fn)
                     complexity_sum += c
-                    if c > 15:
+                    if c > self._complex_threshold:
                         complex_methods += 1
 
         n_cls = len(class_lines) or 1
@@ -135,6 +140,34 @@ class BenchmarkEvaluator:
         }
 
     # ---- 对外：跑基准 → 0-100 分 ----
+
+    # best_params 键 → (题集 id, 新阈值)。打通 参数→判定阈值 耦合通道：
+    # 未列出的参数键不影响分数（保持既定阈值）。
+    _PARAM_TO_CHECK: dict[str, tuple[str, str]] = {
+        "max_class_size": ("b01", "max_class_lines<={:.0f}"),
+        "max_method_count": ("b02", "max_method_count<={:.0f}"),
+        "max_complexity": ("b03", "avg_complexity<={:.0f}"),
+        "coupling_limit": ("b04", "complex_ratio<={:.4f}"),
+    }
+
+    def adopt_params(self, params: dict) -> None:
+        """把优化器候选参数映射进题集判定阈值（b01-b04）。
+
+        这是 benchmark 模块 docstring 声称的「参数变化 → 行为分变化」
+        可测通道的实际接线（2026-09-17）：此前阈值硬编码，_apply_params
+        只写 config.yaml，分数与参数零耦合 → daemon P0 门禁恒等分死门。
+        max_complexity 额外驱动 _scan 的「复杂方法」判定线（原硬编码 15）。
+        """
+        for key, value in params.items():
+            mapping = self._PARAM_TO_CHECK.get(key)
+            if mapping is not None:
+                check_id, tmpl = mapping
+                for chk in self._checks:
+                    if chk.get("id") == check_id:
+                        chk["check"] = tmpl.format(float(value))
+                        break
+            if key == "max_complexity":
+                self._complex_threshold = float(value)
 
     def run(self) -> BenchmarkResult:
         m = self._scan()

@@ -436,7 +436,9 @@ class MemoryRetriever:
         self._store = store
 
     def retrieve(self, query: str, tags: list[str] | None = None, limit: int = 5) -> list[dict]:
-        all_tags = tags or []
+        # 2026-09-17 修复 (调用方列表污染): 原 `tags or []` 非空入参时是别名，
+        # all_tags.append 直接改调用方列表 → 跨次调用累积。
+        all_tags = list(tags) if tags else []
         query_lower = query.lower()
         for word in query_lower.split():
             if len(word) >= 2:

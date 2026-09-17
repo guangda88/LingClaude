@@ -137,8 +137,12 @@ class SubAgent:
         tr = self._execute_tool_typed(name, arguments_json)
         return json.dumps(tr.to_dict(), ensure_ascii=False, default=str)
 
-    def _execute_tool_typed(self, name: str, arguments_json: str) -> ToolResult[Any]:
-        """强类型版本：sub-agent 工具执行（错误语义用 error.code）。"""
+    def _execute_tool_typed(self, name: str, arguments_json: str) -> "ToolResult[Any]":
+        """强类型版本：sub-agent 工具执行（错误语义用 error.code）。
+
+        2026-09-17: 注解加引号（惰性求值）— ToolResult 仅函数内局部导入，
+        裸注解在 get_type_hints() 时 F821。
+        """
         from lingclaude.core.types import ToolErrorCode, ToolResult, parse_tool_result
 
         try:

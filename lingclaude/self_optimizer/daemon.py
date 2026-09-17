@@ -291,29 +291,34 @@ class OptimizationDaemon:
             logger.error("优化失败: %s", result.error)
             return Result.ok(None)
 
-        # ---- P0 实证门禁（2026-09-17）：基准分不回退 ----
-        # best_params 不得只凭代理指标（violations）收账：跑行为基准，
-        # 分数低于上一轮基线 → 拒绝应用（report-only 落日志），防止
-        # "参数把结构指标调好看但行为变差"的优化漂移。
+        # ---- P0 实证门禁（2026-09-17 双测版）----
+        # before/after 双测: before 用现行配置阈值跑基准并持久化基线（供跨轮
+        # 比较/重启恢复），after 用 adopt_params(best_params) 联动题集阈值后
+        # 复测——分数与参数耦合（原实现阈值硬编码 + 基准在 _apply_params 之前
+        # 测，恒等分 → 门禁死门，atomcode B2 / opencode #9）。
+        # after.score < before.score → 参数会拉低行为分 → 拒绝应用本轮参数。
         bench_before = self.benchmark.run()
-        if self._last_benchmark_score is not None:
-            if bench_before.score < self._last_benchmark_score:
-                logger.warning(
-                    "[P0门禁] 基准分回退 %.1f → %.1f，本轮 best_params 拒绝应用"
-                    "（violations=%s 仅作参考）",
-                    self._last_benchmark_score, bench_before.score,
-                    result.best_score,
-                )
-                return Result.ok(None)
-        self._last_benchmark_score = bench_before.score
-        # 遗留项1（2026-09-17）：基线同步持久化——供 daemon 重启后恢复，
-        # 否则恢复读线永远读到 None（门禁跨进程失效）。
         self.state.benchmark_baseline = bench_before.score
         self.state.save(self.state_path)
         logger.info(
-            "[P0门禁] 基准分 %.1f/%d 通过（passed=%d/%d）",
+            "[P0门禁] 基准分 %.1f/%d（passed=%d/%d）",
             bench_before.score, 100, bench_before.passed, bench_before.total,
         )
+        self.benchmark.adopt_params(result.best_params)
+        bench_after = self.benchmark.run()
+        if bench_after.score < bench_before.score:
+            logger.warning(
+                "[P0门禁] 参数联动复测回退 %.1f → %.1f，本轮 best_params 拒绝应用"
+                "（violations=%s 仅作参考）",
+                bench_before.score, bench_after.score, result.best_score,
+            )
+            return Result.ok(None)
+        if bench_after.score > bench_before.score:
+            logger.info(
+                "[P0门禁] 参数联动复测提升 %.1f → %.1f，best_params 通过",
+                bench_before.score, bench_after.score,
+            )
+        self._last_benchmark_score = bench_before.score
 
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         report_name = f"cycle_{self.state.total_cycles + 1:04d}.md"
@@ -465,8 +470,8 @@ class OptimizationDaemon:
         from lingclaude.core.file_lock import file_edit_lock
 
         try:
-            lock_ctx = file_edit_lock(config_path, owner="self_optimizer")
-            lock_ctx.__enter__()
+            lock_cm = file_edit_lock(config_path, owner="self_optimizer")
+            lock_cm.__enter__()
             import yaml
 
             raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -738,9 +743,17 @@ class OptimizationDaemon:
 
             store = MetricsStore(self.state_dir / "metrics.db")
             scorer = QualityScorer(store)
+            # 2026-09-17 修复 (恒用默认值): last_metrics 从无 avg_complexity
+            # 写入点，恒取 5.0。改从 benchmark 真实 AST 扫描取值。
+            avg_complexity = 5.0
+            try:
+                scan = self.benchmark._scan()
+                avg_complexity = float(scan.get("avg_complexity", 5.0))
+            except Exception:  # noqa: BLE001 — 质量分是遥测，取不到不阻塞
+                pass
             structure_metrics = {
                 "violations": cycle.violations_after,
-                "avg_complexity": self.state.last_metrics.get("avg_complexity", 5.0),
+                "avg_complexity": avg_complexity,
                 "large_classes": self.state.last_metrics.get("large_classes", 0),
             }
             behavior_metrics = {
