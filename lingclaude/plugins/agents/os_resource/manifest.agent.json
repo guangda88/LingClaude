@@ -1,0 +1,35 @@
+{
+  "name": "os/resource",
+  "target": "os-resource-probes",
+  "display_name": "OS 资源探针（GPU/CPU/内存/磁盘）",
+  "version": "1.0.0",
+  "trust_level": "T3",
+  "plug_level": "L3",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "probe",
+    "mode": "direct",
+    "probes": [
+      {"name": "gpu", "cmd": "nvidia-smi", "absent_if": "命令不存在或非零退出"},
+      {"name": "cpu", "cmd": "loadavg", "absent_if": "/proc/loadavg 不可读"},
+      {"name": "mem", "cmd": "free", "absent_if": "/proc/meminfo 不可读"},
+      {"name": "disk", "cmd": "df", "absent_if": "statvfs 失败"}
+    ]
+  },
+  "stop_layer": {
+    "kernel": "ResourceProbe 四探针（gpu/cpu/mem/disk）→ 单机资源观测面",
+    "seams": ["probe_backend"],
+    "implementations": 4,
+    "note": "内核=ResourceProbe 协议（probe/status），子插片接缝=probe_backend（四数据源各一实现）；单探针故障圈死（铁律 8），不扩散到其他探针"
+  },
+  "capabilities": ["probe_gpu", "probe_cpu", "probe_mem", "probe_disk", "list_probes"],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "probe",
+    "absent_after": 1,
+    "note": "T3 只观测：数据源消失=该探针 absent（N4 缺席查硬件实例），连续 1 次 probe 返 None 即 absent。故障域=单探针（域前缀 os/resource + 探针名圈死最细粒度）。"
+  },
+  "state_record": "resource_probe",
+  "notes": "Phase C（第四层预研提前到第三层落地）：只落'资源即插片'（探针型），不做完整 OS 插片化。T3 只观测（OS 黑盒，只记 resource_probe record，不判 OS 违规）；L3 缺席裸奔（拔掉探针功能消失但主干不崩）。这是 N4 缺席查的第一个硬件级实例——硬件缺席是物理事实（铁律 8 第 1 条），缺席即圈死该探针，域内其他探针不受影响。"
+}

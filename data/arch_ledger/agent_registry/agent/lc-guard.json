@@ -1,0 +1,19 @@
+{
+  "manifest_path": "lingclaude/plugins/agents/lc_mcp_guard/manifest.agent.json",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": [
+      "python3",
+      "lingclaude/plugins/agents/lc_mcp_guard/server.py"
+    ],
+    "command_note": "lc 仓内 MCP server 薄壳（FastMCP stdio），把 lc 守卫/台账面暴露为 MCP 工具，供 atomcode（MCP 客户端）消费。薄壳=协议翻译，零业务逻辑（J1：变化走接缝，薄壳不抄守卫 kernel）。",
+    "cwd": "/home/ai/lingclaude",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "state": "registered",
+  "note": "铁律 5 双向互认（第二层试验田）：lc 守卫 MCP 薄壳，ac 经 .mcp.json 连接调用 lc 守卫面。federation_pair key=lc-ac state=proposing（data/arch_ledger/federation_pair/lc-ac.json）。"
+}

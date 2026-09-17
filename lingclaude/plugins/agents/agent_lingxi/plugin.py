@@ -202,14 +202,19 @@ class LingxiAgentPlugin:
         self._store.save("agent_run", run_id, rec)
 
 
-def _domain_of(seam_key: str) -> str:
-    """铁律 7 缝 key 的域 = 域前缀（'agent/lingxi' → 'agent'）。"""
-    return seam_key.split("/", 1)[0] if "/" in seam_key else seam_key
+# P2-1 整改（2026-09-18 lc 审查）：原语平移至 plugins/agents/mcp_common.py（公共接缝），
+# 本模块保留同名别名供既有测试锚定（test_agent_lingxi.py 引 _extract_response/_domain_of）；
+# 消费方一律引 mcp_common，禁再 import 本插片内部（消除插片横向耦合）。
+from lingclaude.plugins.agents.mcp_common import (
+    domain_of as _domain_of,
+    extract_response as _extract_response_impl,
+    health_key as _health_key,
+)
 
 
-def _health_key(seam_key: str) -> str:
-    """缝 key 是带 '/' 的域前缀 key，StateStore 存取 key 需文件名安全化。"""
-    return seam_key.replace("/", "__")
+def _extract_response(out: str, req_id: int) -> dict | None:
+    """兼容别名：转发公共接缝 extract_response（J5 行为不变）。"""
+    return _extract_response_impl(out, req_id)
 
 
 def query_domain_health(store: StateStore, domain: str,

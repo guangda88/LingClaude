@@ -1,5 +1,5 @@
 {
-  "head": "1daf921",
+  "head": "96f5955",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "4844ee606eeb",
     "tests/test_iron_law_guards.py": "7eeb171046b2",
@@ -7,7 +7,7 @@
     "scripts/arch_ledger.py": "abf50504cd3c",
     "scripts/seam_trend_inspect.py": "aa3a4688213e",
     "lingclaude/core/state_store.py": "b67d6506da0e",
-    "lingclaude/core/seam.py": "20f7f600ecf6",
+    "lingclaude/core/seam.py": "1c77def299cc",
     ".github/workflows/ci.yml": "0cb6f23b8e43",
     "arch_debt:agent-lingxi-mcp-probe-timeout": "c39e07793d79",
     "arch_debt:candzone-ironlaw5-federation-arbitration": "8f668aaf503a",
@@ -15,6 +15,7 @@
     "arch_debt:candzone-ironlaw7-namespace-arbitration": "141891a1faa2",
     "arch_debt:candzone-ironlaw8-faultdomain-arbitration": "8cf959468e57",
     "arch_debt:candzone-j5-efficiency-arbitration": "b0e8fac0171f",
+    "arch_debt:cap-crew-lingflow-deferred": "9c9854936dc2",
     "arch_debt:governance-export-view-j4-migration": "accd07c3e3be",
     "arch_debt:governance-v2-proposals-j4-migration": "7a7c33a8e775",
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
@@ -120,5 +121,5 @@
     "arch_exemption:wakeup_channel.py": "edf4f812a90c",
     "arch_exemption:wiring.py": "411460a4744d"
   },
-  "checked": "2026-09-17T17:18:09+00:00"
+  "checked": "2026-09-17T21:08:22+00:00"
 }

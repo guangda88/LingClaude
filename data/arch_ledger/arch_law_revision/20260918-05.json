@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-18",
+  "event": "enacted",
+  "note": "Phase B+C 批次 G3 基线 +20→+28 归档（8 处增量逐一归因，判合法懒加载入账）：cap_browser/plugin.py 3 处——:182 work_claim 延迟 import（防循环+测试 stub 注入点）、:205 playwright 延迟 import（重依赖按需加载，未装 playwright 不阻塞 lc 主干）、:263 register() 内 SeamType 延迟 import（接缝协议惯例防循环）；lc_mcp_guard/server.py 2 处——:171 importlib（work_claim 模块依赖探测，缺失时结构化报错不崩薄壳）、:173 StateStore（同上按需加载）；lc_mcp_guard/plugin.py 2 处——:190 mcp_common 公共接缝延迟 import（P2-1 整改产物，替代原 agent_lingxi 横向耦合 import）、:213 register() 内 SeamType（同惯例）；cap_infer/plugin.py 1 处——:281 register() 内 SeamType（同惯例）。守卫口径教训入账：G3 是 UserWarning 不阻塞测试，warning 淹在输出尾部致增量两轮未追到底（lc 审查发现清单 P2-2）——归档动作从'守卫提醒'改为'每轮新插片入册即随修订史清点'，不再依赖 warning 被看到",
+  "doc": "lingclaude/plugins/agents/{cap_browser,lc_mcp_guard,cap_infer,agent_lingxi,mcp_common}* + tests/agents/*",
+  "recorded": "2026-09-18T00:00:00+00:00"
+}

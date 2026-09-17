@@ -45,6 +45,7 @@ class SeamType(str, Enum):
     AGENT = "agent"              # 外部 Agent 插片（灵研/灵知/灵信/灵极优/灵通问道…，对标 Ekko Studio 挂载）
     MULTIMODAL = "multimodal"    # 多模态任务插片（灵通问道 analyze_emotion/synthesize_speech/…）
     ORCHESTRATOR = "orchestrator"  # 跨 Agent 编排插片（CrewOrchestrator，对标 Multi-Agent Crews）
+    RESOURCE = "resource"          # 资源探针插片（GPU/CPU/内存/磁盘，第四层预研，铁律 8 隔离故障域+N4 缺席查硬件实例）
 
 
 # 拔插等级声明（M5 前置义务，铁律 §二「拔插等级声明义务」，2026-09-17 整改补齐）：
@@ -64,6 +65,7 @@ PLUG_LEVELS: dict[SeamType, str] = {
     SeamType.AGENT: "L3",         # 外部 Agent 缺席 = 功能消失不崩
     SeamType.MULTIMODAL: "L3",    # 多模态任务缺席 = 功能消失不崩
     SeamType.ORCHESTRATOR: "L3",  # 编排缺席 = 功能消失不崩
+    SeamType.RESOURCE: "L3",       # 资源探针缺席 = 该探针 absent（铁律 8 隔离故障域，单探针圈死），主干不崩
 }
 
 
@@ -146,6 +148,22 @@ class CrewOrchestrator(Protocol):
     def status(self, crew_id: str) -> dict[str, Any]: ...
 
 
+@runtime_checkable
+class ResourceProbe(Protocol):
+    """资源探针插片协议（第四层 OS/硬件预研，铁律 8 隔离故障域+N4 缺席查硬件实例）。
+
+    探针=单数据源观测器（GPU/CPU/内存/磁盘各为一个插片实例，域前缀 os/）：
+    - probe()：采一次数据源 → 数据 dict（无数据=absent，不假活）；
+    - status()：健康态（数据源消失 → absent，故障圈死在单探针，不扩散到域外）。
+    T3 只观测：OS 黑盒，只记 resource_probe record，不判"OS 违规"。
+    """
+
+    name: str
+
+    def probe(self) -> dict[str, Any] | None: ...
+    def status(self) -> dict[str, Any]: ...
+
+
 # SeamType → 期望的 Protocol（结构性检查用；None=不检查）
 _EXPECTED_PROTOCOL: dict[SeamType, type[Protocol] | None] = {
     SeamType.PROVIDER: ProviderPlugin,
@@ -158,6 +176,7 @@ _EXPECTED_PROTOCOL: dict[SeamType, type[Protocol] | None] = {
     SeamType.AGENT: AgentSeam,
     SeamType.MULTIMODAL: MultimodalTask,
     SeamType.ORCHESTRATOR: CrewOrchestrator,
+    SeamType.RESOURCE: ResourceProbe,
 }
 
 

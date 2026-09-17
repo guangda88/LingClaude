@@ -1,0 +1,11 @@
+{
+  "type": "federation_pair",
+  "key": "ac-lc",
+  "state": "paired",
+  "paired_at": 1789678704.8328025,
+  "note": "铁律 5 双向互认对偶侧（第二层试验田）：atomcode(ac) 作为宿主，经 ~/.atomcode/mcp.json 的 lc-guard server 消费 lc 守卫面（6 工具）。对偶主侧 lc-ac.json（lc 即 ac 的 MCP server 插片）；本侧记 ac 即 lc 的消费宿主。N1 对账：两侧同 key 语义（lc-ac ↔ ac-lc）同 state（paired），缺一/不一致即警。",
+  "consumer_config": "~/.atomcode/mcp.json#mcpServers.lc-guard",
+  "counterpart": "data/arch_ledger/federation_pair/lc-ac.json",
+  "trust_level": "T1",
+  "created_by": "lingclaude"
+}

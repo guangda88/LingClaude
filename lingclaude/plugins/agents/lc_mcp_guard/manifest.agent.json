@@ -1,0 +1,41 @@
+{
+  "name": "agent/lc-guard",
+  "target": "lc-guard-mcp-server",
+  "display_name": "灵克守卫 MCP 薄壳（ac 调 lc 守卫面）",
+  "version": "0.1.0",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": ["python3", "lingclaude/plugins/agents/lc_mcp_guard/server.py"],
+    "command_note": "lc 仓内 MCP server 薄壳（FastMCP stdio），把 lc 守卫/台账面暴露为 MCP 工具，供 atomcode（MCP 客户端）消费。薄壳=协议翻译，零业务逻辑（J1：变化走接缝，薄壳不抄守卫 kernel）。",
+    "cwd": "/home/ai/lingclaude",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "FastMCP stdio → lc 守卫/台账查询面（self_audit_trigger + arch_ledger + ling_org + 铁律条文）",
+    "seams": ["guard_tool"],
+    "implementations": 1,
+    "note": "薄壳 kernel=协议翻译（MCP tools/call → lc 对应实体），子插片接缝=guard_tool（每个守卫工具一个实现）；薄壳不判业务，只转发+错误结构化"
+  },
+  "capabilities": [
+    "lc_audit_trigger",
+    "lc_audit_tasks",
+    "lc_ledger_query",
+    "lc_org_query",
+    "lc_law_read",
+    "lc_workclaim_query"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "mcp_list_tools",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lc-guard",
+  "federation_pair": "lc-ac",
+  "notes": "铁律 5 双向互认（第二层试验田，ac 调 lc 守卫方向）：atomcode 是 MCP 客户端（消费 MCP server tools），lc 把自己封成 MCP server 薄壳，ac 经 .mcp.json 连接调用 lc 守卫面（lc_audit_trigger 让工作少出错，用户目标 2）。federation_pair record type=federation_pair key=lc-ac state=proposing，N1 周期对账（缺一/不一致即警）。T1 全审计（lc 仓代码在手）；L1 替换（薄壳可换其他 lc 守卫 MCP 实现，接口一致即不崩）。审计权限边界：薄壳只读转发，不写 lc 主干（J1 变化走接缝，薄壳不抄守卫 kernel）。"
+}

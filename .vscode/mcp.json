@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "lc-guard": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["/home/ai/lingclaude/lingclaude/plugins/agents/lc_mcp_guard/server.py"],
+      "cwd": "/home/ai/lingclaude",
+      "env": {},
+      "_note": "铁律 5 双向互认（第二层备选实例）：VS Code 是 MCP 客户端，lc 把自己封成 MCP server 薄壳（agent/lc-guard，6 工具）。VS Code 侧信任等级=T2 契约审计（闭源宿主，黑盒但可观测履约，方案 §1.2 表），与 atomcode（T1 全审计）区分。copilot/mcp.json 是 VS Code 1.99+ 的 MCP 客户端配置标准位（workspace 级）；用户级在 ~/.config/Code/User/mcp.json。"
+    }
+  }
+}

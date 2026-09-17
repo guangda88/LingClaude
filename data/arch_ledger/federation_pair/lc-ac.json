@@ -1,0 +1,17 @@
+{
+  "type": "federation_pair",
+  "key": "lc-ac",
+  "state": "paired",
+  "note": "铁律 5 双向互认（第二层试验田）：atomcode(ac) 是 MCP 客户端，lc 把自己封成 MCP server 薄壳（agent/lc-guard，6 工具：lc_audit_trigger/lc_audit_tasks/lc_ledger_query/lc_org_query/lc_law_read/lc_workclaim_query），ac 经 .mcp.json 连接调用 lc 守卫面（让工作少出错，用户目标 2）。对偶：ac 侧应同步建对偶 record（ac 即 lc 的插片）；N1 周期对账（缺一/不一致即警）。state 走六态 proposing→paired→drift|broken→restored|dissolved；2026-09-18 N1 对账两侧齐（对偶侧 ac-lc.json）已转 paired。lc 侧 manifest 落点 lingclaude/plugins/agents/lc_mcp_guard/manifest.agent.json（trust_level=T1/plug_level=L1）。",
+  "manifest": "lingclaude/plugins/agents/lc_mcp_guard/manifest.agent.json",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "created": "2026-09-17T17:56:35+00:00",
+  "created_by": "lingclaude",
+  "paired_at": 1789668160.679294,
+  "n1_check": {
+    "ac_side": ".mcp.json mcpServers.lc-guard（ac 经 MCP 消费 lc 守卫面）",
+    "lc_side": "lingclaude/plugins/agents/lc_mcp_guard/{manifest,server,plugin} + agent_registry/agent/lc-guard",
+    "note": "两侧对偶 record 齐，state 一致（paired）。N1 周期对账（缺一/不一致即警）已建立。"
+  }
+}

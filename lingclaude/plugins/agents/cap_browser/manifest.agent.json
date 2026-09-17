@@ -1,0 +1,43 @@
+{
+  "name": "cap/browser",
+  "target": "cdp-browser-engine",
+  "display_name": "浏览器动作面（CDP 9228）",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cdp",
+    "mode": "direct",
+    "endpoint": "http://127.0.0.1:9228",
+    "note": "CDP 9228=窗口版调试 Chrome（会话简报坑 #6：9222 归 yai-cdp-guard 无头守护，禁用 9222）；探针=GET /json/version + /json/list；动作经 playwright sync API 连接（connect_over_cdp）。",
+    "startup_timeout_s": 5,
+    "call_timeout_s": 30
+  },
+  "stop_layer": {
+    "kernel": "playwright connect_over_cdp → CDP 9228 浏览器动作（5 原语）",
+    "seams": ["browser_backend"],
+    "implementations": 1,
+    "note": "内核=5 原语动作面（page_load/screenshot/click/fill/evaluate），子插片接缝=browser_backend（CDP 9228 窗口版可换 playwright headless，L1 接口一致即不崩）"
+  },
+  "capabilities": ["page_load", "screenshot", "click", "fill", "evaluate", "list_tabs"],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "http_200",
+    "probe_url": "http://127.0.0.1:9228/json/version",
+    "absent_after": 2
+  },
+  "state_record": "browser_action",
+  "work_claim": {
+    "write_actions": ["click", "fill", "evaluate"],
+    "lock_scope": "tab",
+    "note": "铁律 8 操作域：写操作（click/fill/evaluate）前必须 work_claim 认领（scope=tab url），同 tab 双写即警（N4 互斥查）；只读动作（page_load/screenshot/list_tabs）免锁。"
+  },
+  "dom_snapshot": {
+    "note": "J5 行为级锚定：写操作记录动作前后 DOM 快照 hash（document.documentElement.outerHTML sha256），成功锚定'页面状态确实变了'（hash 变化），非仅 exit 0。",
+    "hash_algo": "sha256",
+    "max_capture_bytes": 200000
+  },
+  "notes": "Phase B（第三层试验田，CODING_AGENT_PLUGIN_PLAN_L2_L3.md §2.2）：web 工具只有查询面，本插片补动作面。T2 契约审计（CDP 引擎本机可读进程）；L1 替换（CDP 9228 可换 playwright headless）。写前 work_claim 认领 + DOM 快照 hash 行为锚（J5）。"
+}

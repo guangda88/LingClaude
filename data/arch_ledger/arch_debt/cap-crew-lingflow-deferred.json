@@ -1,0 +1,12 @@
+{
+  "type": "arch_debt",
+  "key": "cap-crew-lingflow-deferred",
+  "state": "open",
+  "severity": "P3",
+  "created": "2026-09-17T21:00:31+00:00",
+  "created_by": "lingclaude",
+  "location": "docs/lacp/CODING_AGENT_PLUGIN_PLAN_L2_L3.md §2.3 + CAPABILITY_PLUGIN_PLAN_L3.md §2.2 cap/crew",
+  "reason": "cap/crew（CrewSeam 首插片）依赖 agent/lingflow 在位；实测 2026-09-18：agent_registry 仅 lc-guard+lingxi 在册，lingflow 未接入（第一层 12 子批量接入未完成）。按方案 §2.3 关键依赖预案顺延。",
+  "clear_condition": "agent/lingflow 插片入册（第一层批量接入）后，封 lingflow 工作流引擎为 cap/crew 首插片（CrewSeam 协议 core/seam.py CrewOrchestrator 已就绪零实现）",
+  "due": "2026-10-31"
+}
