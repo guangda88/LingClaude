@@ -16,6 +16,8 @@ from lingclaude.cli.repl_turn import _record_long_task_metrics
 SLASH_COMPLETER_WORDS = [
     "/help", "/clear", "/compact", "/model", "/schedule", "/lsp",
     "/resume", "/continue", "/session", "/checkpoint", "/recover", "/rewind", "/quit",
+    # 2026-09-17: 任务面板（对标 AtomCode todowrite）—— /tasks /todo /plan 同义
+    "/tasks",
 ]
 
 
@@ -76,6 +78,15 @@ class SlashCommandProcessor:
             # 项目会话（带摘要）/ 切换到指定会话。会话按当前工作目录隔离。
             self._cmd_session(arg)
             return True
+        if name in ("/tasks", "/todo", "/plan"):
+            # 2026-09-17: 任务面板 —— 第1级（渲染）+ 第2级（状态纪律）：
+            #   /tasks             列出活跃任务（in_progress 高亮 + pending）
+            #   /tasks add <文本>  新增任务
+            #   /tasks start <id>  置 in_progress（其他 in_progress 自动退回 pending）
+            #   /tasks done <id>   完成一项（禁批量）
+            #   /tasks all         全量（含 completed/cancelled）
+            self._cmd_tasks(arg)
+            return True
         return False
 
     # ---- P5 回路驱动拆分：P4.1 迁移的巨 handle (radon F(82)) 按命令分派拆方法 ----
@@ -94,6 +105,7 @@ class SlashCommandProcessor:
         print("  /rewind [tag]           列出/回滚到历史 checkpoint 快照（P1 rewind）")
         print("  /resume [ID]           恢复指定会话（不带 ID 列出全部；ID 支持短前缀）")
         print("  /continue              恢复最近一次会话（等价启动参数 --continue）")
+        print("  /tasks [add|start|done|all]  任务面板（对标 AtomCode：单 in_progress + 中断退回）")
         print("  /quit、/exit           退出")
 
     def _cmd_compact(self) -> None:
@@ -462,3 +474,108 @@ class SlashCommandProcessor:
             print(f"[会话已切换] {target_id[:8]}（{len(engine._conversation)} 轮对话；当前上下文已替换）")
         else:
             print(f"[会话切换失败] {target_id} 不存在或已损坏（当前上下文未受影响）")
+
+    def _cmd_tasks(self, arg: str) -> None:
+        """2026-09-17 任务面板（第1级渲染 + 第2级纪律）。
+
+        用法：
+          /tasks              活跃面板（in_progress 高亮 + pending，按优先级）
+          /tasks all         全量（含 completed/cancelled）
+          /tasks add <文本>  新增 pending 项
+          /tasks start <id>  置 in_progress（其他 in_progress 自动退回 pending）
+          /tasks done <id>   完成一项（禁批量——逐项核销，面板永远真实）
+        数据源：engine._runtime._todo_store（TodoStore，session 级 SQLite 持久化，
+        跨 /continue 恢复仍在）。无 runtime（单轮/降级模式）时明确提示不静默。
+        """
+        from lingclaude.engine.todo import TodoStatus
+
+        runtime = getattr(self.engine, "_runtime", None)
+        store = getattr(runtime, "_todo_store", None) if runtime else None
+        if store is None:
+            print("[任务] 当前模式无任务存储（TodoStore 需 CodingRuntime；单轮/降级模式不可用）")
+            return
+
+        handlers = getattr(runtime, "_todo_handlers", None) or {}
+        arg = arg.strip()
+
+        if not arg:
+            items = store.active_items()
+            self._print_task_panel(items)
+            return
+        if arg == "all":
+            items = store.list()
+            self._print_task_panel(items)
+            return
+        parts = arg.split(maxsplit=1)
+        verb, val = parts[0], (parts[1] if len(parts) > 1 else "").strip()
+        if verb == "add":
+            if not val:
+                print("[任务] 用法: /tasks add <文本>")
+                return
+            res = handlers.get("create", lambda *a, **k: None)(val)
+            tid = res.get("todo", {}).get("id", "?") if isinstance(res, dict) else "?"
+            print(f"[任务] 已新增 #{tid[:8]}: {val}（pending）")
+            self._print_task_panel(store.active_items())
+            return
+        if verb in ("start", "done"):
+            if not val:
+                print(f"[任务] 用法: /tasks {verb} <id>")
+                return
+            # 短前缀匹配（id 8 位，用户可输前缀）
+            matches = [i for i in store.list() if str(i.id).startswith(val)]
+            if len(matches) != 1:
+                print(f"[任务] 无法定位 '{val}'（{len(matches)} 个匹配）")
+                return
+            tid = matches[0].id
+            if verb == "start":
+                res = handlers.get("start")(tid)
+                if res.get("ok"):
+                    print(f"[任务] #{tid[:8]} 置 in_progress"
+                          + (f"（中断退回: {', '.join(r[:8] for r in res['released'])}）" if res.get("released") else ""))
+                else:
+                    print(f"[任务] 启动失败: {res.get('error')}")
+            else:
+                res = handlers.get("complete")(tid)
+                if res.get("ok"):
+                    print(f"[任务] #{tid[:8]} 已完成")
+                else:
+                    print(f"[任务] 完成失败: {res.get('error')}")
+            self._print_task_panel(store.active_items())
+            return
+        # 未知动词 —— 当作 id 前缀尝试 start
+        if handlers.get("start"):
+            res = handlers["start"](arg)
+            if res.get("ok"):
+                print(f"[任务] #{arg[:8]} 置 in_progress")
+                self._print_task_panel(store.active_items())
+            else:
+                print(f"[任务] 未知操作 '{arg}'；用法: /tasks [add|start|done|all] [参数]")
+
+    @staticmethod
+    def _print_task_panel(items) -> None:
+        """渲染任务面板：in_progress 🔄 高亮置顶、pending ⬜、已完成 ✅、取消 ✗。"""
+        from lingclaude.engine.todo import TodoStatus
+
+        if not items:
+            print("[任务] 无待办")
+            return
+        icon = {
+            TodoStatus.IN_PROGRESS: "🔄",
+            TodoStatus.PENDING: "⬜",
+            TodoStatus.COMPLETED: "✅",
+            TodoStatus.CANCELLED: "✗",
+        }
+        # in_progress 最上、pending 次之（均按 priority 降序）、完成/取消沉底
+        order = {TodoStatus.IN_PROGRESS: 0, TodoStatus.PENDING: 1,
+                 TodoStatus.COMPLETED: 2, TodoStatus.CANCELLED: 3}
+        items = sorted(items, key=lambda i: (order.get(i.status, 9), -i.priority, i.created_at))
+        print(f"[任务] {len(items)} 项（"
+              f"{sum(1 for i in items if i.status == TodoStatus.IN_PROGRESS)} 进行中 / "
+              f"{sum(1 for i in items if i.status == TodoStatus.PENDING)} 待办 / "
+              f"{sum(1 for i in items if i.status == TodoStatus.COMPLETED)} 完成）")
+        for i in items:
+            mark = icon.get(i.status, "·")
+            line = f"  {mark} #{i.id[:8]}  {i.content}"
+            if i.status == TodoStatus.IN_PROGRESS:
+                line += "  ← 当前执行"
+            print(line)

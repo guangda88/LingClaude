@@ -27,6 +27,10 @@ class StructureEvaluator:
         ".git", ".cache", "__pycache__", "node_modules", "venv",
         ".venv", ".npm-global", ".tox", ".mypy_cache", ".ruff_cache",
         "site-packages", "dist", "build", "egg-info",
+        # 2026-09-16: bench 基准产物（runs/*/context.py 等故意残缺/旧语法
+        # 样本）不属被审计代码——rglob 扫到即刷 60+ 条 Cannot parse 噪音，
+        # 且 read_text 大文件拖慢 daemon 周期（用户 Ctrl+C 打断处即在此）。
+        "bench", ".ling-audit", "archive", ".audit",
     })
 
     def __init__(self, target_path: str = "."):

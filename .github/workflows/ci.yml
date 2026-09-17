@@ -66,3 +66,40 @@ jobs:
           pip install -e .
       - name: pytest tests/unit
         run: python -m pytest tests/unit -q -p no:cacheprovider
+
+  selftest:
+    name: 插件自测门禁 (E7 质量门)
+    runs-on: ubuntu-latest
+    # 2026-09-16: 插件自测已从启动路径移出（run_tests=False 启动提速），
+    # 质量门禁改由 lingclaude selftest 独立执行——CI 在此兜底，防插件
+    # 带病入库（灵元「插片无测试=非法插片」E7 的执行点）。
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: lingclaude selftest
+        run: python -m lingclaude.cli.app selftest
+
+  arch-guards:
+    name: 铁律守卫 (M1-M5 + 债务到期, J5)
+    runs-on: ubuntu-latest
+    # 2026-09-17 铁律返审：守卫存在但 CI 不可达 = 守卫真空（J5 失守）。
+    # 守卫测试纯离线（AST 扫描 + StateStore json + SeamRegistry，无网络
+    # 依赖），不属 unit job 的 hermetic 顾虑范围，故独立成必过 job。
+    # 台账豁免/债务随仓库 data/arch_ledger/ 一起 checkout，守卫即查询。
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: pytest iron law guards
+        run: python -m pytest tests/test_iron_law_guards.py -q -p no:cacheprovider

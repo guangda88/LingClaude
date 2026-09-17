@@ -245,6 +245,18 @@ class StateStore:
         # 降级读 JSON
         return self._json_backend.load(record_type, key, root)
 
+    def list_keys(self, record_type: str, root: Path | None = None) -> list[str]:
+        """列出某 record_type 下全部已存 key（含嵌套 key，'/' 分隔）。
+
+        原语补全：三算子的 query 面需要 key 空间枚举；json 后端按目录
+        结构枚举（type/ 递归 *.json），不读 payload。
+        """
+        base = root if root is not None else self._json_backend._root
+        d = base / record_type
+        if not d.is_dir():
+            return []
+        return sorted(f.relative_to(d).with_suffix("").as_posix() for f in d.rglob("*.json"))
+
     def close(self) -> None:
         if self._lingyi_backend:
             try:

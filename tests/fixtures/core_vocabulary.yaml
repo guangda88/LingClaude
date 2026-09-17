@@ -1,0 +1,70 @@
+# M1 概念清白度守卫 —— 主干领域词汇表
+# 灵元铁律「薄的定义」概念封闭条款：core/（主干代码）不得出现任何
+# 插片/业务领域的概念词汇（AST 标识符 + 字符串字面量）。
+# 本词汇表即"领域词"的权威清单；主干合法词汇 = {record, event, transition,
+# state, type, seam, wiring, registry} 及其组合，不在表内的即主干自有。
+# 变更须经用户确认（铁律文档尾注规则）；词汇表入册位置随铁律 M1 条款。
+#
+# 格式：每行一个词（小写）；中文词直接写。
+# 匹配规则：标识符 snake_case 分段精确匹配 + 字符串字面量子串匹配（见守卫脚本）。
+domain_vocabulary:
+  # Agent/模型域
+  - agent
+  - provider
+  - model
+  - llm
+  - prompt
+  - tokenizer
+  # 工具/执行域
+  - tool
+  - sandbox
+  - bash
+  - command
+  - execute
+  - executor
+  # 记忆/认知域
+  - memory
+  - cognition
+  - cognitive
+  - reasoning
+  - hallucination
+  - dementia
+  # 治理/审计域
+  - governance
+  - audit
+  - behavior
+  - permission
+  - policy
+  # 会话/业务域（灵忆实证：core 里没有"任务""会话"）
+  - session
+  - conversation
+  - chat
+  - message
+  - repl
+  - cli
+  # 多模态/编排域
+  - multimodal
+  - orchestrator
+  - crew
+  - subagent
+  - crew_orchestrator
+  # 灵族业务专名（插片名不得焊进主干）
+  - lingtong
+  - lingyan
+  - lingxi
+  - lingyi
+  - lingflow
+  - lingbus
+  - lingmate
+  - lingclaude
+  - 灵通
+  - 灵忆
+  - 灵犀
+  - 灵元
+  - 灵族
+  - 任务
+  - 会话
+  - 治理
+  - 记忆
+  - 工具
+  - 沙箱

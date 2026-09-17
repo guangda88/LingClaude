@@ -866,7 +866,19 @@ def main() -> int:
         help="directory to scan (default: .lacp/plugins)",
     )
 
+    # 2026-09-16 启动提速配套：插件自测从启动路径移出后的独立质量门禁入口。
+    # 等价于 LINGCLAUDE_PLUGIN_SELFTEST=1 + 完整启动（加载全部插件并跑测试）。
+    subparsers.add_parser(
+        "selftest", help="Run all plugin self-tests (quality gate; run before release/CI)",
+    )
+
     args = parser.parse_args()
+
+    if args.command == "selftest":
+        import os
+        os.environ["LINGCLAUDE_PLUGIN_SELFTEST"] = "1"
+        from lingclaude.engine.coding_wiring import load_tool_plugins_selftest
+        return load_tool_plugins_selftest()
 
     if args.command == "run":
         return _cmd_run(args)

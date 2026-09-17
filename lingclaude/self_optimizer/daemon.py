@@ -60,6 +60,12 @@ class DaemonState:
     total_cycles: int = 0
     total_improvements: int = 0
     cycles: list[dict[str, Any]] = field(default_factory=list)
+    # P1 归档（2026-09-17）：历史最优 cycle 摘要 + 最近基准分基线。
+    # 择优回滚的依据：新轮 best_score 劣于 best_ever → 回滚到 best_ever_params。
+    best_ever_score: float | None = None
+    best_ever_params: dict[str, Any] = field(default_factory=dict)
+    best_ever_cycle_id: int | None = None
+    benchmark_baseline: float | None = None  # P0 基线持久化（跨进程）
 
     @classmethod
     def load(cls, path: Path) -> DaemonState:
@@ -72,6 +78,10 @@ class DaemonState:
                     total_cycles=raw.get("total_cycles", 0),
                     total_improvements=raw.get("total_improvements", 0),
                     cycles=raw.get("cycles", []),
+                    best_ever_score=raw.get("best_ever_score"),
+                    best_ever_params=raw.get("best_ever_params", {}),
+                    best_ever_cycle_id=raw.get("best_ever_cycle_id"),
+                    benchmark_baseline=raw.get("benchmark_baseline"),
                 )
             except (json.JSONDecodeError, KeyError):
                 logger.warning("状态文件损坏，使用默认状态")
@@ -105,7 +115,21 @@ class OptimizationDaemon:
         self.evaluator = StructureEvaluator(target)
         self.optimizer = SynchronousOptimizer()
         self.advisor = OptimizationAdvisor()
+        # P0 实证门禁（2026-09-17）：行为基准评测器——best_params 须过
+        # "基准分不回退"门禁才允许应用；代理指标（violations）降为 tiebreaker。
+        from lingclaude.self_optimizer.benchmark import BenchmarkEvaluator
+
+        self.benchmark = BenchmarkEvaluator(target)
+        self._last_benchmark_score: float | None = None
         self.state = DaemonState.load(self.state_path)
+        # 遗留项1（2026-09-17）：基线跨进程恢复——重启后从归档态取回
+        # 上次通过的基准分，避免"重启即丢基线、门禁首轮失效"。
+        if self.state.benchmark_baseline is not None:
+            self._last_benchmark_score = self.state.benchmark_baseline
+            logger.info(
+                "[P0基线] 恢复上次基准分 %.1f（来自 daemon_state）",
+                self._last_benchmark_score,
+            )
         self._behavior_snapshot: dict[str, Any] = {}
         # P0-4: session snapshot/rewind
         from pathlib import Path as P
@@ -149,10 +173,78 @@ class OptimizationDaemon:
         history = history_result.data if history_result.is_ok else {}
         ctx["cumulative_frustration"] = history.get("total_frustration", 0)
         ctx["cumulative_corrections"] = history.get("total_corrections", 0)
+        # P1.5（2026-09-17）：失败实验上下文——最近失败原因与连续同因计数，
+        # 供触发器/优化器避开已踩过的坑（"同一失败不重试超 2 次"代码化）。
+        failed = self.state.last_metrics.get("failed_attempts", [])
+        if failed:
+            last = failed[-1]
+            same_streak = 0
+            for f in reversed(failed):
+                if f.get("error_key") == last.get("error_key"):
+                    same_streak += 1
+                else:
+                    break
+            ctx["last_failure_error"] = last.get("error_key")
+            ctx["same_failure_streak"] = same_streak
+        # 遗留项2（2026-09-17）：高置信经验反哺——从知识库取高置信自优化
+        # 规则（conf>=0.7 且 active），把"哪类触发→历史上是否有效"喂进
+        # 优化上下文，供优化器/触发器决策参考（AgentEvolver Self-Navigating）。
+        try:
+            from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
+
+            kb = KnowledgeBase()
+            rules_res = kb.get_all_rules(limit=100)
+            if rules_res.is_ok:
+                exp_rules = [
+                    r for r in rules_res.data
+                    if r.id.startswith("opt_cycle_") and r.confidence >= 0.7
+                    and r.status == "active"
+                ]
+                # 置信度降序取前 5 条，注入触发类型 + 累积频次
+                ctx["experience_hints"] = [
+                    {
+                        "trigger_type": r.pattern.context_keywords[0] if r.pattern.context_keywords else "?",
+                        "frequency": r.frequency,
+                        "confidence": r.confidence,
+                        "improvement": r.pattern.severity_distribution.get("before", 0)
+                        - r.pattern.severity_distribution.get("after", 0),
+                    }
+                    for r in sorted(exp_rules, key=lambda x: -x.confidence)[:5]
+                ]
+            kb.close()
+        except Exception:  # noqa: BLE001 — 经验反哺失败不影响主循环
+            logger.debug("经验反哺 build_context 失败", exc_info=True)
         return ctx
 
     def update_behavior(self, behavior: dict[str, Any]) -> None:
         self._behavior_snapshot = behavior
+
+    def _record_failed_attempt(self, error: str) -> None:
+        """P1.5（2026-09-17）：失败实验入档。
+
+        error_key 取错误首行（同因归并），连续同因 ≥2 时告警——
+        组织纪律"同一失败不重试超 2 次"的代码化。上限 20 条滚动。
+        """
+        error_key = (error or "unknown").strip().splitlines()[0][:200]
+        failed: list[dict[str, Any]] = self.state.last_metrics.setdefault("failed_attempts", [])
+        failed.append({
+            "error_key": error_key,
+            "at": datetime.now().isoformat(),
+        })
+        if len(failed) > 20:
+            del failed[:-20]
+        same_streak = 0
+        for f in reversed(failed):
+            if f.get("error_key") == error_key:
+                same_streak += 1
+            else:
+                break
+        if same_streak >= 2:
+            logger.warning(
+                "[P1.5] 同因失败连续 %d 次（%s…）——下轮应换实验方向",
+                same_streak, error_key[:80],
+            )
+        self.state.save(self.state_path)
 
     def run_cycle(self, user_triggered: bool = False) -> Result[OptimizationCycle | None]:
         metrics_result = self.collect_metrics()
@@ -191,8 +283,37 @@ class OptimizationDaemon:
         duration = time.monotonic() - start
 
         if not result.success:
+            # ---- P1.5 失败入档（2026-09-17，借鉴 OpenEvolve artifact side-channel）----
+            # 失败方案入档（含原因与当次参数），下轮 build_context 引用——
+            # "同一失败不重试超 2 次"纪律的代码化：连续同因失败 2 次即冷却，
+            # 本轮不再重复同一实验方向。
+            self._record_failed_attempt(str(result.error))
             logger.error("优化失败: %s", result.error)
             return Result.ok(None)
+
+        # ---- P0 实证门禁（2026-09-17）：基准分不回退 ----
+        # best_params 不得只凭代理指标（violations）收账：跑行为基准，
+        # 分数低于上一轮基线 → 拒绝应用（report-only 落日志），防止
+        # "参数把结构指标调好看但行为变差"的优化漂移。
+        bench_before = self.benchmark.run()
+        if self._last_benchmark_score is not None:
+            if bench_before.score < self._last_benchmark_score:
+                logger.warning(
+                    "[P0门禁] 基准分回退 %.1f → %.1f，本轮 best_params 拒绝应用"
+                    "（violations=%s 仅作参考）",
+                    self._last_benchmark_score, bench_before.score,
+                    result.best_score,
+                )
+                return Result.ok(None)
+        self._last_benchmark_score = bench_before.score
+        # 遗留项1（2026-09-17）：基线同步持久化——供 daemon 重启后恢复，
+        # 否则恢复读线永远读到 None（门禁跨进程失效）。
+        self.state.benchmark_baseline = bench_before.score
+        self.state.save(self.state_path)
+        logger.info(
+            "[P0门禁] 基准分 %.1f/%d 通过（passed=%d/%d）",
+            bench_before.score, 100, bench_before.passed, bench_before.total,
+        )
 
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         report_name = f"cycle_{self.state.total_cycles + 1:04d}.md"
@@ -208,7 +329,25 @@ class OptimizationDaemon:
 
         violations_after = int(result.best_score)
 
-        self._apply_params(result.best_params)
+        # ---- P1 择优回滚（2026-09-17）：以归档历史最优为 baseline ----
+        # best_score（violations，越低越好）劣于归档历史最优 → 不应用本轮
+        # 参数，回滚应用 best_ever_params（若历史最优存在）——防止优化漂移。
+        best_ever = self.state.best_ever_score
+        if best_ever is not None and result.best_score > best_ever:
+            logger.warning(
+                "[P1回滚] 本轮 best_score=%.2f 劣于归档最优 %.2f（cycle #%s），"
+                "回滚应用历史最优参数",
+                result.best_score, best_ever, self.state.best_ever_cycle_id,
+            )
+            if self.state.best_ever_params:
+                self._apply_params(dict(self.state.best_ever_params))
+        else:
+            self._apply_params(result.best_params)
+            # 更新归档最优（violations 越低越好）
+            if best_ever is None or result.best_score < best_ever:
+                self.state.best_ever_score = float(result.best_score)
+                self.state.best_ever_params = dict(result.best_params)
+                self.state.best_ever_cycle_id = self.state.total_cycles + 1
 
         cycle = OptimizationCycle(
             cycle_id=self.state.total_cycles + 1,
@@ -475,10 +614,46 @@ class OptimizationDaemon:
             kb = KnowledgeBase()
             rule_id = f"opt_cycle_{cycle.cycle_id:04d}"
             improved = cycle.violations_after < cycle.violations_before
+
+            # ---- P2 经验复用（2026-09-17，借鉴 AgentEvolver Self-Navigating）----
+            # 同触发类型的经验累积：已有同 context 规则 → 频次+1，置信度按
+            # 本轮是否有效强化/衰减（有效 +0.05 封顶 0.95，无效 -0.05 下限 0.1）。
+            # 下轮优化可直接引用"哪类触发→哪类参数历史上有效"。
+            existing = kb.search_rules(cycle.trigger_type, limit=5)
+            if existing.is_ok:
+                for prior in existing.data:
+                    if cycle.trigger_type in prior.pattern.context_keywords:
+                        new_conf = min(0.95, prior.confidence + 0.05) if improved \
+                            else max(0.1, prior.confidence - 0.05)
+                        kb.update_rule_status(prior.id, prior.status)
+                        # 频次/置信度经 add_rule 幂等覆盖（同 id upsert 语义见
+                        # knowledge.py PRIMARY KEY 冲突处理）——直接构造更新版。
+                        updated = LearnedRule(
+                            id=prior.id,
+                            name=prior.name,
+                            description=prior.description,
+                            category=prior.category,
+                            pattern=prior.pattern,
+                            tools=prior.tools,
+                            frequency=prior.frequency + 1,
+                            confidence=round(new_conf, 2),
+                            quality_score=prior.quality_score,
+                            status=prior.status,
+                            created_at=prior.created_at,
+                        )
+                        kb.add_rule(updated)
+                        logger.info(
+                            "[P2经验] 同类触发规则 %s 强化: freq=%d conf=%.2f (%s)",
+                            prior.id, updated.frequency, new_conf,
+                            "有效" if improved else "无效衰减",
+                        )
+
             rule = LearnedRule(
                 id=rule_id,
                 name=f"自优化周期 #{cycle.cycle_id}",
-                description=f"触发: {cycle.trigger_reason} | 结果: score={cycle.best_score:.2f} violations={cycle.violations_before}→{cycle.violations_after}",
+                # P2: 描述必须含触发类型——search_rules 按 name/description
+                # LIKE 匹配，同类触发经验累积依赖此字段可命中。
+                description=f"触发类型: {cycle.trigger_type} | 触发: {cycle.trigger_reason} | 结果: score={cycle.best_score:.2f} violations={cycle.violations_before}→{cycle.violations_after}",
                 category=FeedbackCategory.BEST_PRACTICE,
                 pattern=Pattern(
                     context_keywords=(cycle.trigger_type, cycle.trigger_priority),

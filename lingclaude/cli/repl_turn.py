@@ -38,26 +38,50 @@ def _maybe_run_daemon_cycle() -> None:
     交互会话结束时触发一次 daemon 循环，24h 节流（should_run_cycle）；
     默认 report-only（_apply_params 不设 LINGCLAUDE_DAEMON_APPLY=1 不动
     config.yaml）。LINGCLAUDE_DAEMON_CYCLE=0 关闭（CI/测试用）。
+
+    2026-09-16 退出阻塞修复：周期改为**后台 daemon 线程**执行——原实现
+    同步跑在退出路径上，全仓扫描（含 bench 残缺样本）耗时数秒~数十秒，
+    用户看到退出后终端长时间挂起只能 Ctrl+C 强杀（实测打断点就在
+    evaluator.read_text）。后台化后退出立即返回，报告完成经 [自优化]
+    行异步打印（解释器退出前 daemon 线程有机会写完即随进程回收，
+    不阻塞、不悬挂）。
     """
     if os.environ.get("LINGCLAUDE_DAEMON_CYCLE") == "0":
         return
-    global _behavior_daemon
+
+    def _run_cycle_bg() -> None:
+        global _behavior_daemon
+        try:
+            daemon = _behavior_daemon
+            if daemon is None:
+                daemon = OptimizationDaemon(target=".", config=load_config(None))
+                _behavior_daemon = daemon
+            min_hours = float(os.environ.get("LINGCLAUDE_DAEMON_MIN_INTERVAL_HOURS", "24"))
+            if not daemon.should_run_cycle(min_interval_hours=min_hours):
+                return
+            result = daemon.run_once()
+            if result.is_ok and result.data is not None:
+                report = getattr(result.data, "report_path", "")
+                print(f"[自优化] 循环完成（report-only），报告: {report}")
+            elif result.is_error:
+                _logger.warning("自优化循环失败: %s", result.error)
+        except Exception:
+            _logger.warning("自优化循环执行异常", exc_info=True)
+
+    # 2026-09-16 用户告知：后台周期对用户不可见——退出后进程看似已结束，
+    # 实际还有自优化在跑（之前用户困惑"退出后哪来的进程"）。节流命中时
+    # 也要明说"未到周期"，避免静默。
+    min_hours = float(os.environ.get("LINGCLAUDE_DAEMON_MIN_INTERVAL_HOURS", "24"))
     try:
-        daemon = _behavior_daemon
-        if daemon is None:
-            daemon = OptimizationDaemon(target=".", config=load_config(None))
-            _behavior_daemon = daemon
-        min_hours = float(os.environ.get("LINGCLAUDE_DAEMON_MIN_INTERVAL_HOURS", "24"))
-        if not daemon.should_run_cycle(min_interval_hours=min_hours):
-            return
-        result = daemon.run_once()
-        if result.is_ok and result.data is not None:
-            report = getattr(result.data, "report_path", "")
-            print(f"[自优化] 循环完成（report-only），报告: {report}")
-        elif result.is_error:
-            _logger.warning("自优化循环失败: %s", result.error)
+        _probe = _behavior_daemon
+        will_run = _probe.should_run_cycle(min_interval_hours=min_hours) if _probe else True
     except Exception:
-        _logger.warning("自优化循环执行异常", exc_info=True)
+        will_run = True
+    if will_run:
+        print("[自优化] 已在后台启动自检周期（report-only，不影响退出；完成后打印报告路径）")
+    else:
+        print(f"[自优化] 距上次周期不足 {min_hours:.0f}h，本次跳过")
+    threading.Thread(target=_run_cycle_bg, name="daemon-cycle-bg", daemon=True).start()
 
 
 def _feed_behavior_to_daemon(engine: "QueryEngine", config: "lingclaudeConfig | None") -> None:

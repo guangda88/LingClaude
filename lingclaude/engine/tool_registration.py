@@ -183,7 +183,7 @@ SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name='ast_replace',
-        description='Replace function/method body at AST level (no text matching needed)',
+        description='Replace function/method body at AST level. Decision rules: (1) Prefer this over edit when replacing a whole function/method body — no text matching needed. (2) new_body must NOT include the "def" line, use indent of the body only (method bodies indented). (3) For methods pass class_name; use occurrence>1 only after list_functions confirms multiple candidates.',
         parameters={'file_path': {'type': 'string', 'description': 'Python file path'}, 'function_name': {'type': 'string', 'description': 'Function or method name'}, 'new_body': {'type': 'string', 'description': 'New function body (without def line)'}, 'class_name': {'type': 'string', 'description': 'Class name (for methods)'}, 'occurrence': {'type': 'integer', 'description': 'Which occurrence (default 1)'}},
         handler_attr='_ast_replace_handler',
         security_scope='write',
@@ -258,6 +258,41 @@ SPECS: tuple[ToolSpec, ...] = (
         description='Toggle plan mode: think without tool execution to plan complex tasks',
         parameters={'action': {'type': 'string', 'description': "'enter' or 'exit'"}},
         handler_attr='_plan_mode_handler',
+        security_scope='read',
+        concurrency_safe=False,
+    ),
+    ToolSpec(
+        # 2026-09-17 第3级a: 任务自动拆解（对标 AtomCode todowrite）。
+        # 模型遇多步任务时调用：传完整任务清单 + 唯一 active_id（当前执行项），
+        # 全量覆写进 session 级 TodoStore，其余项退回 pending（状态纪律①）。
+        # 用户经 /tasks 查看面板，进度在对话中由模型调用本工具推进。
+        name='todo_write',
+        description=(
+            'Replace the session task list with a plan of concrete, verifiable '
+            'sub-steps for multi-step work. Pass `todos` (list of {content, status}) '
+            'and `active_id` = the content of the single in_progress item (exactly '
+            'one; others must be pending). Call at task start and again as items '
+            'complete. Use for multi-step/ambiguous work, not simple one-off edits.'
+        ),
+        parameters={
+            'todos': {
+                'type': 'array',
+                'description': 'Full task list (replaces previous). Each item: {"content": "one verifiable action", "status": "pending|in_progress|completed"}.',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'content': {'type': 'string', 'description': 'Concrete task, e.g. "add retry to fetch_user"'},
+                        'status': {'type': 'string', 'enum': ['pending', 'in_progress', 'completed']},
+                    },
+                    'required': ['content', 'status'],
+                },
+            },
+            'active_id': {
+                'type': 'string',
+                'description': 'Content of the ONE in_progress item ("none" if all pending/completed). Exactly one unless "none".',
+            },
+        },
+        handler_attr='_todo_write_handler',
         security_scope='read',
         concurrency_safe=False,
     ),

@@ -27,6 +27,10 @@ RESULTS_DIR = Path(__file__).parent / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
+class ProxyUnreachable(RuntimeError):
+    """LLM Proxy 连接层不可达（拒绝连接/DNS 失败）— fail-fast，不重试。"""
+
+
 @dataclass
 class BenchmarkResult:
     model: str
@@ -104,6 +108,13 @@ def generate_completion(
                 continue
             print(f"  HTTP {e.code}: {e.reason}", file=sys.stderr)
             return None
+        except urllib.error.URLError as e:
+            # 2026-09-17 (codex P0-1 收尾): 连接层失败（拒绝连接/DNS 解析失败）
+            # 重试无意义 — 此前每个任务都白等 2 轮重试（~6s）才报错，且整轮
+            # 全部任务逐个失败。fail-fast 抛出，由 run_benchmark 中止整轮。
+            raise ProxyUnreachable(
+                f"proxy {PROXY_URL} 不可达: {getattr(e, 'reason', e)}"
+            ) from e
         except Exception as e:
             if attempt < max_retries:
                 time.sleep(3)
@@ -145,12 +156,17 @@ def extract_code_block(text: str) -> str:
     return text.strip()
 
 
-def run_test(code: str, test: str, entry_point: str, timeout: int = 10) -> bool:
-    """执行生成的代码+测试，返回是否通过。
+def run_test(code: str, test: str, entry_point: str, timeout: int = 10) -> tuple[bool, str]:
+    """执行生成的代码+测试，返回 (是否通过, 失败详情)。
 
     HumanEval测试格式为 check(candidate)，candidate是被测函数。
     entry_point是函数名，需要从生成代码中获取。
+    2026-09-17 (codex P0-1 收尾): 此前只返回 bool，失败原因（子进程
+    stderr / 超时 / 生成代码为空）全部丢失，benchmark 错误不可诊断。
     """
+    if not code.strip():
+        return False, "generated code is empty"
+
     call_line = f"check({entry_point})"
     full_code = code + "\n\n" + test + "\n\n" + call_line
     with tempfile.NamedTemporaryFile(
@@ -167,11 +183,14 @@ def run_test(code: str, test: str, entry_point: str, timeout: int = 10) -> bool:
             timeout=timeout,
             text=True,
         )
-        return result.returncode == 0
+        if result.returncode == 0:
+            return True, ""
+        detail = (result.stderr or "").strip()[-2000:] or f"exit code {result.returncode}"
+        return False, detail
     except subprocess.TimeoutExpired:
-        return False
-    except Exception:
-        return False
+        return False, f"timeout after {timeout}s"
+    except Exception as e:
+        return False, f"harness error: {e}"
     finally:
         try:
             os.unlink(fname)
@@ -196,18 +215,20 @@ def run_benchmark(model: str, limit: int | None, api_key: str) -> BenchmarkResul
         if completion is None:
             result.errors += 1
             status = "ERROR"
+            detail = f"completion failed (proxy={PROXY_URL}; 检查 proxy 是否可达/额度/key)"
         else:
             code = extract_code_block(completion)
-            passed = run_test(code, test, entry_point)
+            passed, detail = run_test(code, test, entry_point)
             if passed:
                 result.passed += 1
                 status = "PASS"
+                detail = ""
             else:
                 result.failed += 1
                 status = "FAIL"
 
         result.details.append(
-            {"task_id": task_id, "status": status}
+            {"task_id": task_id, "status": status, **({"detail": detail} if detail else {})}
         )
 
         if i % 5 == 0 or i == len(problems):
@@ -233,7 +254,19 @@ def main() -> None:
     api_key = args.api_key or os.environ.get("LLM_PROXY_KEY", "test-key")
     limit = None if args.full else args.limit or 10
 
-    result = run_benchmark(args.model, limit, api_key)
+    try:
+        result = run_benchmark(args.model, limit, api_key)
+    except ProxyUnreachable as e:
+        # 2026-09-17: 整轮中止时错误落盘，保证事后可诊断（对齐 codex P0-1）
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        outfile = RESULTS_DIR / f"humaneval_{args.model.replace('/', '_')}_{ts}_ABORTED.json"
+        outfile.write_text(
+            json.dumps({"model": args.model, "aborted": str(e), "timestamp": ts}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        print(f"\nABORTED: {e}", file=sys.stderr)
+        print(f"Aborted-record: {outfile}", file=sys.stderr)
+        sys.exit(2)
 
     print("\n" + "=" * 60)
     print(f"RESULT: {result.model}")

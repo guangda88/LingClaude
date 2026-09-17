@@ -23,6 +23,11 @@ class StatusModel:
     task: str = "空闲"
     pending: int = 0
     pinned: bool = False
+    # 2026-09-17 第3级b：任务面板常驻数据——每轮由主循环喂入（in_progress 数
+    # + pending 数 + 当前执行项摘要），toolbar 右下角角落显示，零额外 I/O。
+    task_in_progress: int = 0
+    task_pending: int = 0
+    task_active: str = ""
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> "StatusModel":
@@ -37,6 +42,9 @@ class StatusModel:
                 task=self.task,
                 pending=self.pending,
                 pinned=self.pinned,
+                task_in_progress=self.task_in_progress,
+                task_pending=self.task_pending,
+                task_active=self.task_active,
             )
 
     # ---- 更新方法（主循环调用） ----
@@ -65,6 +73,13 @@ class StatusModel:
     def set_pinned(self, pinned: bool) -> None:
         with self._lock:
             self.pinned = pinned
+
+    # 2026-09-17 第3级b: 任务面板常驻数据喂入（主循环每轮从 TodoStore 聚合后调用）
+    def set_task_panel(self, in_progress: int, pending: int, active: str) -> None:
+        with self._lock:
+            self.task_in_progress = in_progress
+            self.task_pending = pending
+            self.task_active = active
 
     def refresh_cwd(self) -> None:
         try:
@@ -105,4 +120,11 @@ def toolbar_fragments(s: StatusModel):
     frag.append(("", f"│ {s.turns}轮 │ {task_display}"))
     if s.pending > 0:
         frag.append(("class:accent", f" │ 挂起×{s.pending}"))
+    # 2026-09-17 第3级b: 任务面板角落常驻 — 有活跃任务时右下角显示
+    # 🔄当前执行 + 待办数（每轮经 set_task_panel 刷新，零额外 I/O）。
+    if s.task_active:
+        act = s.task_active if len(s.task_active) <= 18 else s.task_active[:17] + "…"
+        frag.append(("class:accent", f" │ 🔄 {act}"))
+    if s.task_pending > 0:
+        frag.append(("", f" │ 待办×{s.task_pending}"))
     return frag

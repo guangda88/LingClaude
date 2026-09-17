@@ -712,6 +712,23 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         if _status_bar_active:
             status.bump_turns()
             status.set_task("空闲")
+            # 2026-09-17 第3级b: 每轮刷新任务面板角落数据（TodoStore 聚合 →
+            # toolbar 🔄当前执行 + 待办数）。无 runtime/单轮模式静默跳过。
+            _todo_store = getattr(getattr(engine, "_runtime", None), "_todo_store", None)
+            if _todo_store is not None:
+                try:
+                    from lingclaude.engine.todo import TodoStatus as _TS
+
+                    _items = _todo_store.list()
+                    _ip = [i for i in _items if i.status == _TS.IN_PROGRESS]
+                    _pd = [i for i in _items if i.status == _TS.PENDING]
+                    status.set_task_panel(
+                        len(_ip),
+                        len(_pd),
+                        _ip[0].content if _ip else "",
+                    )
+                except Exception:  # noqa: BLE001 — 面板刷新失败不影响主循环
+                    pass
     if response_content and not interrupted:
         engine._messages.append(prompt)
         engine._messages.append(response_content)
@@ -846,7 +863,13 @@ def _consume_queue(ctx: _ReplCtx) -> str:
 
 def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     version = _get_version()
+    # 2026-09-17: 启动 Logo（灵克图腾 + 版本/模式），模块级 import 供
+    # plain 与全屏 TUI 两条横幅路径共用（原 import 在 plain 分支块内，
+    # 全屏分支 :945 会 NameError）。
+    from lingclaude.cli.logo import render as _logo_render
+
     if get_output_format() == "plain":
+        print(_logo_render(version, "交互模式"))
         print(f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，Ctrl+C 清行）")
         print(f"Provider: {_provider_status(engine)}")
         print()
@@ -938,9 +961,10 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
                 # 欢迎横幅打印在 start() 之前的主屏缓冲，alt-screen 下不可见
                 # —— 补写进输出窗（Ctrl+C 语义按全屏键位描述）。
                 session.append_output(
-                    f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，"
+                    _logo_render(version, "交互模式")
+                    + f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，"
                     "Ctrl+C 中断/清行）\n"
-                    f"Provider: {_provider_status(engine)}\n"
+                    + f"Provider: {_provider_status(engine)}\n"
                 )
             ctx.input_pump.start()
 

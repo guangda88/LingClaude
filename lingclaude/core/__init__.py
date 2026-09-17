@@ -18,10 +18,9 @@ from lingclaude.core.intel import (
     IntelRelay,
 )
 from lingclaude.core.prior_verifier import PriorVerifier, AssertionLevel, Assertion, VerificationResult
-from lingclaude.core.fact_checker import (
-    ClaimExtractor, KGFactChecker, FactCheckResult, audit_response, Claim,
-    get_db_pool, close_db_pool, reset_db_pool,
-)
+# 2026-09-16 启动提速：fact_checker 链（含 fastapi/retrieval ≈600ms）从启动
+# 路径移除——其唯一消费点 l5_audit.py:194 本就是 lazy import；__init__ 急切
+# 导出改为模块级 __getattr__ 惰性转发，`from lingclaude.core import X` 语义不变。
 from lingclaude.core.meta_cognition import MetaCognition, Domain, ConfidenceLevel, CognitiveBoundary, MetaCognitiveSnapshot
 from lingclaude.core.layered_memory import (
     LayeredMemory, Experience, EmotionIntensity, MemoryLayer,
@@ -214,3 +213,12 @@ __all__ = [
     "project_session",
     "aggregate_sessions",
 ]
+
+# 2026-09-16 fact_checker 惰性转发：保持 `from lingclaude.core import X` 语义
+def __getattr__(name: str):
+    if name in ("ClaimExtractor", "KGFactChecker", "FactCheckResult", "audit_response", "Claim",
+                "get_db_pool", "close_db_pool", "reset_db_pool"):
+        import importlib
+        _fc = importlib.import_module("lingclaude.core.fact_checker")
+        return getattr(_fc, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

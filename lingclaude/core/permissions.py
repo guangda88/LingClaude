@@ -253,18 +253,18 @@ def _load_persisted() -> None:
                 _GLOBAL_MODE = data["mode"]
     except Exception as e:  # noqa: BLE001 — 持久化文件损坏不应阻塞启动
         logger.warning("approvals.json 读取失败: %s", e)
-    if _GLOBAL_MODE == "ask":  # 2026-09-15 修复: 兜底读 config.yaml（启动链此前从不读）
-        # 2026-09-16 修复: 打破循环导入 —— 原实现 from lingclaude.core.guard import
-        # load_approval_mode 绕道 guard 中转，而 guard 模块级又从本模块反向导入，
-        # 模块未加载完即循环炸。H1 单源本体的 load_approval_mode 就在本模块（322 行），
-        # 但模块级 _load_persisted()（264 行）先于其定义执行，故用 globals() 延迟取。
+    if _GLOBAL_MODE == "ask":  # 2026-09-15 兜底: approvals.json 未设 mode 时读 config.yaml
+        # 2026-09-17 修复 (guard.approval_mode 永不生效): 原实现用
+        # globals().get("load_approval_mode") 延迟取函数，但 _load_persisted()
+        # 在导入期（本函数定义处立即调用）执行时该函数尚未定义，fn 恒为
+        # None → 兜底是死代码，config.yaml 的 guard.approval_mode 从未生效，
+        # 进程 mode 恒默认 "ask"。现将调用点延后到模块尾部（见文件末尾），
+        # 此处可直接引用；approvals.json 优先级高于 config 的语义不变。
         import os as _os
-        fn = globals().get("load_approval_mode")
-        if fn is not None:
-            _GLOBAL_MODE = fn(Path(_os.environ.get("LINGCLAUDE_CONFIG") or "config.yaml"))
 
-
-_load_persisted()
+        _GLOBAL_MODE = load_approval_mode(
+            Path(_os.environ.get("LINGCLAUDE_CONFIG") or "config.yaml")
+        )
 
 
 def _save_persisted() -> None:
@@ -382,3 +382,9 @@ def reset_permission_stores() -> None:
     with _STORES_LOCK:
         _STORES.clear()
         _PERSISTED_TOOLS.clear()
+
+
+# 导入期初始化 — 2026-09-17 移至模块尾部：_load_persisted() 兜底分支现
+# 直接引用 load_approval_mode（本行之前已定义）。原位置（函数定义后立即
+# 调用）使兜底成为死代码，config.yaml 的 guard.approval_mode 从不生效。
+_load_persisted()

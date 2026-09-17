@@ -144,11 +144,19 @@ class FileReadTool:
         line_numbers: bool,
         start: float,
     ) -> Result[ReadResult]:
+        actual_encoding = self.default_encoding
         try:
             raw = target.read_text(encoding=self.default_encoding)
         except UnicodeDecodeError:
+            # 2026-09-17 修复: 静默 latin-1 降级造成「读出即乱码」且 encoding
+            # 字段仍报 utf-8，下游 spill 落盘把乱码固化成非法 UTF-8 文件，
+            # 再读回时解码失败 → 内容永久不可读（本轮会话实测复现）。
+            # 现仍降级保证可读（fail-open），但如实标注实际编码。
+            # 注意用局部变量，不污染实例 default_encoding（否则一次降级后
+            # 后续所有正常 UTF-8 文件都会被 latin-1 读成乱码）。
             try:
-                raw = target.read_text(encoding="latin-1")
+                actual_encoding = "latin-1"
+                raw = target.read_text(encoding=actual_encoding)
             except Exception as e:
                 return Result.fail(f"编码检测失败: {e}")
         except Exception as e:
@@ -185,7 +193,7 @@ class FileReadTool:
                 content=content,
                 size=target.stat().st_size,
                 lines=total_lines,
-                encoding=self.default_encoding,
+                encoding=actual_encoding,
                 duration=duration,
                 truncated=truncated,
                 offset=start_idx,

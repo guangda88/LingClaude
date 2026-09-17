@@ -128,6 +128,11 @@ class StdioLspProvider:
         self._reader_task: asyncio.Task | None = None
         self._initialized = False
         self._caps: dict[str, Any] = {}
+        # 2026-09-17 (诊断化): server stderr 尾部环形缓冲 — rustup shim
+        # 等启动即退的场景，initialize 超时若不含 stderr 会不可诊断
+        # （实测 "Unknown binary 'rust-analyzer'" 曾被完全吞掉）。
+        self._stderr_tail: list[str] = []
+        self._stderr_thread: threading.Thread | None = None
 
     # ----- LspProvider interface -----
 
@@ -139,18 +144,23 @@ class StdioLspProvider:
             self._cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd=str(workspace_root),
         )
         self._root = workspace_root
+        self._start_stderr_collector()
 
         reader = asyncio.create_task(self._read_loop())
 
         # send initialize request
+        # 2026-09-17 修复: rootUri 此前传裸路径，违反 LSP spec（须 file:// URI），
+        # 部分 server（如 rust-analyzer）会拒收或行为异常。
         resp = await self._call(
             "initialize",
             {
                 "processId": None,
-                "rootUri": str(workspace_root),
+                "rootUri": _path_to_uri(workspace_root),
+                "rootPath": str(workspace_root),
                 "capabilities": {},
             },
         )
@@ -158,7 +168,9 @@ class StdioLspProvider:
         self._initialized = True
 
         # send initialized notification (no response)
-        asyncio.create_task(self._notify("initialized", {}))
+        # 2026-09-17 修复: 原 create_task fire-and-forget 在一次性事件循环里
+        # 可能从未执行；改为确定性 await（常驻 loop 下两者等价，此处取严格序）。
+        await self._notify("initialized", {})
         self._reader_task = reader
 
         return self._caps
@@ -239,6 +251,32 @@ class StdioLspProvider:
         )
         return _parse_locations(resp)
 
+    # ----- document sync (codex P1-1: LSP 常驻会话池配套, 2026-09-17) -----
+
+    async def did_open(self, file_path: str, text: str, version: int = 1) -> None:
+        """textDocument/didOpen 通知 — server 端建立文档视图。"""
+        await self._notify(
+            "textDocument/didOpen",
+            {
+                "textDocument": {
+                    "uri": _path_to_uri(file_path),
+                    "languageId": _language_id(file_path),
+                    "version": version,
+                    "text": text,
+                }
+            },
+        )
+
+    async def did_change(self, file_path: str, text: str, version: int) -> None:
+        """textDocument/didChange 全量同步 — 以磁盘内容为准刷新 server 视图。"""
+        await self._notify(
+            "textDocument/didChange",
+            {
+                "textDocument": {"uri": _path_to_uri(file_path), "version": version},
+                "contentChanges": [{"text": text}],
+            },
+        )
+
     # ----- internal -----
 
     async def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -257,7 +295,37 @@ class StdioLspProvider:
             return await asyncio.wait_for(future, timeout=30)
         except asyncio.TimeoutError:
             self._pending.pop(msg_id, None)
-            raise RuntimeError(f"LSP call timed out: {method}")
+            # 2026-09-17 (诊断化): 超时附带 server 存活状态与 stderr 尾部，
+            # 让 "shim 秒退/组件未装/崩溃" 一眼可判。
+            alive = self._proc is not None and self._proc.poll() is None
+            ref = getattr(self, "_stderr_tail_ref", None)
+            tail = " | ".join(list(ref)[-3:]).strip() if ref else ""
+            hint = f"; server alive={alive}" + (f"; stderr: {tail}" if tail else "")
+            raise RuntimeError(f"LSP call timed out: {method}{hint}")
+
+    def _start_stderr_collector(self) -> None:
+        """后台线程收集 server stderr 尾部（环形，最多 10 行）。"""
+        import collections
+        import threading as _t
+
+        proc = self._proc
+        if proc is None or proc.stderr is None:
+            return
+        tail: collections.deque = collections.deque(maxlen=10)
+        self._stderr_tail_ref = tail
+
+        def _pump() -> None:
+            try:
+                for raw in iter(proc.stderr.readline, b""):
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if line:
+                        tail.append(line)
+            except Exception:  # noqa: BLE001 — 诊断辅助，任何异常静默
+                pass
+
+        th = _t.Thread(target=_pump, daemon=True, name="lsp-stderr")
+        th.start()
+        self._stderr_thread = th
 
     async def _notify(self, method: str, params: dict[str, Any]) -> None:
         if self._proc is None or self._proc.stdin is None:
@@ -309,6 +377,24 @@ def _path_to_uri(path: str | Path) -> str:
     if path.startswith("/"):
         return f"file://{path}"
     return f"file:///{path}"
+
+
+def _language_id(path: str | Path) -> str:
+    """didOpen 的 languageId（按扩展名；server 对未知值普遍宽容）。"""
+    suffix = Path(path).suffix.lower()
+    return {
+        ".py": "python",
+        ".rs": "rust",
+        ".ts": "typescript",
+        ".tsx": "typescriptreact",
+        ".js": "javascript",
+        ".jsx": "javascriptreact",
+        ".go": "golang",
+        ".c": "c",
+        ".h": "c",
+        ".cpp": "cpp",
+        ".hpp": "cpp",
+    }.get(suffix, "plaintext")
 
 
 def _uri_to_path(uri: str) -> str:

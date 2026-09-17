@@ -27,7 +27,11 @@ archive/
 .lingclaude/knowledge.db
 .lingclaude/data_flywheel.db
 .lingclaude/metrics.db
-data/
+data/*
+# 例外：架构台账（豁免/债务/M6快照/铁律修订史）是架构账目本体，
+# 须随仓库分发——CI arch-guards job checkout 后守卫即查询（J5）。
+# 其余 data/ 内容（运行时状态）仍忽略。（data/* 而非 data/，否则子级 ! 否定不生效）
+!data/arch_ledger/
 
 # Backup and temp files
 *.bak
@@ -87,3 +91,7 @@ repobench.yml
 .pytest_abde.log
 .verify_result.log
 run_verify.sh
+
+# 2026-09-17: 运行时状态目录不入库(session历史/tmp/spill/db/approvals)
+data/
+lingclaude/data/

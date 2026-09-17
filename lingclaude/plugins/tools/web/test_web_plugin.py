@@ -14,9 +14,25 @@ def test_web_plugin_instantiable():
 
 
 def test_web_search_delegates_no_network():
+    import os
     from plugin import WebPlugin
 
-    # 空 query 不触发真实搜索，断言委托路径通（返回 dict 契约）
-    result = WebPlugin().execute(name="web_search", query="", max_results=1)
+    # 2026-09-17 修复：空 query 实际会触发真实搜索（searxng 超时 ~30s 才降级
+    # duckduckgo），测试名 "no_network" 是谎言——实测 30.4s 墙钟全耗在此。
+    # 改走 NOT_CONFIGURED fast-fail 路径：非法 backend 在 search 入口即拒，
+    # 零网络、毫秒级返回，同时仍验证「插件分派→WebSearcher→dict 契约」链路。
+    old = os.environ.get("LINGCLAUDE_SEARCH_BACKEND")
+    os.environ["LINGCLAUDE_SEARCH_BACKEND"] = "__test_not_configured__"
+    try:
+        result = WebPlugin().execute(name="web_search", query="anything", max_results=1)
+    finally:
+        if old is None:
+            os.environ.pop("LINGCLAUDE_SEARCH_BACKEND", None)
+        else:
+            os.environ["LINGCLAUDE_SEARCH_BACKEND"] = old
     assert isinstance(result, dict)
-    assert "query" in result or "error" in result
+    # NOT_CONFIGURED fast-fail：web_tools 返回的 Result.fail 含 code 与 error；
+    # 插件侧经 getattr(result,"error",...) 转 dict 时只保留 error 文本
+    # （"Unknown web search backend: ...（允许: auto / searxng / duckduckgo）"）。
+    assert "error" in result
+    assert "web search backend" in result["error"]

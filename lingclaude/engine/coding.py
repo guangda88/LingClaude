@@ -55,6 +55,8 @@ class CodingRuntime(
         self._todo_store = TodoStore(data_dir / "todos.db", session_id=session_id)
         self._todo_handlers = _make_todo_handlers(self._todo_store)
         # P1-1: LSP provider (lazy init on first use)
+        # 2026-09-17 codex P1-1: 生产路径已改走 LspSessionPool（engine/lsp_session.py），
+        # 本槽位恒 None，仅为 legacy 注入路径（测试/宿主显式预置 provider）保留。
         self._lsp_provider: StdioLspProvider | None = None
         self._lsp_workspace_root: Path | None = None
 
@@ -75,7 +77,13 @@ class CodingRuntime(
         - BackgroundTaskManager 线程池（background.py:141 shutdown 已存在但从未被调用 —
           导致解释器 shutdown 阶段 _python_exit join 线程池时抛 KeyboardInterrupt）
         """
-        # LSP provider: 异步 shutdown，尽力而为
+        # LSP: 常驻会话池统一回收（codex P1-1, 2026-09-17）+ legacy 注入 provider
+        from lingclaude.engine.lsp_session import get_pool
+
+        try:
+            get_pool().close_all()
+        except Exception:  # noqa: BLE001 — LSP 关闭失败不影响主进程退出
+            pass
         lsp = getattr(self, "_lsp_provider", None)
         if lsp is not None:
             try:

@@ -11,9 +11,12 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lingclaude.core.fact_checker import FactCheckResult
+# 2026-09-16 启动提速：FactCheckResult 仅作类型标注——急切 import 会把
+# fact_checker→fastapi/retrieval 链（≈600ms）拖进每次启动。改 TYPE_CHECKING。
+if TYPE_CHECKING:  # pragma: no cover
+    from lingclaude.core.fact_checker import FactCheckResult
 
 logger = logging.getLogger(__name__)
 

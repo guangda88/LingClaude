@@ -169,6 +169,29 @@ def _load_tool_plugins(ctx: CodingWiringContext) -> Any:
     return loaded
 
 
+def load_tool_plugins_selftest() -> int:
+    """插件自测独立入口（lingclaude selftest，2026-09-16 启动提速配套）。
+
+    以 run_tests=True 全量跑各插件自带测试（灵元 E7 质量门禁），输出
+    通过/失败摘要；有失败返回 1（CI/发布前门禁可据此拦截）。启动路径
+    已默认跳过自测，本函数是质量门禁的兜底执行点。
+    """
+    import logging
+    from lingclaude.core.plugin_loader import PluginLoader
+
+    logger.setLevel(logging.INFO)
+    plugins_dir = "lingclaude/plugins/tools"
+    results = PluginLoader(run_tests=True).load_plugins_from_dir(plugins_dir)
+    ok = [name for name, r in results.items() if r.is_ok]
+    bad = {name: r.error for name, r in results.items() if not r.is_ok}
+    print(f"插件自测: {len(ok)}/{len(results)} 通过")
+    for name in sorted(ok):
+        print(f"  ✅ {name}")
+    for name, err in sorted(bad.items()):
+        print(f"  ❌ {name}: {err}")
+    return 1 if bad else 0
+
+
 # ---------------------------------------------------------------------------
 # CODING_WIRING_MANIFEST — 与原 _setup_tools() 逐字对齐
 # 注意：registry 必须先于 tool_pipeline（构造期依赖），顺序即装配顺序。

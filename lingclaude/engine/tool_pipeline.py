@@ -412,7 +412,10 @@ class ToolPipeline:
         try:
             os.makedirs(self._SPILL_DIR, exist_ok=True)
             fd, path = tempfile.mkstemp(prefix=f"spill_{tool_name}_", suffix=".txt", dir=self._SPILL_DIR)
-            with os.fdopen(fd, "w") as f:
+            # 2026-09-17 修复: 原写法依赖 locale 编码（容器里可能非 UTF-8），
+            # 且读回方（read 工具）固定 utf-8 解码 → locale 不是 UTF-8 时
+            # spill 文件无法读回。显式锁 utf-8 + errors=replace 双保险。
+            with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
                 f.write(text)
             return {
                 "_spilled": True,

@@ -87,6 +87,10 @@ class TodoStore:
         if self._conn is None:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self.db_path), autocommit=True)
+            # 2026-09-17: 统一 Row 工厂——原连接无 row_factory，_row_to_item 与
+            # _release_in_progress 对 r["id"] 的字典式访问在默认元组行下会
+            # TypeError（状态纪律验证实测暴露）。设 Row 后全库访问一致。
+            self._conn.row_factory = sqlite3.Row
             self._conn.executescript(self._DDL)
         return self._conn
 
@@ -144,6 +148,60 @@ class TodoStore:
         ).rowcount
         return updated > 0
 
+    # ------------------------------------------------------------------
+    # 状态纪律（2026-09-17，对标 AtomCode todowrite）：
+    #  ① 恰好一个 in_progress —— start(item) 时自动把其他 in_progress
+    #     退回 pending（"当前执行项"切换语义）；
+    #  ② 中断退回 —— 被覆盖的 in_progress 项回到 pending 而非 completed；
+    #  ③ 禁批量刷绿 —— complete() 一次只动一项，不提供 all_completed。
+    # ------------------------------------------------------------------
+
+    def _release_in_progress(self, conn: sqlite3.Connection, exclude_id: str) -> list[str]:
+        """把除 exclude_id 外的所有 in_progress 退回 pending，返回被退回的 id。"""
+        rows = conn.execute(
+            "SELECT id FROM todos WHERE session_id=? AND status=? AND id!=?",
+            (self.session_id, TodoStatus.IN_PROGRESS.value, exclude_id),
+        ).fetchall()
+        now = time.time()
+        for r in rows:
+            row_id = r["id"] if isinstance(r, sqlite3.Row) else r[0]
+            conn.execute(
+                "UPDATE todos SET status=?, updated_at=? WHERE id=? AND session_id=?",
+                (TodoStatus.PENDING.value, now, row_id, self.session_id),
+            )
+        return [
+            r["id"] if isinstance(r, sqlite3.Row) else r[0] for r in rows
+        ]
+
+    def start_item(self, id: str) -> dict:
+        """纪律化 start：置该项 in_progress，同时把其他 in_progress 退回 pending。
+
+        返回 {ok, id, released:[...]}，released 是被中断退回 pending 的项。
+        """
+        conn = self._connect()
+        target = conn.execute(
+            "SELECT id FROM todos WHERE id=? AND session_id=?",
+            (id, self.session_id),
+        ).fetchone()
+        if not target:
+            return {"ok": False, "id": id, "error": "not_found"}
+        released = self._release_in_progress(conn, id)
+        conn.execute(
+            "UPDATE todos SET status=?, updated_at=? WHERE id=? AND session_id=?",
+            (TodoStatus.IN_PROGRESS.value, time.time(), id, self.session_id),
+        )
+        return {"ok": True, "id": id, "status": "in_progress", "released": released}
+
+    def active_items(self) -> list[TodoItem]:
+        """待办视图数据源：未完成项（in_progress + pending）按 priority 降序。
+
+        已完成/已取消不显示在活跃面板（历史可经 list() 全量查）。
+        """
+        return [
+            i for i in self.list()
+            if i.status in (TodoStatus.IN_PROGRESS, TodoStatus.PENDING)
+        ]
+
     def delete(self, id: str) -> bool:
         conn = self._connect()
         deleted = conn.execute(
@@ -153,9 +211,10 @@ class TodoStore:
 
     @staticmethod
     def _row_to_item(row: sqlite3.Row) -> TodoItem:
+        # session_id 不入 TodoItem（它是 store 作用域，已隐式归属）——
+        # 原实现误传 session_id kwarg，TodoItem dataclass 无此字段。
         return TodoItem(
             id=row["id"],
-            session_id=row["session_id"],
             content=row["content"],
             status=TodoStatus(row["status"]),
             priority=row["priority"],
@@ -221,9 +280,11 @@ def make_handlers(store: TodoStore) -> dict:
         return {"ok": ok, "id": id, "status": "cancelled"} if ok else {"ok": False, "error": "not_found"}
 
     def start(id: str) -> dict:
-        """Mark a todo as in_progress."""
-        ok = store.update_status(id, TodoStatus.IN_PROGRESS)
-        return {"ok": ok, "id": id, "status": "in_progress"} if ok else {"ok": False, "error": "not_found"}
+        """Mark a todo as in_progress（走状态纪律：其他 in_progress 自动退回 pending）。"""
+        result = store.start_item(id)
+        if result["ok"]:
+            return {"ok": True, "id": id, "status": "in_progress", "released": result["released"]}
+        return {"ok": False, "error": "not_found"}
 
     def get(id: str) -> dict:
         """Get a single todo by id."""

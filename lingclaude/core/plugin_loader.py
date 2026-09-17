@@ -15,6 +15,7 @@ entry 格式: "path/to/plugin.py:ClassName" 或 "path/to/plugin.py"（取模块�
 """
 from __future__ import annotations
 
+import os
 import importlib.util
 import json
 import logging
@@ -76,9 +77,22 @@ class PluginLoader:
     # 门禁缓存（类级）：{name@version: True} —— 跨实例共享，进程内每插件只跑一次测试
     _gate_passed: set[str] = set()
 
-    def __init__(self, registry: type[SeamRegistry] | None = None) -> None:
+    def __init__(
+        self,
+        registry: type[SeamRegistry] | None = None,
+        *,
+        run_tests: bool | None = None,
+    ) -> None:
         self._registry = registry or SeamRegistry
         self._loaded: dict[str, LoadResult] = {}
+        # 2026-09-16 启动提速：插件自测默认移出启动路径（实测 6 插件逐个
+        # subprocess pytest ≈40s，web_plugin 独占 32s）。默认 run_tests=False
+        # 只注册不跑测试；自测改为独立入口 lingclaude --selftest（CLI）或
+        # PluginLoader(run_tests=True) 显式开启（CI/发布前质量门禁仍全量跑）。
+        # None → 环境变量 LINGCLAUDE_PLUGIN_SELFTEST=1 亦可开启（不改调用方）。
+        if run_tests is None:
+            run_tests = os.environ.get("LINGCLAUDE_PLUGIN_SELFTEST", "") == "1"
+        self._run_tests_enabled = run_tests
         # 门禁缓存（类级，跨实例共享）：{name@version: True} —— 同一进程内已通过
         # 自带测试的插件不再重复跑（版本变化强制重跑，热更语义）。灵元「测试是
         # 资产，跑过一次即复用结果，不是每次加载都全量重验」。类级而非实例级：
@@ -187,15 +201,20 @@ class PluginLoader:
         # manifest 声明 test_entry（相对仓库根或绝对路径）→ 注册前强制跑测试，
         # 全绿才允许挂载；测试红 → fail fast（不注册，返回 LoadResult 错误）。
         # 未声明 test_entry → 记录 warning 不阻断（演进中：存量插件逐步补齐自包含测试）。
-        test_result = self._run_plugin_tests(manifest)
-        if test_result is not None:
-            if not test_result[0]:
-                return LoadResult(
-                    False,
-                    error=f"插件 {manifest.name} 自带测试未通过（灵元门禁）: {test_result[1]}",
-                    manifest=manifest,
-                )
-            logger.info("PluginLoader: %s 自带测试通过（%s）", manifest.name, test_result[1])
+        # 2026-09-16 启动提速：run_tests=False（新默认）时跳过测试直接挂载，
+        # 质量门禁改由 --selftest / CI 全量跑兜底（启动路径只做注册）。
+        if not self._run_tests_enabled:
+            logger.debug("PluginLoader: 插件 %s 跳过自测（run_tests=False 启动提速）", manifest.name)
+        else:
+            test_result = self._run_plugin_tests(manifest)
+            if test_result is not None:
+                if not test_result[0]:
+                    return LoadResult(
+                        False,
+                        error=f"插件 {manifest.name} 自带测试未通过（灵元门禁）: {test_result[1]}",
+                        manifest=manifest,
+                    )
+                logger.info("PluginLoader: %s 自带测试通过（%s）", manifest.name, test_result[1])
 
         try:
             # 每次加载用唯一模块名（时间戳），彻底绕开 sys.modules 缓存：
