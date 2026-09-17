@@ -1,0 +1,10 @@
+{
+  "guard": "M3",
+  "file": "core/prior_verifier.py",
+  "reason": "P17合法懒加载_derive_evidence_map，与G1白名单同源",
+  "granted": "2026-09-17",
+  "state": "active",
+  "lines": [
+    113
+  ]
+}

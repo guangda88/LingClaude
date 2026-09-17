@@ -1,0 +1,7 @@
+{
+  "guard": "M1",
+  "file": "core/guard.py",
+  "reason": "存量基线(2026-09-17首扫)，只缩不放",
+  "granted": "2026-09-17",
+  "state": "active"
+}

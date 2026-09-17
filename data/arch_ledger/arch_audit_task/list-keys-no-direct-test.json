@@ -1,0 +1,7 @@
+{
+  "severity": "P3",
+  "finding": "StateStore.list_keys新原语无独立测试（仅守卫间接消费）——原语未经测试即非法插片（E7同款标准）。补tests/test_state_store.py用例",
+  "source": "返审2026-09-17c",
+  "state": "open",
+  "created": "2026-09-17T09:45:37+00:00"
+}

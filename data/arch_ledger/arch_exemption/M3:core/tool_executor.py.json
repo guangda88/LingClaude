@@ -1,0 +1,12 @@
+{
+  "guard": "M3",
+  "file": "core/tool_executor.py",
+  "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源",
+  "granted": "2026-09-17",
+  "state": "active",
+  "lines": [
+    13,
+    168,
+    179
+  ]
+}

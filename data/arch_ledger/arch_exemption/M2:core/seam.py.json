@@ -1,0 +1,7 @@
+{
+  "guard": "M2",
+  "file": "core/seam.py",
+  "reason": "SeamType枚举定义地，特判禁令天然豁免",
+  "granted": "2026-09-17",
+  "state": "active"
+}

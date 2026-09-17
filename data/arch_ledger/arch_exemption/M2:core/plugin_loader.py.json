@@ -1,0 +1,11 @@
+{
+  "guard": "M2",
+  "file": "core/plugin_loader.py",
+  "reason": "M2违例存量，行级豁免待债务清偿",
+  "granted": "2026-09-17",
+  "state": "active",
+  "lines": [
+    265,
+    285
+  ]
+}

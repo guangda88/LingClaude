@@ -1,0 +1,7 @@
+{
+  "severity": "P3",
+  "finding": "tests/unit目录空缺，CI unit job每次跑0测试空转（观察期job）。补最小hermetic单测或撤销该job",
+  "source": "返审2026-09-17c",
+  "state": "open",
+  "created": "2026-09-17T09:45:37+00:00"
+}

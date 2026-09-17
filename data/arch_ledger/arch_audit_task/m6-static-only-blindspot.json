@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "M6仪表仅静态口径：TOOL显示单实现误导（plugins/下6+工具经PluginLoader动态注册未计）。补运行时口径：SeamRegistry.get_all()实测并入报告",
+  "source": "返审2026-09-17c",
+  "state": "open",
+  "created": "2026-09-17T09:45:37+00:00"
+}

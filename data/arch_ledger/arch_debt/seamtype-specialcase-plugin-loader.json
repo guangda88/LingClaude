@@ -1,0 +1,9 @@
+{
+  "kind": "seamtype_special_case",
+  "location": "core/plugin_loader.py:265,285",
+  "reason": "装配器对SeamType.TOOL特判，铁律1/M2违例存量，待接缝透传改造",
+  "due": "2026-10-31",
+  "resolve_hint": "PluginLoader的type分派改为经WiringSpec/manifest透传",
+  "state": "open",
+  "created": "2026-09-17T09:13:15+00:00"
+}

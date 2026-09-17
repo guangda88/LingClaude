@@ -1,0 +1,7 @@
+{
+  "severity": "P0",
+  "finding": "台账110条record未入git库（git ls-files data/arch_ledger=0）：CI arch-guards checkout后守卫查到空台账，M1豁免全丢→必假红。需 git add data/arch_ledger 并提交（含ci.yml/.gitignore/守卫/state_store.py本批改动）",
+  "source": "返审2026-09-17c",
+  "state": "open",
+  "created": "2026-09-17T09:45:37+00:00"
+}

@@ -93,5 +93,7 @@ repobench.yml
 run_verify.sh
 
 # 2026-09-17: 运行时状态目录不入库(session历史/tmp/spill/db/approvals)
-data/
+# 注意：data/* 的例外 !data/arch_ledger/ 在上方 L30-34；
+# 此处再写 data/ 会按「最后匹配生效」重盖例外（2026-09-17 提交前踩坑），
+# 故运行时忽略也用 data/* 形式且不再重复——以 L30-34 的唯一规则组为准。
 lingclaude/data/

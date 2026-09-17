@@ -1,0 +1,19 @@
+{
+  "created": "2026-09-17T09:44:43+00:00",
+  "mandate": "2026-09-17 用户裁定：自身有变化审自身，外界有变化审外界，审出不法问题列入优化任务",
+  "self_triggers": [
+    "docs/LINGYUAN_IRON_LAW.md",
+    "tests/test_iron_law_guards.py",
+    "tests/fixtures/core_vocabulary.yaml",
+    "scripts/arch_ledger.py",
+    "scripts/seam_trend_inspect.py",
+    "lingclaude/core/state_store.py",
+    "lingclaude/core/seam.py",
+    ".github/workflows/ci.yml"
+  ],
+  "external_triggers": [
+    "arch_debt",
+    "arch_exemption"
+  ],
+  "schedule": "SDT-lc-006（每次自驱会话唤醒时跑一次；改动铁律/守卫/台账后必跑）"
+}

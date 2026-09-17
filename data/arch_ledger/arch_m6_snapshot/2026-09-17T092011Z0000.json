@@ -1,0 +1,33 @@
+{
+  "ts": "2026-09-17T09:20:11+00:00",
+  "seam_impl_distribution": {
+    "MULTIMODAL": 1,
+    "ORCHESTRATOR": 1,
+    "PROVIDER": 1,
+    "SANDBOX": 4,
+    "TOOL": 1
+  },
+  "single_impl_seams": {
+    "MULTIMODAL": {
+      "file": "lingclaude/seams/multimodal_lingtong.py",
+      "first_commit": "2026-09-15"
+    },
+    "ORCHESTRATOR": {
+      "file": "lingclaude/seams/research_crew.py",
+      "first_commit": "2026-09-15"
+    },
+    "PROVIDER": {
+      "file": "lingclaude/model/provider_registry.py",
+      "first_commit": "2026-09-14"
+    },
+    "TOOL": {
+      "file": "lingclaude/engine/tools.py",
+      "first_commit": "2026-04-03"
+    }
+  },
+  "total_specs": 58,
+  "specs_by_file": {
+    "lingclaude/core/wiring.py": 58
+  },
+  "total_specs_delta_vs_last": null
+}
