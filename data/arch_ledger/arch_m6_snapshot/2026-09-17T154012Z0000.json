@@ -1,0 +1,51 @@
+{
+  "ts": "2026-09-17T15:40:12+00:00",
+  "seam_impl_distribution": {
+    "AGENT": 1,
+    "MULTIMODAL": 1,
+    "ORCHESTRATOR": 1,
+    "PROVIDER": 1,
+    "SANDBOX": 4,
+    "TOOL": 1
+  },
+  "single_impl_seams": {
+    "AGENT": {
+      "file": "lingclaude/plugins/agents/agent_lingxi/plugin.py",
+      "first_commit": null
+    },
+    "MULTIMODAL": {
+      "file": "lingclaude/seams/multimodal_lingtong.py",
+      "first_commit": "2026-09-15"
+    },
+    "ORCHESTRATOR": {
+      "file": "lingclaude/seams/research_crew.py",
+      "first_commit": "2026-09-15"
+    },
+    "PROVIDER": {
+      "file": "lingclaude/model/provider_registry.py",
+      "first_commit": "2026-09-14"
+    },
+    "TOOL": {
+      "file": "lingclaude/engine/tools.py",
+      "first_commit": "2026-04-03",
+      "review_status": "reviewed",
+      "review_case": "first-seam-recycling-review",
+      "review_verdict": "留任（不回收）",
+      "static_count_divergence": "静态=1 但卷宗实测运行时=26，静态口径失真，以卷宗为准（②③联合否决①）"
+    }
+  },
+  "total_specs": 58,
+  "specs_by_file": {
+    "lingclaude/core/wiring.py": 58
+  },
+  "total_specs_delta_vs_last": 0,
+  "closed_reviews": {
+    "TOOL": {
+      "case": "first-seam-recycling-review",
+      "verdict": "留任（不回收）",
+      "opened": "2026-09-17",
+      "static_count_M6": 1,
+      "runtime_count": 26
+    }
+  }
+}

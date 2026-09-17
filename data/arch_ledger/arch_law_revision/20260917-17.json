@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-17",
+  "event": "audited",
+  "note": "A+B复核闭环：A=lc运行时侧写(34轮时间线入arch_reference/ref-lc-runtime-profile)；B=J1-J5全量重跑(首轮结论零翻案全部复现,handover红点精确到338-341三行私连)；前两轮性能对比结论自我修正入册(身份错位/上下文假说证伪/口径不对齐/开销误判四项)",
+  "doc": "docs/LINGYUAN_IRON_LAW.md",
+  "recorded": "2026-09-17T14:50:54+00:00"
+}

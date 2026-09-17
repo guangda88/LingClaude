@@ -1,0 +1,9 @@
+{
+  "kind": "export_view_j4",
+  "location": "lingclaude/core/topic_stack.py:149 (J4_EXPORT_VIEWS)",
+  "reason": "J4 豁免登记：显式路径持久化（调用方注入 _persist_path，非私连介质，导出物语义）。守卫债务感知（G10b）要求豁免必须挂账期。清除条件：持久化路径改走 StateStore 后 resolve。",
+  "due": "2026-11-30",
+  "resolve_hint": "改走 StateStore 后 resolve",
+  "state": "open",
+  "created": "2026-09-17T15:24:32+00:00"
+}

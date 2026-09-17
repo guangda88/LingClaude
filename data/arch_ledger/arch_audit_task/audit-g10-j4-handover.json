@@ -1,0 +1,9 @@
+{
+  "severity": "P1",
+  "finding": "G10守卫红：core/handover.py:340 私连文件存储介质（J4违例存量新暴露点）——J4_STATE_MODULES清单已清空（task_aggregation/meta_cognition/session均走StateStore），但handover.py不在M1豁免基线外的守卫视野内，属迁移长尾；应记debt record挂账期而非留红灯",
+  "source": "2026-09-17全仓审计（演进实录+铁律精读基准）",
+  "state": "resolved",
+  "created": "2026-09-17T14:35:16+00:00",
+  "resolved": "2026-09-17T15:25:13+00:00",
+  "resolution": "2026-09-17整改：①行号漂移校正 J4_EXPORT_VIEWS 337-339→337-340（handover.py:340 失配根因）②挂债 handover-export-view-j4 due 2026-11-30（豁免须挂账不得永续）③新增 G10b 守卫（test_g10b_export_view_exemptions_must_carry_debt）：J4_EXPORT_VIEWS 全部豁免必须挂 arch_debt 且未到期，否则红灯；补挂 7 笔迁移期债务。G10+G10b 实测 13 passed 全绿。"
+}

@@ -1,0 +1,20 @@
+{
+  "manifest_path": "lingclaude/plugins/agents/agent_lingxi/manifest.agent.json",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": [
+      "npx",
+      "-y",
+      "ling-term-mcp"
+    ],
+    "cwd": "/home/ai/lingxi",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "state": "registered",
+  "registered_at": "2026-09-17T15:29:23+00:00",
+  "provenance": "Phase 1 试验田（用户裁定 lingxi），入册五步③"
+}

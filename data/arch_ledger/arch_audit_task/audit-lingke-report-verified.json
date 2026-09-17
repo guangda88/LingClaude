@@ -1,0 +1,9 @@
+{
+  "severity": "P0",
+  "finding": "灵克审计报告关键主张验证（AtomCode复证实测4/4全实锤）：①P0 G守卫CI真空（grep test_p04 in .github/+lefthook=空，G10红灯只本地可见）②P0 G10红点未按铁律4定价（arch_debt无handover条目，'审出→入册→等待'断在入册）③P1 4条候选区失锁任务修完未关（state全open，账实不符）④P1 M1的94豁免无账期（arch_debt无M1对应，豁免与债务语义差被抹平）——均成立，按灵克整改建议执行",
+  "source": "灵克审计报告（双口径互证）",
+  "state": "resolved",
+  "created": "2026-09-17T14:52:48+00:00",
+  "resolved": "2026-09-17T15:40:55+00:00",
+  "resolution": "2026-09-17 整改批次全部落地（修订史 20260917-19）：P0×2（G10 记债+G10b 债务感知守卫；旧 G 守卫入 CI）、P1×3（关 6 失锁单；PLUG_LEVELS+M5 升格+M4 失败模式；豁免 100 份债务语法化+复审到期守卫）、P2×2（M6 卷宗口径；J4 对账收编 governance_v2 盲区挂债）。全量守卫 20 passed。"
+}

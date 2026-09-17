@@ -2,6 +2,8 @@
   "severity": "P1",
   "finding": "参考资料证据不可 query：Hermes 11.1k star/zg 省 37.6%/Omarchy 千插件/RSI 三家路径，出处/日期/URL 未入台账，条文引用的是会漂移的快照(违反 T3 契约漂移条款自身+J4)，未来审计无从回溯",
   "source": "候选区返审",
-  "state": "open",
-  "created": "2026-09-17T13:33:10+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T13:33:10+00:00",
+  "resolved": "2026-09-17T15:27:09+00:00",
+  "resolution": "修复实证（修订史 20260917-12/-14）：7 条外部事实入 arch_reference（hermes/omarchy/rsi/zg 等，带 as_of+drift_note 快照标注），候选6/7/N5 三处裸引换台账指针，可 query 可回溯。账实相符，关单。"
 }

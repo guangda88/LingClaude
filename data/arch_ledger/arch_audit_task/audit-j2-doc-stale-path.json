@@ -1,0 +1,7 @@
+{
+  "severity": "P3",
+  "finding": "铁律§五J2实证样例路径漂移：文档写 BwrapProvider/NoopProvider，实际类名已演化为 BwrapSandboxProvider（协议与manifest接缝声明仍在）——文档实证样例过时，非架构失守；修文档即清",
+  "source": "2026-09-17全仓审计（演进实录+铁律精读基准）",
+  "state": "open",
+  "created": "2026-09-17T14:35:16+00:00"
+}

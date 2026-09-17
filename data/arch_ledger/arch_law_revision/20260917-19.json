@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-17",
+  "event": "revised",
+  "note": "灵克审计整改批次（audit-lingke-report-verified 执行）：①P0 G10 红灯根因=J4_EXPORT_VIEWS 行号漂移(339→340)，校正+挂债 handover-export-view-j4(due 11-30)；新增 G10b 守卫（豁免必须挂债，债务感知）+补挂 7 笔迁移期债务；②P0 旧 G 守卫入 CI（arch-guards job 增 pytest test_p04，G1-G10b 必过）；③P1 关 6 失锁单（candzone-×4+baseline-stale+g10-j4，基线表 :201/:213 ToolResult 清偿更正）；④P1 SeamType 拔插等级 PLUG_LEVELS 10/10 声明（core/seam.py），M5 升格真实插片逐级拔+声明完备性检查，M4 失败模式入档；⑤P1 豁免债务语法化：100 份豁免记录补 review_due（M1×94→10-17，M2/M3→10-31，seam.py 永久+理由），新增豁免复审到期守卫；⑥P2 M6 接卷宗口径（load_closed_reviews，单实现观察带审查状态，分歧显式警报）；⑦J4 对账：9 处直写盲区核实——清单内 12 处全为豁免导出物，真实盲区 governance_v2.py:640 收编清单+登记+挂债(due 11-30)；⑧并发事件留痕：Phase 1 试验田 agent_lingxi 插片（manifest.agent.json schema）部署撞 G12，守卫升级双 schema 并存期认可；全量守卫 20 passed。待用户复核（self_audit_trigger+抽查整改账目）。",
+  "doc": "docs/LINGYUAN_IRON_LAW.md §四",
+  "recorded": "2026-09-17T15:40:43+00:00"
+}

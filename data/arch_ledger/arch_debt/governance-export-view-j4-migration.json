@@ -1,0 +1,9 @@
+{
+  "kind": "export_view_j4",
+  "location": "lingclaude/core/governance.py:444 (J4_EXPORT_VIEWS)",
+  "reason": "J4 豁免登记：governance gate 审计记录导出物（gate_{ts}.json，规则检查留档供审计）。守卫债务感知（G10b）要求豁免必须挂账期。清除条件：留档职责移交后 resolve。",
+  "due": "2026-11-30",
+  "resolve_hint": "留档职责移交后 resolve",
+  "state": "open",
+  "created": "2026-09-17T15:24:33+00:00"
+}

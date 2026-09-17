@@ -1,0 +1,9 @@
+{
+  "kind": "export_view_j4",
+  "location": "lingclaude/core/governance_verifier.py:294,303 (J4_EXPORT_VIEWS)",
+  "reason": "J4 豁免登记：审计报告导出物（audit_*.json + latest_audit_summary.json，供外部消费）。守卫债务感知（G10b）要求豁免必须挂账期。清除条件：导出物职责移交独立导出器后 resolve。",
+  "due": "2026-11-30",
+  "resolve_hint": "导出职责移交后 resolve",
+  "state": "open",
+  "created": "2026-09-17T15:24:32+00:00"
+}

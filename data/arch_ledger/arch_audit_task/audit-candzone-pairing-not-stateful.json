@@ -2,6 +2,8 @@
   "severity": "P2",
   "finding": "候选铁律5'对偶记账'只定义 record 形状未定义对偶关系的状态机(谁先建/对账失败算谁的 drift/冗余删库恢复)，与铁律1'主干是状态机'语法不一致，裁决问题①②挂账但本体未状态机化",
   "source": "候选区返审",
-  "state": "open",
-  "created": "2026-09-17T13:33:10+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T13:33:10+00:00",
+  "resolved": "2026-09-17T15:27:09+00:00",
+  "resolution": "修复实证（修订史 20260917-14 + 铁律 §六 :83-85）：候选铁律5 对偶记账状态机化——federation_pair 六态（proposing→paired→drift|broken→restored|dissolved），谁先建/对账失败/删库恢复各有确定语义，drift 由 N5 侦测。账实相符，关单。"
 }

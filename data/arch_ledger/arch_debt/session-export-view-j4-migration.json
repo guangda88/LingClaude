@@ -1,0 +1,9 @@
+{
+  "kind": "export_view_j4",
+  "location": "lingclaude/core/session.py:110,186 (J4_EXPORT_VIEWS)",
+  "reason": "J4 豁免登记：session 文件仓库导出视图（save 原子写 + snapshot 导出物；list/rewind 介质）。守卫债务感知（G10b）要求豁免必须挂账期。清除条件：session 仓库收编进 StateStore 后 resolve。",
+  "due": "2026-11-30",
+  "resolve_hint": "文件仓库收编进 StateStore 后 resolve",
+  "state": "open",
+  "created": "2026-09-17T15:24:32+00:00"
+}

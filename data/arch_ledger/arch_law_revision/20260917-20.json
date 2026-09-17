@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-17",
+  "event": "verified",
+  "note": "Phase 1 验证收口：M5截肢互不感知✅（unregister lingxi 后 other 插片存活，registry 裸名+manifest 域前缀双层语义确认）；run 全链路 record 化✅（timeout 路径入账 agent_run，J4 失败必留痕实证）；真实 MCP 探针超时→debt agent-lingxi-mcp-probe-timeout（due+7d，红灯转明账）。Phase 1 四任务全闭环",
+  "doc": "lingclaude/plugins/agents/agent_lingxi/",
+  "recorded": "2026-09-17T15:32:39+00:00"
+}

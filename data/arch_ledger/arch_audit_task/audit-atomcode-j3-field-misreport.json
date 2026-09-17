@@ -1,0 +1,9 @@
+{
+  "severity": "P2",
+  "finding": "AtomCode审计J3误报自纠（灵克报告翻案+实测证实）：守卫代码查字段名'sub_seams'，实际manifest字段为stop_layer.{kernel,seams,implementations}，6/6插件三要素齐全——J3停层声明实为达标，我报'欠账实锤'系字段名口径误报；教训：审计者读schema须先验证字段存在性，不能以自己代码里的字段名为准（审计口径污染源）",
+  "source": "灵克审计报告（双口径互证）",
+  "state": "resolved",
+  "resolution": "实测6 manifest全有stop_layer三要素，误报确认，按误差入账关闭（口径以灵克报告+本次实测为准）",
+  "created": "2026-09-17T14:52:48+00:00",
+  "resolved_at": "2026-09-17T14:52:48+00:00"
+}

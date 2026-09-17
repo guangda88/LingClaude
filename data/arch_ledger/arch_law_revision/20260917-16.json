@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-17",
+  "event": "audited",
+  "note": "全仓审计（基准=演进实录+铁律精读）：J1达标（近期提交走StateStore record_type归原语+ToolResult全链路）；J2协议在但文档样例类名漂移(P3)；J3六manifest kernel有/sub_seams全缺(P2，细则5欠账实锤)；J4主清单清空但handover.py:340长尾新暴露(G10红,P1)；M1-M5守卫6 passed、G系列1红11绿；台账100豁免+6债务无到期；基线表ToolResult欠账已过时(P3)；4条入arch_audit_task",
+  "doc": "docs/LINGYUAN_IRON_LAW.md",
+  "recorded": "2026-09-17T14:35:16+00:00"
+}

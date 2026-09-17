@@ -1,0 +1,9 @@
+{
+  "kind": "export_view_j4",
+  "location": "lingclaude/core/layered_memory.py:553 (J4_EXPORT_VIEWS)",
+  "reason": "J4 豁免登记：StateStore 写入失败时的文件兜底导出物，非状态主通道。守卫债务感知（G10b）要求豁免必须挂账期。清除条件：兜底职责移交或移除后 debt resolve + 缩 J4_EXPORT_VIEWS。",
+  "due": "2026-11-30",
+  "resolve_hint": "兜底职责移交后 resolve",
+  "state": "open",
+  "created": "2026-09-17T15:24:31+00:00"
+}

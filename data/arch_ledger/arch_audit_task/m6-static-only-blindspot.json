@@ -2,6 +2,8 @@
   "severity": "P2",
   "finding": "M6仪表仅静态口径：TOOL显示单实现误导（plugins/下6+工具经PluginLoader动态注册未计）。补运行时口径：SeamRegistry.get_all()实测并入报告",
   "source": "返审2026-09-17c",
-  "state": "open",
-  "created": "2026-09-17T09:45:37+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T09:45:37+00:00",
+  "resolved": "2026-09-17T15:40:43+00:00",
+  "resolution": "2026-09-17整改落地：seam_trend_inspect.py 新增 load_closed_reviews()——单实现观察查 arch_review 卷宗，带 verdict/case 标注；静态与运行时计数分歧显式标 static_count_divergence（静态=1 vs 卷宗运行时=26），静态结论降级为线索（J5 四条件之2 ②③联合否决①接通）。实测：TOOL 行已标'已审查：留任（不回收）'。"
 }

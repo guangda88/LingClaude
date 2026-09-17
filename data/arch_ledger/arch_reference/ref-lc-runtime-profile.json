@@ -1,0 +1,8 @@
+{
+  "summary": "lc(819b1894会话)运行时侧写:34轮/10.6分钟(14:33:35-14:44:16UTC)/总input 105万/总output 1.4万/均19.3秒每轮；每轮Δinput 1.2万→4.7万指数累积(harness上下文全量重放特征)；全程活跃无卡顿中断；进程形态:lingclaude run -i (pts/1交互式)+daemon watch(300s轮询)+lingbus_poll_daemon",
+  "source": "checkpoints 819b1894@round0-34 + ps aux 实测",
+  "as_of": "2026-09-17 22:19-22:44 本地",
+  "drift_note": "快照值；lc会话仍在进行,后续轮次会变",
+  "state": "active",
+  "created": "2026-09-17T14:50:54+00:00"
+}

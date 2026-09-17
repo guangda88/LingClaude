@@ -1,0 +1,9 @@
+{
+  "severity": "P3",
+  "finding": "全仓审计重跑复核（用户令A+B）：B重实测与首轮逐条对照——J1✓(同:近期提交走StateStore)；J2✓(同:BwrapSandboxProvider/NoopSandboxProvider协议在,文档样例类名漂移仍在)；J3✓(同:6 manifest sub_seams全缺)；J4⚠(G10红点确认仍在:handover.py:338-341三写yaml/json/md私连文件——比首轮定位更精确,首轮写340,实际340是json写行,338起三行连续私连)；J5✓(M件套6 passed/台账100豁免+6债务/最近due10-17/无到期)。结论:首轮审计结论全部复现成立,零翻案;补充发现=handover红点精确行号修正+round34侧写新增",
+  "source": "B全量重跑",
+  "state": "resolved",
+  "resolution": "复核完成,首轮结论可信；handover.py:338-341三行私连待挂debt(P1遗留)",
+  "created": "2026-09-17T14:50:54+00:00",
+  "resolved_at": "2026-09-17T14:50:54+00:00"
+}

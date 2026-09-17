@@ -1,0 +1,9 @@
+{
+  "kind": "probe_failure",
+  "location": "lingclaude/plugins/agents/agent_lingxi/plugin.py _probe/run",
+  "reason": "lingxi 真实 MCP 端点探针超时（npx ling-term-mcp stdio initialize 5s 内无 result）——插片本体与 record 化链路已验证（M5截肢✅/timeout路径入账✅），仅真实端点不可达；疑因 cwd=/home/ai/lingxi 下 npx 冷启动超 5s 或 ling-term-mcp 未安装",
+  "due": "2026-09-24",
+  "resolve_hint": "本机实测 npx ling-term-mcp 手动 initialize；若冷启动慢则调 manifest startup_timeout_s/probe timeout_s；若包缺失则 npm i -g",
+  "state": "open",
+  "created": "2026-09-17T15:32:39+00:00"
+}

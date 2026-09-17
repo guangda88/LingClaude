@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "J3停层声明欠账实锤：抽查6个plugins/tools manifest（ast/bash/file_ops/git/read/web），kernel声明全有，但sub_seams字段全缺——铁律2细则5要求'声明本插片的内核、子插片接缝在哪、当前有几个实现'，三要素缺二；与基线表'部分插片未声明停层'欠账一致，实测证实其规模=全部抽查样本",
+  "source": "2026-09-17全仓审计（演进实录+铁律精读基准）",
+  "state": "open",
+  "created": "2026-09-17T14:35:16+00:00"
+}

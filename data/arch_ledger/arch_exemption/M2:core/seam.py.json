@@ -3,5 +3,7 @@
   "file": "core/seam.py",
   "reason": "SeamType枚举定义地，特判禁令天然豁免",
   "granted": "2026-09-17",
-  "state": "active"
+  "state": "active",
+  "permanent": true,
+  "permanent_reason": "SeamType 枚举定义地，特判禁令天然不适用（结构性永久豁免）"
 }
