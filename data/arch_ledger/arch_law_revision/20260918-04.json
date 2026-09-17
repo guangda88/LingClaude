@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-18",
+  "event": "enacted",
+  "note": "git工具组扩展批次（git-MCP立项收缩为既有实现扩展，避免同缝双实现）：①白名单补gitea——engine/git.py _ALLOWED_REMOTES + core/config.py GitConfig/from_dict兜底值三处同源（git_push(remote='gitea')原被拒）；②J4 record化——GitPlugin每次调用入git_tool_log（成功/失败/异常路径全记，本体与事件流分离，与work_claim._record同家法），惰性StateStore不缺席；③三remote连通探针——remote_probe.py DNS→TCP→协议分层（SSH/GIT标manual只测TCP层，不冒充协议结论），结果逐remote入git_remote_probe record，read_probe_record按timestamp标stale（铁律8时效域：读旧账自知旧账）；④manifest增provides=git_probe_remotes。防回归41例（gitea×4/J4记账×4/探针×6/manifest×1+既有push工具26例）。教训入账：getaddrinfo无timeout参数，误传关键字使DNS层恒False——被环回TCP用例当场咬出（测试即司法）。G3基线+19→+20归因agent_lingxi/plugin.py:265延迟import（1daf921引入，注释声明规避循环，判合法懒加载入账）",
+  "doc": "lingclaude/engine/git.py + lingclaude/plugins/tools/git/{plugin.py,remote_probe.py,manifest.plugin.json} + lingclaude/core/config.py + tests/test_git_probe_and_log.py",
+  "recorded": "2026-09-17T18:30:00+00:00"
+}

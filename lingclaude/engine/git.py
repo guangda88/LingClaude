@@ -197,7 +197,10 @@ def git_log(
     })
 
 
-_ALLOWED_REMOTES = ("origin", "github", "upstream")
+_ALLOWED_REMOTES = ("origin", "github", "upstream", "gitea")
+# 2026-09-18 补 gitea：方案 A 双远程之一（origin 已切 HTTPS gitea 通道），
+# 缺位会导致 git_push(remote="gitea") 被白名单拒——
+# 与 core/config.py GitConfig.allowed_remotes / from_dict 兜底值三处同源，改必同步。
 _ALLOWED_BRANCHES = ("master", "main", "dev", "develop")
 _ALLOWED_REFSPEC_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
 

@@ -128,7 +128,7 @@ class GitConfig:
         blackhole_remote_check: true   # 关闭则跳过黑洞 IP 检测
     """
 
-    allowed_remotes: tuple[str, ...] = ("origin", "github", "upstream")
+    allowed_remotes: tuple[str, ...] = ("origin", "github", "upstream", "gitea")
     blackhole_remote_check: bool = True
 
 
@@ -234,7 +234,7 @@ class lingclaudeConfig:
                 max_tool_calls_per_session=ver_raw.get("max_tool_calls_per_session", 0),
             ),
             git=GitConfig(
-                allowed_remotes=tuple(git_raw.get("allowed_remotes", ["origin", "github", "upstream"])),
+                allowed_remotes=tuple(git_raw.get("allowed_remotes", ["origin", "github", "upstream", "gitea"])),
                 blackhole_remote_check=git_raw.get("blackhole_remote_check", True),
             ),
             log_level=raw.get("system", {}).get("log_level", "INFO"),

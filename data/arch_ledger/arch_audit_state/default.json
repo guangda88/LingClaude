@@ -1,7 +1,7 @@
 {
-  "head": "f76e1f7",
+  "head": "1daf921",
   "fingerprints": {
-    "docs/LINGYUAN_IRON_LAW.md": "1b4048ced540",
+    "docs/LINGYUAN_IRON_LAW.md": "4844ee606eeb",
     "tests/test_iron_law_guards.py": "7eeb171046b2",
     "tests/fixtures/core_vocabulary.yaml": "81d01e149d98",
     "scripts/arch_ledger.py": "abf50504cd3c",
@@ -9,12 +9,12 @@
     "lingclaude/core/state_store.py": "b67d6506da0e",
     "lingclaude/core/seam.py": "20f7f600ecf6",
     ".github/workflows/ci.yml": "0cb6f23b8e43",
-    "arch_debt:agent-lingxi-mcp-probe-timeout": "7d289f2dbf83",
-    "arch_debt:candzone-ironlaw5-federation-arbitration": "bbb7d18d40b1",
-    "arch_debt:candzone-ironlaw6-trustlevel-arbitration": "eb60f7fb3ac2",
-    "arch_debt:candzone-ironlaw7-namespace-arbitration": "149f4430ba14",
-    "arch_debt:candzone-ironlaw8-faultdomain-arbitration": "c1c2eb3213f0",
-    "arch_debt:candzone-j5-efficiency-arbitration": "8c80a44cc7c4",
+    "arch_debt:agent-lingxi-mcp-probe-timeout": "c39e07793d79",
+    "arch_debt:candzone-ironlaw5-federation-arbitration": "8f668aaf503a",
+    "arch_debt:candzone-ironlaw6-trustlevel-arbitration": "586c59679715",
+    "arch_debt:candzone-ironlaw7-namespace-arbitration": "141891a1faa2",
+    "arch_debt:candzone-ironlaw8-faultdomain-arbitration": "8cf959468e57",
+    "arch_debt:candzone-j5-efficiency-arbitration": "b0e8fac0171f",
     "arch_debt:governance-export-view-j4-migration": "accd07c3e3be",
     "arch_debt:governance-v2-proposals-j4-migration": "7a7c33a8e775",
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
@@ -120,5 +120,5 @@
     "arch_exemption:wakeup_channel.py": "edf4f812a90c",
     "arch_exemption:wiring.py": "411460a4744d"
   },
-  "checked": "2026-09-17T16:29:58+00:00"
+  "checked": "2026-09-17T17:18:09+00:00"
 }
