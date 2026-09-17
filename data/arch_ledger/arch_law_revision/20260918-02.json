@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-18",
+  "event": "enacted",
+  "note": "多Agent协作两条硬化（用户裁定）落码：①work_claim.py 锁原语（bind/renew/release/holder/check_paths，StateStore record 化，J4 事件全入账 work_claim_log）②scripts/worktree_node.py（worktree 隔离+锁同生命周期：new 先 bind 后建、done 脏区拒销+release、record 层共享代码层隔离）③tests/agents/conftest.py 查锁跳过（skipped:claim-held 显式留痕）④16 测试全绿（work_claim 8+worktree_node 8，含路径 key 归一化/过期夺锁/双活锁即警）。来源：lingxi 插片双方并行修改 5-failed 基线漂移实例+Orca worktree 合并噩梦资料",
+  "doc": "lingclaude/plugins/agents/work_claim.py + scripts/worktree_node.py",
+  "recorded": "2026-09-17T16:42:01+00:00"
+}

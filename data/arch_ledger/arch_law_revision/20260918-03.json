@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-18",
+  "event": "guard-uplifted",
+  "note": "N4缺席查从插片级升格为域级圈死（灵克复核指出守卫强度低于条文，J5四条件之4入账）：①健康状态record化——plugin.py status() 将 healthy/absent 持久化为 health_state record（domain=缝key域前缀，与铁律7同源）；②query_domain_health() 域级汇总——域内任一absent即quarantined（不假活不放行半成品）、域外不受影响、空域unknown不臆断健康；③防回归测试3例：域级圈死/恢复翻写解除圈死/空域unknown。守卫与条文（本体§一L125三域）对齐，消除'条文优于实现'缺口。另：audit-work-claim-guard任务关单（修完未关复发，同上轮candzone×4同构）",
+  "doc": "lingclaude/plugins/agents/agent_lingxi/plugin.py + tests/agents/test_agent_lingxi.py",
+  "recorded": "2026-09-17T16:42:01+00:00"
+}

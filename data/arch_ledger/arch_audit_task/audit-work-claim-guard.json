@@ -1,0 +1,9 @@
+{
+  "severity": "P3",
+  "finding": "多Agent并行修改防护缺工作区锁：lingxi 插片被灵克与 AtomCode 并行修改导致测试基线漂移（5 failed 中 3 个是对方半成品）；候选方案=StateStore 加 work_claim record（文件路径+成员+时限），守卫跑测试前查锁，持锁模块跳过并记 skipped:claim-held——入候选区待裁决",
+  "source": "2026-09-17 多Agent协作并行修改冲突实例",
+  "state": "resolved",
+  "created": "2026-09-17T16:28:07+00:00",
+  "resolved_at": "2026-09-18T00:00:00+00:00",
+  "resolution": "铁律8升格落码关闭：work_claim.py独占锁+TTL、worktree_node.py代码隔离、conftest.py查锁跳过(skipped:claim-held显式留痕)全部落地；候选8经用户裁决升格为铁律8三域条文（docs/LINGYUAN_IRON_LAW.md:125），立法记录见arch_law_revision/20260918-01(promoted)+-02(enacted)，守卫回归16 passed（work_claim 8+worktree_node 8）"
+}

@@ -1,0 +1,32 @@
+{
+  "name": "agent/lingxi",
+  "target": "lingxi",
+  "display_name": "灵犀",
+  "version": "1.0.0",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": ["node", "--use-openssl-ca", "dist/cli.js"],
+    "command_note": "固化于 plugin._server_cmd()。--use-openssl-ca 规避沙箱 ulimit -v 1GB 下内嵌根证书包初始化崩溃（debt agent-lingxi-mcp-probe-timeout 清偿，20260917-21）；npx 包装器同 VA 上限下 OOM，弃用",
+    "cwd": "/home/ai/lingxi",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "ling-term-mcp（TypeScript MCP server，stdio）→ 灵犀终端/搜索/执行工具集",
+    "seams": ["model_provider"],
+    "implementations": 1
+  },
+  "capabilities": ["execute_command", "code_search", "search", "extract", "session"],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "initialize",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:lingxi",
+  "notes": "Phase 1 试验田（用户 2026-09-17 裁定）：MCP 已知就绪最快跑通；T1 全审计（协议同源基础设施）；L1 替换（unregister 后 lc 主干照跑）。铁律 7：缝 key 带域前缀 agent/；铁律 6：trust/plug 双声明；铁律 3：run 全程 record 化。探针债务 2026-09-17 清偿（修订史 20260917-21）：--use-openssl-ca + 弃 npx + 补 clientInfo.version + caller 身份声明。"
+}
