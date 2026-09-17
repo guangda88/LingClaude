@@ -185,6 +185,8 @@ holder/check_paths 五原语）+ `scripts/worktree_node.py`（代码层 worktree
 | N1 | 互账完备（配铁律 5） | 法 | 双向互认的两侧 StateStore 各有一条对偶 record（federation_pair 同 key 同 state，query 对账缺一/不一致即警） |
 | N2 | 信任声明（配铁律 6） | 律 | 插片入册必带 trust_level（T1/T2/T3）+ plug_level（L1/L2/L3），缺省按 T1+L3 最严组合校验；缺字段拒收 |
 | N3 | 命名空间互证（配铁律 7） | 律 | 新增插片缝 key 必带域前缀 `{ns}/{seam}`（ns ∈ core/agent/cap/os/hw），裸 key 拒收；跨域互认域不一致即警（core 域存量 10 类 SeamType 豁免） |
+| N4 | 三查（配铁律 8） | 法 | 缺席查：插片（含硬件）探针连续失效 → absent，同域 query 全返 absent 不假活；互斥查：同路径/同 tab 双活锁即警；时效查：过期锁/过期探针即提醒夺锁（执行载体 work_claim 三原语 + conftest 查锁跳过） |
+| N7 | 横向耦合禁令（2026-09-18 升格） | 律 | plugins/ 下插片禁止 import 他插片内部符号（插片目录=含 plugin.py 的事实边界；含函数内 lazy import），共享只走显式公共接缝（plugins/\<域\>/ 直置共享模块，如 agents/mcp_common.py）；AST 静态口径对齐 M3 家法，豁免走 arch_exemption guard=N7 只缩不放。与 M3 合围依赖图三向封闭：主干↔插片走 M3，插片↔插片走 N7，插片状态↔StateStore 走 J4 |
 
 1. **失败模式显式声明**：口径必须自曝"测的是什么、测不到什么"（如 M6 声明"静态口径看不见动态注册"）——不声明失败模式的测量才是危险的测量；失败模式声明是测量自身的可查询边界。
 2. **多口径互证，分歧即警**：单一口径自审是自己证明自己；独立口径（静态/运行时/行为）结论不一致即报警——分歧不是噪声，是"测量里有假"的系统信号。守卫禁止以单一口径出具终审结论。

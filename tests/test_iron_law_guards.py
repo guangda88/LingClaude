@@ -51,6 +51,88 @@ def _label(f: Path) -> str:
     return f.relative_to(SRC).as_posix()
 
 
+# ── N7 横向耦合守卫（2026-09-18 用户裁决升格，修订史 20260918-06）─────────
+# 来源：lc 审查发现清单 P2-1（lc_mcp_guard 函数内 import agent_lingxi 内部函数
+# = 插片 A import 插片 B 内部，灵犀一改 lc-guard 就断；M3 只查纵向不拦此盲区）。
+# 条文（已生效）：plugins/ 下的插片模块禁止 import 其他插片目录的内部符号——
+# 插片间共享只走显式公共接缝（如 plugins/agents/mcp_common.py），共享面收敛
+# 为接缝后即受 M3 同款"变化走接缝"管辖。
+# 豁免：与 M1-M3 同款台账（arch_exemption，guard="N7"），只缩不放。
+# 升格路径：草案（2026-09-18 早）→ 用户裁决"升格" → 修订史 20260918-06 enacted
+# → 条文正式入 docs/LINGYUAN_IRON_LAW.md §二守卫件套表 N7 行。
+PLUGINS = SRC / "plugins"
+N7_PUBLIC_SEAMS = {"mcp_common"}  # 插片间合法共享面（显式公共接缝白名单）
+
+
+def _plugin_dirs() -> set[str]:
+    """插件目录名集合：plugins/<域>/<X>/plugin.py 存在的 X（与共享模块区分）。
+
+    plugins/<域>/ 直下的单文件模块（如 agents/mcp_common.py）是公共接缝不是
+    插片目录——import 它合法（N7_PUBLIC_SEAMS 是语义白名单，目录扫描是事实边界）。
+    """
+    dirs = set()
+    for domain in PLUGINS.iterdir():
+        if not domain.is_dir():
+            continue
+        for child in domain.iterdir():
+            if child.is_dir() and (child / "plugin.py").exists():
+                dirs.add(child.name)
+    return dirs
+
+
+def _n7_scan() -> list[str]:
+    """扫 plugins/ 下跨插片目录的内部 import（AST 静态口径）。
+
+    规则：文件属 plugins/<域>/<插片A>/，其 import 指向另一插片目录
+    （lingclaude.plugins.<域>.<B>...，B≠A 且 B 是插件目录）即违规；
+    指向 plugins/<域>/ 直下共享模块（mcp_common 等）合法。
+    函数内 lazy import 同样捕获（P2-1 正是函数内 import）。
+    """
+    exempt = _active_exemptions("N7")
+    plugin_dirs = _plugin_dirs()
+    violations = []
+    for f in _py_files(PLUGINS):
+        rel = _label(f)
+        if exempt.get(rel, "not-listed") is None:
+            continue
+        allowed_lines = exempt.get(rel) or []
+        # 本文件所属插片目录：plugins/<域>/<插片>/...（取第 3 段）
+        parts = rel.split("/")
+        if len(parts) < 3 or parts[0] != "plugins":
+            continue
+        own = parts[2]
+        tree = _parse(f)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            mods: list[str] = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                mods = [node.module]
+            elif isinstance(node, ast.Import):
+                mods = [a.name for a in node.names]
+            for m in mods:
+                seg = m.split(".")
+                # lingclaude.plugins.<域>.<X>[.子模块]：X=另一插件目录 → 横向耦合
+                if len(seg) >= 4 and seg[0] == "lingclaude" and seg[1] == "plugins":
+                    target = seg[3]
+                    if target != own and target in plugin_dirs:
+                        if node.lineno not in allowed_lines:
+                            violations.append(
+                                f"{rel}:{node.lineno} import {m}（插片 {own} → {target} 内部，"
+                                f"共享应走 plugins/<域>/ 直下公共接缝模块）")
+    return violations
+
+
+def test_n7_no_cross_plugin_internal_imports():
+    """N7（律，草案）：插片间禁止 import 他插片内部符号，共享走公共接缝。"""
+    violations = _n7_scan()
+    assert not violations, (
+        "N7 违规（草案）：插片横向耦合——import 他插片内部模块"
+        "（隐性耦合：他插片一改本插片即断；共享应收敛到显式公共接缝）:\n  "
+        + "\n  ".join(violations)
+    )
+
+
 # ── 台账（arch_ledger，StateStore 归原语）────────────────────────────────
 # 2026-09-17 铁律返审（"算子革命先革自己的命"）：豁免/债务从代码内 dict 与
 # fixtures 基线文件迁入 StateStore（type=arch_exemption / arch_debt），
