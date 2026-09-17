@@ -1,9 +1,11 @@
 {
   "kind": "probe_failure",
   "location": "lingclaude/plugins/agents/agent_lingxi/plugin.py _probe/run",
-  "reason": "lingxi 真实 MCP 端点探针超时（npx ling-term-mcp stdio initialize 5s 内无 result）——插片本体与 record 化链路已验证（M5截肢✅/timeout路径入账✅），仅真实端点不可达；疑因 cwd=/home/ai/lingxi 下 npx 冷启动超 5s 或 ling-term-mcp 未安装",
+  "reason": "lingxi 真实 MCP 端点探针超时（npx ling-term-mcp stdio initialize 5s 内无 result）——表象为超时，根因实为沙箱 ulimit -v 1GB 下 node 内嵌根证书包初始化 malloc 失败（x509!=nullptr 断言，crypto_context.cc:797，进程活不过 0.4s）+ npx 包装器同 VA 上限下 OOM + 探针载荷缺 clientInfo.version（新 MCP SDK 必填，-32603）",
   "due": "2026-09-24",
-  "resolve_hint": "本机实测 npx ling-term-mcp 手动 initialize；若冷启动慢则调 manifest startup_timeout_s/probe timeout_s；若包缺失则 npm i -g",
-  "state": "open",
-  "created": "2026-09-17T15:32:39+00:00"
+  "resolve_hint": "已清偿（20260917-21）：弃 npx 直用 node --use-openssl-ca dist/cli.js（读系统 CA 绕开内嵌证书包崩溃，实测单独即足 0.4s 内 result）；探针载荷补 clientInfo.version；探针 input 补结尾换行（根因4：灵犀 CLI 按行读 stdin，无 \\n 则请求不被处理——命令行实验因 shell printf 恒带 \\n 而漏检，插件 subprocess 首跑暴露）；_call_mcp 补 initialize/initialized 握手并以 id=1 行锚定判定；caller 身份经 manifest 声明（lingclaude 在 lingxi src/security/identity.ts 注册表在册）；防回归测试 6 例（tests/agents/test_agent_lingxi.py，含 error 不判活、id 锚定、握手次序、双源一致）",
+  "state": "resolved",
+  "created": "2026-09-17T15:32:39+00:00",
+  "resolved": "2026-09-17T16:29:06+00:00",
+  "resolution_note": "根因四分支全部实测定位并修复（1 ulimit-v 下证书包崩溃→--use-openssl-ca；2 npx OOM→弃用；3 载荷缺 clientInfo.version；4 灵犀 CLI 按行读 stdin 尾行需换行），真实端点探针 healthy=True 0.47s；全量守卫 20+插片 18+worktree 10=54 passed；G12 因 __pycache__ 碰撞暴露一处扫描域缺口，已按 ：141/:193 既有豁免惯例对齐修补；防回归测试当场抓出旧探针 error 也判活的真 bug"
 }

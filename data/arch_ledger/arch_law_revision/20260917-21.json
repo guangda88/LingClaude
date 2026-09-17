@@ -1,0 +1,7 @@
+{
+  "date": "2026-09-17",
+  "event": "verified",
+  "note": "探针债务清偿（debt agent-lingxi-mcp-probe-timeout，7天账期第1天完成）：表象'5s超时'实为崩溃+载荷缺陷四联根因——①沙箱 ulimit -v 1GB 下 node 内嵌根证书包初始化 malloc 失败（x509!=nullptr 断言）②npx 包装器同 VA 上限 OOM ③探针载荷缺 clientInfo.version（-32603）④灵犀 CLI 按行读 stdin、无结尾换行则请求不被处理（命令行实验因 shell printf 恒带 \n 漏检，插件 subprocess 首跑暴露）。修复：server 命令改 node --use-openssl-ca dist/cli.js（弃 npx，读系统 CA）；_server_cmd 以 manifest 为单一事实源+node 场景幂等注入旗标（保持测试注入 hermetic）；探针 input 补结尾换行；_call_mcp 补 initialize/initialized 握手、判定锚定 id=1 行（initialize 回包不再冒充调用成功）；_probe 要求 result 非 error（防回归测试当场抓出旧逻辑 error 也判活的真 bug）；caller 身份经 manifest 声明（lingclaude 在 lingxi src/security/identity.ts 在册）。真实端点探针 healthy=True（0.47s）。防回归 6 例，全量 54 passed（守卫20+插片18+worktree10）。G12 插曲：跑测产生的 plugins/agents/__pycache__ 被守卫当无 manifest 载体，按 ：141/:193 既有豁免惯例对齐修补（解释器产物非插片）。并行工作流文件（worktree_node）实时演进，其 UnboundLocalError 由其自修，未越界代改",
+  "doc": "lingclaude/plugins/agents/agent_lingxi/ + tests/agents/test_agent_lingxi.py",
+  "recorded": "2026-09-17T16:29:06+00:00"
+}

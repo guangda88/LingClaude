@@ -514,8 +514,8 @@ def test_g12_plugins_self_contained():
     if not _PLUGINS_DIR.is_dir():
         return  # 无插件目录 → 跳过（未启用插件化）
     for sub in sorted(_PLUGINS_DIR.glob("*/*")):
-        if not sub.is_dir():
-            continue
+        if not sub.is_dir() or "__pycache__" in sub.parts:
+            continue  # 解释器产物非插片载体（与 :141/:193 豁免惯例一致）
         has_manifest = any(
             (sub / name).is_file()
             for name in ("manifest.plugin.json", "manifest.agent.json")
