@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -81,18 +82,28 @@ class TodoStore:
     def __init__(self, db_path: str | Path, session_id: str):
         self.db_path = Path(db_path)
         self.session_id = session_id
-        self._conn: sqlite3.Connection | None = None
+        # 2026-09-17 Bug B 修复：工具执行器每轮可能在不同线程调用同一 store，
+        # 连接若缓存在实例属性上会跨线程复用，被 sqlite3 默认
+        # check_same_thread=True 拒绝（报错 "SQLite objects created in a thread
+        # can only be used in that same thread"）。改为 threading.local，
+        # 每线程各自持一条连接，天然线程安全且无锁开销。
+        self._local = threading.local()
 
     def _connect(self) -> sqlite3.Connection:
-        if self._conn is None:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self.db_path), autocommit=True)
-            # 2026-09-17: 统一 Row 工厂——原连接无 row_factory，_row_to_item 与
-            # _release_in_progress 对 r["id"] 的字典式访问在默认元组行下会
-            # TypeError（状态纪律验证实测暴露）。设 Row 后全库访问一致。
-            self._conn.row_factory = sqlite3.Row
-            self._conn.executescript(self._DDL)
-        return self._conn
+            # timeout=5: 多线程并发写同一库文件时等待锁而非立即 OperationalError
+            conn = sqlite3.connect(
+                str(self.db_path), autocommit=True, timeout=5.0
+            )
+            # 2026-09-17: 统一 Row 工厂（Bug A 修复，随 d626120 入库）——原连接
+            # 无 row_factory，_row_to_item 与 _release_in_progress 对 r["id"]
+            # 的字典式访问在默认元组行下会 TypeError。设 Row 后全库访问一致。
+            conn.row_factory = sqlite3.Row
+            conn.executescript(self._DDL)
+            self._local.conn = conn
+        return conn
 
     def add(self, item: TodoItem) -> None:
         conn = self._connect()
