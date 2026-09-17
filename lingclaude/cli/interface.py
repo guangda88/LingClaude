@@ -61,6 +61,18 @@ class PromptSessionInterface(Protocol):
         """标记当前是否在流式输出期间（影响 prompt() 行为）。"""
         ...
 
+    def prompt_collect(self, message: str = "") -> str:
+        """输入泵专用收集读：无视 streaming 短路，真读一行输入。
+
+        背景（2026-09-18 重复输入事故）：H17 会话级泵架构下，生成期唯一
+        调 prompt() 的是 pump 线程，而 PT 包装层 streaming 短路让它空转
+        完全不读 stdin —— 用户生成期打的命令滞留终端缓冲，流结束才被
+        一次性处理（失活重建 TCSAFLUSH/序列混入时首条真丢）→ 体感
+        「无响应需重输」。pump 应优先用本方法；未实现时调用方降级
+        prompt()（兼容第三方/fake session）。
+        """
+        ...
+
 
 class PromptToolkitSession:
     """L1 实现 — 包 prompt_toolkit.PromptSession + FileHistory。"""
@@ -164,6 +176,22 @@ class PromptToolkitSession:
         # 写入 FileHistory — 这里再 append_string 会让每条输入在历史文件里
         # 出现两遍。保留接口（Protocol 一致性），实现为 no-op。
         _ = text
+
+    def prompt_collect(self, message: str = "") -> str:
+        """泵专用收集读：无视 streaming 短路，真读 PT session。
+
+        streaming 短路（prompt 返回 ""）是给主线程的防双阻塞设计；
+        pump 线程是生成期唯一 stdin 读者，短路会让它空转不读 stdin
+        （2026-09-18 重复输入事故根因）。本方法供 pump 使用，永远真读。
+        """
+        try:
+            return self._session.prompt(message)
+        except KeyboardInterrupt:
+            # 生成期用户 Ctrl+C：set interrupt 让流循环打断（与 prompt()
+            # 的软中断语义一致），本层不吞异常（pump 线程有自己的
+            # KeyboardInterrupt 分支负责清行续转）。
+            self._interrupt.set()
+            raise
 
     def stream_print(self, renderable: Any) -> None:
         # 流式输出：直接写 stdout（Rich Live 在调用方管理刷新）
@@ -405,6 +433,11 @@ class FallbackSession:
     def install_bottom_toolbar(self, get_fragments: Any) -> None:
         # 兜底实现无状态栏能力 — no-op 保持接口一致
         _ = get_fragments
+
+    def prompt_collect(self, message: str = "") -> str:
+        """泵专用收集读：Fallback 的 prompt() 本就真读（streaming 期走
+        _nonblocking_readline 非阻塞读），直接委托，行为与旧路径一致。"""
+        return self.prompt(message)
 
     def interrupt_event(self) -> threading.Event:
         return self._interrupt

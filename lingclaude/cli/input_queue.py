@@ -18,6 +18,7 @@ import queue
 import sys
 import threading
 import time
+import types
 
 EOF_SENTINEL = "\x00EOF"
 
@@ -139,11 +140,20 @@ class InputPump:
         self._last_beat = time.monotonic()
 
     def _run(self) -> None:
+        # 2026-09-18 重复输入事故修复:泵优先走 prompt_collect（真读，无视
+        # streaming 短路）。此前生成期 PT 包装层 prompt() 短路返回 ""，泵
+        # 空转不读 stdin，用户输入滞留终端缓冲至流结束才处理（失活重建
+        # TCSAFLUSH/键序列混入时首条真丢）→「无响应需重输」。第三方/
+        # fake session 未实现 prompt_collect 时降级旧路径（协议兼容）。
+        # 只认真绑定方法：MagicMock/属性代理的动态属性不算数（mock 未配置
+        # 的属性调用会吞掉本应触发的异常路径）。
+        _collect = getattr(self._session, "prompt_collect", None)
+        if not isinstance(_collect, types.MethodType):
+            _collect = None
         while not self._stop.is_set() and not self.dead:
+            _msg = self._prompt_text() if callable(self._prompt_text) else self._prompt_text
             try:
-                text = self._session.prompt(
-                    self._prompt_text() if callable(self._prompt_text) else self._prompt_text
-                )
+                text = _collect(_msg) if _collect is not None else self._session.prompt(_msg)
             except EOFError:
                 self._q.put_eof()
                 return

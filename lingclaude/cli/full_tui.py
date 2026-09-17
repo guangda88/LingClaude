@@ -393,6 +393,11 @@ class FullTuiSession:
                 raise EOFError
             return item
 
+    def prompt_collect(self, message: str = "") -> str:
+        """泵专用收集读：全屏 prompt() 走内部提交队列（不碰 stdin、无
+        streaming 短路），直接委托，行为与旧路径一致。"""
+        return self.prompt(message)
+
     # ── 扩展接口 ──
 
     def install_output_source(self, source: Callable[[], list[str]]) -> None:

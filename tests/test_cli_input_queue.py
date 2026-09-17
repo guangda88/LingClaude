@@ -185,3 +185,110 @@ class TestInputPump:
         assert pump.last_beat() == b0   # 但心跳停滞（阻塞中）
         pump.stop()
 
+
+
+class TestPromptCollectRegression:
+    """2026-09-18 重复输入事故回归 — 泵在生成期必须真读 stdin。
+
+    根因：H17 会话级泵架构下，生成期唯一调 prompt() 的是 pump 线程；
+    PT 包装层 streaming 短路（prompt 返回 ""）让泵空转不读 stdin，
+    用户输入滞留终端缓冲至流结束才处理，体感「无响应需重输」。
+    修复：InputPump 优先走 prompt_collect（真读，无视短路）。
+    """
+
+    def test_pump_uses_prompt_collect_when_available(self) -> None:
+        """session 提供 prompt_collect 时，泵必须走它而非 prompt()。"""
+        from lingclaude.cli.input_queue import InputPump as _P
+
+        collect_calls: list[str] = []
+        prompt_calls: list[str] = []
+
+        class _ShortCircuitSession:
+            """模拟 PT 包装层：streaming 期 prompt() 返回 ""（短路）。"""
+
+            def __init__(self) -> None:
+                self._interrupt = threading.Event()
+
+            def prompt(self, message: str = "") -> str:
+                prompt_calls.append(message)
+                return ""  # streaming 短路
+
+            def prompt_collect(self, message: str = "") -> str:
+                collect_calls.append(message)
+                return "from-collect"
+
+            def interrupt_event(self) -> threading.Event:
+                return self._interrupt
+
+        q = InputQueue()
+        pump = _P(_ShortCircuitSession(), q)
+        pump.start()
+        item = q.get(timeout=3)
+        pump.stop()
+        assert item == "from-collect", "泵应经 prompt_collect 拿到真输入"
+        assert collect_calls, "泵应调用 prompt_collect"
+        assert not prompt_calls, "短路 prompt() 不应被泵调用"
+
+    def test_pump_falls_back_to_prompt_without_collect(self) -> None:
+        """第三方/fake session 未实现 prompt_collect → 降级 prompt()（兼容）。"""
+        q = InputQueue()
+        session = _FakeSession(lines=["legacy-line"])
+        assert not hasattr(session, "prompt_collect")
+        pump = InputPump(session, q)
+        pump.start()
+        item = q.get(timeout=3)
+        pump.stop()
+        assert item == "legacy-line"
+
+    def test_pump_ignores_mock_dynamic_collect(self) -> None:
+        """MagicMock 的动态 prompt_collect 不算数 — 泵仍走 prompt() 旧路径。
+
+        动态属性（非真绑定方法）未被配置 side_effect 时，本应触发的异常
+        路径（test_pump_exception_marks_dead）会被 mock 吞掉 → dead 永不为
+        True。isinstance(MethodType) 判定防住这类测试基建回归。
+        """
+        q = InputQueue()
+        session = MagicMock()
+        session.prompt.side_effect = EOFError
+        pump = InputPump(session, q)
+        pump.start()
+        item = q.get(timeout=3)
+        pump.stop()
+        assert InputQueue.is_eof(item), "mock 未实现真收集读 → 应走 prompt() 的 EOF 路径"
+
+    def test_prompt_collect_bypasses_streaming_short_circuit(self) -> None:
+        """PT 包装层 prompt_collect 无视 _streaming 标志，真读内层 session。"""
+        from lingclaude.cli.interface import PromptToolkitSession, _HAS_PROMPT_TOOLKIT
+
+        if not _HAS_PROMPT_TOOLKIT:
+            pytest.skip("prompt_toolkit 未安装")
+
+        sess = PromptToolkitSession(history_file="/tmp/lc-test-history-pc")
+
+        class _Inner:
+            def __init__(self) -> None:
+                self.called_with: list[str] = []
+
+            def prompt(self, message: str = "") -> str:
+                self.called_with.append(message)
+                return "inner-real-read"
+
+        inner = _Inner()
+        sess._session = inner  # noqa: SLF001 — 测试注入内层
+        sess.set_streaming(True)
+        # 旧 bug：此时 prompt() 短路返回 ""；prompt_collect 必须真读
+        assert sess.prompt_collect("灵克> ") == "inner-real-read"
+        assert inner.called_with == ["灵克> "]
+        sess.set_streaming(False)
+
+    def test_prompt_still_short_circuits_during_streaming(self) -> None:
+        """短路本身保留（主线程防双阻塞）：streaming 期 prompt() 仍返回 ""。"""
+        from lingclaude.cli.interface import PromptToolkitSession, _HAS_PROMPT_TOOLKIT
+
+        if not _HAS_PROMPT_TOOLKIT:
+            pytest.skip("prompt_toolkit 未安装")
+
+        sess = PromptToolkitSession(history_file="/tmp/lc-test-history-pc2")
+        sess.set_streaming(True)
+        assert sess.prompt() == ""
+        sess.set_streaming(False)
