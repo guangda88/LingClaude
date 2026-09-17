@@ -1,7 +1,7 @@
 {
-  "head": "d626120",
+  "head": "d6584db",
   "fingerprints": {
-    "docs/LINGYUAN_IRON_LAW.md": "1486de24e8a9",
+    "docs/LINGYUAN_IRON_LAW.md": "725cc7e48a2f",
     "tests/test_iron_law_guards.py": "2a84d65da6a2",
     "tests/fixtures/core_vocabulary.yaml": "81d01e149d98",
     "scripts/arch_ledger.py": "abf50504cd3c",
@@ -105,5 +105,5 @@
     "arch_exemption:wakeup_channel.py": "d7fe7cdbcbcb",
     "arch_exemption:wiring.py": "c32c14a0787f"
   },
-  "checked": "2026-09-17T09:46:18+00:00"
+  "checked": "2026-09-17T11:03:15+00:00"
 }

@@ -1,0 +1,9 @@
+{
+  "kind": "candzone_arbitration",
+  "location": "docs/LINGYUAN_IRON_LAW.md §六 铁律5(federation_pair六…",
+  "reason": "候选区裁决问题挂账（2026-09-17d返审失锁③修复：候选区修剪盲区）：候选铁律5未裁则双向互认无执法者，Agent试验田挂AgentPlugin后必撞",
+  "due": "2026-10-17",
+  "resolve_hint": "用户裁决升格/废除/改写该候选条文，或延期（改due）",
+  "state": "open",
+  "created": "2026-09-17T13:42:42+00:00"
+}

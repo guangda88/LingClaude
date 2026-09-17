@@ -1,0 +1,8 @@
+{
+  "summary": "OpenAI Codex Harness：App Server(JSON-RPC)让应用接本地Codex进程；ARC-AGI3从13.3%→38.3%，token省6倍",
+  "source": "广大2026-09-17视频",
+  "as_of": "广大2026-09-17",
+  "drift_note": "薄主干+插片同构实证(含benchmark数字)",
+  "state": "active",
+  "created": "2026-09-17T13:33:10+00:00"
+}

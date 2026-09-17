@@ -1,0 +1,9 @@
+{
+  "kind": "candzone_arbitration",
+  "location": "docs/LINGYUAN_IRON_LAW.md §六 铁律7(缝命名空间)裁决：改SeamTy…",
+  "reason": "候选区裁决问题挂账（2026-09-17d返审失锁③修复：候选区修剪盲区）：候选铁律7未裁则跨系统Agent互挂(我入别人Subagent注册表)撞名无裁决",
+  "due": "2026-10-17",
+  "resolve_hint": "用户裁决升格/废除/改写该候选条文，或延期（改due）",
+  "state": "open",
+  "created": "2026-09-17T13:42:42+00:00"
+}

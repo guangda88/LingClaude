@@ -1,0 +1,17 @@
+{
+  "case": "first-seam-recycling-review",
+  "subject": "SeamType.TOOL 接缝（M6 单实现回收候选，注册点 engine/tools.py 龄期5月+）",
+  "opened": "2026-09-17",
+  "state": "closed",
+  "verdict": "留任（不回收）",
+  "evidence": {
+    "static_count_M6": 1,
+    "runtime_count": 26,
+    "runtime_detail": "6 插件载体（bash/read/file_ops/git/web/ast）+ 20 工具经 _ToolSeamProxy 动态注册；PluginLoader.load_plugins_from_dir 实测全载成功",
+    "consumers": "core/seam.py 协议映射、plugin_manifest.py、engine/tools.py 注册/注销/查询",
+    "misjudgment_root": "M6 静态口径只扫源码 register(SeamType.*) 调用点，PluginLoader 动态注册不可见——单实现是仪表盲区假象，非真实棘轮"
+  },
+  "reasoning": "铁律4回收条件=单实现且无扩展意图；实测26实现（持续增长的插件生态），扩展意图充分，不满足回收条件。TOOL接缝留任。",
+  "byproduct": "证实 P2 任务 m6-static-only-blindspot 的危害为真（本次立案即被其误导立案），M6 补运行时口径的优先级成立",
+  "closed_at": "2026-09-17T10:04:39+00:00"
+}
