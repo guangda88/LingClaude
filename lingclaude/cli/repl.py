@@ -138,11 +138,13 @@ def _restore_tty(ctx: _ReplCtx) -> None:
 
 
 def _reset_tty_now(ctx: _ReplCtx) -> None:
-    """重建输入泵前硬重置 tty（2026-09-15 tty 行规程损坏事故修复）。
+    """重建输入泵前重置 tty（2026-09-15 tty 行规程损坏事故修复）。
 
-    与 _restore_tty 的差别：TCSAFLUSH 会同时丢弃输入队列中滞留的坏字节
-    （ICRNL 失效时 \r 不转 \n 留下的半截行），而 TCSADRAIN 只等输出排空。
-    重建后新线程面对干净的终端模式，否则换线程照样饿死。
+    2026-09-18 二次修复:改用 TCSADRAIN。原 TCSAFLUSH 连用户已敲入、尚未
+    提交的字节一起清（ICRNL 损坏场景的「坏字节」与用户真实键入无法区分）
+    —— 降级瞬间吞掉用户半行，是「打字被吞需重输」的另一来源。半行抢救
+    已由 InputPump.stop() 的 buffer 抢救 + 降级读的转义序列消费兜住；
+    此处只恢复 termios 模式，不清输入队列。
     """
     # getattr 防御：测试 _make_ctx 为 SimpleNamespace 无此字段，非 TTY 场景
     # 也从未写入 → 一律按「无 known-good 基线」处理（不重置，等同跳过）。
@@ -150,7 +152,7 @@ def _reset_tty_now(ctx: _ReplCtx) -> None:
     if _saved_termios is None:
         return
     try:
-        termios.tcsetattr(sys.stdin.fileno(), termios.TCSAFLUSH, _saved_termios)
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, _saved_termios)
         sys.stdout.flush()
         sys.stderr.flush()
     except Exception:  # noqa: BLE001 — fd 已关等场景静默
@@ -301,6 +303,14 @@ def _read_input(ctx: _ReplCtx) -> str:
     # 改用独立裸 input()（无 PT 事件循环依赖），彻底绕开损坏的 session ——
     # 隔离是 P0 tty 重置的互补层。
     if getattr(ctx, "fallback_read", False):
+        # 2026-09-18 输入体验修复:裸 input() 挂上 readline —— 此前降级路径
+        # 无行编辑能力：方向键输出 ^[[A/^[[B 字面字符（无法移光标）、上键
+        # 无法翻历史。readline 由 GNU 库处理转义序列 + 维护历史，与
+        # FallbackSession 的历史文件对齐（push_to_history 落盘）。
+        try:
+            import readline  # noqa: F401 — 导入即生效（GNU readline hook input()）
+        except ImportError:  # pragma: no cover — Windows/精简构建无 readline
+            pass
         try:
             _line = input(_status_prompt(ctx) if get_output_format() == "plain" else "灵克> ")
             if _line.strip():
@@ -408,6 +418,13 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
     # 心跳停滞时长（prompt 返回即打拍，卡死则停滞）
     beat_idle = time.monotonic() - input_pump.last_beat()
     readable = _stdin_readable(0.0)
+    # 2026-09-18 误杀修复:生成期心跳停滞是「prompt 阻塞中」的正常形态 ——
+    # 用户预打字/粘贴使 stdin 可读 + beat>=8s 的组合曾把健康泵误判失活，
+    # 随后 stop()+TCSAFLUSH 清掉用户字节（打字被吞）。由 _run_stream_turn
+    # 在每个流事件上调用 pump.note_activity() 续命，生成期不触发失活判定；
+    # 主循环（空闲期）不再续命，真卡死照常被 8s/60s 两道门捕获。
+    if getattr(input_pump, "streaming_active", False):
+        return last_check_t
     if beat_idle >= 8.0 and readable:
         # 连续两轮（间隔约 1s）确认，避免瞬时误判
         if last_check_t < 0 or time.monotonic() - last_check_t >= 1.0:
@@ -666,6 +683,12 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         session.set_streaming(True)
         for event in engine.stream_call_model(prompt):
             _wd.touch(str(event.get("type", "")))
+            # 2026-09-18 误杀修复:流事件即活跃证据 —— 压住「生成期心跳停滞
+            # + 用户预打字使 stdin 可读」的失活误判窗口。
+            try:
+                input_pump.note_activity()
+            except Exception:  # noqa: BLE001 — 测试 ctx 可能无 pump
+                pass
             if session.interrupt_event().is_set():
                 interrupted = True
                 print("\n[已打断]")
@@ -712,6 +735,12 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         # pump 会话级运行，此处不再 stop（唯一 stdin 读者地位不变）。
         _wd.stop()  # N5b: 流收尾（正常/打断/异常），watchdog 停表
         session.set_streaming(False)  # 流结束，恢复阻塞 prompt()
+        # 2026-09-18 误杀修复:流结束同步撤销生成期活跃标志 —— 之后进入
+        # 空闲期，_maybe_stall_escape 恢复正常判定（真卡死仍会被捕获）。
+        try:
+            input_pump.streaming_active = False
+        except Exception:  # noqa: BLE001 — 测试 ctx 可能无 pump
+            pass
         _flush_stream_line()
         if _esc_thread is not None:
             _esc_stop.set()

@@ -25,6 +25,22 @@ _json_event_buffer: list[dict[str, Any]] = []  # json 模式事件缓冲
 _PASTE_START = b"\x1b[200~"
 _PASTE_END = b"\x1b[201~"
 
+# 2026-09-18 吞字修复:_esc_pressed 生成期探测时读到非 Esc 字节（用户在
+# 打字）——旧实现静默吞掉，正文缺字。现在塞进 replay 缓冲，由
+# FallbackSession._nonblocking_readline 的 drain 循环优先取回拼进输入行。
+_REPLAY_LOCK = threading.Lock()
+_REPLAY: list[bytes] = []
+
+
+def replay_stdin_bytes() -> bytes:
+    """取回 Esc 探测线程替读的字节（原子弹出全部）。"""
+    with _REPLAY_LOCK:
+        if not _REPLAY:
+            return b""
+        data = b"".join(_REPLAY)
+        _REPLAY.clear()
+        return data
+
 
 def set_output_format(fmt: str) -> None:
     """P0-2: 设置输出格式（plain | json | jsonl）。原 app.py 模块级 global 赋值。"""
@@ -68,7 +84,11 @@ def _esc_pressed() -> bool:
             if not first:
                 return False
             if first != b"\x1b":
-                return False  # 杂散字节静默吞掉(不回显),避免污染输入行
+                # 2026-09-18 吞字修复:非 Esc 字节 = 用户生成期真实键入，
+                # 替读后不能凭空吞掉 —— 塞回 replay 缓冲，输入行读端取回。
+                with _REPLAY_LOCK:
+                    _REPLAY.append(first)
+                return False
             # \x1b 后 20ms 无跟随字节 → 孤立 Esc → 打断
             r2, _, _ = select.select([fd], [], [], 0.02)
             if not r2:
@@ -109,6 +129,10 @@ def _esc_listen_loop(session: "PromptSessionInterface", stop: threading.Event) -
     把它"复活"，没按过 Esc 的线程永不退出 → 线程逐轮堆积且持续抢 stdin
     （setraw/read 吞掉 prompt_toolkit 正在读的键入字符）。增加 per-turn
     stop 事件，回合结束必退。
+    2026-09-18 吞字修复:退出前替读到的用户键入不再凭空丢弃 —— replay
+    缓冲由 FallbackSession._nonblocking_readline 优先取回；若本轮从未进入
+    非阻塞读（流正常结束），残留字节直接排队给下一次 prompt 的读端
+    （此处无法安全写回 fd —— OPOST/回显语义不确定），只做日志留痕。
     """
     while not stop.is_set() and not session.interrupt_event().is_set():
         if _esc_pressed():

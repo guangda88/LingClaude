@@ -15,6 +15,8 @@ import threading
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from lingclaude.cli.repl_io import replay_stdin_bytes
+
 # prompt_toolkit 为可选依赖 — 未安装时 PromptToolkitSession 不可用，FallbackSession 兜底
 try:
     from prompt_toolkit import PromptSession as _PTSession
@@ -232,6 +234,10 @@ class FallbackSession:
         self._rl_pos = -1
         # H19:streaming 非阻塞读超时时遗留的半行（下轮拼接续传，不再凭空丢失）
         self._rl_pending = b""
+        # 2026-09-18 多行截断修复:bracketed paste 状态跨调用/跨超时持久 ——
+        # 粘贴段内的 \n 是正文换行（不提交），只有裸 Enter（paste 段外的
+        # \n/\r）才提交整行。旧实现读到一个 \n 就 break，多行粘贴只剩首行。
+        self._rl_in_paste = False
 
     def set_streaming(self, streaming: bool) -> None:
         self._streaming = streaming
@@ -282,6 +288,13 @@ class FallbackSession:
                 os.write(sys.stdout.fileno(), message.encode())
 
             while True:
+                # 2026-09-18 吞字修复:Esc 探测线程替读的用户键入优先取回
+                # （必须最前，顺序在新字节之前 —— 探测先于本轮读发生）
+                _rp = replay_stdin_bytes()
+                if _rp:
+                    buf.extend(_rp)
+                    os.write(sys.stdout.fileno(), _rp)
+
                 # H19:上轮超时遗留的半行先续传（必须在 drain 之前拼接，否则
                 # 新到字节先进 buf、pending 尾随 → 顺序颠倒 "defabc"）
                 if self._rl_pending:
@@ -314,6 +327,16 @@ class FallbackSession:
                             continue
                     elif leftover.startswith(b"\x1b"):
                         continue  # 其他转义序列残骸，丢弃
+                    else:
+                        # 2026-09-18 粘贴漏字修复:H19 逻辑只覆盖「以 \x1b 开头」
+                        # 的分片 —— 标记/正文夹在其他正文中到达时（startswith
+                        # 不命中），\x1b[200~ 字面漏进输入行。状态机剥离：
+                        # 任何位置出现的开/闭标记都剥掉，正文保留。
+                        leftover = leftover.replace(_PASTE_START, b"").replace(
+                            _PASTE_END, b""
+                        )
+                        if not leftover:
+                            continue
                     buf.extend(leftover)
                     os.write(sys.stdout.fileno(), leftover)
 
@@ -333,54 +356,72 @@ class FallbackSession:
                 buf.extend(ch)
                 os.write(sys.stdout.fileno(), ch)
 
-                # Enter 提交
-                if ch == b"\n":
+                # 2026-09-18 转义序列统一处理（合并原 H18 分支）:
+                # - \x1b[200~/\x1b[201~ 粘贴标记 → 翻转跨调用状态机（段内
+                #   换行是正文不提交 = 多行粘贴不再截断）
+                # - \x1b[A/\x1b[B → 历史翻页（此前 CSI 整体被字面回显 = 方向键 bug）
+                # - 其他 CSI → 读到终结字节整体消费，不留残字节
+                if ch == b"\x1b":
+                    buf[-1:] = b""  # 摘掉先入 buf 的 \x1b（任何分支都不算正文）
+                    r5, _, _ = select.select([fd], [], [], 0.05)
+                    if not r5:
+                        continue  # 孤立 Esc：消费掉
+                    _n = os.read(fd, 4096)
+                    if _n.startswith(b"[200~"):
+                        self._rl_in_paste = True
+                        _n = _n[5:]
+                    elif _n.startswith(b"[201~"):
+                        self._rl_in_paste = False
+                        _n = _n[5:]
+                    elif _n == b"[A" or _n == b"[B":  # 上/下:历史翻页
+                        up = _n == b"[A"
+                        if up:
+                            if self._history and self._rl_pos < len(self._history) - 1:
+                                self._rl_pos += 1
+                            line = (
+                                self._history[-(self._rl_pos + 1)]
+                                if self._rl_pos >= 0
+                                else ""
+                            )
+                        else:
+                            if self._rl_pos > 0:
+                                self._rl_pos -= 1
+                                line = self._history[-(self._rl_pos + 1)]
+                            elif self._rl_pos == 0:
+                                self._rl_pos = -1
+                                line = ""
+                            else:
+                                line = ""
+                        self._erase_and_show(fd, buf, line)
+                        buf = bytearray(line.encode())
+                        continue
+                    elif _n[:1] == b"[":
+                        # 其他 CSI：读到终结字节（0x40-0x7E）为止，整体丢弃
+                        while not (_n and 0x40 <= _n[-1] <= 0x7E):
+                            r6, _, _ = select.select([fd], [], [], 0.05)
+                            if not r6:
+                                break
+                            _n += os.read(fd, 4096)
+                        continue
+                    # 剩余正文（含标记剥离，防跨分片残留）
+                    _n = _n.replace(_PASTE_START, b"").replace(_PASTE_END, b"")
+                    if _n:
+                        buf.extend(_n)
+                        os.write(sys.stdout.fileno(), _n)
+                    continue
+
+                # Enter 提交 —— 仅 paste 段外；段内换行保留为正文
+                # （多行粘贴不再只剩首行；段内换行回显已随上方 os.write(ch) 完成）
+                if ch == b"\n" and not self._rl_in_paste:
                     break
 
-                # 退格
+                # 退格:先摘掉退格字节本身，再删它前面的字符 —— 旧实现只删
+                # 退格字节，前字符留在 buf（视觉删了、提交时又出现）。
                 if ch in (b"\x7f", b"\x08"):
+                    buf = buf[:-1]
                     if buf:
                         buf = buf[:-1]
                         os.write(sys.stdout.fileno(), b"\x08 \x08")
-                    continue
-
-                # 转义序列：\x1b[A (上) / \x1b[B (下)。其余（F键/Home/粘贴
-                # 包裹 \x1b[200~/\x1b[201~ 等）整体排空后忽略 —— 不回显、
-                # 不清空已输入内容、不留残字节（H18: 此前只补读 2 字节，
-                # \x1b[201~ 剩余字节被当文本回显；未知序列误清 buf）。
-                if ch == b"\x1b":
-                    seq = bytearray(ch)
-                    while True:
-                        r2, _, _ = select.select([fd], [], [], 0.05)
-                        if not r2:
-                            break
-                        b2 = os.read(fd, 4096)
-                        if not b2:
-                            break
-                        seq.extend(b2)
-                        if bytes(b2).endswith(b"\x1b[201~"):
-                            break
-                    full = bytes(seq)
-                    if full == b"\x1b[A":  # 上
-                        if self._history and self._rl_pos < len(self._history) - 1:
-                            self._rl_pos += 1
-                            line = self._history[-(self._rl_pos + 1)]
-                        else:
-                            line = ""
-                        self._erase_and_show(fd, buf, line)
-                        buf = bytearray(line.encode())
-                    elif full == b"\x1b[B":  # 下
-                        if self._rl_pos > 0:
-                            self._rl_pos -= 1
-                            line = self._history[-(self._rl_pos + 1)]
-                        elif self._rl_pos == 0:
-                            self._rl_pos = -1
-                            line = ""
-                        else:
-                            line = ""
-                        self._erase_and_show(fd, buf, line)
-                        buf = bytearray(line.encode())
-                    # 其他转义序列:整体消费,忽略(保留已输入 buf)
                     continue
 
                 # Ctrl+C

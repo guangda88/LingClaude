@@ -112,18 +112,52 @@ class InputPump:
                 return
         self._stop = threading.Event()
         self._start_t = time.monotonic()  # 诊断/测试:启动时刻基线
+        self._wake_pending = False  # stop() 内部唤醒标记（抑制 [已打断] 噪声）
         self._thread = threading.Thread(target=self._run, daemon=True, name="input-pump")
         self._thread.start()
 
     def stop(self) -> None:
+        """请求停转（2026-09-18 输入丢失修复重写）。
+
+        旧实现只 set interrupt_event —— PT 根本不监听 wrapper 自建的 Event，
+        阻塞在终端 read 的 prompt 永不返回，线程成为僵尸读者；上层降级后
+        裸 input() 与之构成双读者，键入字节被僵尸吞掉（「打字被吞、回车
+        无响应、需重输」根因）。新语义三步：
+        1) 置 _stop：本轮 prompt 返回后循环自然退出；
+        2) 硬唤醒：阻塞在 PT Application 里（app.is_running）时，先抢救
+           default_buffer 半行入队（已敲未提交的文本不丢），再
+           app.exit(KeyboardInterrupt) 让 prompt 立即抛出 —— PT 自身清理
+           终端状态（raw 模式 / bracketed paste 复位），不留僵尸；
+        3) 兜底：非 PT（fake/Fallback/FullTui 无 .app）走 interrupt_event()
+           旧唤醒路。最后 join 有限时长，不挂死主循环。
+        """
         self._stop.set()
-        # P0-join fix: 同时 set session.interrupt_event() 唤醒阻塞中的
-        # prompt()（prompt_toolkit 的 prompt() 阻塞在终端 read，只 set _stop
-        # 不会退出；interrupt_event 是 PromptSessionInterface 的打断信号）。
+        woke = False
         try:
-            self._session.interrupt_event().set()
-        except Exception:
-            pass
+            # wrapper._session 才是内层 PT PromptSession（app/default_buffer 在这）
+            _pt = getattr(self._session, "_session", None)
+            app = getattr(_pt, "app", None)
+            if app is not None and getattr(app, "is_running", False):
+                # 抢救半行：被打断 prompt 里已敲入、未提交的文本入队，
+                # 下次 prompt 后由主循环消费 —— 用户不用重打
+                try:
+                    _buf = getattr(_pt, "default_buffer", None)
+                    _text = getattr(_buf, "text", "") if _buf is not None else ""
+                    if _text and _text.strip():
+                        self._q.put(_text)
+                except Exception:  # noqa: BLE001 — 抢救失败不阻塞停转
+                    pass
+                # 唤醒标记：抑制 [已打断] 噪声（内部唤醒，非用户打断）
+                self._wake_pending = True
+                app.exit(exception=KeyboardInterrupt)
+                woke = True
+        except Exception:  # noqa: BLE001 — PT 版本差异时退回旧唤醒路
+            woke = False
+        if not woke:
+            try:
+                self._session.interrupt_event().set()
+            except Exception:  # noqa: BLE001 — fake session 无此方法时静默
+                pass
         # join(timeout) 确保旧线程退出；2s 兜底不挂死主循环。
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2.0)
@@ -138,6 +172,15 @@ class InputPump:
     def _beat(self) -> None:
         """prompt 成功返回后打拍 —— 线程仍在正常轮转的最强证据。"""
         self._last_beat = time.monotonic()
+
+    # 2026-09-18 误杀修复:生成期活跃标志 —— _run_stream_turn 每个流事件
+    # note_activity()，_maybe_stall_escape 看到它就跳过失活判定（生成期
+    # 心跳停滞 = prompt 正常阻塞，不是病态卡死）。
+    streaming_active = False
+
+    def note_activity(self) -> None:
+        """流事件心跳：生成期每个事件调用，压住失活误判窗口。"""
+        self.streaming_active = True
 
     def _run(self) -> None:
         # 2026-09-18 重复输入事故修复:泵优先走 prompt_collect（真读，无视
@@ -163,7 +206,13 @@ class InputPump:
                 # H17-输入泵修复:静默 continue 让 pump 线程被 Ctrl+C 中断时用户无感知，
                 # 主循环若在 pump 重启前下一轮又调用 stream，会产生"stream 无故跳过"的
                 # 假象。与主循环的 "[已打断]" 对齐，留痕不泄漏。
-                print("[已打断]", file=sys.stderr)
+                # 2026-09-18:stop() 内部唤醒（app.exit）也走这里 —— _wake_pending
+                # 置位时不打印 [已打断]（不是用户打断，是停转自唤醒），清标记后
+                # 循环顶部 _stop 已置位自然退出。
+                if getattr(self, "_wake_pending", False):
+                    self._wake_pending = False
+                else:
+                    print("[已打断]", file=sys.stderr)
                 continue
             except Exception as e:
                 # prompt_toolkit 在极端终端下可能抛意外异常：标记死亡，
