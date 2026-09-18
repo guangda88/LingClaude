@@ -190,13 +190,20 @@ class PromptToolkitSession:
         否则 PT 内部 PromptSession.prompt() 在 streaming 期间会直接返回 ""
         （根本不碰 stdin）。关闭后再读，读完恢复原值——PT PromptSession
         本身不支持"永远不短路"，只能靠外层包装绕行。
+
+        二次修复（2026-09-18 打字被吞）：PT prompt() 默认 in_thread=False，
+        在 pump 线程里尝试嵌套运行 Application，与主线程已有的 Application
+        实例冲突（两个 Application 同时读同一 stdin fd，用户字节被其中一个
+        吞掉）。必须传 in_thread=True，让 PT 在独立线程里运行 Application，
+        独立管理 raw mode stdin，与主线程完全隔离。
         """
         try:
             # 2026-09-18 五症同源修复: 临时撤销 streaming 标志 → PT 真读
+            # 2026-09-18 二次修复: 加 in_thread=True 避免与主线程 Application 冲突
             _was_streaming = self._streaming
             self._streaming = False
             try:
-                return self._session.prompt(message)
+                return self._session.prompt(message, in_thread=True)
             finally:
                 self._streaming = _was_streaming
         except KeyboardInterrupt:

@@ -257,28 +257,36 @@ class TestPromptCollectRegression:
         assert InputQueue.is_eof(item), "mock 未实现真收集读 → 应走 prompt() 的 EOF 路径"
 
     def test_prompt_collect_bypasses_streaming_short_circuit(self) -> None:
-        """PT 包装层 prompt_collect 无视 _streaming 标志，真读内层 session。"""
+        """PT 包装层 prompt_collect 无视 _streaming 标志，真读内层 session。
+
+        2026-09-18 二次修复：同时验证 in_thread=True 传入（避免与主线程
+        Application 冲突，导致打字被吞）。
+        """
         from lingclaude.cli.interface import PromptToolkitSession, _HAS_PROMPT_TOOLKIT
 
         if not _HAS_PROMPT_TOOLKIT:
             pytest.skip("prompt_toolkit 未安装")
 
-        sess = PromptToolkitSession(history_file="/tmp/lc-test-history-pc")
+        sess = PromptToolkitSession(history_file="/tmp/lc-test-history-pc3")
 
         class _Inner:
             def __init__(self) -> None:
                 self.called_with: list[str] = []
+                self.in_thread_flags: list[bool] = []
 
-            def prompt(self, message: str = "") -> str:
+            def prompt(self, message: str = "", **kwargs: bool) -> str:
                 self.called_with.append(message)
+                self.in_thread_flags.append(bool(kwargs.get("in_thread", False)))
                 return "inner-real-read"
 
         inner = _Inner()
         sess._session = inner  # noqa: SLF001 — 测试注入内层
         sess.set_streaming(True)
         # 旧 bug：此时 prompt() 短路返回 ""；prompt_collect 必须真读
+        # 二次修复：in_thread=True 避免与主线程 Application 冲突
         assert sess.prompt_collect("灵克> ") == "inner-real-read"
         assert inner.called_with == ["灵克> "]
+        assert inner.in_thread_flags == [True], "必须传 in_thread=True 隔离 Application"
         sess.set_streaming(False)
 
     def test_prompt_still_short_circuits_during_streaming(self) -> None:
