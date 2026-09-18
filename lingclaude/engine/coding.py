@@ -10,6 +10,7 @@ from lingclaude.core.model_call import _ToolLoopDetector
 from lingclaude.core.permissions import PermissionStore
 from lingclaude.core.session_runtime import SessionRuntime
 from lingclaude.engine.sensitive_path_gate import is_readonly_bash_command
+from lingclaude.core.verify_cadence import VerifyCadenceHook
 from lingclaude.engine.tool_registration import register_all_tools
 from lingclaude.self_optimizer import (
     OptimizationAdvisor,
@@ -78,6 +79,9 @@ class CodingRuntime(
         # session_id 兜底 "default"，与 execute_tool 里 permission store 的取法一致。
         self.session_id = getattr(self.config, "session_id", "default")
         self._session_runtime = SessionRuntime(self)
+        # P2 (2026-09-18): VerifyCadenceHook — 编辑后未验证 nudge + 死循环检测。
+        # T0 零推理（纯字符串匹配），独立开关 LINGCLAUDE_VERIFY_CADENCE（默认开）。
+        self._verify_cadence = VerifyCadenceHook()
 
     def close(self) -> None:
         """释放资源（进程退出/会话结束调用）。
@@ -496,6 +500,9 @@ class CodingRuntime(
         def _blocks(tool_name: str) -> bool:
             return self._tool_blocked(tool_name, store, active_mode, kwargs)
 
+        # P2: VerifyCadenceHook 观察点 1（执行前）— 死循环检测 + pending 验证 nudge
+        verify_nudge = self._verify_cadence.observe_call(name, kwargs)
+
         result = self.tool_pipeline.execute(
             name,
             kwargs,
@@ -524,6 +531,12 @@ class CodingRuntime(
         if getattr(self, "_denial_abort_log", None):
             result.setdefault("denial_circuit_breaker", self._denial_abort_log)
             self._denial_abort_log = None
+        # P2: VerifyCadenceHook 观察点 2（执行后）— 编辑记账/验证清零；
+        # nudge 挂到结果上（模型可见），setdefault 不覆盖已有信号。
+        error = result.get("error")
+        nudge = self._verify_cadence.observe_result(name, kwargs, error) or verify_nudge
+        if nudge:
+            result.setdefault("verify_nudge", nudge)
         return result
 
     def analyze(self, target: str = ".") -> dict[str, Any]:
