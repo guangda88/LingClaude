@@ -21,7 +21,10 @@ def _network_allowed_commands() -> tuple[str, ...]:
     data = policy_get("sandbox_policy")
     cmds = data.get("network_allowed_commands")
     if isinstance(cmds, list) and cmds:
-        return tuple(str(c) for c in cmds)
+        # 2026-09-18 修复：_is_network_allowed 把命令小写化后比对（303 行 norm.lower()），
+        # 条目若含大写（如 curl -sI 的 -I）则永不匹配 → 白名单静默失效（curl exit 6）。
+        # 条目统一小写化，与命令侧对称；git 内置默认本就全小写，无行为变化。
+        return tuple(str(c).lower() for c in cmds)
     return (
         "git push",
         "git fetch",
