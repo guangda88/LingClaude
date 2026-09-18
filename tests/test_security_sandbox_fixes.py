@@ -434,3 +434,56 @@ def test_p05_git_side_effect_subcmd_still_blocked():
     assert not is_readonly_bash_command("git push origin main")
     assert not is_readonly_bash_command("git clean -fd")
     assert not is_readonly_bash_command("git reset --hard")
+
+
+# ── 2026-09-18 P0: 只读动词+写向重定向绕过修复（_has_unsafe_redirect）──
+
+
+def test_redirect_write_via_readonly_verb_blocked():
+    """「只读动词 + 输出重定向」= 写盘，必须拦（修复前 cat x > /tmp/y 被放行）。"""
+    from lingclaude.engine.sensitive_path_gate import is_readonly_bash_command
+
+    for cmd in [
+        "echo pwned > /tmp/attack_test_file",
+        "cat /etc/passwd > /tmp/attack_test_file",
+        "echo hi >> /tmp/attack_test_file",
+        "ls > out.txt",
+        "git log &> /tmp/log.txt",
+        "echo 1 && echo 2 > /tmp/x",
+    ]:
+        assert not is_readonly_bash_command(cmd), f"重定向写盘应拦: {cmd}"
+
+
+def test_command_and_process_substitution_blocked():
+    """命令替换 $(...)/反引号与进程替换 <(...) 可执行任意代码 → fail-closed。"""
+    from lingclaude.engine.sensitive_path_gate import is_readonly_bash_command
+
+    for cmd in [
+        "echo $(whoami)",
+        "echo `whoami`",
+        "diff <(ls a) <(ls b)",
+    ]:
+        assert not is_readonly_bash_command(cmd), f"替换执行应拦: {cmd}"
+
+
+def test_harmless_fd_redirects_still_allowed():
+    """fd→fd 重定向与 /dev/null 丢弃不误伤；引号内 > 是文本非重定向。"""
+    from lingclaude.engine.sensitive_path_gate import is_readonly_bash_command
+
+    for cmd in [
+        "git log 2>&1 | head -3",
+        "grep -rn x . 2>/dev/null",
+        "ls > /dev/null",
+        "cat file 2>/dev/null 1>&2",
+        "echo 'a > b is comparison'",
+        'echo "path: a>b"',
+    ]:
+        assert is_readonly_bash_command(cmd), f"无害重定向应放行: {cmd}"
+
+
+def test_jq_readonly_whitelisted():
+    """jq 纯 stdout 文本处理无写盘副作用（写盘由重定向检测拦）→ 放行。"""
+    from lingclaude.engine.sensitive_path_gate import is_readonly_bash_command
+
+    assert is_readonly_bash_command("jq . data.json")
+    assert is_readonly_bash_command("jq . data.json | head -5")

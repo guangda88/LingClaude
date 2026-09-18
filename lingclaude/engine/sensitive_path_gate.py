@@ -139,6 +139,10 @@ BASH_READONLY_GIT_SUBS: frozenset[str] = frozenset({
     "describe", "ls-files", "ls-remote", "blame", "shortlog", "tag",
 })
 
+# 2026-09-18 P0 补充：jq 为无副作用文本处理工具（输出走 stdout，写文件由
+# 重定向检测单独拦截），补入只读名单消除误伤。
+BASH_READONLY_LEADS = frozenset(BASH_READONLY_LEADS | {"jq"})
+
 # ── 2026-09-15 P0-5: curl/wget 二级参数白名单（仅纯查询形态放行）──
 # curl 默认 GET 会输出内容、-o/-O 写文件、-d/-F/-X 发数据/改方法，均非只读；
 # 故保留在 BASH_READONLY_LEADS 但必须逐参数判定，fail-closed（未知标志即拦）。
@@ -244,6 +248,66 @@ def _is_wget_query_only(tokens: list[str]) -> bool:
     return False
 
 
+def _has_unsafe_redirect(command: str) -> bool:
+    """检测子命令分隔符之外的写向重定向与命令替换（2026-09-18 P0 安全修复）。
+
+    is_readonly_bash_command 原实现只按 ;|& 拆子命令，子命令内出现的
+    `>` / `>>` / `>&` / `&>` / `<>` / `>|` 输出重定向完全不可见：
+    `cat /etc/passwd > /tmp/evil` 被判只读放行（ask 模式绕过审批写盘）。
+
+    规则（fail-closed）：
+      - 引号内的 > 不算（echo "a > b" 是纯文本输出）——沿用主函数相同的
+        引号状态机，保持语义一致
+      - heredoc 正文（<<EOF ... EOF）内不受影响，但 heredoc 定界符本身
+        含 `<<` 不触发本检测（<< 是输入重定向，无写盘副作用）
+      - 命令替换 $(...) / 反引号可执行任意代码 → 一律视为不安全
+    """
+    i = 0
+    n = len(command)
+    quote: str | None = None
+    while i < n:
+        ch = command[i]
+        if quote:
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in "\"'":
+            quote = ch
+            i += 1
+            continue
+        # 命令替换：$() 或反引号 → 可执行任意代码，fail-closed
+        if ch == "`":
+            return True
+        if ch == "$" and i + 1 < n and command[i + 1] == "(":
+            return True
+        # 进程替换 <(cmd) 会执行内部任意命令 → fail-closed
+        # （<file 纯输入重定向无副作用，不在此列）
+        if ch == "<" and i + 1 < n and command[i + 1] == "(":
+            return True
+        # 输出重定向家族：> >> >& &> <> >|
+        if ch == ">":
+            nxt = command[i + 1] if i + 1 < n else ""
+            nxt2 = command[i + 2] if i + 2 < n else ""
+            if nxt == "&" and (nxt2.isdigit() or nxt2 == "-"):
+                # 2>&1 / >&2 / >&- : fd→fd 重定向，无写盘副作用，放行
+                i += 3
+                continue
+            # 目标为 /dev/null（含 2>/dev/null、> /dev/null）→ 丢弃输出，无副作用
+            j = i + 1
+            while j < n and command[j] in " \t":
+                j += 1
+            if command[j:j + 9] == "/dev/null":
+                i = j + 9
+                continue
+            return True
+        if ch == "&" and i + 1 < n and command[i + 1] == ">":
+            # &>file / &>>file : stdout+stderr 双写盘 → 拦
+            return True
+        i += 1
+    return False
+
+
 def is_readonly_bash_command(command: str) -> bool:
     """判断 bash 命令是否整体只读（逐子命令判定，任一非只读 → False）。
 
@@ -251,6 +315,11 @@ def is_readonly_bash_command(command: str) -> bool:
     选项（-C <path> / -c k=v）跳过后再取子命令。
     """
     if not command or not command.strip():
+        return False
+    # 2026-09-18 P0 安全修复：先做引号感知的写向重定向/命令替换扫描——
+    # 原逻辑只拆 ;|& 子命令，`cat x > /tmp/y` 这类「只读动词+重定向」
+    # 会被逐子命令白名单误放行（ask 模式绕过审批写盘）。
+    if _has_unsafe_redirect(command):
         return False
     # 引号感知拆分：; | & $() 在单双引号内不作为命令边界
     parts: list[str] = []
