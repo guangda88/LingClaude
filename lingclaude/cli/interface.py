@@ -185,9 +185,20 @@ class PromptToolkitSession:
         streaming 短路（prompt 返回 ""）是给主线程的防双阻塞设计；
         pump 线程是生成期唯一 stdin 读者，短路会让它空转不读 stdin
         （2026-09-18 重复输入事故根因）。本方法供 pump 使用，永远真读。
+
+        修复（2026-09-18 五症同源）：必须先临时关闭 _streaming 标志，
+        否则 PT 内部 PromptSession.prompt() 在 streaming 期间会直接返回 ""
+        （根本不碰 stdin）。关闭后再读，读完恢复原值——PT PromptSession
+        本身不支持"永远不短路"，只能靠外层包装绕行。
         """
         try:
-            return self._session.prompt(message)
+            # 2026-09-18 五症同源修复: 临时撤销 streaming 标志 → PT 真读
+            _was_streaming = self._streaming
+            self._streaming = False
+            try:
+                return self._session.prompt(message)
+            finally:
+                self._streaming = _was_streaming
         except KeyboardInterrupt:
             # 生成期用户 Ctrl+C：set interrupt 让流循环打断（与 prompt()
             # 的软中断语义一致），本层不吞异常（pump 线程有自己的
@@ -476,9 +487,19 @@ class FallbackSession:
         _ = get_fragments
 
     def prompt_collect(self, message: str = "") -> str:
-        """泵专用收集读：Fallback 的 prompt() 本就真读（streaming 期走
-        _nonblocking_readline 非阻塞读），直接委托，行为与旧路径一致。"""
-        return self.prompt(message)
+        """泵专用收集读：无视 streaming 短路，真读一行。
+
+        修复（2026-09-18 五症同源）：prompt() 在 streaming 期间走
+        _nonblocking_readline（非阻塞，无输入时立即返回空串），
+        pump 线程空转 → 用户输入完全无响应。必须临时关闭 _streaming
+        走阻塞 input()，等用户输完一行再恢复。
+        """
+        _was_streaming = self._streaming
+        self._streaming = False
+        try:
+            return input(message)
+        finally:
+            self._streaming = _was_streaming
 
     def interrupt_event(self) -> threading.Event:
         return self._interrupt
