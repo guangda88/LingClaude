@@ -68,6 +68,11 @@ def _mcp_call_single(tool_name: str, arguments: dict, timeout: int = 30) -> dict
     out = _mcp_call(payloads, timeout=timeout)
     resp = next((o for o in out if o.get("id") == 1), None)
     if resp is None:
+        # xdist/高负载下 server 冷启动可能丢 tools/call 响应（lingcreate-mcp-coldstart
+        # 同源的启动脆弱性）：单次重试，仍无响应才按错误结构返回（诚实不伪造）
+        out = _mcp_call(payloads, timeout=timeout)
+        resp = next((o for o in out if o.get("id") == 1), None)
+    if resp is None:
         return {"tool_name": tool_name, "error": "no response for tools/call"}
     if "error" in resp:
         return {"tool_name": tool_name, "error": resp["error"]}

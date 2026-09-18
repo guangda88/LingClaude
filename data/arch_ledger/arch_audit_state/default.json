@@ -1,12 +1,12 @@
 {
-  "head": "f4658b9",
+  "head": "93f7e6a",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "262d9e28230f",
     "tests/test_iron_law_guards.py": "5c177c8cdfb5",
     "tests/fixtures/core_vocabulary.yaml": "81d01e149d98",
     "scripts/arch_ledger.py": "abf50504cd3c",
     "scripts/seam_trend_inspect.py": "aa3a4688213e",
-    "lingclaude/core/state_store.py": "b67d6506da0e",
+    "lingclaude/core/state_store.py": "584a3187aecb",
     "lingclaude/core/seam.py": "1c77def299cc",
     ".github/workflows/ci.yml": "0cb6f23b8e43",
     "arch_debt:agent-lingxi-mcp-probe-timeout": "c39e07793d79",
@@ -27,6 +27,7 @@
     "arch_debt:seamtype-specialcase-plugin-loader": "691918e5f7e6",
     "arch_debt:session-export-view-j4-migration": "692d826693f9",
     "arch_debt:topic-stack-export-view-j4-migration": "bd90a94f8d64",
+    "arch_debt:xdist-state-write-race": "a62d4a81dfc9",
     "arch_debt:zhibridge-mcp-unbuilt": "3a01b8358e40",
     "arch_exemption:__init__.py": "0e8898f347fd",
     "arch_exemption:audit_collector.py": "98429efef8e9",
@@ -123,5 +124,5 @@
     "arch_exemption:wakeup_channel.py": "edf4f812a90c",
     "arch_exemption:wiring.py": "411460a4744d"
   },
-  "checked": "2026-09-17T22:28:15+00:00"
+  "checked": "2026-09-18T04:47:55+00:00"
 }

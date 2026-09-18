@@ -1,0 +1,9 @@
+{
+  "kind": "concurrency_race",
+  "location": "tests/test_l7_hook.py:20（pytestmark = pytest.mark.no_xdist）+ 全仓 write_text 状态写残留",
+  "reason": "xdist 并发污染账（941dde1『另行立账』兑现）。根因已修（2026-09-18）：core/state_store.py JsonFileBackend.save 与 core/meta_cognition.py fallback 写改原子写（tmp+os.replace，消除 open('w') 截断窗口），tests/conftest.py 污染判定加 1s 复查容错（过滤活体进程瞬态）。8worker 复现实证：test_absent_carriers_are_honest teardown 误报 meta_cognition.json 清零，实为本机活体灵克进程（daemon watch 等）非原子写窗口被快照对比撞见。遗留：① test_l7_hook.py 的 no_xdist 标记全仓无注册无执行机制，其自称的『单线程执行』保护不存在，须换 xdist_group + --dist=loadgroup；② 全仓其余 write_text 直写状态文件的模块未逐个排查（守卫侧已有 1s 复查兜底，不阻塞）",
+  "due": "2026-09-25",
+  "resolve_hint": "conftest 注册 no_xdist marker→dist=loadgroup 分组（或改 xdist_group 标记）；write_text(json.dumps) 残留 13 模块待批量换 _atomic_write_json：core/{role_separation,governance_verifier×2,reasoning_chain,session×2,session_runtime,wakeup_channel,governance}, self_optimizer/daemon, model/intelligent_router, coordination/bus_responder, governance/{governance_v2,proposal_lifecycle}",
+  "state": "open",
+  "created": "2026-09-18T04:55:00+00:00"
+}

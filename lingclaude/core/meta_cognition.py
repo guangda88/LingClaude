@@ -263,11 +263,12 @@ class MetaCognition:
                 return
             except Exception as e:
                 logger.warning("StateStore 写入 meta_cognition/%s 失败（回退文件）: %s", path.stem, e)
-        # 兼容兜底：写文件
+        # 兼容兜底：写文件（原子写防并发截断窗口，见 state_store._atomic_write_json）
         try:
+            from lingclaude.core.state_store import _atomic_write_json
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        except OSError:
+            _atomic_write_json(path, data)
+        except Exception:  # best-effort 约束：import 失败等任何故障不炸主流程
             logger.warning("Failed to save meta-cognition state to %s", path)
 
     def load(self, path: Path | None = None) -> None:

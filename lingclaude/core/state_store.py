@@ -57,6 +57,20 @@ class StateBackend(Protocol):
         ...
 
 
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """原子写 JSON：tmp + os.replace，避免 write_text 的截断窗口。
+
+    背景（2026-09-18 xdist 污染账）：非原子写在 open('w') 与 flush 之间存在
+    0 字节窗口——多进程（多灵克活体/pytest-xdist worker）并发读写同一状态
+    文件时，读取方会把窗口内的截断态误判为"文件被清空"。改名 replace 单步
+    生效，窗口消除。
+    """
+    # tmp 带 pid：多进程同写一文件时 tmp 不互撞，replace 原子生效
+    tmp = path.with_suffix(f"{path.suffix}.tmp{os.getpid()}")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
 class JsonFileBackend:
     """JSON 文件后端：当前行为的事实标准，字节级兼容旧路径。"""
 
@@ -71,7 +85,7 @@ class JsonFileBackend:
     def save(self, record_type: str, key: str, payload: dict[str, Any], root: Path | None = None) -> None:
         path = self._path_for(record_type, key, root)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        _atomic_write_json(path, payload)
 
     def load(self, record_type: str, key: str, root: Path | None = None) -> dict[str, Any] | None:
         path = self._path_for(record_type, key, root)

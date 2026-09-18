@@ -93,6 +93,24 @@ def _protect_project_lingclaude(request: pytest.FixtureRequest) -> None:
         if not _transient(k) and (k not in after or (after[k][1] == 0 and size > 0))
     )
     if polluted:
+        # 2026-09-18 xdist 账：项目外活体进程（daemon watch/其他灵克会话）会写
+        # .lingclaude/ 状态文件，其非原子写窗口的瞬时 0 字节态会被快照对比误判
+        # 为测试污染（8worker 下 test_absent_carriers_are_honest teardown 误报
+        # meta_cognition.json 实证）。生产端已改原子写（state_store._atomic_write_json），
+        # 此处再加复查：短暂等待后重查，仍处删除/清零态才判污染——过滤外部
+        # 进程的瞬态窗口，也兼容旧版非原子写的活体进程。
+        import time
+        time.sleep(1.0)
+        confirmed: list[str] = []
+        for k in polluted:
+            fp = project_rt / k
+            try:
+                if not fp.exists() or (before[k][1] > 0 and fp.stat().st_size == 0):
+                    confirmed.append(k)
+            except OSError:
+                confirmed.append(k)
+        polluted = confirmed
+    if polluted:
         pytest.fail(
             "测试污染了项目 .lingclaude/（请在 tmp_path 中隔离运行时写入）："
             + ", ".join(polluted[:8])
