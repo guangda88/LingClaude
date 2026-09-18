@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from lingclaude.cli.repl_io import replay_stdin_bytes
+from lingclaude.core.lineedit import add_history_line, ensure_readline, load_history_file
 
 # prompt_toolkit 为可选依赖 — 未安装时 PromptToolkitSession 不可用，FallbackSession 兜底
 try:
@@ -33,6 +34,48 @@ except ImportError:
 # 在 ~/lingclaude 按上键也会还原出来（跨项目泄露）。改为 ".lingclaude/history"
 # （相对当前工作目录）：每个项目独立历史，不跨项目污染。
 DEFAULT_HISTORY_FILE = ".lingclaude/history"
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-18 多行输入增强：Ctrl+Enter / Shift+Enter 换行（单源，全局幂等）
+#
+# 事实链（全部实测于 prompt_toolkit 3.0.53 源码）：
+# 1. PT 内建表把 "\x1b[27;5;13~"（Ctrl+Enter）和 "\x1b[27;2;13~"（Shift+Enter）
+#    都映射成 Keys.ControlM（= 回车 = 提交）→ 修饰键被吃掉，按了等于 Enter。
+# 2. PT 的 Keys 枚举没有名为 "Enter" 的成员；键位注册时 add("enter") 经
+#    KEY_ALIASES 解析为 Keys.ControlM（c-m）。因此 chord (Escape, ControlM)
+#    与上层 _build_key_bindings 的 add("escape", "enter") 精确同键。
+# 3. vt100 解析器查表用的是 ansi_escape_sequences.ANSI_SEQUENCES 模块级 dict
+#    （非 import-time 快照），运行前改写即时生效。
+#
+# 因此最优修法不是新增键位绑定，而是把这两个序列改映射为
+# (Keys.Escape, Keys.ControlM) —— 精确复用三处 UI（P1 interface / P2
+# full_tui / repl 内联）已有的 Esc+Enter 换行 chord，一处数据改动全形态生效。
+# 改表失败（PT 缺失/版本变化）静默跳过 —— 增强绝不反噬输入路径。
+# ---------------------------------------------------------------------------
+_CTRL_ENTER_SEQ = "\x1b[27;5;13~"  # CSI 27;5;13~ = xterm 修饰回车：Ctrl
+_SHIFT_ENTER_SEQ = "\x1b[27;2;13~"  # CSI 27;2;13~ = xterm 修饰回车：Shift
+
+_MAPPED_SEQUENCES = False
+
+
+def _patch_pt_modifier_enter() -> None:
+    """把 Ctrl+Enter / Shift+Enter 序列改映射为 (Escape, ControlM)。
+
+    幂等；依赖 PT 时所有 import 均放函数内（PT 是可选依赖）。
+    """
+    global _MAPPED_SEQUENCES
+    if _MAPPED_SEQUENCES or not _HAS_PROMPT_TOOLKIT:
+        return
+    try:
+        from prompt_toolkit.input import ansi_escape_sequences as _aes
+        from prompt_toolkit.keys import Keys
+
+        _aes.ANSI_SEQUENCES[_CTRL_ENTER_SEQ] = (Keys.Escape, Keys.ControlM)
+        _aes.ANSI_SEQUENCES[_SHIFT_ENTER_SEQ] = (Keys.Escape, Keys.ControlM)
+        _MAPPED_SEQUENCES = True
+    except Exception:  # noqa: BLE001 — 版本差异/结构性变化时静默放弃
+        _MAPPED_SEQUENCES = True  # 不反复重试注定失败的补丁
 
 
 @runtime_checkable
@@ -93,6 +136,9 @@ class PromptToolkitSession:
         # 时 prompt_toolkit 只保留第一行、其余行被当作 Enter 提交丢弃（「长文字
         # 被截断吞没」）。多行模式下 Enter 重绑为提交、Shift+Enter 换行（见下方
         # _build_key_bindings），保持 CLI「敲 Enter 提交」习惯不变。
+        # 2026-09-18 多行输入增强:构造前先改写 PT 的输入序列表，让
+        # Ctrl+Enter / Shift+Enter 复用下方 Esc+Enter 换行 chord（单源见上）。
+        _patch_pt_modifier_enter()
         self._session = _PTSession(
             history=self._history,
             completer=completer,
@@ -246,6 +292,10 @@ class FallbackSession:
         self._history_file = Path(history_file).expanduser()
         self._interrupt = threading.Event()
         self._load_history()
+        # 2026-09-18 方向键/历史修复：已落盘历史喂进 readline 内存历史 ——
+        # 裸 input() 路径（含 streaming/泵收集）上键翻历史跨进程延续。
+        # prompt() 的非流式分支同样经 ensure_readline 挂钩（见下）。
+        load_history_file(str(self._history_file))
         # 2026-09-16（TUI 输入泵问题修复）: streaming 标志
         self._streaming = False
         # readline 历史翻页位置（-1 = 最末，即新输入位置）
@@ -265,14 +315,19 @@ class FallbackSession:
         # 2026-09-16（TUI 输入泵问题修复）: streaming 期间非阻塞读。
         if self._streaming:
             return self._nonblocking_readline(message)
+        # 2026-09-18 方向键/历史修复：裸 input() 挂 readline —— 方向键/退格
+        # 由 GNU readline 解释（不再 ^[[A 字面回显），行写入内存历史供上键翻。
+        ensure_readline()
         try:
-            return input(message)
+            _line = input(message)
         except EOFError:
             # 审计#1 修复:EOF 传播（同 PromptToolkitSession）— 默认吞掉会造成
             # 非 TTY 场景「空输入→continue」死循环挂死。
             raise
         except KeyboardInterrupt:
             return ""
+        add_history_line(_line)
+        return _line
 
     def _nonblocking_readline(self, message: str = "") -> str:
         """streaming 期间非阻塞读一行。
@@ -504,7 +559,12 @@ class FallbackSession:
         _was_streaming = self._streaming
         self._streaming = False
         try:
-            return input(message)
+            # 2026-09-18 方向键/历史修复：挂 readline + 写内存历史（泵收集行
+            # 同样上键可翻；落盘仍由 repl 主循环 push_to_history 负责）。
+            ensure_readline()
+            _line = input(message)
+            add_history_line(_line)
+            return _line
         finally:
             self._streaming = _was_streaming
 

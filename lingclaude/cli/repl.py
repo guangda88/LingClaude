@@ -23,6 +23,7 @@ from lingclaude.cli.commands import SLASH_COMPLETER_WORDS, SlashCommandProcessor
 from lingclaude.cli.display import SessionSummary
 from lingclaude.cli.input_queue import InputQueue
 from lingclaude.cli.interface import (
+    _patch_pt_modifier_enter,
     create_session,
     FallbackSession,
     PromptSessionInterface,
@@ -38,6 +39,7 @@ from lingclaude.cli.repl_io import (
     get_output_format,
 )
 from lingclaude.cli.full_tui import FullTuiSession
+from lingclaude.core.lineedit import add_history_line, ensure_readline
 from lingclaude.cli.repl_turn import (
     _feed_behavior_to_daemon,
     _maybe_run_daemon_cycle,
@@ -305,16 +307,20 @@ def _read_input(ctx: _ReplCtx) -> str:
     if getattr(ctx, "fallback_read", False):
         # 2026-09-18 输入体验修复:裸 input() 挂上 readline —— 此前降级路径
         # 无行编辑能力：方向键输出 ^[[A/^[[B 字面字符（无法移光标）、上键
-        # 无法翻历史。readline 由 GNU 库处理转义序列 + 维护历史，与
-        # FallbackSession 的历史文件对齐（push_to_history 落盘）。
-        try:
-            import readline  # noqa: F401 — 导入即生效（GNU readline hook input()）
-        except ImportError:  # pragma: no cover — Windows/精简构建无 readline
-            pass
+        # 无法翻历史。readline 由 GNU 库处理转义序列 + 维护历史。
+        # 2026-09-18 二次修复（方向键/历史单源化）：try-import 换 lineedit
+        # helper，并补 add_history_line —— 此前只落盘不进 readline 内存历史，
+        # 上键翻不出上一条；历史文件加载由 FallbackSession 构造时完成。
+        # 2026-09-18 多行输入增强：顺带打上 PT 序列表补丁（本模块 import 的
+        # full_tui 已触发；此处防御性再打一次，幂等）——降级前用户可能从
+        # 未构造过 PT 会话。
+        _patch_pt_modifier_enter()
+        ensure_readline()
         try:
             _line = input(_status_prompt(ctx) if get_output_format() == "plain" else "灵克> ")
             if _line.strip():
                 ctx.session.push_to_history(_line)
+                add_history_line(_line)
             return _line
         except EOFError:
             raise

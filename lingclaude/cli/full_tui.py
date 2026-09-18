@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lingclaude.cli.input_queue import EOF_SENTINEL
+from lingclaude.cli.interface import _patch_pt_modifier_enter
+from lingclaude.core.lineedit import add_history_line, ensure_readline
 
 # prompt_toolkit 为可选依赖 — 未安装时构造抛 RuntimeError（create_session 捕获回退）
 try:
@@ -138,6 +140,10 @@ class FullTuiSession:
         self._output_source = output_source or (lambda: [])
         self._status_cb: Callable[[], list[tuple[str, str]]] | None = None
         self._interrupt = threading.Event()
+        # 2026-09-18 多行输入增强:构造 UI 前改写 PT 输入序列表，让
+        # Ctrl+Enter / Shift+Enter 复用下方 Esc+Enter 换行 chord
+        # （单源补丁在 interface.py，P1/P2 共用）。
+        _patch_pt_modifier_enter()
         # 流式生成期标志（set_streaming 置位；prompt 据此决定是否消费 interrupt）
         self._streaming = False
 
@@ -186,7 +192,8 @@ class FullTuiSession:
             style="class:sep",
         )
 
-        # 键绑定：Enter 提交 / Esc+Enter 换行 / Ctrl+C 清行或打断 / Ctrl+D 空退出
+        # 键绑定：Enter 提交 / Esc+Enter（或 Ctrl+Enter / Shift+Enter，经
+        # interface._patch_pt_modifier_enter 映射）换行 / Ctrl+C 清行或打断 / Ctrl+D 空退出
         self._kb = KeyBindings()
 
         @self._kb.add("enter")
@@ -367,7 +374,12 @@ class FullTuiSession:
         if not self._ever_started:
             # 从未成功启动（start 失败/未调用）→ 降级裸 input()（P1 逃生语义）
             try:
-                return input(message)
+                # 2026-09-18 方向键/历史修复：降级 input() 同样挂 readline +
+                # 写内存历史 —— 全屏降级路径与主输入路径行为对齐。
+                ensure_readline()
+                _line = input(message)
+                add_history_line(_line)
+                return _line
             except KeyboardInterrupt:
                 self._interrupt.set()
                 return ""

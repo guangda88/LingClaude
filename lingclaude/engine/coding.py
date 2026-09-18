@@ -6,6 +6,7 @@ from typing import Any
 
 from lingclaude.core.config import lingclaudeConfig
 from lingclaude.core.gray_zone import gray_zone_escalate
+from lingclaude.core.lineedit import add_history_line, ensure_readline
 from lingclaude.core.model_call import _ToolLoopDetector
 from lingclaude.core.permissions import PermissionStore
 from lingclaude.core.session_runtime import SessionRuntime
@@ -265,7 +266,11 @@ class CodingRuntime(
             }
 
         try:
+            # 2026-09-18 方向键/历史修复：权限问答 input() 挂 readline，
+            # 交互确认时方向键/历史可用（增强路径，失败静默）。
+            ensure_readline()
             answer = input().strip()
+            add_history_line(answer)
         except (EOFError, KeyboardInterrupt):
             return {
                 "ok": False,
