@@ -232,13 +232,18 @@ class SkillRegistry:
         }
 
 
-_READ_ONLY_TOOLS = frozenset({
-    "glob", "grep", "ls", "view", "read_file",
+# 2026-09-18 P1 单源化: 技能只读名单以 permissions.READ_ONLY_TOOLS 为基座（H1 单源，
+# 消除双源漂移——此前 todowrite 拼法错误即双源产物），此处仅显式追加灵克 MCP
+# 工具注册表特有的只读名（均为无写入副作用的查询/分析类工具）。
+from lingclaude.core.permissions import READ_ONLY_TOOLS as _PERMISSIONS_READ_ONLY  # noqa: E402
+
+_SKILL_ONLY_READ_TOOLS = frozenset({
     "search_code", "git_status", "git_log", "git_diff", "git_blame",
     "list_functions", "index_project", "analyze_full",
     "knowledge_search", "session_list", "check_triggers",
     "get_advice", "evaluate_code",
 })
+_READ_ONLY_TOOLS = _PERMISSIONS_READ_ONLY | _SKILL_ONLY_READ_TOOLS
 
 
 def is_read_only_tool(tool_name: str) -> bool:

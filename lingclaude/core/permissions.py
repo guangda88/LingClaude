@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "read", "grep", "glob", "ls", "find", "head", "tail",
     "cat", "view", "search", "list", "stat", "wc",
+    # 2026-09-18 补齐新命名体系只读工具（精确匹配语义，缺名即灰区误伤）：
+    # read_file/list_directory/web_search 是工具注册表真实名；todo_write 为
+    # todo_tools.py 注册名（非 "todowrite"）；code_review/recall 为无副作用工具。
+    "read_file", "list_directory", "web_search", "todo_write",
+    "code_review", "recall",
 })
 
 # R5 阶段2:resume 时需二次确认的副作用工具（与 READ_ONLY_TOOLS 互斥，显式列出防误降级）。

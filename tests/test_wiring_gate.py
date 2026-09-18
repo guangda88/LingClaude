@@ -225,6 +225,11 @@ class TestNoDeadModules:
         # （结构性检查用，非实例依赖）。S4 后由 wiring._load_plugins_if_present
         # 函数内 import 消费，AST 守卫只扫 ImportFrom 故登记豁免。
         "LoadResult", "ProviderPlugin", "ToolPlugin",
+        # 2026-09-18: ResourceProbe 与 ProviderPlugin/ToolPlugin 同性质 —
+        # seam.py 的 Protocol 协议声明，由 os_resource/plugin.py 以 duck-typing
+        # 实现（ResourceProbePlugin 实现 4 探针动作），运行期经 SeamType.RESOURCE
+        # 注册表消费，无 ImportFrom 引用 → AST 守卫盲区，登记豁免。
+        "ResourceProbe",
         # P1: policy_loader 是函数式模块（load/get/hot_update/policies_dir/reset），
         # 被 behavior_aware_router/intelligent_router/wiring 以函数内
         # `from lingclaude.core.policy_loader import get as policy_get` 消费，

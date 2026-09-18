@@ -226,14 +226,25 @@ class TestSkillRegistry:
 
 class TestIsReadOnlyTool:
     def test_all_known_read_only_tools(self) -> None:
-        expected = {
-            "glob", "grep", "ls", "view", "read_file",
+        # 2026-09-18 P1 单源化: 名单 = permissions.READ_ONLY_TOOLS（基座）
+        # ∪ 灵克 MCP 工具特有只读名。测试改为验证并集语义而非字面量，
+        # 防止基座名单更新时此处静默漂移（todowrite 拼法错误即双源产物）。
+        from lingclaude.core.permissions import READ_ONLY_TOOLS as base
+
+        expected_skill_only = {
             "search_code", "git_status", "git_log", "git_diff", "git_blame",
             "list_functions", "index_project", "analyze_full",
             "knowledge_search", "session_list", "check_triggers",
             "get_advice", "evaluate_code",
         }
-        assert _READ_ONLY_TOOLS == expected
+        assert _READ_ONLY_TOOLS == base | frozenset(expected_skill_only)
+
+    def test_base_and_skill_namespaces_covered(self) -> None:
+        """两套命名体系的只读名都必须被覆盖（引擎名 + MCP 名）。"""
+        for tool in ("read_file", "list_directory", "web_search", "todo_write"):
+            assert is_read_only_tool(tool) is True
+        for tool in ("search_code", "git_status", "knowledge_search"):
+            assert is_read_only_tool(tool) is True
 
     def test_read_only_tools_return_true(self) -> None:
         for tool in ("glob", "grep", "ls", "view", "git_status"):
