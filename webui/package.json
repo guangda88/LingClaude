@@ -11,7 +11,7 @@
     "test": "node --test"
   },
   "dependencies": {
-    "dompurify": "^3.4.7",
+    "dompurify": "^3.4.13",
     "marked": "^12.0.2",
     "preact": "^10.24.0"
   },
