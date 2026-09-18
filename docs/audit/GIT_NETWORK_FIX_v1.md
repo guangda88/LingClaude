@@ -83,7 +83,7 @@ $ git fetch origin
 **凭证配置**:
 ```bash
 # 已配置在 ~/.git-credentials
-https://guangda:mwTCLX4gt56_Gs-oFoxixpVb@atomgit.com
+https://guangda:<token>@atomgit.com  # token 实际值存 ~/.git-credentials，勿入库（2026-09-18 泄漏轮换）
 https://username:token@github.com  # 需添加 GitHub Token
 ```
 

@@ -25,7 +25,7 @@ import asyncpg
 from lingclaude.core.fact_checker import KGFactChecker, audit_response
 
 pool = await asyncpg.create_pool(
-    "postgresql://zhineng:zhineng_secure_2024@localhost:5436/zhineng_kb",
+    "postgresql://zhineng:<password>@localhost:5436/zhineng_kb",
     min_size=2, max_size=10,
 )
 
@@ -36,7 +36,7 @@ result = audit_response(model_output, checker=checker)
 ### 方式 B: 环境变量 (零侵入)
 
 ```bash
-export DATABASE_URL="postgresql://zhineng:zhineng_secure_2024@localhost:5436/zhineng_kb"
+export DATABASE_URL="postgresql://zhineng:<password>@localhost:5436/zhineng_kb"
 ```
 
 ```python
@@ -51,7 +51,7 @@ result = audit_response(model_output, checker=checker)
 
 ```python
 checker = KGFactChecker(
-    db_url="postgresql://zhineng:zhineng_secure_2024@localhost:5436/zhineng_kb"
+    db_url="postgresql://zhineng:<password>@localhost:5436/zhineng_kb"
 )
 ```
 
@@ -130,7 +130,7 @@ python3 -m pytest tests/test_wiring_gate.py -v
 | kg_entities | 353 |
 | kg_relations | 936 |
 
-DB 地址: `postgresql://zhineng:zhineng_secure_2024@localhost:5436/zhineng_kb` (灵知 .env)
+DB 地址: `postgresql://zhineng:<password>@localhost:5436/zhineng_kb` (灵知 .env)
 
 ---
 
