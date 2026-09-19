@@ -121,7 +121,10 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         # 平台端点，套餐 key 走它会报 1211 模型不存在（2026-09-15 实测）。
         "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
         "model": "glm-5.3-flash",
-        "models": ["glm-5.3", "glm-5.3-flash"],
+        # 2026-09-19: 旗舰 glm-5.3 是智谱最贵模型，从默认清单移除，
+        # 避免任何自动路径（默认模型/钉住反查/歧义匹配）选中它；
+        # 需要时仍可 /model glm-5.3@glm 显式钉住。
+        "models": ["glm-5.3-flash"],
     },
     "proxy3": {
         # 本机 proxy3 免费额度池（:8765），openai 协议；free/* 为虚拟模型
