@@ -21,7 +21,9 @@ plug_level 是用户已裁定的登记事实，插片声明必须与账本一致
 from __future__ import annotations
 
 import json
+import queue
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -47,6 +49,8 @@ class McpAgentPluginBase:
         self._store = store or StateStore(
             backend="json", root=Path(__file__).parents[3] / "data" / "agent_runs")
         self._probe_failures = 0
+        # server 自报工具清单（tools/list 缓存）；None=未加载，{}=server 无工具
+        self._tools_schema: dict[str, dict] | None = None
 
     # ── AgentSeam 协议 ─────────────────────────────────────────────────
     @property
@@ -93,36 +97,109 @@ class McpAgentPluginBase:
         return list(self._manifest["transport"]["command"])
 
     def _call_tool(self, tool: str, arguments: dict) -> str:
-        """经 MCP stdio 发起一次工具调用（initialize 握手 + tools/call）。
+        """经 MCP stdio 发起一次工具调用（统一走 _stdio_exchange 会话）。
 
-        结果判定锚定响应中 id==1 的行（协议嵌套语义，J5 行为级）——
-        initialize 回包同样含 result，不能误判为成功（lingxi 根因 4 教训）。
+        契约修复（2026-09-20，mtg_20260919_224049 闭幕后 P1）：
+        server 的 tools/list 自报 schema 是唯一契约源——参数按 schema 过滤，
+        未声明参数一律报错（含历史 caller 硬注入，lingbus post_reply 契约失配根因）。
+        结果判定锚定目标 id 响应行（J5 行为级）；JSON-RPC error 带真实 message 上抛。
         """
-        caller = self._manifest.get("caller", "lingclaude")
+        tool_schemas = self._load_tools()
+        if tool not in tool_schemas:
+            raise RuntimeError(
+                f"unknown tool {tool!r} on {self.name} "
+                f"(server declares: {sorted(tool_schemas) or '[]'})")
+        declared = tool_schemas[tool].get("inputSchema", {}).get("properties", {})
+        unknown = [k for k in arguments if k not in declared]
+        if unknown:
+            raise RuntimeError(
+                f"contract mismatch on {self.name}.{tool}: "
+                f"arguments not declared by server schema: {sorted(unknown)}; "
+                f"declared: {sorted(declared)}")
+        resp = self._stdio_exchange(
+            [("tools/call", {"name": tool, "arguments": arguments}, 1)])
+        return json.dumps(resp, ensure_ascii=False)
+
+    def _load_tools(self) -> dict[str, dict]:
+        """经 tools/list 拉取并缓存 server 自报工具清单（契约唯一事实源）。"""
+        if self._tools_schema is None:
+            resp = self._stdio_exchange([("tools/list", {}, 1)])
+            tools = (resp or {}).get("tools", []) if resp else []
+            self._tools_schema = {t.get("name", ""): t for t in tools}
+        return self._tools_schema
+
+    def _stdio_exchange(self, calls: list[tuple[str, dict, int]]) -> dict | None:
+        """一次 stdio 会话：initialize 握手 + 多段 JSON-RPC 请求，返回末段 id 的完整响应。
+
+        calls 元组 = (method, params, expect_id)；expect_id 为 None 表示通知（不期待响应）。
+        stdin 保持打开直至收到目标响应——防止慢工具（建库/redzone 检查）期间
+        stdin EOF 触发 transport 关停吞掉响应（2026-09-20 fixtest 实证根因）。
+        读线程 + deadline 兜底，超时报 TimeoutExpired。
+        """
         lines = [
             json.dumps({"jsonrpc": "2.0", "id": 0, "method": "initialize",
                         "params": {"protocolVersion": "2024-11-05", "capabilities": {},
                                    "clientInfo": {"name": "lingclaude-agent", "version": "1.0.0"}}}),
             json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-            json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                        "params": {"name": tool, "arguments": {**arguments, "caller": caller}}}),
         ]
+        last_id = 0
+        last_method = ""
+        for method, params, expect_id in calls:
+            if expect_id is None:
+                lines.append(json.dumps({"jsonrpc": "2.0", "method": method, "params": params}))
+            else:
+                lines.append(json.dumps({"jsonrpc": "2.0", "id": expect_id,
+                                         "method": method, "params": params}))
+                last_id = expect_id
+                last_method = method
         payload = "\n".join(lines) + "\n"  # 根因 4 教训：按行读 stdin 必须结尾换行
         cwd = self._manifest["transport"].get("cwd")
+        timeout = self._manifest["transport"].get("call_timeout_s", 120)
         proc = subprocess.Popen(
             self._server_cmd(), cwd=cwd,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             text=True)
         try:
-            out, _ = proc.communicate(
-                payload, timeout=self._manifest["transport"].get("call_timeout_s", 120))
-            resp = _extract_response(out, 1)
-            if resp is None:
-                raise RuntimeError(f"MCP call failed: no response for tools/call id=1 ({tool})")
-            if "error" in resp or "result" not in resp:
-                raise RuntimeError(f"MCP call failed: {str(resp.get('error', 'no result'))[:200]}")
-            return json.dumps(resp, ensure_ascii=False)
+            proc.stdin.write(payload)
+            proc.stdin.flush()  # 不关闭 stdin：EOF 会让 transport 提前关停吞响应
+            if not last_id:
+                return None
+            q: "queue.Queue[str | None]" = queue.Queue()
+
+            def _reader() -> None:
+                try:
+                    for line in proc.stdout:
+                        q.put(line)
+                finally:
+                    q.put(None)
+
+            threading.Thread(target=_reader, daemon=True).start()
+            deadline = time.monotonic() + timeout
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(self._server_cmd(), timeout)
+                try:
+                    line = q.get(timeout=remaining)
+                except queue.Empty:
+                    raise subprocess.TimeoutExpired(self._server_cmd(), timeout) from None
+                if line is None:
+                    raise RuntimeError(
+                        f"MCP call failed: server stdout closed before id={last_id} "
+                        f"response ({last_method})")
+                resp = _extract_response(line, last_id)
+                if resp is not None:
+                    if "error" in resp:
+                        msg = resp["error"].get("message", json.dumps(resp["error"])[:200])
+                        raise RuntimeError(f"MCP error on {last_method}: {msg}")
+                    if "result" not in resp:
+                        raise RuntimeError(f"MCP call failed: no result (id={last_id})")
+                    return resp["result"]
         finally:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
             if proc.poll() is None:
                 proc.terminate()
 
