@@ -112,3 +112,24 @@ jobs:
       # 纯离线（hermetic，不依赖真实 lingxi 进程），随 arch-guards 必过。
       - name: pytest agent plugins
         run: python -m pytest tests/agents/ -q -p no:cacheprovider
+
+  hallucination-gate:
+    name: 幻觉治理门禁 (P2-5c, 2026-09-19 调研固化)
+    runs-on: ubuntu-latest
+    # 调研三批的 CI 固化层：固定事实题集 × 治理管线断言（凭空完成声明
+    # 探测、cross-reference 放行、flash 门禁语义、实测化评分公式、
+    # NOT_FOUND/外部知识纪律在常驻提示词）。纯离线（regex + 纯函数，
+    # 无网络无 LLM），与 tests/hallucination_bench.py Layer 1 同源。
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: hallucination bench (Layer 1)
+        run: python tests/hallucination_bench.py
+      - name: pytest P1/P2 落地测试
+        run: python -m pytest tests/test_hallucination_p1p2.py -q -p no:cacheprovider

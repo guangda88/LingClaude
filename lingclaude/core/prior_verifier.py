@@ -64,6 +64,14 @@ _TOOL_ACTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?:已测试|测试全绿|测试通过|全部通过|pytest\s+通过|tests?\s+passed|\d+\s*passed)"), "test_claim"),
     (re.compile(r"(?:已落盘|已写入|已保存|已创建|已生成|创建完成|写入完成|生成完毕|written|created|saved)"), "file_write_claim"),
     (re.compile(r"(?:已运行|已执行|已安装|已修改|已删除|已修复|ran|executed|installed|deleted|fixed)"), "action_claim"),
+    # P1-3 (2026-09-19, 幻觉调研第二批): 声明-验证闭环补两类声明模式 ——
+    # H3 实证（路由切换上下文断裂）里模型惯于「声称已开线程/sub_agent」而实际未开，
+    # 以及「引用了某文件」而本 turn 从未 read。补模式后经 evidence map
+    # cross-reference：线程声明须有 sub_agent/后台任务类工具证据，文件引用
+    # 声明须有 read/grep/glob 系工具证据，否则打 HARD_FACT 未验证。
+    (re.compile(r"(?:已开|已启动|已创建|已派发|spawned|launched)\s*(?:线程|子线程|sub[_ -]?agent|后台任务|background\s*(?:job|task))", re.IGNORECASE), "thread_claim"),
+    (re.compile(r"(?:agent[_ -]?id|job[_ -]?id)\s*[:：=]\s*[\w-]+", re.IGNORECASE), "thread_claim"),
+    (re.compile(r"(?:如|见|参见|参考|详见)\s*[`'\"]?[\w./]+\.(?:py|md|json|yaml|yml|txt|sh|toml)\b", re.IGNORECASE), "file_reference_claim"),
 ]
 
 # H17 闭环申报钩子（2026-09-13 k3 幻觉实例）：无工具调用时输出"验证报告"
@@ -97,6 +105,13 @@ _TOOL_ACTION_EVIDENCE_MAP: dict[str, tuple[str, ...]] = {
     "test_claim": ("pytest", "test", "bash"),
     "file_write_claim": ("write", "edit", "file_create", "file_insert", "file_delete_lines", "file_undo"),
     "action_claim": ("bash", "bash_lingxi", "run", "execute"),
+    # P1-3: 新声明类型的证据锚点。sub_agent 系/后台任务系工具在 SPECS 里
+    # security_scope 非 write/execute 专属分类，SPECS 派生覆盖不到
+    # 「线程声明 ↔ agent 管理工具」语义对应，锚点兜底（派生优先、锚点合并）。
+    "thread_claim": ("sub_agent", "list_agents", "interrupt_agent", "run_in_background", "list_jobs"),
+    "file_reference_claim": ("read", "grep", "glob", "lsp", "index_project"),
+    # P2-5b: 外部知识断言的唯一有效证据 = web 工具验证（系统提示词规则 12）
+    "external_knowledge_claim": ("web_search", "web_fetch", "knowledge_search"),
 }
 
 
@@ -127,6 +142,47 @@ def _derive_evidence_map() -> dict[str, tuple[str, ...]]:
     for k, names in derived.items():
         merged[k] = tuple(names) + tuple(n for n in merged.get(k, ()) if n not in names)
     return merged
+
+# ===== P1-3 (2026-09-19, 幻觉调研第二批): 凭空完成声明探测器（打回判定用）=====
+# 用途：_should_hallucination_correct 的第二判定轨。k3 形态（H17 实证）+
+# H3 路由切换断裂后，模型惯于无工具调用却输出「已提交/测试全绿/验证全部通过/
+# 已开线程」等凭空完成声明。原打回条件只看 hallucination_risk≥0.3 的工具意图，
+# 此类声明完全漏网。本函数供 model_call 层在收尾前检测：命中且当轮无
+# 对应工具证据 → 打回重验（有成本，故模式取高精度完成式强信号）。
+# 与 _TOOL_ACTION_PATTERNS 的区别：那边管「打标」，这边管「打回」，
+# 只收窄到高危完成式，避免把正常推断文本打成回炉。
+_BARE_COMPLETION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    # commit/push 带哈希 —— 凭空给出 7+ 位 hash 几乎必是编造
+    (re.compile(r"(?:已提交|已推送|committed|pushed)[^。\n]{0,30}?\b[0-9a-f]{7,40}\b", re.IGNORECASE), "commit_claim"),
+    (re.compile(r"\b(?:commit|hash)\s*[:=]?\s*[0-9a-f]{7,40}\b", re.IGNORECASE), "commit_claim"),
+    # 测试全绿类完成式
+    (re.compile(r"(?:测试)?(?:全绿|全部通过|tests?\s+(?:all\s+)?pass(?:ed)?|\d+\s+passed)", re.IGNORECASE), "test_claim"),
+    # 伪造验证报告（H17 同源）
+    (re.compile(r"(?:验证|核查|复核)(?:结果)?(?:全部|均|全)?(?:通过|属实|无误)", re.IGNORECASE), "verify_pass_claim"),
+    # 凭空线程/agent 声明（带 ID 更实锤）
+    (re.compile(r"(?:agent[_ -]?id|job[_ -]?id)\s*[:：=]\s*[\w-]+", re.IGNORECASE), "thread_claim"),
+    (re.compile(r"已开(?:线程|子线程|后台任务)", re.IGNORECASE), "thread_claim"),
+    # P2-5b (2026-09-19): 外部知识凭记忆断言（opencode 独有贡献子类）——
+    # 定价/参数量等训练数据记忆，未经 web 工具验证即给出具体数字 = 编造
+    (re.compile(r"(?:定价|价格|单价|售价|price)[^。\n]{0,24}?[\d.]+\s*(?:元|美元|刀|credits?|points?|万)", re.IGNORECASE), "external_knowledge_claim"),
+    (re.compile(r"(?:参数量|参数规模|parameters?)[^。\n]{0,16}?[\d.]+\s*(?:[bB]\b|亿|万|billion)", re.IGNORECASE), "external_knowledge_claim"),
+]
+
+
+def detect_bare_completion_claims(text: str) -> list[tuple[str, str]]:
+    """检测文本中的凭空完成式声明，返回 (声明片段, 声明类型) 列表。
+
+    纯先验检测（不看证据）；是否「凭空」由调用方结合当轮 tool_evidence
+    经 _evidence_available 语义匹配判定。供 model_call 打回判定与
+    hallucination_bench（第三批）复用。
+    """
+    hits: list[tuple[str, str]] = []
+    for pattern, kind in _BARE_COMPLETION_PATTERNS:
+        for match in pattern.finditer(text):
+            hits.append((match.group(), kind))
+    return hits
+
+
 
 
 def _evidence_available(kind: str, tool_evidence: tuple[str, ...]) -> bool:
@@ -333,7 +389,15 @@ class PriorVerifier:
                 if not has_ev:
                     tool_unverified.append(a)
         # 修改：工具失败时也标记（不再只看 used_tools）
-        if tool_unverified and (not used_tools or tool_failed):
+        # P1-3 (2026-09-19, 幻觉调研第二批): 声明-验证闭环收紧 —— 原条件
+        # `not used_tools or tool_failed` 存在语义洞：只要本轮调过任意工具
+        # 且没失败，「调了 A 工具却声称 B 动作」（如只 read 却声称已提交）
+        # 就永不打标，P17 cross-reference 在打标层形同虚设。
+        # tool_unverified 本身已经过 _tool_action_has_evidence 证据筛选
+        # （有据的不会进来），故无条件打标即可：声明 ↔ 证据精确闭环。
+        # 宽松兜底仍在：无 tool_evidence（journal 不可用）时 has_ev 恒 False
+        # → 全部进 tool_unverified → 与旧 used_tools=False 行为一致。
+        if tool_unverified:
             tag = "⚠ [工具结果未验证]"
             corrected = _apply_span_tags(corrected, tool_unverified, tag)
         if hard_unverified and (not used_tools or tool_failed):

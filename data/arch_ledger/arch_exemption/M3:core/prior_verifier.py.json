@@ -1,11 +1,11 @@
 {
   "guard": "M3",
   "file": "core/prior_verifier.py",
-  "reason": "P17合法懒加载_derive_evidence_map，与G1白名单同源",
+  "reason": "P17合法懒加载_derive_evidence_map，与G1白名单同源；2026-09-19 P1-3/P2-5b新增声明模式（语义不变），import行号113→128顺延",
   "granted": "2026-09-17",
   "state": "active",
   "lines": [
-    113
+    128
   ],
   "review_due": "2026-10-31"
 }

@@ -50,7 +50,10 @@ CORE_ENGINE_WHITELIST = [
     # _derive_evidence_map 函数内延迟 import SPECS（从工具注册表派生声明类型→证据
     # 工具名映射，防止工具名演化导致 cross-reference 映射失配）。属合法懒加载
     # （core 不模块级 import engine，S3 倒装纪律），补登记消除 g1 误报。
-    "core/prior_verifier.py:113",
+    # 2026-09-19 (P1-3/P2-5b, 幻觉调研二三批): 113 → 128 —— prior_verifier.py
+    # 新增 thread_claim/file_reference_claim/external_knowledge_claim 声明模式与
+    # 证据映射（语义不变，行号顺延）。
+    "core/prior_verifier.py:128",
 ]
 BASELINE_SYS_PATH = 14
 # 340 (2026-09-10): P2.a wiring.py 新增 22 个工厂函数内 import —— WIRING_MANIFEST

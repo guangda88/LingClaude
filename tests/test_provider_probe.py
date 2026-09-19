@@ -188,6 +188,21 @@ class _FakeProbe:
 class TestRouterProbeIntegration(unittest.TestCase):
     """措施1：路由前置探活门禁。"""
 
+    def setUp(self):
+        # P1-4 flash 门禁与本类测的探活语义正交：这里显式关掉 flash 门禁，
+        # 让候选序保持配置序（首位 glm），探活桩才会被逐位调用。
+        # flash 门禁自身语义由 tests/test_hallucination_p1p2.py 覆盖。
+        import os
+        self._old_flash_env = os.environ.get("LINGCLAUDE_FLASH_GATE_DISABLE")
+        os.environ["LINGCLAUDE_FLASH_GATE_DISABLE"] = "1"
+
+    def tearDown(self):
+        import os
+        if self._old_flash_env is None:
+            os.environ.pop("LINGCLAUDE_FLASH_GATE_DISABLE", None)
+        else:
+            os.environ["LINGCLAUDE_FLASH_GATE_DISABLE"] = self._old_flash_env
+
     def _make_router(self, verdict: ProbeResult) -> tuple[TaskRouter, _FakeProbe]:
         f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump(CFG, f)

@@ -332,7 +332,7 @@ class ModelCallMixin:
 
             if not response.tool_calls:
                 content = response.content
-                if self._should_hallucination_correct(prompt, used_tools):
+                if self._should_hallucination_correct(prompt, used_tools, messages):
                     content = self._hallucination_correction(messages, content, tools, resolved_config)
                     if content:
                         return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
@@ -603,7 +603,7 @@ class ModelCallMixin:
 
             if not round_tool_calls:
                 content = round_content
-                if self._should_hallucination_correct(prompt, used_tools):
+                if self._should_hallucination_correct(prompt, used_tools, messages):
                     yield {"type": "status", "message": "幻觉闭环修正中..."}
                     corrected = self._hallucination_correction(
                         messages, content, tools, resolved_config,
@@ -742,14 +742,43 @@ class ModelCallMixin:
                "usage": {"input_tokens": total_input, "output_tokens": total_output},
                "finalized": finalized}
 
-    def _should_hallucination_correct(self, prompt: str, used_tools: bool) -> bool:
+    def _should_hallucination_correct(
+        self, prompt: str, used_tools: bool, messages: list | None = None,
+    ) -> bool:
         bm = self._behavior
-        if bm.hallucination_risk < 0.3:
-            return False
-        if used_tools:
-            return False
-        intent = detect_intent(prompt)
-        return is_tool_intent(intent)
+        if bm.hallucination_risk >= 0.3 and not used_tools:
+            intent = detect_intent(prompt)
+            if is_tool_intent(intent):
+                return True
+        # P1-3 (2026-09-19, 幻觉调研第二批): 第二判定轨——凭空完成声明打回。
+        # k3 形态（H17）+ H3 路由切换断裂：模型无工具调用却输出「已提交
+        # abc1234 / 测试全绿 / 验证全部通过 / 已开线程 agent_id: xxx」，
+        # 原 risk≥0.3 条件完全漏网（risk 是慢变量，单轮凭空声明拉不动）。
+        # 本轮无任何工具调用 + 命中高危完成式声明 → 直接打回重验。
+        # 打回有成本（一轮 LLM 调用），模式取高精度完成式强信号，不做推断文本。
+        if not used_tools and messages:
+            try:
+                from lingclaude.core.prior_verifier import detect_bare_completion_claims
+                # 声明散落在本 turn 全部 assistant 输出里，不只最后一轮
+                round_text = "\n".join(
+                    str(m.content) for m in messages
+                    if str(getattr(getattr(m, "role", None), "value", getattr(m, "role", ""))) == "assistant"
+                )
+                if not round_text:
+                    return False
+                claims = detect_bare_completion_claims(round_text)
+                if not claims:
+                    return False
+                # 无工具调用 → 无从 cross-reference → 命中即打回
+                logger.warning(
+                    "P1-3 凭空完成声明打回: %d 条 (%s)",
+                    len(claims),
+                    "; ".join(f"{c[:40]}[{k}]" for c, k in claims[:3]),
+                )
+                return True
+            except Exception as e:  # 探测器故障绝不阻断主流程（fail-soft）
+                logger.debug("P1-3 bare-completion detector error: %s", e)
+        return False
 
     def _hallucination_correction(
         self,
@@ -778,6 +807,21 @@ class ModelCallMixin:
             "⚠ 系统干预: 你的幻觉风险较高，但你刚才没有使用任何工具就直接回答了代码相关问题。"
             "这是不允许的。请立即使用 read/grep/glob 工具读取相关源码，然后基于工具结果重新回答。"
         )
+        # P1-3 (2026-09-19): 凭空完成声明打回时，修正 prompt 点名具体声明 ——
+        # 让模型知道哪句话是凭空的（提交哈希/测试全绿/开线程），重答时必须
+        # 附真实工具证据或撤回声明，而不是换个说法重复一遍。
+        try:
+            from lingclaude.core.prior_verifier import detect_bare_completion_claims
+            _claims = detect_bare_completion_claims(original_response or "")
+            if _claims:
+                _named = "; ".join(f"「{c}」" for c, _k in _claims[:4])
+                correction_prompt = (
+                    f"⚠ 系统干预: 你的回复包含未经工具执行的凭空完成式声明: {_named}。"
+                    "这些动作你没有实际执行过。请立即使用真实工具（bash/read/write 等）完成"
+                    "或验证对应动作，然后基于真实结果重新回答；无法执行时必须明确撤回这些声明。"
+                )
+        except Exception:  # 点名失败不影响打回主流程
+            pass
         messages.append(ModelMessage(role=MessageRole.ASSISTANT, content=original_response))
         messages.append(ModelMessage(role=MessageRole.USER, content=correction_prompt))
 

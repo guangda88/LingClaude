@@ -22,6 +22,9 @@ def validate_task_result(
     result_message: str,
     task_context: Optional[Dict[str, Any]] = None,
     strict: bool = False,
+    used_tools: bool = False,
+    tool_evidence: tuple = (),
+    tool_results: Optional[Dict[str, bool]] = None,
 ) -> Dict[str, Any]:
     """
     验证任务结果，检测潜在幻觉
@@ -56,10 +59,19 @@ def validate_task_result(
 
     try:
         # 用本仓 PriorVerifier 做断言提取 + 幻觉标记（函数内延迟 import，S3 纪律）
+        # P1-3 (2026-09-19): 透传当轮证据 —— 原实现写死 used_tools=False，
+        # journal 里的真实工具证据被丢弃，「调了工具且声明有据」也会被误判
+        # 幻觉，cross-reference 闭环在流式路径断开。三参全部透传，
+        # 调用方（query_engine_turn_mixin）已从 journal 取好当轮证据。
         from lingclaude.core.prior_verifier import PriorVerifier
 
         pv = PriorVerifier()
-        vr = pv.analyze(result_message, used_tools=False)
+        vr = pv.analyze(
+            result_message,
+            used_tools=used_tools,
+            tool_evidence=tool_evidence,
+            tool_results=tool_results,
+        )
 
         hard_facts = [a for a in vr.assertions if a.level.value == "hard_fact"]
         unsupported = [a for a in vr.assertions if a.level.value == "unsupported"]

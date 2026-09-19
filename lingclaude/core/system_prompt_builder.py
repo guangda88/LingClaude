@@ -33,7 +33,11 @@ _BASE_PROMPT = (
     "8. 只读操作（read/grep/glob 等）可并行调用；写操作与有副作用的命令先确认影响面再执行。\n"
     "9. 多步任务先列简要计划再动手；计划或结果变化时向用户说明。\n"
     "10. 回答先给结论再按需展开；文件引用使用 路径:行号 格式。\n"
-    "11. 引用文件路径前必须实测存在，禁止凭记忆或他人汇报转述。"
+    "11. 引用文件路径前必须实测存在，禁止凭记忆或他人汇报转述。\n"
+    "12. 外部知识断言（参数量/定价/限额/API 契约/版本号等训练数据内记忆）不得直接断言，"
+    "必须先经 web_search/web_fetch 工具验证；无法验证时明确说「未验证」，禁止编造具体数字。\n"
+    "13. 涉及模型/端点清单的问题，只引用工具返回的实时清单；未知或清单外的模型一律回答"
+    " NOT_FOUND，禁止顺着记忆猜测补全。"
 )
 
 
@@ -100,6 +104,7 @@ def build_adaptive_system_prompt(
     project_index: dict[str, Any] | None,
     tool_call_count: int = 0,  # R8: 用于触发 sub_agent 推荐提示
     current_query: str = "",  # R9: 当前 turn 的用户 query，用于首 turn 拆解判定
+    model_switch_note: dict[str, Any] | None = None,  # P1-4: 模型切换声明注入
 ) -> str:
     """Build the adaptive system prompt.
 
@@ -273,5 +278,20 @@ def build_adaptive_system_prompt(
             extras.append(
                 "\n📁 当前项目结构:\n" + pkg_summary
             )
+
+    # P1-4 (2026-09-19, 幻觉调研第二批): 模型切换声明 —— switch/pin 触发后，
+    # 下一轮起注入「接管声明」：新模型不得继承前任模型的未验证声明，
+    # 必须 explicit 声明当前模型身份、只基于会话内显式信息（工具结果/用户
+    # 输入）工作。H3（路由切换上下文断裂）的直接治理。
+    if model_switch_note:
+        _m = model_switch_note.get("model", "unknown")
+        _how = "已钉住" if model_switch_note.get("pinned") else "由降级链切换而来"
+        extras.append(
+            f"\n\n🔄 模型切换声明: 你刚接管本会话（当前模型: {_m}，{_how}）。"
+            "此前对话中其他模型声称过的一切（读过的文件、执行过的命令、得出的结论）"
+            "你都无从验证，不得继承、复述或延续。回答代码问题前必须用工具重新读取；"
+            f"本次回复开头请显式声明当前模型身份（{_m}）。"
+            "若上下文中出现你无法确认的模型名/清单，宁可回答 NOT_FOUND 也不得猜测。"
+        )
 
     return _BASE_PROMPT + _build_session_context() + "".join(extras)

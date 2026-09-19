@@ -160,10 +160,17 @@ class QueryEngineTurnMixin:
             try:
                 from lingclaude.core.hallucination_guard import validate_task_result, should_validate
                 if should_validate(prompt, final_content):
+                    # P1-3 (2026-09-19): 传入当轮真实证据 —— 与上方 _finalize_turn
+                    # 的 P17 cross-reference 同源（journal），使声明-验证闭环在
+                    # 流式路径真正闭合：有据声明不再误报，无据声明必须打标。
+                    _ev_used_tools = bool(tool_evidence)
                     vr = validate_task_result(
                         result_message=final_content,
                         task_context={"prompt": prompt[:200], "session_id": getattr(self, 'session_id', 'unknown')},
                         strict=False,  # 非严格模式，只标记不阻断
+                        used_tools=_ev_used_tools,
+                        tool_evidence=tool_evidence,
+                        tool_results=tool_results,
                     )
                     if vr["has_hallucination"]:
                         # 在输出前添加幻觉警告标记

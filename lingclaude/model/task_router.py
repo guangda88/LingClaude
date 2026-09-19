@@ -28,6 +28,23 @@ logger = logging.getLogger(__name__)
 # LINGCODE_CONFIG 环境变量可覆盖 — 跨仓配置路径不再绑死本机布局 (2026-09-11 审计修复)
 CONFIG_PATH = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/lingcode/config.json"))
 
+# P1-4 (2026-09-19, 幻觉调研第二批): flash 级模型禁入决策位 —— 治 H1/H2 共识：
+# flash/mini/lite 级小模型幻觉率显著高于旗舰级，而决策位（路由清单首位）的
+# 幻觉会被下游全量消费。规则：模型名含 flash/mini/lite/nano 等轻量标记时，
+# coding/reasoning/thinking 类「决策路由」自动跳过其清单首位候选，顺延下一候选。
+# 可用环境变量 LINGCLAUDE_FLASH_GATE_DISABLE=1 关闭（回退纯配置序）。
+# 注：只影响路由层决策位选择，不影响显式 /model 指定（用户意志优先）。
+_FLASH_GATE_DISABLE_ENV = "LINGCLAUDE_FLASH_GATE_DISABLE"
+_FLASH_MODEL_RE = re.compile(
+    # flash/mini/lite 系：轻量标记；minimax-m2.7/m3：调研 P1 明确「决策位降到兜底位」
+    r"flash|mini\b|minimax|lite|nano|turbo-lite|instinct|air\b|-small\b|_small\b",
+    re.IGNORECASE,
+)
+# 决策路由 key：这些 route 的首位候选承担主要产出，幻觉代价最高
+_DECISION_ROUTE_KEYS = frozenset({
+    "coding", "chinese_reasoning", "english_general", "thinking", "long_context",
+})
+
 # P2-2 (灵元): task_type → route 映射外置 policies/task_routing.yaml，走 PolicyLoader 热更。
 # 消费方式：resolve() 每次路由前实时调用 _load_task_type_to_route()（P6 收敛口径），
 # 改 YAML → 下个请求生效，进程不重启。读失败回退内置默认（graceful degrade）。
@@ -388,6 +405,10 @@ class TaskRouter:
         # 此前 round-robin 会让首位候选与兜底 50/50 交替,违背
         # "glm-5.3-flash 优先、waterfall 兜底"的配置语义。
         # 故障切换由 F12b(无 key 跳过)+ slot.is_available(熔断/限流)承担。
+        # P1-4: flash 门禁开关每次调用时读环境变量（测试可注入，进程内热更）
+        _flash_gate_on = os.environ.get(_FLASH_GATE_DISABLE_ENV, "") not in (
+            "1", "true", "TRUE", "True",
+        )
         for pos in range(len(models)):
             ref = models[pos]
             pinfo = self._providers.get(ref.provider)
@@ -408,6 +429,22 @@ class TaskRouter:
 
             slot = self._slots.get(ref.provider)
             if slot and not slot.is_available:
+                continue
+
+            # P1-4 (2026-09-19): flash 级禁入决策位 —— 决策路由首位候选是
+            # 轻量模型（flash/mini/lite）时顺延下一候选。H1/H2 共识：轻量模型
+            # 幻觉率高，决策位产出被下游全量消费，代价最高。只挡首位（方案
+            # 语义「禁入首位」），flash 在 2+ 位作降级兜底不受影响；显式
+            # /model 指定不经过路由层，不受此门禁约束。
+            if (_flash_gate_on
+                    and route_key in _DECISION_ROUTE_KEYS
+                    and pos == 0
+                    and _FLASH_MODEL_RE.search(ref.model)):
+                logger.info(
+                    "P1-4 flash 门禁: %s 为轻量模型，禁入决策路由 %r 首位，顺延下一候选"
+                    "（LINGCLAUDE_FLASH_GATE_DISABLE=1 可关闭）",
+                    ref.model, route_key,
+                )
                 continue
 
             # P1-F1: 清单实时探活门禁——410/401/404 熔断剔除（跳过其 F12j 逻辑，
@@ -436,6 +473,12 @@ class TaskRouter:
                     )
                     continue
                 # probe.unknown / probe.status == "ok" → 正常放行，进选通逻辑
+
+            # P2-5a (2026-09-19, 幻觉调研第三批): 运行时不改排序 —— 配置序仍是
+            # 权威（严格优先级语义）。实测化排序的落点是离线 model_health_probe
+            # 重排 lingcode config 的 task_routes + CI gate 固化（scripts/
+            # model_health_probe.py），运行时仅消费重排后的配置序，避免路由
+            # 热路径引入隐藏状态（score 缓存陈旧会制造新的清单幻觉）。
 
             slot = self._slots.get(ref.provider)
             if slot:

@@ -15,6 +15,10 @@ from lingclaude.core.model_types import ModelConfig
 logger = logging.getLogger(__name__)
 
 class QueryEngineModelMixin:
+        # P1-4 (2026-09-19): 模型切换声明状态默认值 —— switch/pin 后由
+        # _note_model_switch 覆写，_build_adaptive_system_prompt 每轮读取。
+        _model_switch_note: dict | None = None
+
         def switch_model(self, model_name: str) -> Result[str]:
             """P1-4: 会话中途切换模型（保留上下文，重建 provider）。
 
@@ -83,6 +87,16 @@ class QueryEngineModelMixin:
             except Exception:  # noqa: BLE001 — config 不可变时仅更新 _model_config
                 pass
             logger.info("Switched model to %s", new_cfg.model)
+            # P1-4 (2026-09-19, 幻觉调研第二批): 降级/手动切换后强制模型声明 ——
+            # H3（路由切换上下文断裂）：新模型带着旧对话惯性，容易顺着上一任
+            # 模型的「记忆」编造（声称读过没读过的文件、继承上一任的声明）。
+            # 记一条切换标记，_build_adaptive_system_prompt 检测到后注入
+            # 「模型切换声明」提示，强制模型显式声明当前模型并只基于会话内
+            # 显式信息工作（unknown-check 治标 + NOT_FOUND 纪律同步注入）。
+            try:
+                self._note_model_switch(new_cfg.model, pinned=False)
+            except Exception:  # noqa: BLE001 — 声明注入失败不阻断切换
+                logger.debug("switch model-switch note failed", exc_info=True)
             return Result.ok(new_cfg.model)
 
         def pin_model(self, model_name: str, ttl_seconds: int = 0) -> Result[str]:
@@ -149,6 +163,14 @@ class QueryEngineModelMixin:
             self._pinned_model_config = pinned_cfg
             self._pinned_model_expires = time.time() + ttl_seconds if ttl_seconds > 0 else float('inf')
             logger.info("Pinned model to %s (ttl=%ss)", pinned_cfg.model, ttl_seconds if ttl_seconds > 0 else "session")
+            # P1-4 (2026-09-19, 幻觉调研第二批): 钉住也是模型切换的一种 ——
+            # 模型变了，旧的会话惯性（记忆里的文件/结论/声明）全部失效，
+            # 必须注入「模型切换声明」，要求模型显式承认当前模型并只基于
+            # 会话内显式信息工作。与 switch_model 同一纪律。
+            try:
+                self._note_model_switch(pinned_cfg.model, pinned=True)
+            except Exception:  # noqa: BLE001 — 声明注入失败不阻断钉住
+                logger.debug("pin model-switch note failed", exc_info=True)
             return Result.ok(pinned_cfg.model)
 
         def unpin_model(self) -> Result[str]:
@@ -195,4 +217,21 @@ class QueryEngineModelMixin:
                 project_index=self._project_index,
                 tool_call_count=self._tool_call_count,  # R8: 触发 sub_agent 推荐提示
                 current_query=current_query,  # R9: 首 turn 拆解判定
+                model_switch_note=self._model_switch_note,  # P1-4: 切换声明注入
             )
+
+        # ===== P1-4 (2026-09-19, 幻觉调研第二批): 模型切换声明状态 =====
+
+        def _note_model_switch(self, new_model: str, *, pinned: bool) -> None:
+            """记录一次模型切换（手动/钉住），供 system prompt 注入切换声明。
+
+            H3（路由切换上下文断裂）：新模型带旧对话惯性，容易顺着上一任
+            模型的「记忆」编造。下一轮 system prompt 将强制模型：
+            ① 显式声明当前模型身份；② 只基于会话内显式信息工作。
+            """
+            import time as _time
+            self._model_switch_note = {
+                "model": new_model,
+                "pinned": pinned,
+                "at": _time.time(),
+            }
