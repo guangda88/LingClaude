@@ -217,3 +217,83 @@ class FamilyMeetingPlugin:
         self._save(mtg)
         return {"state": "succeeded", "meeting_state": "assigned",
                 "dispatched": dispatched}
+
+    # ── 工具 5：闭幕前唤醒缺席者（2026-09-19 实测经验固化）──────────────
+    # 实测锚点：crush run + 各子目录执行（WAKE_UP.md 协议或身份指令）11/11 成功；
+    # 总线 30s 间隔节流 → 每次唤醒后 sleep 31s；唤醒指令固定三段式（poll→回执→按议程发言）。
+
+    # 12 子唤醒目录（身份→工程目录，crush run 的 cwd；org_member 账本为准）
+    WAKE_DIRS = {
+        "lingtong": "lingflow", "lingke": "lingclaude", "lingyan": "lingresearch",
+        "lingzhi": "lingzhi", "lingtongask": "lingtongask", "zhibridge": "zhibridge",
+        "lingxi": "lingxi", "lingxin": "lingmessage", "lingwang": "lingweb",
+        "lingjiyou": "lingminopt", "lingyang": "lingyang", "lingchuang": "lingcreate",
+        "lingan": "lingan",
+    }
+    # lingbus 身份名 → 唤醒目录（poll_messages 的 recipient 口径）
+    WAKE_DIRS_BY_BUS = {
+        "lingtong": "lingflow", "lingclaude": "lingclaude", "lingresearch": "lingresearch",
+        "lingzhi": "lingzhi", "lingtongask": "lingtongask", "zhibridge": "zhibridge",
+        "lingxi": "lingxi", "lingmessage": "lingmessage", "lingweb": "lingweb",
+        "lingminopt": "lingminopt", "lingyang": "lingyang", "lingcreate": "lingcreate",
+        "lingan": "lingan",
+    }
+
+    def wake_absentees(self, meeting_id: str, absentees: list[str],
+                       agenda_hint: str = "") -> dict:
+        """闭幕前唤醒缺席者：逐子 crush run（WAKE_UP.md 协议），唤醒后验证回执。
+
+        固化 2026-09-19 实测经验：crush run 在各子目录跑，指令三段式——
+        poll_messages(recipient='<bus_id>') → 本线程回执出席 → 按 agenda_hint 发言。
+        总线 30s 节流：每次唤醒间隔 31s；单子唤醒结果如实入账（J4，失败不假活）。
+        返回 {awake:[...], failed:[...], receipts:{member: message_id}}。
+        """
+        mtg = self._load(meeting_id)
+        tid = mtg["thread_id"]
+        import subprocess, time as _t
+        results = {"awake": [], "failed": [], "receipts": {}, "details": []}
+        for i, bus_id in enumerate(absentees):
+            d = self.WAKE_DIRS_BY_BUS.get(bus_id)
+            if not d or not Path(f"/home/ai/{d}").is_dir():
+                results["failed"].append({"member": bus_id, "reason": "no dir"})
+                continue
+            prompt = (
+                f"读取 WAKE_UP.md 执行唤醒协议（无则按 AGENTS.md 身份锚定）："
+                f"LingBus 会议线程 {tid} 正在进行（{mtg['topic']}）。"
+                f"请 poll_messages(recipient='{bus_id}') 后在该线程回复确认出席，"
+                f"并{agenda_hint or '按会议议程发言'}。")
+            try:
+                r = subprocess.run(
+                    ["crush", "run", prompt], cwd=f"/home/ai/{d}",
+                    capture_output=True, text=True, timeout=150)
+                ok = r.returncode == 0 and len(r.stdout.strip()) > 20
+            except (subprocess.TimeoutExpired, OSError) as e:
+                ok = False
+                r = type("R", (), {"returncode": -1, "stdout": "", "stderr": str(e)[:200]})()
+            # 唤醒后查线程拿回执 message_id（30s 节流窗口后 poll）
+            _t.sleep(31)
+            msgs = self._call_bus("poll_messages", {
+                "recipient": mtg["moderator"], "since_rowid": int(mtg.get("last_rowid", 0)),
+                "limit": 200})
+            receipt_id = None
+            if isinstance(msgs, list):
+                for x in msgs:
+                    if x.get("sender") == bus_id and x.get("thread_id") == tid:
+                        receipt_id = x.get("message_id")
+                        new_row = int(x.get("rowid", 0))
+                        if new_row > int(mtg.get("last_rowid", 0)):
+                            mtg["last_rowid"] = new_row
+                        break
+            item = {"member": bus_id, "woken": ok, "receipt": receipt_id,
+                    "exit": getattr(r, "returncode", -1)}
+            mtg["attendees"] = sorted(set(mtg.get("attendees", [])) |
+                                      ({bus_id} if receipt_id else set()))
+            results["details"].append(item)
+            if receipt_id:
+                results["awake"].append(bus_id)
+                results["receipts"][bus_id] = receipt_id
+            else:
+                results["failed"].append({"member": bus_id,
+                                          "reason": f"no receipt (exit={item['exit']})"})
+            self._save(mtg)
+        return results
