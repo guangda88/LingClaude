@@ -12,7 +12,7 @@
     "command": [
       "python3",
       "-m",
-      "lingminopt.cli.commands"
+      "lingminopt.mcp_server"
     ],
     "cwd": "/home/ai/lingminopt",
     "call_timeout_s": 120

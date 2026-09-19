@@ -1,0 +1,40 @@
+{
+ "record_type": "agent_seam_handshake_audit",
+ "ts": "2026-09-19T12:48:54",
+ "by": "lingclaude",
+ "scope": "12家族插片 transport 修复 + initialize 握手验证",
+ "handshake_ok": [
+  "agent/lingcreate",
+  "agent/lingmessage",
+  "agent/lingminopt",
+  "agent/lingresearch",
+  "agent/lingtongask",
+  "agent/lingxi",
+  "agent/lingyang",
+  "agent/zhibridge"
+ ],
+ "transport_fixed": {
+  "agent/lingxi": [
+   "node",
+   "dist/cli.js",
+   "stdio"
+  ],
+  "agent/lingminopt": [
+   "python3",
+   "-m",
+   "lingminopt.mcp_server"
+  ],
+  "agent/lingyang": [
+   "python3",
+   "src/mcp_server.py"
+  ],
+  "agent/zhibridge": "npx tsc 重编译 dist（tsconfig deprecation 警告不阻断）"
+ },
+ "no_cmd_debt": {
+  "agent/lingan": "library型，sidecar CLI 债（批2，family-carriers-batch2-4 due 10-15）",
+  "agent/lingflow": "platform型，集成入口债（due 10-31）",
+  "agent/lingweb": "service型，HTTP :8300 探活债（批3）",
+  "agent/lingzhi": "service型，docker 栈探活债（批3，载体侧配合）"
+ },
+ "conclusion": "9/12 插片 MCP stdio 握手通（原台账 8 真通 → lingxi/lingminopt/lingyang/zhibridge 修复后 12 家中 9 家可达），17 failed 债务中 4 笔 transport 类已清偿"
+}

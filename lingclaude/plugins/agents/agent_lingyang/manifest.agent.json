@@ -11,7 +11,7 @@
     "mode": "registry",
     "command": [
       "python3",
-      "src/__main__.py"
+      "src/mcp_server.py"
     ],
     "cwd": "/home/ai/lingyang",
     "call_timeout_s": 120

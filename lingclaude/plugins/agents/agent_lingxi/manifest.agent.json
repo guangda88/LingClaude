@@ -9,7 +9,11 @@
   "transport": {
     "kind": "mcp",
     "mode": "stdio",
-    "command": ["node", "--use-openssl-ca", "dist/cli.js"],
+    "command": [
+      "node",
+      "dist/cli.js",
+      "stdio"
+    ],
     "command_note": "固化于 plugin._server_cmd()。--use-openssl-ca 规避沙箱 ulimit -v 1GB 下内嵌根证书包初始化崩溃（debt agent-lingxi-mcp-probe-timeout 清偿，20260917-21）；npx 包装器同 VA 上限下 OOM，弃用",
     "cwd": "/home/ai/lingxi",
     "startup_timeout_s": 30,
@@ -17,10 +21,18 @@
   },
   "stop_layer": {
     "kernel": "ling-term-mcp（TypeScript MCP server，stdio）→ 灵犀终端/搜索/执行工具集",
-    "seams": ["model_provider"],
+    "seams": [
+      "model_provider"
+    ],
     "implementations": 1
   },
-  "capabilities": ["execute_command", "code_search", "search", "extract", "session"],
+  "capabilities": [
+    "execute_command",
+    "code_search",
+    "search",
+    "extract",
+    "session"
+  ],
   "health_probe": {
     "interval_s": 300,
     "timeout_s": 5,
