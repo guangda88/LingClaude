@@ -44,6 +44,13 @@ class QueryEngineModelMixin:
                     target = self._task_router.parse_selector(target)[1]
             if _pinfo is None:
                 _pname, _pinfo = self._task_router.find_provider_by_model(target)
+            # P1-F2: 手动切换健康度门禁——切换前探活目标 provider，清单级
+            # 死节点（410/401/404）直接拒绝，不把会话钉到必炸端点上
+            if _pinfo is not None and _pname:
+                _gate_ok, _gate_reason = self._task_router.check_switch_target_health(_pname)
+                if not _gate_ok:
+                    return Result.fail(_gate_reason, code="SWITCH_TARGET_UNHEALTHY")
+                logger.info("切换门禁: %s", _gate_reason)
             if _pinfo is not None:
                 new_cfg = ModelConfig(
                     model=target,
@@ -108,6 +115,12 @@ class QueryEngineModelMixin:
                     target = self._task_router.parse_selector(target)[1]
             if _pinfo is None:
                 _pname, _pinfo = self._task_router.find_provider_by_model(target)
+            # P1-F2: 钉住健康度门禁——与 switch_model 同语义，死节点拒绝钉
+            if _pinfo is not None and _pname:
+                _gate_ok, _gate_reason = self._task_router.check_switch_target_health(_pname)
+                if not _gate_ok:
+                    return Result.fail(_gate_reason, code="PIN_TARGET_UNHEALTHY")
+                logger.info("钉住门禁: %s", _gate_reason)
             if _pinfo is not None:
                 pinned_cfg = ModelConfig(
                     model=target,

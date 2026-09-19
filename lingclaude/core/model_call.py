@@ -549,15 +549,42 @@ class ModelCallMixin:
                         (next_cfg.model, next_cfg.base_url)
                         != (resolved_config.model, resolved_config.base_url)
                     ):
+                        # P1-F2: 降级链健康度门禁——换候选前先探活目标节点，
+                        # 不盲切（GLM 限额→free 池补位类场景：目标死了切过去
+                        # 只是把失败换个地方）。门禁拒绝 → 不换，直接走本层
+                        # 熔断/报错轨（目标探活为 hard_4xx 时其 slot 已被
+                        # check_switch_target_health 拉入熔断，下轮 resolve 自会跳过）。
+                        _sw_allowed, _sw_reason = (True, "门禁未启用")
+                        try:
+                            _sw_provider = self._task_router.get_provider_name(
+                                next_cfg.api_key, next_cfg.base_url
+                            )
+                            if _sw_provider:
+                                _sw_allowed, _sw_reason = (
+                                    self._task_router.check_switch_target_health(_sw_provider)
+                                )
+                        except Exception as _sw_err:  # 门禁自身故障不放大队失败
+                            logger.debug("switch health gate error: %s", _sw_err)
+                            _sw_allowed, _sw_reason = True, f"门禁异常放行: {_sw_err}"
+                        if _sw_allowed:
+                            yield {
+                                "type": "status",
+                                "message": (
+                                    f"[{failed_pname or '首选模型'}] 失败，"
+                                    f"切换备选 {next_cfg.model} 重试..."
+                                ),
+                            }
+                            resolved_config = next_cfg
+                            continue
+                        logger.warning(
+                            "降级门禁拦截切换 → %s: %s（维持原候选走熔断轨）",
+                            next_cfg.model, _sw_reason,
+                        )
                         yield {
                             "type": "status",
-                            "message": (
-                                f"[{failed_pname or '首选模型'}] 失败，"
-                                f"切换备选 {next_cfg.model} 重试..."
-                            ),
+                            "message": f"[降级门禁] 备选 {next_cfg.model} 探活不健康，不切换",
                         }
-                        resolved_config = next_cfg
-                        continue
+                        break
                 break
 
             if stream_error is not None:

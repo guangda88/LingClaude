@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 from lingclaude.model.types import ModelConfig
 from lingclaude.model.intelligent_router import TaskType
 from lingclaude.core.rate_limiter import LeakyBucket, ProviderSlot
+from lingclaude.model.provider_probe import ProviderProbe, ProbeResult, probe_disabled_by_env
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,10 @@ class TaskRouter:
         self._slots: dict[str, ProviderSlot] = {}
         self._lock = threading.Lock()
         self._round_robin_idx: dict[str, int] = {}
+        # P1-F1: 路由层清单实时探活网关——providers 不再静态注入，路由前探活，
+        # 410/401/404 剔除、429 绕行（不误杀）。LINGCLAUDE_PROBE_DISABLE=1 关闭。
+        self._probe_disabled = probe_disabled_by_env()
+        self._probe = ProviderProbe()
         self._load_config()
 
     def _load_config(self) -> None:
@@ -405,6 +410,33 @@ class TaskRouter:
             if slot and not slot.is_available:
                 continue
 
+            # P1-F1: 清单实时探活门禁——410/401/404 熔断剔除（跳过其 F12j 逻辑，
+            # 熔断时长由探活 TTL 自持），429 绕行不剔除，探活未知/关闭则放行。
+            if not self._probe_disabled:
+                probe = self._probe.check(
+                    ref.provider, pinfo.base_url, pinfo.api_key,
+                )
+                if probe.excluded:
+                    slot = self._slots.get(ref.provider)
+                    if slot:
+                        slot.cooldown_until = time.monotonic() + probe.ttl
+                        slot.consecutive_errors = 0
+                    logger.warning(
+                        "路由剔除 %s（候选 %d/%d）: 探活 hard_4xx http=%s detail=%s — "
+                        "清单级死节点，%ds 内跳过（证据见 .lingclaude/provider_probe.jsonl）",
+                        ref.provider, pos + 1, len(models),
+                        probe.http_code or "?", probe.detail[:80], int(probe.ttl),
+                    )
+                    continue
+                if probe.bypass_round:
+                    logger.info(
+                        "路由绕行 %s（候选 %d/%d）: 探活 rate_limited http=%s — "
+                        "节点活着本轮绕过，不剔除",
+                        ref.provider, pos + 1, len(models), probe.http_code or "?",
+                    )
+                    continue
+                # probe.unknown / probe.status == "ok" → 正常放行，进选通逻辑
+
             slot = self._slots.get(ref.provider)
             if slot:
                 slot.total_requests += 1
@@ -437,6 +469,9 @@ class TaskRouter:
         slot = self._slots.get(provider_name)
         if slot:
             slot.consecutive_errors = 0
+        # P1-F1: 真实成功是最强健康证据——清探活缓存，防陈旧 hard_4xx 结论
+        # 在 TTL 内继续误杀已恢复的节点（探活只在路由前做，样本远少于真实调用）
+        self._probe.invalidate(provider_name)
 
     def record_error(self, provider_name: str, error_detail: str = "") -> None:
         """记录 provider 错误（F12j：硬错误立即熔断）。
@@ -463,6 +498,55 @@ class TaskRouter:
         elif slot.consecutive_errors >= 3:
             slot.cooldown_until = time.monotonic() + 30.0
             slot.consecutive_errors = 0
+        # P1-F2: 真实调用撞上的硬错误同样校准探活缓存——下次路由前不再
+        # 重复发探活请求确认（结论一致，省一轮 RTT）
+        if _HARD_ERROR_RE.search(error_detail or ""):
+            self._probe.invalidate(provider_name)
+
+    def check_switch_target_health(
+        self, provider_name: str, *, force: bool = True
+    ) -> tuple[bool, str]:
+        """P1-F2: 降级链健康度门禁——切换前先探活目标节点，不盲切。
+
+        供两路调用方：
+        - F12f 自动换候选（model_call.py）: 换候选前对下一跳做门禁
+        - /model 手动切换（query_engine_model_mixin.py）: 钉住前对目标 provider 做门禁
+
+        裁决语义（对齐调研 §2.5/§5）：
+        - 探活硬 4xx（410/401/404）→ 拒绝切换（目标已死，切过去必炸）
+        - 429 限流 → 允许切换（节点活着，只是慢/挤），附提示
+        - 探活未知/网络错误/关闭 → 允许切换（证据不足不定罪，真实调用层兜底）
+        - force=True: 门禁语义 = "此刻的真实状态"，缓存结论不作数
+
+        Returns:
+            (allowed, reason) — allowed=False 时 reason 为用户可读的拒绝原因。
+        """
+        if self._probe_disabled:
+            return True, "探活已关闭（LINGCLAUDE_PROBE_DISABLE），跳过门禁"
+        pinfo = self._providers.get(provider_name)
+        if pinfo is None:
+            return True, f"provider '{provider_name}' 不在路由清单，门禁不适用"
+        if not pinfo.api_key and _is_local_base(pinfo.base_url):
+            return True, "本地端点不探活，门禁放行"
+        if not pinfo.api_key:
+            return False, f"provider '{provider_name}' 云端无 api_key，切换注定失败"
+        probe = self._probe.check(provider_name, pinfo.base_url, pinfo.api_key, force=force)
+        if probe.excluded:
+            # 与路由层 _pick_from_route 剔除动作对齐：门禁判死的节点同步拉入
+            # 熔断，后续 resolve() 在 TTL 内直接跳过，不再重复探活
+            slot = self._slots.get(provider_name)
+            if slot:
+                slot.cooldown_until = time.monotonic() + probe.ttl
+                slot.consecutive_errors = 0
+            return False, (
+                f"provider '{provider_name}' 探活失败: HTTP {probe.http_code}"
+                f"（清单级死节点，{probe.detail[:80] or '无详情'}）— 已阻止切换"
+            )
+        if probe.bypass_round:
+            return True, f"provider '{provider_name}' 限流中（HTTP {probe.http_code}），节点活着，允许切换"
+        if probe.unknown:
+            return True, f"provider '{provider_name}' 探活不可知（{probe.status}），不据此拒绝"
+        return True, f"provider '{provider_name}' 探活通过（{probe.status}）"
 
     def find_provider_by_model(self, model_name: str) -> tuple[str, _ProviderInfo] | tuple[None, None]:
         """F12h:按模型名反查 provider — 供 /model <name> 切换时连带端点/key。"""
