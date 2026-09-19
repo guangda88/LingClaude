@@ -75,6 +75,21 @@ QUOTA_ARGV: dict[str, list[str]] = {
     "ac":       ["--provider", "{provider}", "--model", "{model}"],
 }
 
+# 套餐 profile 透传（2026-09-19）：codex 的 -p <profile> 切换整套套餐
+# （model+provider+reasoning_effort 打包在 ~/.codex/<profile>.config.toml）。
+# 各家 profile 旗形态不同，数据驱动：
+#   codex  -p {profile}  （minimax/minmax/kimi/volc/vol/voc，实测 PONG 通）
+#   其余   无独立 profile 旗（套餐走各自 config/key），透传空
+PROFILE_ARGV: dict[str, list[str]] = {
+    "codex": ["-p", "{profile}"],
+}
+
+# cc 默认套餐模型（2026-09-19 用户已把 cc 模型切到 M3，配额墙内最优）。
+# 调用方未显式传 model 时，cc 走 M3 而非 cc 自身默认（避按量 Anthropic 配额墙）。
+DEFAULT_MODEL: dict[str, str] = {
+    "cc": "M3",
+}
+
 _AGENTS: dict[str, dict] = {
     "cc": {
         "name": "claude",
@@ -136,6 +151,17 @@ def _quota_args(agent: str, model: str = "", provider: str = "") -> list[str]:
             for t in pat]
 
 
+def _profile_args(agent: str, profile: str = "") -> list[str]:
+    """按 agent 的 CLI 形态拼 profile 透传 argv（数据驱动，J1 只透传不判业务）。
+
+    仅 codex 支持 `-p <profile>` 切整套套餐；其余 agent 无 profile 旗，返回空。
+    """
+    if not profile:
+        return []
+    pat = PROFILE_ARGV.get(agent, [])
+    return [t.format(profile=profile) for t in pat]
+
+
 def _which(agent: str) -> str | None:
     return shutil.which(_AGENTS[agent]["bin"])
 
@@ -163,19 +189,23 @@ def _run(argv: list[str], timeout_s: int, cwd: str = "/home/ai/lingclaude") -> d
 @mcp.tool()
 def agent_invoke(agent: str, prompt: str, mode: str = "default",
                  cwd: str = "/home/ai/lingclaude",
-                 model: str = "", provider: str = "") -> str:
+                 model: str = "", provider: str = "",
+                 profile: str = "") -> str:
     """单轮驱动一个外部 agent，取纯文本结论。
 
     agent: cc | codex | crush | opencode | ac
     mode:  默认 'default'；codex 支持 'review'（代码审查）/'resume'（续会话）
     cwd:   子进程工作目录（默认 lc 仓）
     model/provider: 可选，配额耗尽时换模型/换计费通道（数据驱动拼接，J1 只透传不判业务）。
-        默认空 → 各 agent 走自身默认。指向 lc 套餐模型
+        默认空 → cc 走 DEFAULT_MODEL（M3），其余 agent 走自身默认。指向 lc 套餐模型
         （/home/ai/lingcode/config.json providers：glm/minimax/volcengine/kimi/agnes）
         可绕开单家按量配额墙。ac 双旗（--provider/--model），crush/opencode 用
         "provider/model" 串传进 model，cc/codex 只透传 model（provider 走 key/套餐）。
+    profile: 可选（codex 专用），经 `-p <profile>` 切换整套套餐
+        （model+provider+reasoning_effort 打包在 ~/.codex/<profile>.config.toml）。
+        可用 profile：minimax / minmax / kimi / volc / vol / voc（实测 PONG 通）。
 
-    返回 JSON 字符串：{agent, mode, exit, stdout, stderr, timed_out, model, provider}。
+    返回 JSON 字符串：{agent, mode, exit, stdout, stderr, timed_out, model, provider, profile}。
     agent 侧故障（配额耗尽/限流）如实透传 exit+stderr，不假活（L2）。
     """
     if agent not in _AGENTS:
@@ -183,27 +213,33 @@ def agent_invoke(agent: str, prompt: str, mode: str = "default",
                            "supported": sorted(_AGENTS)})
     spec = _AGENTS[agent]
     argv = spec["invoke"](prompt, mode)
+    # cc 未显式指定 model 时走 DEFAULT_MODEL（M3，避按量 Anthropic 配额墙）
+    model = model or DEFAULT_MODEL.get(agent, "")
     argv += _quota_args(agent, model=model, provider=provider)
+    argv += _profile_args(agent, profile=profile)
     res = _run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S), cwd=cwd)
     res.update({"agent": agent, "mode": mode, "cwd": cwd,
-                "model": model or None, "provider": provider or None})
+                "model": model or None, "provider": provider or None,
+                "profile": profile or None})
     return json.dumps(res, ensure_ascii=False)
 
 
 @mcp.tool()
 def agent_chat(agent: str, prompt: str, session_id: str = "",
                cwd: str = "/home/ai/lingclaude",
-               model: str = "", provider: str = "") -> str:
+               model: str = "", provider: str = "",
+               profile: str = "") -> str:
     """会话型驱动外部 agent（复用已有会话）。
 
     agent: cc | codex | crush | opencode | ac
     session_id: 有 resume 语义的 agent（codex/ac）透传续接；其余忽略走新会话
     model/provider: 可选，同 agent_invoke（配额耗尽换模型/通道，J1 只透传不判业务）
+    profile: 可选（codex 专用），同 agent_invoke（`-p <profile>` 切整套套餐）
 
     当前实现：agent 支持 headless resume 时透传 session_id；不支持的 agent
     忽略 session_id 走新会话。薄壳只透传不判业务（J1）。
 
-    返回 JSON 字符串：{agent, session_id, model, provider, ...agent_invoke 结果}。
+    返回 JSON 字符串：{agent, session_id, model, provider, profile, ...agent_invoke 结果}。
     """
     if agent not in _AGENTS:
         return json.dumps({"error": f"unknown agent {agent!r}",
@@ -213,19 +249,26 @@ def agent_chat(agent: str, prompt: str, session_id: str = "",
     # 有 resume 语义的 agent（codex/ac）追加 session 参数
     if session_id and agent in ("codex", "ac"):
         argv += ["--resume", session_id] if agent == "ac" else ["resume", session_id]
+    model = model or DEFAULT_MODEL.get(agent, "")
     argv += _quota_args(agent, model=model, provider=provider)
+    argv += _profile_args(agent, profile=profile)
     res = _run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S), cwd=cwd)
     res.update({"agent": agent, "session_id": session_id,
-                "model": model or None, "provider": provider or None})
+                "model": model or None, "provider": provider or None,
+                "profile": profile or None})
     return json.dumps(res, ensure_ascii=False)
 
 
 @mcp.tool()
-def agent_batch(agents: list[str], prompt: str) -> str:
+def agent_batch(agents: list[str], prompt: str,
+                model: str = "", provider: str = "",
+                profile: str = "") -> str:
     """并行驱动多个外部 agent 对同一 prompt 各出一版结论（多 agent 聚合）。
 
     agents: [cc, codex, ...]（子集）；单 agent 失败/缺席不影响其余（L2 降级）。
     model/provider: 可选（同 agent_invoke），对全部 agents 透传同一 model/provider。
+        各 agent 未显式指定时按 DEFAULT_MODEL 表走（cc → M3）。
+    profile: 可选（codex 专用），透传给 codex（其余 agent 忽略，无 profile 旗）。
     返回 JSON 字符串：{prompt, results:{agent:{exit,stdout,...}}, 缺席的 agent 标注 absent}
     """
     results: dict[str, object] = {}
@@ -238,9 +281,12 @@ def agent_batch(agents: list[str], prompt: str) -> str:
             results[a] = {"absent": True, "bin": spec["bin"]}  # L2：缺席降级
             continue
         argv = list(spec["invoke"](prompt, "default"))
-        argv += _quota_args(a, model=model, provider=provider)
+        m = model or DEFAULT_MODEL.get(a, "")
+        argv += _quota_args(a, model=m, provider=provider)
+        argv += _profile_args(a, profile=profile)
         res = _run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S))
-        res.update({"model": model or None, "provider": provider or None})
+        res.update({"model": m or None, "provider": provider or None,
+                    "profile": profile or None})
         results[a] = res
     return json.dumps({"prompt": prompt[:200], "results": results}, ensure_ascii=False)
 
