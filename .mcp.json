@@ -9,6 +9,16 @@
       "timeout_ms": 60000,
       "disabled": false,
       "_note": "铁律 5 双向互认（第二层试验田）：atomcode(ac) 是 MCP 客户端，lc 把自己封成 MCP server 薄壳（agent/lc-guard，6 工具：lc_audit_trigger/lc_audit_tasks/lc_ledger_query/lc_org_query/lc_law_read/lc_workclaim_query）。ac 经此配置连接 lc 守卫面，让工作少出错（用户目标 2）。manifest 落点 lingclaude/plugins/agents/lc_mcp_guard/manifest.agent.json；federation_pair record 在 data/arch_ledger/federation_pair/lc-ac.json（state=paired（两侧对偶 record 齐，N1 对账已过））。薄壳只读转发，不写 lc 主干（J1 变化走接缝）。stdio 串行：耗时工具（lc_audit_trigger）建议 timeout_ms 拉高；并发查询建议 HTTP 传输（待 lc 侧升级）。"
+    },
+    "agent-gateway": {
+      "command": "python3",
+      "args": [
+        "/home/ai/lingclaude/lingclaude/plugins/agents/proj_agent_gateway/server.py"
+      ],
+      "cwd": "/home/ai/lingclaude",
+      "timeout_ms": 180000,
+      "disabled": false,
+      "_note": "第二层试验田（lc 调外部编程 agent 方向）：lc 经此配置连接 agent-gateway 薄壳（proj/agent-gateway，5 工具：agent_invoke/agent_chat/agent_batch/agent_status/agent_list），驱动 cc/codex/crush/opencode/atomcode 各出一版结论（Hermes WebUI 式多 agent 聚合）。与 lc-guard 互为对偶（ac 调 lc 守卫面 vs lc 调外部 agent），federation_pair key=lc-ac 双 record N1 对账。T3 只观测 + L2 缺席降级（单 agent 挂不影响其余）。ac 走 headless atomcode -p 绕开 daemon goal 面 401。耗时工具（agent_invoke/agent_batch）底层各起外部 agent 子进程，timeout_ms 拉到 180000。"
     }
   }
 }

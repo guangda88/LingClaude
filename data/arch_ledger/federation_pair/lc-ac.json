@@ -6,6 +6,7 @@
   "manifest": "lingclaude/plugins/agents/lc_mcp_guard/manifest.agent.json",
   "trust_level": "T1",
   "plug_level": "L1",
+  "counterpart": "data/arch_ledger/federation_pair/ac-lc.json",
   "created": "2026-09-17T17:56:35+00:00",
   "created_by": "lingclaude",
   "paired_at": 1789668160.679294,

@@ -5,6 +5,9 @@
   "paired_at": 1789678704.8328025,
   "note": "铁律 5 双向互认对偶侧（第二层试验田）：atomcode(ac) 作为宿主，经 ~/.atomcode/mcp.json 的 lc-guard server 消费 lc 守卫面（6 工具）。对偶主侧 lc-ac.json（lc 即 ac 的 MCP server 插片）；本侧记 ac 即 lc 的消费宿主。N1 对账：两侧同 key 语义（lc-ac ↔ ac-lc）同 state（paired），缺一/不一致即警。",
   "consumer_config": "~/.atomcode/mcp.json#mcpServers.lc-guard",
+  "consumer_config_reverse": "lingclaude/.mcp.json#mcpServers.agent-gateway",
+  "manifest_reverse": "lingclaude/plugins/agents/proj_agent_gateway/manifest.agent.json",
+  "note_reverse": "2026-09-18 双向铺平补充（lc 调外部 agent 方向）：lc 经自身 .mcp.json 的 agent-gateway 薄壳（proj/agent-gateway，5 工具 agent_invoke/agent_chat/agent_batch/agent_status/agent_list）消费 ac（headless atomcode -p，绕开 daemon goal 面 401）+ cc/codex/crush/opencode。T3 只观测 + L2 缺席降级。ac 侧实测：agent_invoke(ac) 经 MCP 客户端出 PONG，agent_run:agent-gateway record succeeded 入账。",
   "counterpart": "data/arch_ledger/federation_pair/lc-ac.json",
   "trust_level": "T1",
   "created_by": "lingclaude"
