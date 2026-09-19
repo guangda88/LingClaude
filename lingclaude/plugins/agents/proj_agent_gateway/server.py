@@ -33,9 +33,13 @@ ac 特判（daemon goal 面 401 阻塞的替代）：ac 的 `agent_invoke` 走 h
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -162,6 +166,51 @@ def _profile_args(agent: str, profile: str = "") -> list[str]:
     return [t.format(profile=profile) for t in pat]
 
 
+# ── agent 级健康门禁（2026-09-19）：配额/失败冷却缓存 ─────────────────────────
+# 本轮教训：opencode GLM 周限额满，靠 60-72s 超时试错才发现；cc exit=0 但 stderr
+# 带 unrecognized_model 警告（degraded）。失败一次记冷却期，冷却期内 dispatch 直接
+# 跳过（fast-fail，不反复撞墙）。cooldown 期间手动传 force=True 可强制重试。
+_COOLDOWN_S = 900          # 默认冷却 15 分钟（周/日限额级故障，重试无意义）
+_health: dict[str, dict] = {}   # agent → {"failed_until": epoch, "reason": str}
+
+
+def _mark_failed(agent: str, reason: str) -> None:
+    """失败入冷却（J4：如实记因由，不假活）。"""
+    _health[agent] = {"failed_until": time.monotonic() + _COOLDOWN_S,
+                      "reason": reason[:200]}
+
+
+def _health_check(agent: str, force: bool = False) -> dict | None:
+    """冷却期内返回 {'cooldown': ..., 'reason': ...}（调用方跳过该 agent）；否则 None。"""
+    h = _health.get(agent)
+    if h and not force and time.monotonic() < h["failed_until"]:
+        return {"cooldown": True, "remaining_s": round(h["failed_until"] - time.monotonic()),
+                "reason": h["reason"]}
+    if h and time.monotonic() >= h["failed_until"]:
+        _health.pop(agent, None)   # 冷却过期，自动清除
+    return None
+
+
+# 失败判定（结构化，薄壳只做信号匹配不判业务）：非零 exit / 超时 / stderr 配额墙特征。
+_QUOTA_PAT = re.compile(
+    r"(limit\s+exhausted|weekly|monthly|rate.?limit|429|quota|credits?error"
+    r"|no payment method|unrecognized_model)", re.I)
+
+
+def _classify(res: dict) -> str:
+    """单次运行结果分级：ok / degraded（exit=0 但 stderr 有配额/模型告警）/ failed。"""
+    if res.get("timed_out") or res.get("exit", 0) != 0:
+        return "failed"
+    if _QUOTA_PAT.search(res.get("stderr", "") or ""):
+        return "degraded"      # exit=0 但有告警（如 cc unrecognized_model）——降级不入冷却
+    return "ok"
+
+
+def _fallback_of(agent: str) -> str | None:
+    """失败改派链（数据）：opencode→crush（能力重叠，headless 非交互）；其余暂无。"""
+    return {"opencode": "crush"}.get(agent)
+
+
 def _which(agent: str) -> str | None:
     return shutil.which(_AGENTS[agent]["bin"])
 
@@ -185,12 +234,53 @@ def _run(argv: list[str], timeout_s: int, cwd: str = "/home/ai/lingclaude") -> d
         return {"exit": -3, "stdout": "", "stderr": str(e), "timed_out": False}
 
 
+# ── 用量/会话句柄抽取（T3 只观测的账面，2026-09-19）────────────────────────────
+# token 用量：codex stdout 尾部 "tokens used\n14,564"；其余各家暂无统一格式，抽不到为 None。
+_TOKEN_PAT = re.compile(r"tokens?\s*used[:\s\n]*([\d,]+)", re.I)
+# resume 句柄：ac stderr "atomcode -p … --resume <uuid>"；codex "session id: <uuid>"。
+_SESSION_PATS = (
+    re.compile(r"--resume\s+([0-9a-f-]{20,})", re.I),
+    re.compile(r"session\s+id[:\s]+([0-9a-f-]{20,})", re.I),
+)
+
+
+def _enrich(res: dict) -> dict:
+    """从 stdout/stderr 抽 token 用量 + resume session_id，补进结果（抽不到为 None）。"""
+    blob = (res.get("stdout", "") or "") + "\n" + (res.get("stderr", "") or "")
+    tok = _TOKEN_PAT.search(blob)
+    res["tokens_used"] = int(tok.group(1).replace(",", "")) if tok else None
+    sid = None
+    for pat in _SESSION_PATS:
+        sid = pat.search(blob)
+        if sid:
+            break
+    res["resume_session_id"] = sid.group(1) if sid else None
+    return res
+
+
+# agent_run record 落盘（J4：每次调用入账，失败也记；N1 对账口径）。
+# parents[4] = <repo>（同 SCRATCH_ROOT，双层目录实测偏一层教训）。
+_RUNS_DIR = Path(__file__).resolve().parents[4] / "data" / "agent_runs" / "agent-gateway"
+
+
+def _record(res: dict) -> None:
+    """单次调用结果落 agent_run record（含 tokens/session 句柄，账面可对）。"""
+    try:
+        _RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        name = f"{time.strftime('%Y%m%d_%H%M%S')}_{res.get('agent', 'x')}_{uuid.uuid4().hex[:6]}.json"
+        (_RUNS_DIR / name).write_text(
+            json.dumps(res, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass  # 账面失败不阻断主流程（record 本身如实缺席，J4 不假活）
+
+
 # ── MCP 工具面（lc 侧可调用）────────────────────────────────────────────
 @mcp.tool()
 def agent_invoke(agent: str, prompt: str, mode: str = "default",
                  cwd: str = "/home/ai/lingclaude",
                  model: str = "", provider: str = "",
-                 profile: str = "") -> str:
+                 profile: str = "", force: bool = False,
+                 fallback: bool = True) -> str:
     """单轮驱动一个外部 agent，取纯文本结论。
 
     agent: cc | codex | crush | opencode | ac
@@ -204,23 +294,52 @@ def agent_invoke(agent: str, prompt: str, mode: str = "default",
     profile: 可选（codex 专用），经 `-p <profile>` 切换整套套餐
         （model+provider+reasoning_effort 打包在 ~/.codex/<profile>.config.toml）。
         可用 profile：minimax / minmax / kimi / volc / vol / voc（实测 PONG 通）。
+    force: 失败冷却期内强制重试（默认 False，冷却内 fast-fail）。
+    fallback: 失败时自动改派（默认 True，如 opencode→crush，结果带 via 字段标注同源）。
 
-    返回 JSON 字符串：{agent, mode, exit, stdout, stderr, timed_out, model, provider, profile}。
+    返回 JSON 字符串：{agent, mode, exit, stdout, stderr, timed_out, health,
+                       model, provider, profile, [via]}。
+    health: ok / degraded（exit=0 但 stderr 有配额/模型告警）/ failed / cooldown。
     agent 侧故障（配额耗尽/限流）如实透传 exit+stderr，不假活（L2）。
     """
     if agent not in _AGENTS:
         return json.dumps({"error": f"unknown agent {agent!r}",
                            "supported": sorted(_AGENTS)})
-    spec = _AGENTS[agent]
-    argv = spec["invoke"](prompt, mode)
-    # cc 未显式指定 model 时走 DEFAULT_MODEL（M3，避按量 Anthropic 配额墙）
-    model = model or DEFAULT_MODEL.get(agent, "")
-    argv += _quota_args(agent, model=model, provider=provider)
-    argv += _profile_args(agent, profile=profile)
-    res = _run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S), cwd=cwd)
-    res.update({"agent": agent, "mode": mode, "cwd": cwd,
-                "model": model or None, "provider": provider or None,
-                "profile": profile or None})
+
+    def _dispatch(a: str) -> dict:
+        spec = _AGENTS[a]
+        argv = spec["invoke"](prompt, mode)
+        m = model or DEFAULT_MODEL.get(a, "")
+        argv += _quota_args(a, model=m, provider=provider)
+        argv += _profile_args(a, profile=profile)
+        res = _run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S), cwd=cwd)
+        res.update({"agent": a, "mode": mode, "cwd": cwd,
+                    "model": m or None, "provider": provider or None,
+                    "profile": profile or None,
+                    "health": _classify(res)})
+        return res
+
+    # 健康门禁：冷却期内 fast-fail（不撞墙），force 可穿透
+    gate = _health_check(agent, force=force)
+    if gate:
+        return json.dumps({"agent": agent, "health": "cooldown",
+                           "cooldown": gate, "forced": False}, ensure_ascii=False)
+
+    res = _dispatch(agent)
+    res = _enrich(res)
+    if res["health"] in ("failed", "degraded"):
+        _mark_failed(agent, res["stderr"] or f"exit={res['exit']}")
+    _record(res)
+    # 失败自动改派（一次，不递归）：结果带 via 标注同源，原失败原因保留在 fallback_from
+    if res["health"] == "failed" and fallback:
+        alt = _fallback_of(agent)
+        if alt and alt in _AGENTS and _which(alt) and not _health_check(alt):
+            alt_res = _enrich(_dispatch(alt))
+            alt_res["via"] = agent          # 同源标注：alt 是替 agent 跑的
+            alt_res["fallback_from"] = {"agent": agent, "stderr": res["stderr"][:300],
+                                        "exit": res["exit"]}
+            _record(alt_res)
+            return json.dumps(alt_res, ensure_ascii=False)
     return json.dumps(res, ensure_ascii=False)
 
 
@@ -252,43 +371,108 @@ def agent_chat(agent: str, prompt: str, session_id: str = "",
     model = model or DEFAULT_MODEL.get(agent, "")
     argv += _quota_args(agent, model=model, provider=provider)
     argv += _profile_args(agent, profile=profile)
-    res = _run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S), cwd=cwd)
+    res = _enrich(_run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S), cwd=cwd))
     res.update({"agent": agent, "session_id": session_id,
                 "model": model or None, "provider": provider or None,
-                "profile": profile or None})
+                "profile": profile or None, "health": _classify(res)})
+    _record(res)
     return json.dumps(res, ensure_ascii=False)
+
+
+# dispatch scratch 根（每次 agent_batch 建独立子目录，外部 agent 产物先落 scratch，
+# lc 回收归位——禁外部 agent 直写共享路径，防多 agent 撞写同一文件）。
+# 路径基准：server.py 在 <repo>/lingclaude/plugins/agents/proj_agent_gateway/，
+# parents[4] = <repo>（parents[3] 是 <repo>/lingclaude，双层目录，实测偏一层）。
+SCRATCH_ROOT = Path(__file__).resolve().parents[4] / "data" / "agent_dispatch"
+if __name__ == "__main__":  # pragma: no cover
+    pass
+
+
+def _new_dispatch_dir() -> Path:
+    """建一次 dispatch 的独立 scratch 目录（时间戳+uuid，不重不撞）。"""
+    d = SCRATCH_ROOT / f"{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 @mcp.tool()
 def agent_batch(agents: list[str], prompt: str,
                 model: str = "", provider: str = "",
                 profile: str = "") -> str:
-    """并行驱动多个外部 agent 对同一 prompt 各出一版结论（多 agent 聚合）。
+    """并行驱动多个外部 agent 对同一 prompt 各出一版结论（多 agent 聚合，真并行）。
 
     agents: [cc, codex, ...]（子集）；单 agent 失败/缺席不影响其余（L2 降级）。
     model/provider: 可选（同 agent_invoke），对全部 agents 透传同一 model/provider。
         各 agent 未显式指定时按 DEFAULT_MODEL 表走（cc → M3）。
     profile: 可选（codex 专用），透传给 codex（其余 agent 忽略，无 profile 旗）。
-    返回 JSON 字符串：{prompt, results:{agent:{exit,stdout,...}}, 缺席的 agent 标注 absent}
+
+    隔离（2026-09-19）：每次调用建独立 scratch 目录（data/agent_dispatch/<ts>_<uuid>/），
+    各 agent 子进程 cwd 落各自 scratch 子目录（<scratch>/<agent>/），禁止直写共享路径
+    防多 agent 撞写同一文件（本轮 crush/ac 同写 docs/research/ 一个文件的教训）。
+    调用方从返回 JSON 的 scratch_dir 字段回收各家产物。
+
+    并行：ThreadPoolExecutor 真并发（此前串行 for 是伪并行，5 家 ~4min → 最慢节点决定）。
+
+    返回 JSON 字符串：{prompt, scratch_dir, wall_s,
+                       results:{agent:{exit,stdout,...}}, 缺席的 agent 标注 absent}。
     """
-    results: dict[str, object] = {}
-    for a in agents:
+    dispatch = _new_dispatch_dir()
+    t0 = time.monotonic()
+
+    def _one(a: str) -> tuple[str, object]:
         if a not in _AGENTS:
-            results[a] = {"error": f"unknown agent {a!r}"}
-            continue
+            return a, {"error": f"unknown agent {a!r}"}
         spec = _AGENTS[a]
         if _which(a) is None:
-            results[a] = {"absent": True, "bin": spec["bin"]}  # L2：缺席降级
-            continue
+            return a, {"absent": True, "bin": spec["bin"]}  # L2：缺席降级
+        # 健康门禁：冷却期内该 agent 直接跳过（不撞墙）；结果照实入 results
+        gate = _health_check(a)
+        if gate:
+            return a, {"agent": a, "health": "cooldown", "cooldown": gate}
         argv = list(spec["invoke"](prompt, "default"))
         m = model or DEFAULT_MODEL.get(a, "")
         argv += _quota_args(a, model=m, provider=provider)
         argv += _profile_args(a, profile=profile)
-        res = _run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S))
+        cwd = dispatch / a           # 各 agent 独立 scratch 子目录
+        cwd.mkdir(parents=True, exist_ok=True)
+        res = _enrich(_run(argv, spec.get("timeout_s", DEFAULT_TIMEOUT_S), cwd=str(cwd)))
         res.update({"model": m or None, "provider": provider or None,
-                    "profile": profile or None})
-        results[a] = res
-    return json.dumps({"prompt": prompt[:200], "results": results}, ensure_ascii=False)
+                    "profile": profile or None, "scratch": str(cwd),
+                    "health": _classify(res)})
+        if res["health"] in ("failed", "degraded"):
+            _mark_failed(a, res["stderr"] or f"exit={res['exit']}")
+        _record(res)
+        # 失败自动改派（一次）：替跑结果带 via 标注同源
+        if res["health"] == "failed":
+            alt = _fallback_of(a)
+            if alt and alt in _AGENTS and _which(alt) and not _health_check(alt):
+                alt_cwd = dispatch / alt
+                alt_cwd.mkdir(parents=True, exist_ok=True)
+                alt_argv = list(_AGENTS[alt]["invoke"](prompt, "default"))
+                alt_m = model or DEFAULT_MODEL.get(alt, "")
+                alt_argv += _quota_args(alt, model=alt_m, provider=provider)
+                alt_argv += _profile_args(alt, profile=profile)
+                alt_res = _enrich(_run(alt_argv, _AGENTS[alt].get("timeout_s", DEFAULT_TIMEOUT_S),
+                                       cwd=str(alt_cwd)))
+                alt_res.update({"model": alt_m or None, "provider": provider or None,
+                                "profile": profile or None, "scratch": str(alt_cwd),
+                                "health": _classify(alt_res), "via": a,
+                                "fallback_from": {"agent": a, "exit": res["exit"],
+                                                  "stderr": res["stderr"][:300]}})
+                _record(alt_res)
+                return a, alt_res
+        return a, res
+
+    results: dict[str, object] = {}
+    with ThreadPoolExecutor(max_workers=len(agents) or 1) as ex:
+        futs = {ex.submit(_one, a): a for a in agents}
+        for fut in as_completed(futs):
+            a, res = fut.result()
+            results[a] = res
+
+    wall = round(time.monotonic() - t0, 1)
+    return json.dumps({"prompt": prompt[:200], "scratch_dir": str(dispatch),
+                       "wall_s": wall, "results": results}, ensure_ascii=False)
 
 
 @mcp.tool()
