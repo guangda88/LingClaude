@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 import pytest
 
-from lingclaude.core import lineedit as lineedit_mod
-from lingclaude.core.lineedit import (
+from lingclaude.engine import lineedit as lineedit_mod
+from lingclaude.engine.lineedit import (
     add_history_line,
     ensure_readline,
     load_history_file,

@@ -6,12 +6,12 @@ from typing import Any
 
 from lingclaude.core.config import lingclaudeConfig
 from lingclaude.core.gray_zone import gray_zone_escalate
-from lingclaude.core.lineedit import add_history_line, ensure_readline
+from lingclaude.engine.lineedit import add_history_line, ensure_readline
 from lingclaude.core.model_call import _ToolLoopDetector
 from lingclaude.core.permissions import PermissionStore
 from lingclaude.core.session_runtime import SessionRuntime
 from lingclaude.engine.sensitive_path_gate import is_readonly_bash_command
-from lingclaude.core.verify_cadence import VerifyCadenceHook
+from lingclaude.engine.verify_cadence import VerifyCadenceHook
 from lingclaude.engine.tool_registration import register_all_tools
 from lingclaude.self_optimizer import (
     OptimizationAdvisor,

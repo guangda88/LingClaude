@@ -1,0 +1,9 @@
+{
+  "severity": "P3",
+  "finding": "TUI P0-P2批次(5206a68)落码未按铁律8.2绑work_claim——七文件直改无锁，且lineedit.py与他人in-flight修改撞车（其dirty内容恰含同名函数）；同期M1词汇表被并发编辑致两次扫描命中词漂移，三锁并用方能防此类交错",
+  "source": "2026-09-20 灵克铁律审计自查",
+  "state": "resolved",
+  "created": "2026-09-20T18:30:00+08:00",
+  "resolved_at": "2026-09-20T18:30:00+08:00",
+  "resolution": "教训已执行示范：搬移批次动刀前bind三域锁(core//engine//cli/, member=lingke, ttl=60min)；后续多Agent并行改码前必须先bind，守卫conftest查锁跳过语义已有(skipped:claim-held)"
+}

@@ -1,0 +1,9 @@
+{
+  "severity": "P0",
+  "finding": "返审时守卫自检失败（触发源: ['.github/workflows/ci.yml']），详见 pytest 输出",
+  "source": "self_audit_trigger",
+  "state": "closed",
+  "created": "2026-09-20T03:02:47+00:00",
+  "resolved_at": "2026-09-20T18:30:00+08:00",
+  "resolution": "用户裁决搬移（非豁免）后闭环：core/lineedit.py→engine/lineedit.py、core/verify_cadence.py→engine/verify_cadence.py（handover实测不在违规集，误报收回）；M1违规7→0，test_iron_law_guards 8 passed；Blocker F1 amend补交lineedit.py（5206a68→25107db）；消费者5处import改线+专属测试31 passed"
+}

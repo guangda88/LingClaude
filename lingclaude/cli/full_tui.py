@@ -40,7 +40,7 @@ from typing import Any, Callable
 
 from lingclaude.cli.input_queue import EOF_SENTINEL
 from lingclaude.cli.interface import _fallback_strip_ansi, _patch_pt_modifier_enter
-from lingclaude.core.lineedit import add_history_line, ensure_readline
+from lingclaude.engine.lineedit import add_history_line, ensure_readline
 
 # prompt_toolkit 为可选依赖 — 未安装时构造抛 RuntimeError（create_session 捕获回退）
 try:
@@ -411,7 +411,7 @@ class FullTuiSession:
         # 并还原 stdout 之后 —— 先复位会被 PT 退场序列/重绘重新进入增强模式，
         # 等于白发。reset_terminal_key_modes 内部自带 isatty 防御。
         try:
-            from lingclaude.core.lineedit import reset_terminal_key_modes
+            from lingclaude.engine.lineedit import reset_terminal_key_modes
 
             reset_terminal_key_modes()
         except Exception:  # noqa: BLE001 — 增强路径，绝不反噬退出流程

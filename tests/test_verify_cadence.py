@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from lingclaude.core.verify_cadence import (
+from lingclaude.engine.verify_cadence import (
     DEDUP_THRESHOLD,
     VerifyCadenceHook,
     _is_verify_command,

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from lingclaude.cli.repl_io import replay_stdin_bytes
-from lingclaude.core.lineedit import add_history_line, ensure_readline, load_history_file
+from lingclaude.engine.lineedit import add_history_line, ensure_readline, load_history_file
 
 # prompt_toolkit 为可选依赖 — 未安装时 PromptToolkitSession 不可用，FallbackSession 兜底
 try:

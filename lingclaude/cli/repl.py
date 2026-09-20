@@ -40,7 +40,7 @@ from lingclaude.cli.repl_io import (
     set_stream_bridged,
 )
 from lingclaude.cli.full_tui import FullTuiSession
-from lingclaude.core.lineedit import (
+from lingclaude.engine.lineedit import (
     add_history_line,
     ensure_readline,
     reset_terminal_key_modes,
