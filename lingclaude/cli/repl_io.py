@@ -42,6 +42,39 @@ def replay_stdin_bytes() -> bytes:
         return data
 
 
+# P0-1（2026-09-20，TUI 优化方案）: P1 形态流式输出桥。
+# 生成期流式输出此前直接 sys.stdout.write（:184 等），与 prompt_toolkit
+# 渲染的输入行/底部状态栏互踩 tty（输出冲乱输入的根因）。
+# 桥接层：P1 形态生成期由 repl.py 用 patch_stdout() 进入 PT 托管窗口，
+# 此时 sys.stdout 是 PT StdoutProxy —— 本层只写 sys.stdout（代理内部
+# run_in_terminal：隐藏提示符→输出→重绘提示符）。代理缺席时退回裸写。
+# 注意 StdoutProxy 自带 200ms 合并刷新，_stream_write 不再额外缓冲；
+# 非 PT 环境（Fallback 独占输出/CI 管道）短路直写，行为不变。
+_stream_bridged = False  # repl.py 生成期进入 patch_stdout 时置 True
+
+
+def set_stream_bridged(bridged: bool) -> None:
+    """P1 生成期进入/退出 patch_stdout 托管窗口时由 repl.py 调用。"""
+    global _stream_bridged
+    _stream_bridged = bool(bridged)
+
+
+def _stream_write(s: str) -> None:
+    """流式输出统一出口：PT 托管期写代理，其余裸写并 flush。"""
+    if _stream_bridged and sys.stdout is not None:
+        try:
+            sys.stdout.write(s)
+            sys.stdout.flush()
+            return
+        except Exception:  # noqa: BLE001 — 代理异常退回裸写，输出不丢
+            pass
+    try:
+        sys.stdout.write(s)
+        sys.stdout.flush()
+    except (OSError, ValueError, AttributeError):
+        pass  # 退出期管道断裂：静默（原实现同样会炸，这里收口）
+
+
 def set_output_format(fmt: str) -> None:
     """P0-2: 设置输出格式（plain | json | jsonl）。原 app.py 模块级 global 赋值。"""
     global _OUTPUT_FORMAT
@@ -146,8 +179,7 @@ def _flush_stream_line() -> None:
     if _stream_line_buf:
         text = "".join(_stream_line_buf)
         _stream_line_buf.clear()
-        sys.stdout.write(text + "\n")
-        sys.stdout.flush()
+        _stream_write(text + "\n")
         globals()["_stream_lines_emitted"] += 1
 
 
@@ -159,17 +191,17 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         # P0-2: 机器可读输出。jsonl = 每事件一行；json = 缓冲,done 时汇总单对象。
         payload = {k: v for k, v in event.items() if k != "content"} if _OUTPUT_FORMAT == "jsonl" else None
         if _OUTPUT_FORMAT == "jsonl":
-            print(json.dumps({"type": etype, **({"text": event["text"]} if "text" in event else {}), **(payload or {})},
-                             ensure_ascii=False), flush=True)
+            _stream_write(json.dumps({"type": etype, **({"text": event["text"]} if "text" in event else {}), **(payload or {})},
+                             ensure_ascii=False) + "\n")
             return
         _json_event_buffer.append(event)
         if etype == "done":
-            print(json.dumps({
+            _stream_write(json.dumps({
                 "type": "done",
                 "content": event.get("content", ""),
                 "events": [{"type": e.get("type"), **({"text": e["text"]} if "text" in e else {})}
                            for e in _json_event_buffer],
-            }, ensure_ascii=False), flush=True)
+            }, ensure_ascii=False) + "\n")
             _json_event_buffer.clear()
         elif etype == "error":
             _json_event_buffer.clear()
@@ -181,11 +213,10 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         _stream_line_buf.clear()
         while "\n" in pending:
             line, _, pending = pending.partition("\n")
-            sys.stdout.write(line + "\n")
+            _stream_write(line + "\n")
             globals()["_stream_lines_emitted"] += 1
         if pending:
             _stream_line_buf.append(pending)
-        sys.stdout.flush()
     elif etype == "tool_call_start":
         _flush_stream_line()
         name = event.get("name", "?")
@@ -198,8 +229,7 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 args_preview = str(parsed)[:60]
         except (json.JSONDecodeError, TypeError, AttributeError):
             args_preview = args[:60] if isinstance(args, str) else str(args)[:60]
-        sys.stdout.write(f"\n  [{name}] {args_preview} ... ")
-        sys.stdout.flush()
+        _stream_write(f"\n  [{name}] {args_preview} ... ")
     elif etype == "tool_call_end":
         is_error = event.get("is_error", False)
         preview = event.get("output_preview", "")
@@ -212,14 +242,12 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
             except Exception:  # noqa: BLE001
                 cols = 80
             preview = preview[:cols].replace("\n", " ")
-            sys.stdout.write(f"{mark} ({len(preview)} chars)\n")
+            _stream_write(f"{mark} ({len(preview)} chars)\n")
         else:
-            sys.stdout.write(f"{mark}\n")
-        sys.stdout.flush()
+            _stream_write(f"{mark}\n")
     elif etype == "status":
         _flush_stream_line()
-        sys.stdout.write(f"\n  [{event.get('message', '')}] ")
-        sys.stdout.flush()
+        _stream_write(f"\n  [{event.get('message', '')}] ")
     elif etype == "done":
         _flush_stream_line()
         # P0-完成渲染:TTY 下擦除裸文本行,用 rich Markdown 重渲染正式版
@@ -232,21 +260,19 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         if content and sys.stdout.isatty():
             # ANSI 光标下移一行(到达 stream 输出末尾之下),再向上滚回渲染
             # ——比上移 N 行覆盖安全(N 不必精确)
-            sys.stdout.write("\x1b[1B\n")
+            _stream_write("\x1b[1B\n")
             try:
                 # TUI 插片优先（render_facade 内部: provider→cli.display 回退）
                 from lingclaude.cli.render_facade import print_markdown
 
                 print_markdown(content)
             except Exception:  # noqa: BLE001 — 渲染失败时保底输出纯文本
-                sys.stdout.write("\n" + content + "\n\n")
+                _stream_write("\n" + content + "\n\n")
             globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
         else:
-            sys.stdout.write("\n\n")
-        sys.stdout.flush()
+            _stream_write("\n\n")
     elif etype == "error":
         _flush_stream_line()
         # UI 对齐修复:前后各留空行,与 rich stderr 日志/下一提示符隔离。
-        sys.stdout.write(f"\n\n[错误] {event.get('error', '')}\n")
-        sys.stdout.write("提示: 请检查网络连接，或在 config.yaml 中确认 model.api_key 已设置\n\n")
-        sys.stdout.flush()
+        _stream_write(f"\n\n[错误] {event.get('error', '')}\n")
+        _stream_write("提示: 请检查网络连接，或在 config.yaml 中确认 model.api_key 已设置\n\n")

@@ -25,6 +25,8 @@ helper 的职责是「尽力增强」，绝不让输入路径因增强失败而�
 
 from __future__ import annotations
 
+import sys
+
 _rl_attached = False
 
 
@@ -44,6 +46,47 @@ def ensure_readline() -> bool:
         return True
     except ImportError:
         # Windows / 精简构建无 readline：静默放弃，退回内核 tty 行规程
+        return False
+
+
+def reset_terminal_key_modes() -> bool:
+    """向 TTY 写入「终端增强键模式」复位序列；任何失败静默返回 False。
+
+    2026-09-20 方向键变字面字符修复（症状：按方向键终端显示 ^[[A 之外的
+    乱串如 [27u / [I[O）：
+
+    根因链（全部实证）：
+    - kitty 键盘协议等增强键模式下，方向键不再发 \\x1b[A，而是发
+      \\x1b[27u 之类的 CSI u 序列（官方规范 sw.kovidgoyal.net/kitty/
+      keyboard-protocol，Progressive enhancement 章节，2026-09-20 实抓验证）。
+    - 这些程序若异常退出不复位模式，终端就把后续进程的方向键也转成
+      CSI u 序列。
+    - prompt_toolkit 3.0.53 解析器对 \\x1b[27u 无表项 → flush 后逐字符
+      兜底 → '[','2','7','u' 字面插进输入框（实测复现）。GNU readline
+      与裸 input() 同样不认识。
+
+    复位序列（规范原文）：
+    - \\x1b[<u        pop 键盘模式栈（栈空则全复位）
+    - \\x1b[=0;1u     flags 清零（mode=1：置位即复位）
+    - \\x1b[?1004l    关焦点上报（失焦/聚焦 \\x1b[O/\\x1b[I 序列的来源）
+    - \\x1b[?1000l\\x1b[?1003l\\x1b[?1006l  关鼠标上报（同属残留类干扰）
+    对不支持 kitty 协议的终端这些序列无害（不可识别的 CSI 默认吞掉）。
+    """
+    try:
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            return False
+        seqs = (
+            "\x1b[<u"        # kitty: pop 键盘模式栈
+            "\x1b[=0;1u"     # kitty: flags 全清
+            "\x1b[?1004l"    # 关焦点上报
+            "\x1b[?1000l"    # 关鼠标（X10）
+            "\x1b[?1003l"    # 关鼠标（any-event）
+            "\x1b[?1006l"    # 关鼠标（SGR）
+        )
+        sys.stdout.write(seqs)
+        sys.stdout.flush()
+        return True
+    except Exception:  # noqa: BLE001 — 增强路径，绝不反噬输入
         return False
 
 

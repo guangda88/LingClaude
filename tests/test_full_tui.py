@@ -74,9 +74,9 @@ class TestFullTuiSession:
         lines = [f"line-{i}" for i in range(MAX_OUTPUT_LINES + 50)]
         s.install_output_source(lambda: lines)
         s._refresh_output_area()  # noqa: SLF001
-        assert s._output_area.text.count("\n") >= MAX_OUTPUT_LINES - 1
-        assert "line-0" not in s._output_area.text
-        assert f"line-{MAX_OUTPUT_LINES + 49}" in s._output_area.text
+        assert s._out_buffer.text.count("\n") >= MAX_OUTPUT_LINES - 1
+        assert "line-0" not in s._out_buffer.text
+        assert f"line-{MAX_OUTPUT_LINES + 49}" in s._out_buffer.text
 
     def test_status_callback_fragments(self, _pt_available: None, tmp_path: Path) -> None:
         s = FullTuiSession(history_file=str(tmp_path / "h"))
@@ -102,7 +102,7 @@ class TestFullTuiSession:
 
         s.install_output_source(_boom)  # type: ignore[arg-type]
         s._refresh_output_area()  # noqa: SLF001
-        assert s._output_area.text == ""
+        assert s._out_buffer.text == ""
 
     def test_push_to_history_noop(self, _pt_available: None, tmp_path: Path) -> None:
         s = FullTuiSession(history_file=str(tmp_path / "h"))
@@ -299,7 +299,7 @@ class TestResidentFullTui:
             proxy.flush()
         finally:
             sys.stdout = real
-        text = s._output_area.text  # noqa: SLF001
+        text = s._out_buffer.text  # noqa: SLF001
         assert "第一行" in text
         assert "第二行" in text
         assert "第三行" in text
@@ -310,7 +310,7 @@ class TestResidentFullTui:
     def test_output_area_line_cap(self, _pt_available: None, tmp_path: Path) -> None:
         s = self._make(tmp_path)
         s._append_output_lines([f"l{i}" for i in range(MAX_OUTPUT_LINES + 50)])
-        lines = s._output_area.text.split("\n")  # noqa: SLF001
+        lines = s._out_buffer.text.split("\n")  # noqa: SLF001
         assert len(lines) == MAX_OUTPUT_LINES
         assert lines[0] == "l50"  # 最旧的 50 行被丢弃
 
@@ -349,3 +349,231 @@ class TestResidentFullTui:
         assert s._streaming is False  # noqa: SLF001
         s.set_streaming(True)
         assert s._streaming is True  # noqa: SLF001
+
+    # ── 输出历史滚动（2026-09-19）──
+
+    def test_scroll_lines_moves_cursor_and_mode(self, _pt_available: None, tmp_path: Path) -> None:
+        """Shift+↑↓（_scroll_out_lines）：光标行移动 + 跟随/回看模式切换。"""
+        s = self._make(tmp_path)
+        s._set_output_lines([f"row-{i}" for i in range(20)])  # noqa: SLF001
+        assert s._follow_output is True  # noqa: SLF001
+        def _row() -> int:
+            return s._out_buffer.document.cursor_position_row  # noqa: SLF001
+
+        s._scroll_out_lines(-5)  # noqa: SLF001
+        assert _row() == 14
+        assert s._follow_output is False  # noqa: SLF001 回看模式
+        s._scroll_out_lines(-100)  # noqa: SLF001 边界钳制到 0
+        assert _row() == 0
+        s._scroll_out_lines(+3)  # noqa: SLF001
+        assert _row() == 3
+        s._scroll_out_lines(+100)  # noqa: SLF001 滚到底=回到文末→跟随恢复
+        assert _row() == 19
+        assert s._follow_output is True  # noqa: SLF001
+        # 空缓冲滚动不抛异常
+        s._set_output_lines([])  # noqa: SLF001
+        s._scroll_out_lines(-1)  # noqa: SLF001
+
+    def test_append_output_follow_mode_pins_to_end(self, _pt_available: None, tmp_path: Path) -> None:
+        """跟随模式下追加输出：光标钉文末；回看模式下光标行保持不变。"""
+        s = self._make(tmp_path)
+        s._set_output_lines([f"row-{i}" for i in range(30)])  # noqa: SLF001
+        s._scroll_out_lines(-10)  # noqa: SLF001 → 回看，光标行 19
+        s._append_output_lines(["new-1", "new-2"])  # noqa: SLF001
+        assert s._out_buffer.document.cursor_position_row == 19, (  # noqa: SLF001
+            "回看中光标行不得被新输出拽走"
+        )
+        assert "new-2" in s._out_buffer.text  # noqa: SLF001 内容照常追加
+        assert s._follow_output is False  # noqa: SLF001
+        # 恢复跟随后再追加 → 光标回文末
+        s._scroll_out_lines(+100)  # noqa: SLF001
+        s._append_output_lines(["new-3"])  # noqa: SLF001
+        assert s._out_buffer.document.cursor_position_row == 32  # noqa: SLF001
+        assert s._follow_output is True  # noqa: SLF001
+
+    def test_append_output_trims_with_cursor_anchor_shift(self, _pt_available: None, tmp_path: Path) -> None:
+        """回看中首部行被裁：光标锚点随裁剪量平移，视觉位置不漂移。"""
+        s = self._make(tmp_path)
+        s._set_output_lines([f"row-{i}" for i in range(MAX_OUTPUT_LINES)])  # noqa: SLF001
+        s._scroll_out_lines(-(MAX_OUTPUT_LINES - 10))  # noqa: SLF001 光标行 9
+        s._append_output_lines(["tail-1", "tail-2", "tail-3"])  # noqa: SLF001 → 裁 3 行
+        assert s._out_buffer.document.cursor_position_row == 6  # noqa: SLF001 9-3
+        assert s._follow_output is False  # noqa: SLF001
+
+    def test_scroll_out_pages_uses_window_height(self, _pt_available: None, tmp_path: Path) -> None:
+        """PageUp/PageDown：按渲染信息页高移动光标行；无渲染信息走兜底。"""
+        s = self._make(tmp_path)
+        s._set_output_lines([f"row-{i}" for i in range(100)])  # noqa: SLF001
+        # 无 render_info（未首帧）→ 兜底页高 10 → 光标行 100-1-9=90
+        s._scroll_out_pages(-1)  # noqa: SLF001
+        assert s._out_buffer.document.cursor_position_row == 90  # noqa: SLF001  100-1-9
+        # mock render_info 页高 5 → 移动 4 行
+        s._scroll_out_lines(+2)  # noqa: SLF001 → 92
+        info = SimpleNamespace(window_height=5)
+        s._output_area.render_info = info  # noqa: SLF001
+        s._scroll_out_pages(1)  # noqa: SLF001
+        assert s._out_buffer.document.cursor_position_row == 96  # noqa: SLF001
+
+    def test_scroll_keybindings_registered(self, _pt_available: None, tmp_path: Path) -> None:
+        """滚动键位注册齐全：PageUp/PageDown/Shift+↑↓/Ctrl+Home/End。"""
+        s = self._make(tmp_path)
+        kb = s._kb  # noqa: SLF001
+        registered = {b.keys for b in kb.bindings}
+        from prompt_toolkit.keys import Keys
+
+        for want in (
+            (Keys.PageUp,),
+            (Keys.PageDown,),
+            (Keys.ShiftUp,),
+            (Keys.ShiftDown,),
+            (Keys.ControlHome,),
+            (Keys.ControlEnd,),
+            (Keys.ControlM,),
+            (Keys.Escape, Keys.ControlM),
+            (Keys.ControlC,),
+            (Keys.ControlD,),
+        ):
+            assert want in registered, f"键位缺失: {want}"
+
+    def test_output_control_is_custom_scroll_control(self, _pt_available: None, tmp_path: Path) -> None:
+        """输出窗控件为 _OutputScrollControl（滚轮拦截生效的前提）。"""
+        from lingclaude.cli.full_tui import _OutputScrollControl
+
+        s = self._make(tmp_path)
+        assert isinstance(s._out_control, _OutputScrollControl)  # noqa: SLF001
+        assert s._output_area.content is s._out_control  # noqa: SLF001
+
+    def test_wheel_callback_scrolls(self, _pt_available: None, tmp_path: Path) -> None:
+        """滚轮回调路径：on_wheel(±1) 等价 _scroll_out_lines(±1)。"""
+        s = self._make(tmp_path)
+        s._set_output_lines([f"row-{i}" for i in range(30)])  # noqa: SLF001
+        s._on_out_wheel(-3)  # noqa: SLF001
+        assert s._out_buffer.document.cursor_position_row == 26  # noqa: SLF001
+        assert s._follow_output is False  # noqa: SLF001
+        s._on_out_wheel(+3)  # noqa: SLF001
+        assert s._follow_output is True  # noqa: SLF001
+
+
+class TestTuiOptimizationP0:
+    """P0-2 清洗状态机（2026-09-20，方案 docs/cli/TUI_OPTIMIZATION_PLAN_20260920.md §四）。"""
+
+    def test_strip_marker_split_chunks(self) -> None:
+        # 方案验收: b"\x1b[200~ab" + b"cd\x1b[201~" 两片 → 提交文本 abcd
+        from lingclaude.cli.interface import _fallback_strip_ansi
+
+        a1, _h1, ip1 = _fallback_strip_ansi(b"\x1b[200~ab", False)
+        a2, _h2, ip2 = _fallback_strip_ansi(b"cd\x1b[201~", ip1)
+        assert (a1 + a2).decode() == "abcd"
+        assert ip1 and not ip2  # 开/闭各翻转一次
+
+    def test_strip_marker_bytes_split(self) -> None:
+        # 方案验收: b"\x1b[200" + b"~ab" 标记本体拆片
+        from lingclaude.cli.interface import _fallback_strip_ansi
+
+        a1, h1, ip1 = _fallback_strip_ansi(b"\x1b[200", False)
+        a2, h2, ip2 = _fallback_strip_ansi(h1 + b"~ab", ip1)
+        assert (a1 + a2).decode() == "ab"
+        assert ip2  # 翻转后处于粘贴态（段内 \n 为正文）
+        assert not h2
+
+    def test_strip_marker_mid_chunk(self) -> None:
+        # 标记夹在正文中（旧 startswith 只认分片首位的漏剥场景）
+        from lingclaude.cli.interface import _fallback_strip_ansi
+
+        a1, _h, _ip = _fallback_strip_ansi(b"xx\x1b[200~yy\x1b[201~zz", False)
+        assert a1.decode() == "xxyyzz"
+
+    def test_strip_cpr_and_ss3_swallowed(self) -> None:
+        # CPR 应答 \x1b[r;cR 与 SS3 方向键 \x1bOA 整体吞，不留残字节
+        from lingclaude.cli.interface import _fallback_strip_ansi
+
+        a1, h1, _ = _fallback_strip_ansi(b"he\x1b[27;1Rllo\x1bOA", False)
+        assert a1 == b"hello" and h1 == b""
+
+    def test_strip_incomplete_tail_hold(self) -> None:
+        # 尾部不完整 CSI 扣下与下一分片拼接
+        from lingclaude.cli.interface import _fallback_strip_ansi
+
+        a1, h1, _ = _fallback_strip_ansi(b"ok\x1b[", False)
+        a2, h2, _ = _fallback_strip_ansi(h1 + b"2qtail", False)
+        assert (a1 + a2).decode() == "oktail" and not h2
+
+    def test_ss3_split_across_chunks(self) -> None:
+        # SS3 前缀 \x1bO 拆片（回归: 前缀表缺 \x1bO 时 'A' 漏成正文）
+        from lingclaude.cli.interface import _fallback_strip_ansi
+
+        a1, h1, _ = _fallback_strip_ansi(b"q\x1bO", False)
+        a2, h2, _ = _fallback_strip_ansi(h1 + b"Az", False)
+        assert (a1 + a2).decode() == "qz" and not h2
+
+    def test_strip_utf8_multibyte_safe(self) -> None:
+        # 多字节字符不落 0x40-0x7E，清洗不误伤正文
+        from lingclaude.cli.interface import _fallback_strip_ansi
+
+        a1, _h, _ = _fallback_strip_ansi("你\x1b[2q好".encode(), False)
+        assert a1.decode("utf-8", errors="replace") == "你好"
+
+    def test_sanitize_submitted_strips_markers(self) -> None:
+        from lingclaude.cli.interface import _sanitize_submitted
+
+        assert _sanitize_submitted("a\x1b[200~b\x1b[201~c") == "abc"
+        assert _sanitize_submitted("正常文本") == "正常文本"
+
+
+class TestTuiOptimizationP1:
+    """P1-1/P1-2 序列映射 + P1-3 输出层清洗。"""
+
+    def test_csi_u_enter_mapped(self) -> None:
+        # kitty 残留模式 Enter（\x1b[27u）→ ControlM 提交（绝不能 Ignore）
+        interface._patch_pt_modifier_enter()
+        from prompt_toolkit.input import ansi_escape_sequences as aes
+        from prompt_toolkit.keys import Keys
+
+        assert aes.ANSI_SEQUENCES["\x1b[27u"] == Keys.ControlM
+        assert aes.ANSI_SEQUENCES["\x1b[27;5u"] == (Keys.Escape, Keys.ControlM)
+
+    def test_defensive_sequences_ignored(self) -> None:
+        # P1-2: 焦点/DECSCUSR/DECRQM 应答 → Keys.Ignore 不进 buffer
+        interface._patch_pt_modifier_enter()
+        from prompt_toolkit.input import ansi_escape_sequences as aes
+        from prompt_toolkit.keys import Keys
+
+        assert aes.ANSI_SEQUENCES["\x1b[O"] == Keys.Ignore
+        assert aes.ANSI_SEQUENCES["\x1b[2 q"] == Keys.Ignore
+        assert aes.ANSI_SEQUENCES["\x1b[?2026;1$y"] == Keys.Ignore
+
+    def test_stdout_proxy_strips_escape(self, _pt_available: None, tmp_path: Path) -> None:
+        # P1-3: 残留 CSI 不进输出窗；不完整尾部扣住 flush 时丢弃
+        got: list[str] = []
+        owner = SimpleNamespace(_write_via_buffer=lambda s: got.append(s))
+        proxy = _StdoutProxy(owner, sys.stdout)
+        proxy.write("he\x1b[27;1Rllo\n")
+        assert "".join(got) == "hello\n"
+        proxy.write("tail\x1b[2")  # 不完整尾部
+        proxy.flush()               # flush 丢弃扣住残骸
+        assert "".join(got) == "hello\ntail\n"
+
+
+class TestTuiOptimizationP2:
+    """P2-1 /history + P2-2 行上限扩容。"""
+
+    def test_history_command_consumed(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path) -> None:
+        from lingclaude.cli.commands import SlashCommandProcessor
+
+        class _FakeMgr:
+            save_dir = tmp_path
+
+            def __init__(self) -> None:
+                pass
+
+            def list_sessions(self, project_path: str = ""):
+                return ()
+
+        monkeypatch.setattr("lingclaude.core.session.SessionManager", _FakeMgr)
+        proc = SlashCommandProcessor(engine=SimpleNamespace(), status=SimpleNamespace())
+        assert proc.handle("/history") is True
+        assert "无会话记录" in capsys.readouterr().out
+
+    def test_max_output_lines_expanded(self) -> None:
+        # P2-2: 800 → 5000（长会话不再静默裁剪）
+        assert MAX_OUTPUT_LINES == 5000

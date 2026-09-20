@@ -7,6 +7,11 @@
   从 start() 起持续驻留，直到 close()。
 - 输入框 Enter 提交 → 内部提交队列（deque+Condition）→ prompt() 阻塞取用。
   生成期提交同样入队（不退出全屏），轮结束后被主循环消费 —— 「随时可输入」。
+- 输出历史滚动（2026-09-19）：滚轮 / PageUp/PageDown / Shift+↑↓ / Ctrl+Home
+  / Ctrl+End 移动输出 buffer 光标行实现回看；光标回文末自动恢复跟随模式
+  （分隔线提示「回看输出历史」）。输出窗=Window+BufferControl 子类手工组合
+  （TextArea 不支持传 key_bindings，且其控件对无焦点滚轮直接 NotImplemented）；
+  滚轮事件在控件层拦截 —— 无需焦点、不抢输入框焦点。
 - stdout 代理：Application 运行期间接管 sys.stdout，所有输出（含生成期
   sys.stdout.write 流式）按行追加进输出窗 —— 输出与输入框互不践踏。
 - Ctrl+C：有文字清行；空缓冲 set interrupt_event 打断当前生成（与
@@ -34,16 +39,20 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lingclaude.cli.input_queue import EOF_SENTINEL
-from lingclaude.cli.interface import _patch_pt_modifier_enter
+from lingclaude.cli.interface import _fallback_strip_ansi, _patch_pt_modifier_enter
 from lingclaude.core.lineedit import add_history_line, ensure_readline
 
 # prompt_toolkit 为可选依赖 — 未安装时构造抛 RuntimeError（create_session 捕获回退）
 try:
     from prompt_toolkit.application import Application
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.document import Document
     from prompt_toolkit.history import FileHistory, InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import HSplit, Layout, Window
-    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+    from prompt_toolkit.layout.margins import ScrollbarMargin
+    from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
     from prompt_toolkit.output import create_output
     from prompt_toolkit.widgets import TextArea
 
@@ -54,8 +63,38 @@ except ImportError:  # pragma: no cover
 # 与 interface.py 对齐的历史文件（项目内隔离，2026-09-15 P1-2）
 DEFAULT_HISTORY_FILE = ".lingclaude/history"
 
-# 输出窗行数上限（超出丢最旧行）
-MAX_OUTPUT_LINES = 800
+# 输出窗行数上限（超出丢最旧行）。
+# P2-2（2026-09-20）: 800→5000 —— 长会话生成内容此前被静默裁剪，回看不完整；
+# 5000 行约 0.5MB 内存，代价可忽略。
+MAX_OUTPUT_LINES = 5000
+
+
+if _HAS_PROMPT_TOOLKIT:
+
+    class _OutputScrollControl(BufferControl):
+        """输出窗控件 — 在 BufferControl 基础上拦截滚轮事件。
+
+        为什么子类化：原生 BufferControl.mouse_handler 只在**当前聚焦控件**
+        是自己时才处理滚轮，否则直接 NotImplemented（controls.py:829 分支）。
+        输出窗 focusable=False 永不聚焦 → 原生滚轮永远失效。这里把
+        SCROLL_UP/SCROLL_DOWN 转成 on_wheel(+1/-1) 回调（无需焦点、不抢
+        输入框焦点），其余事件交还父类。
+        """
+
+        def __init__(self, *args: Any, on_wheel: Callable[[int], None] | None = None, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._on_wheel = on_wheel
+
+        def mouse_handler(self, mouse_event: MouseEvent) -> Any:
+            et = mouse_event.event_type
+            if self._on_wheel is not None:
+                if et == MouseEventType.SCROLL_UP:
+                    self._on_wheel(-1)
+                    return None
+                if et == MouseEventType.SCROLL_DOWN:
+                    self._on_wheel(1)
+                    return None
+            return super().mouse_handler(mouse_event)
 
 
 class _StdoutProxy:
@@ -70,12 +109,23 @@ class _StdoutProxy:
         self._owner = owner
         self._original = original
         self._frag: list[str] = []
+        # P1-3（2026-09-20）: 跨 write 调用的不完整转义序列尾部（拆片拼接）
+        self._esc_hold = b""
 
     def write(self, s: str) -> int:
         if not s:
             return 0
         try:
-            for ch in s:
+            # P1-3（2026-09-20，TUI 优化方案）: 转义清洗 —— 终端残留/上游
+            # 混入的 CSI 序列（CPR 应答、DECSCUSR、DECRQM 等）不清洗会字面
+            # 进输出窗成噪声。复用 P0-2 状态机（CSI 纯 ASCII，UTF-8 编码后
+            # 处理安全：多字节字符的首/续字节均不落 0x40-0x7E）。
+            data = self._esc_hold + s.encode("utf-8", errors="replace")
+            self._esc_hold = b""
+            data, hold, _ = _fallback_strip_ansi(data, False)
+            self._esc_hold = hold
+            s2 = data.decode("utf-8", errors="replace")
+            for ch in s2:
                 if ch == "\n":
                     self._flush_line()
                 elif ch == "\r":
@@ -100,6 +150,9 @@ class _StdoutProxy:
             self._flush_line()
         except Exception:  # noqa: BLE001
             pass
+        if self._esc_hold:
+            # P1-3: flush 时仍扣着的不完整序列 = 无终结字节的残骸，丢弃
+            self._esc_hold = b""
 
     def isatty(self) -> bool:
         return False
@@ -164,14 +217,31 @@ class FullTuiSession:
         self._pending_lines: list[str] = []
         self._area_lock = threading.Lock()
 
-        # 控件（常驻复用）
-        self._output_area = TextArea(
-            text="",
+        # 控件（常驻复用）。输出窗 = Buffer + BufferControl子类 + Window 手工
+        # 组合（TextArea 不支持传 key_bindings/自定义控件；见模块 docstring）。
+        # 滚动模型：输出 buffer 光标 = 视口锚点（PT 渲染层 keep-cursor-visible
+        # 按 cursor 行钳制 vertical_scroll）。跟随模式 = 光标钉在文末；滚轮/
+        # 翻页把光标移进历史 → 回看模式；光标回文末自动恢复跟随。
+        self._follow_output = True
+        self._out_buffer = Buffer(
+            document=Document("", 0),
             read_only=True,
-            wrap_lines=True,
-            scrollbar=True,
+            multiline=True,
+            name="output-window",
+        )
+        self._out_control = _OutputScrollControl(
+            buffer=self._out_buffer,
             focusable=False,
+            focus_on_click=False,
+            include_default_input_processors=False,
+            on_wheel=self._on_out_wheel,
+        )
+        self._output_area = Window(
+            content=self._out_control,
+            wrap_lines=True,
+            right_margins=[ScrollbarMargin(display_arrows=True)],
             style="class:output",
+            always_hide_cursor=True,
         )
         self._input_area = TextArea(
             text="",
@@ -188,7 +258,7 @@ class FullTuiSession:
         )
         self._sep_win = Window(
             height=1,
-            content=FormattedTextControl([("class:sep", "─" * 200)]),
+            content=FormattedTextControl(self._sep_fragments),
             style="class:sep",
         )
 
@@ -196,11 +266,44 @@ class FullTuiSession:
         # interface._patch_pt_modifier_enter 映射）换行 / Ctrl+C 清行或打断 / Ctrl+D 空退出
         self._kb = KeyBindings()
 
+        # 输出历史滚动键（app 级：优先级高于 emacs 默认绑定，application.py
+        # _create_key_bindings 反转列表后当前控件链 > app > 默认）。全部为
+        # 「移动输出 buffer 光标行」语义；光标回文末自动恢复跟随模式。
+        @self._kb.add("pageup")
+        def _out_page_up(event: Any) -> None:
+            self._scroll_out_pages(-1)
+
+        @self._kb.add("pagedown")
+        def _out_page_down(event: Any) -> None:
+            self._scroll_out_pages(1)
+
+        @self._kb.add("s-up")
+        def _out_line_up(event: Any) -> None:
+            self._scroll_out_lines(-1)
+
+        @self._kb.add("s-down")
+        def _out_line_down(event: Any) -> None:
+            self._scroll_out_lines(1)
+
+        @self._kb.add("c-home")
+        def _out_home(event: Any) -> None:
+            self._out_buffer.cursor_position = 0
+            self._invalidate()
+
+        @self._kb.add("c-end")
+        def _out_end(event: Any) -> None:
+            self._out_buffer.cursor_position = len(self._out_buffer.text)
+            self._invalidate()
+
         @self._kb.add("enter")
         def _on_enter(event: Any) -> None:
+            # 2026-09-19 输入历史修复：走 PT 标准 accept 流程
+            # （validate_and_handle → accept_handler → append_to_history →
+            # reset），保证提交的输入写进 FileHistory（Up 可翻）。
+            # 旧实现直调 _on_accept 且内部清空文本，历史写入永远拿到空串。
             buf = event.app.layout.current_buffer
             if buf is not None:
-                self._on_accept(buf)
+                buf.validate_and_handle()
 
         @self._kb.add("escape", "enter")
         def _on_newline(event: Any) -> None:
@@ -258,6 +361,31 @@ class FullTuiSession:
             target=self._run_app, daemon=True, name="full-tui-app",
         )
         self._app_thread.start()
+        # P2-3（2026-09-20，TUI 优化方案）: 全屏健康自检 —— 1s 后未驻留
+        # （启动即死/从未进入运行态）时 stderr 显式留痕，消除「用户不知情
+        # 被降级成简易输入模式」的静默失败。
+        _probe = threading.Timer(1.0, self._startup_health_probe)
+        _probe.daemon = True
+        _probe.start()
+
+    def _startup_health_probe(self) -> None:
+        """P2-3: start 后 1s 自检 —— 全屏未驻留时显式告知已降级。"""
+        try:
+            alive = (
+                self._running
+                and self._app is not None
+                and self._app_thread is not None
+                and self._app_thread.is_alive()
+            )
+            if alive:
+                return
+            err = self._app_error or "Application 未进入运行态"
+            print(
+                f"[全屏TUI] 启动自检未通过，已降级为简易输入模式（原因: {err}）",
+                file=sys.stderr,
+            )
+        except Exception:  # noqa: BLE001 — 自检失败不影响主流程
+            pass
 
     def close(self) -> None:
         """退出全屏并恢复 stdout（主循环退出路径调用；幂等）。"""
@@ -278,6 +406,16 @@ class FullTuiSession:
             sys.stdout = self._stdout_original
             self._stdout_proxy = None
         self._app = None
+        # P0-4（2026-09-20，TUI 优化方案）: 退出全屏后再发一次终端增强模式
+        # 复位（对称卫生：清别人残留，也别留自己的）。⚠ 顺序必须 app.exit()
+        # 并还原 stdout 之后 —— 先复位会被 PT 退场序列/重绘重新进入增强模式，
+        # 等于白发。reset_terminal_key_modes 内部自带 isatty 防御。
+        try:
+            from lingclaude.core.lineedit import reset_terminal_key_modes
+
+            reset_terminal_key_modes()
+        except Exception:  # noqa: BLE001 — 增强路径，绝不反噬退出流程
+            pass
 
     def _run_app(self) -> None:
         try:
@@ -426,28 +564,118 @@ class FullTuiSession:
             lines = []
         if len(lines) > MAX_OUTPUT_LINES:
             lines = lines[-MAX_OUTPUT_LINES:]
-        self._output_area.text = "\n".join(lines) + ("\n" if lines else "")
+        self._set_output_lines(lines)
+
+    def _set_output_lines(self, lines: list[str]) -> None:
+        """整体替换输出窗内容，光标钉回文末（跟随模式）。
+
+        注意：文本末尾**不加**换行 —— 否则光标钉文末时落在幻影空行上，
+        cursor_position_row = line_count（比最后一行实际行号大 1），滚动
+        计算会整体偏 1。
+        """
+        text = "\n".join(lines)
+        self._out_buffer.set_document(Document(text, 0), bypass_readonly=True)
+        self._out_buffer.cursor_position = len(text)
+        self._follow_output = True
+
+    def _invalidate(self) -> None:
+        """请求重绘（app 未运行时静默；可从任意线程调用）。"""
+        app = self._app
+        if app is not None and self._running:
+            try:
+                app.invalidate()
+            except Exception:  # noqa: BLE001 — 重绘请求失败不反噬调用方
+                pass
+
+    # ── 输出历史滚动（滚轮回调与键绑定共用「移动光标行」语义） ──
+
+    def _on_out_wheel(self, direction: int) -> None:
+        """滚轮事件（_OutputScrollControl 回调）：+1 向下 / -1 向上。"""
+        self._scroll_out_lines(direction)
+
+    def _scroll_out_lines(self, delta: int) -> None:
+        """输出窗光标上/下移 delta 行（负值向历史）；边界钳制。
+
+        滚到最后一行时光标钉到文末 → is_cursor_at_the_end=True → 自动
+        恢复跟随模式（后续新输出把视口拽回底部）。
+        """
+        try:
+            buf = self._out_buffer
+            doc = buf.document
+            line_count = doc.line_count
+            if not line_count:
+                return
+            row = doc.cursor_position_row + delta
+            row = max(0, min(row, line_count - 1))
+            if row >= line_count - 1:
+                buf.cursor_position = len(buf.text)
+            else:
+                buf.cursor_position = doc.translate_row_col_to_index(row, 0)
+            self._follow_output = buf.document.is_cursor_at_the_end
+            self._invalidate()
+        except Exception:  # noqa: BLE001 — 滚动异常不反噬事件循环
+            pass
+
+    def _scroll_out_pages(self, pages: int) -> None:
+        """输出窗整页滚动（PageUp/PageDown）：按可视高度移动光标行。"""
+        try:
+            info = self._output_area.render_info
+            height = info.window_height if info is not None else 0
+            if height <= 0:
+                height = 10  # 尚无渲染信息（未首帧）时的兜底页高
+            self._scroll_out_lines(pages * max(1, height - 1))
+        except Exception:  # noqa: BLE001 — 滚动异常不反噬事件循环
+            pass
 
     def _append_output_lines(self, lines: list[str]) -> None:
-        """追加行进输出窗并滚动到底（跨线程安全：_area_lock 串行化读改写）。
+        """追加行进输出窗（跨线程安全：_area_lock 串行化读改写）。
 
         行数超限丢最旧行；Application 未运行时仅更新缓冲（不渲染，无害）。
+        跟随模式：光标钉回文末（新输出可见）；回看模式：光标行保持不变
+        （set_document 会重置光标，必须显式恢复），仅当旧行被裁掉时按裁剪
+        量上移光标修正视口锚点。
         """
         try:
             with self._area_lock:
-                text = self._output_area.text
-                all_lines = text.split("\n") if text else []
+                buf = self._out_buffer
+                old_text = buf.text
+                old_row = buf.document.cursor_position_row
+                all_lines = old_text.split("\n") if old_text else []
                 all_lines.extend(lines)
+                dropped = 0
                 if len(all_lines) > MAX_OUTPUT_LINES:
+                    dropped = len(all_lines) - MAX_OUTPUT_LINES
                     all_lines = all_lines[-MAX_OUTPUT_LINES:]
                 new_text = "\n".join(all_lines)
-                self._output_area.text = new_text
-                self._output_area.cursor_position = len(new_text)
-            app = self._app
-            if app is not None and self._running:
-                app.invalidate()
+                buf.set_document(Document(new_text, 0), bypass_readonly=True)
+                if self._follow_output or not new_text:
+                    buf.cursor_position = len(new_text)
+                else:
+                    # 回看中：恢复光标行；首部被裁时按裁剪量上移（视口锚点
+                    # 随内容平移，视觉位置不变）；滚到最后一行=回到文末
+                    row = max(0, old_row - dropped)
+                    if row >= len(all_lines) - 1:
+                        buf.cursor_position = len(new_text)
+                    else:
+                        buf.cursor_position = buf.document.translate_row_col_to_index(
+                            row, 0
+                        )
+                follow_now = buf.document.is_cursor_at_the_end
+            self._follow_output = follow_now
+            self._invalidate()
         except Exception:  # noqa: BLE001 — 输出窗异常不反噬生成主线程
             pass
+
+    def _sep_fragments(self) -> list[tuple[str, str]]:
+        """分隔线片段：回看模式时在行内提示（含恢复跟随的键位）。"""
+        if self._follow_output:
+            return [("class:sep", "─" * 200)]
+        hint = (
+            "← 回看输出历史（滚轮/Shift+↑↓/PageUp·Down 浏览，"
+            "Ctrl+End 或滚到底恢复跟随） "
+        )
+        sep = "─" * max(0, 200 - len(hint) - 1)
+        return [("class:sep", sep + "┤ "), ("class:sep:reverse", hint), ("class:sep", " ├")]
 
     def _status_fragments(self) -> list[tuple[str, str]]:
         if self._status_cb is not None:
@@ -459,7 +687,14 @@ class FullTuiSession:
 
     def _on_accept(self, buf: Any) -> bool:
         text = buf.text
-        buf.text = ""
         if text:
             self._submit(text)
-        return True
+        # 2026-09-19 输入历史修复：**不得在此清空 buffer.text**。
+        # PT 标准 accept 流程（buffer.validate_and_handle）是先调 accept_handler
+        # 再 append_to_history → reset；旧实现先置 buf.text=""，append_to_history
+        # 读到空串直接跳过（buffer.py:1363 if self.text:）→ P2 全屏会话提交的
+        # 输入从未进入 FileHistory → Up 无史可翻。
+        # 文本清空交给 PT 的 reset()（accept_handler 返回 False 即可）。
+        # 历史游标（working_index）保持不动：翻历史后提交，下一帧首帧渲染时
+        # load_history_if_not_yet_loaded 会以 FileHistory 最新内容重放装载。
+        return False

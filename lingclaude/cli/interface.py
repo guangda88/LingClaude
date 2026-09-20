@@ -55,8 +55,87 @@ DEFAULT_HISTORY_FILE = ".lingclaude/history"
 # ---------------------------------------------------------------------------
 _CTRL_ENTER_SEQ = "\x1b[27;5;13~"  # CSI 27;5;13~ = xterm 修饰回车：Ctrl
 _SHIFT_ENTER_SEQ = "\x1b[27;2;13~"  # CSI 27;2;13~ = xterm 修饰回车：Shift
+# 2026-09-19 上键历史修复：终端焦点上报（DECSET 1004）的失焦/聚焦序列。
+# 来源实证（2026-09-20 修正）：PT 3.0.53 的 enable_mouse_support 只发
+# 1000/1003/1015/1006，并不含 1004 —— 这些序列来自终端里其他开启过焦点
+# 上报的程序（vim/tmux/kitty 系 TUI 等）残留的模式。它们常独立成 read 块
+# 到达，不映射就会被 vt100 解析器拆成字面 '[' 'O' / '[' 'I' 插进输入框。
+_FOCUS_OUT_SEQ = "\x1b[O"  # 失焦
+_FOCUS_IN_SEQ = "\x1b[I"   # 聚焦
+
+# H19: bracketed paste 包裹标记（与 repl_io.py 对齐；P0-2 清洗状态机用）
+_PASTE_START = b"\x1b[200~"
+_PASTE_END = b"\x1b[201~"
 
 _MAPPED_SEQUENCES = False
+
+# P0-2（2026-09-20）: 降级读路径的转义清洗状态机（TUI 优化方案 P0-2/P1-2）。
+# 内核 read 可把 \x1b[200~ 等序列切在任意字节边界（\x1b[200~ab / cd\x1b[201~
+# 两片、甚至 \x1b[200 单独成片），startswith/单次 replace 均会漏剥。
+def _fallback_strip_ansi(data: bytes, in_paste: bool) -> tuple[bytes, bytes, bool]:
+    """清洗一个 read 分片：返回 (正文, 待拼接的不完整序列尾部, 新 in_paste)。
+
+    - \x1b[200~/\x1b[201~：任何位置出现都剥离；开/闭标记计数奇偶翻转
+      in_paste（支持标记拆片——老代码 startswith 只认分片首位）；
+    - 其他 CSI：读到终结字节(0x40-0x7E)整体吞（含粘贴标记本身，它们以 ~
+      结束天然被吞——先计数再吞，状态机语义不受影响）；
+    - 尾部不完整序列（孤立 \x1b / \x1b[..无终结字节 / \x1b[200 等）扣下，
+      由调用方与下一分片拼接后再判定。
+    """
+    # ⚠ \x1bO（SS3 前缀，DECCKM 应用光标模式方向键）必须在此列——
+    # 否则 ESC+O 拆片时 'O' 被误吞、final 字节漏成正文（实测场景 8）。
+    for p in (
+        b"\x1b[200", b"\x1b[201", b"\x1b[20", b"\x1b[2", b"\x1b[",
+        b"\x1bO", b"\x1b",
+    ):
+        if data.endswith(p):
+            hold = p
+            data = data[:-len(p)]
+            break
+    else:
+        hold = b""
+    if (data.count(_PASTE_START) + data.count(_PASTE_END)) % 2:
+        in_paste = not in_paste
+    data = data.replace(_PASTE_START, b"").replace(_PASTE_END, b"")
+    out = bytearray()
+    i = 0
+    n = len(data)
+    while i < n:
+        if data[i] == 0x1B:
+            # ESC+[...final(0x40-0x7E)：CSI 整体吞；ESC+O：SS3 三字节吞
+            # （DECCKM 应用光标模式方向键 \x1bOA/B/C/D，只吞两字节会漏尾字节）；
+            # ESC+其他：吞两字节。到片尾仍无终结字节：扣下待拼接（正常不会
+            # 发生——hold 已扣尾，此分支兜底数据中间态）。
+            j = i + 1
+            if j < n and data[j] == 0x5B:  # '['
+                k = j + 1
+                while k < n and not (0x40 <= data[k] <= 0x7E):
+                    k += 1
+                if k < n:
+                    i = k + 1
+                    continue
+                break  # 不完整 CSI（不应发生，防御）
+            if j < n and data[j] == 0x4F and j + 1 < n:  # 'O' → SS3
+                i = j + 2
+                continue
+            i = min(j + 1, n)
+            continue
+        out.append(data[i])
+        i += 1
+    return bytes(out), hold, in_paste
+
+
+
+def _sanitize_submitted(text: str) -> str:
+    """P0-2 兜底：提交前剥离任何残留的 bracketed paste 包裹标记。
+
+    上游（状态机/PT 解析器/全屏代理）漏网时，标记也到不了 LLM。
+    PT 路径解析器已剥标记（vt100_parser feed 专用通道），本函数为纯保险。
+    """
+    if "\x1b[200~" in text or "\x1b[201~" in text:
+        return text.replace("\x1b[200~", "").replace("\x1b[201~", "")
+    return text
+
 
 
 def _patch_pt_modifier_enter() -> None:
@@ -73,6 +152,39 @@ def _patch_pt_modifier_enter() -> None:
 
         _aes.ANSI_SEQUENCES[_CTRL_ENTER_SEQ] = (Keys.Escape, Keys.ControlM)
         _aes.ANSI_SEQUENCES[_SHIFT_ENTER_SEQ] = (Keys.Escape, Keys.ControlM)
+        # 2026-09-19 上键历史修复：焦点上报事件映射为 Keys.Ignore。
+        # 终端处于 focus reporting 模式（\x1b[?1004h，来源为其他程序残留，
+        # 见 :58 注释 2026-09-20 实证修正）后，窗口失焦/聚焦会发
+        # \x1b[O / \x1b[I。PT 内建序列表没有这两条 ——
+        # 事件与其它按键同批到达时解析正常，但**独立 read 块到达时**（真实
+        # 终端 alt-tab 切换即如此）vt100 解析器 flush 后按「无匹配」逐字符
+        # 兜底，'[' 'O' / '[' 'I' 以字面量插进输入框：既污染当前输入，又
+        # 让后续 Up 翻历史被前缀过滤（_history_matches startswith）卡死。
+        # Keys.Ignore 是 PT 自家无害落地先例（ansi_escape_sequences.py:166
+        # \x1b[E 同款）；KeyProcessor 无绑定直接丢弃，不进任何 buffer。
+        _aes.ANSI_SEQUENCES[_FOCUS_OUT_SEQ] = Keys.Ignore
+        _aes.ANSI_SEQUENCES[_FOCUS_IN_SEQ] = Keys.Ignore
+
+        # P1-1（2026-09-20，TUI 优化方案）: kitty 键盘协议残留 CSI u 家族。
+        # 前序崩溃 TUI（含自家异常路径）留下增强键模式时，方向键/Enter 发成
+        # CSI u 序列；PT 3.0.53 内建表无这些条目 → flush 逐字符兜底字面入框。
+        # ⚠ 禁止把 CSI u 家族整体 Keys.Ignore：\x1b[27u 是残留模式下的 Enter，
+        # Ignore = 回车失灵（「方向键变字面 + 回车无响应」并发症状的根源）。
+        # 语义依据 kitty keyboard-protocol 规范（2026-09-20 实抓）：
+        #   \x1b[27u=Enter；27;5u=Ctrl+Enter；27;2u=Shift+Enter（换行 chord 同款）；
+        #   1;5A/B/C/D=Ctrl+方向（PT 已有 ControlUp/Down/Right/Left 键位）。
+        # PT 3.0.53 已内建 \x1b[1;5A→ControlUp 等 CSI 修饰方向键
+        # （ansi_escape_sequences.py:213/242），此处只补 CSI u 缺口。
+        _aes.ANSI_SEQUENCES["\x1b[27u"] = Keys.ControlM          # 残留模式 Enter=提交
+        _aes.ANSI_SEQUENCES["\x1b[27;5u"] = (Keys.Escape, Keys.ControlM)  # Ctrl+Enter=换行
+        _aes.ANSI_SEQUENCES["\x1b[27;2u"] = (Keys.Escape, Keys.ControlM)  # Shift+Enter=换行
+        # P1-2: 表外查询/上报类序列防御（独立 read 块到达时字面入框的来源）。
+        # CPR 响应(\x1b[r;cR)/SGR 鼠标(\x1b[<..M/m) PT 内建正则已识别
+        # （vt100_parser.py:19-33），不重复；此处收编 DECRQM/DECSCUSR。
+        _aes.ANSI_SEQUENCES["\x1b[?2026;2$y"] = Keys.Ignore      # DECRQM styled underline 应答
+        _aes.ANSI_SEQUENCES["\x1b[?2026;1$y"] = Keys.Ignore      # DECRQM styled underline 应答
+        _aes.ANSI_SEQUENCES["\x1b[2 q"] = Keys.Ignore            # DECSCUSR 稳定块形光标
+        _aes.ANSI_SEQUENCES["\x1b[4 q"] = Keys.Ignore            # DECSCUSR 稳定下划线光标
         _MAPPED_SEQUENCES = True
     except Exception:  # noqa: BLE001 — 版本差异/结构性变化时静默放弃
         _MAPPED_SEQUENCES = True  # 不反复重试注定失败的补丁
@@ -202,7 +314,7 @@ class PromptToolkitSession:
         if self._streaming:
             return ""
         try:
-            return self._session.prompt(message)
+            return _sanitize_submitted(self._session.prompt(message))
         except KeyboardInterrupt:
             # Ctrl+C 软中断：清空当前输入，返回空串让上层继续。
             # 2026-09-15（会话问题重构 P0-2）：pump 模式下生成期 Ctrl+C 此前
@@ -249,7 +361,7 @@ class PromptToolkitSession:
             _was_streaming = self._streaming
             self._streaming = False
             try:
-                return self._session.prompt(message, in_thread=True)
+                return _sanitize_submitted(self._session.prompt(message, in_thread=True))
             finally:
                 self._streaming = _was_streaming
         except KeyboardInterrupt:
@@ -306,6 +418,9 @@ class FallbackSession:
         # 粘贴段内的 \n 是正文换行（不提交），只有裸 Enter（paste 段外的
         # \n/\r）才提交整行。旧实现读到一个 \n 就 break，多行粘贴只剩首行。
         self._rl_in_paste = False
+        # P0-2（2026-09-20）:跨分片清洗状态机的持久缓冲 —— 不完整转义序列
+        # 尾部（如 \x1b[200 拆在两片）扣下与下一分片拼接后再判定。
+        self._rl_hold = b""
 
     def set_streaming(self, streaming: bool) -> None:
         self._streaming = streaming
@@ -314,7 +429,7 @@ class FallbackSession:
         self._interrupt.clear()
         # 2026-09-16（TUI 输入泵问题修复）: streaming 期间非阻塞读。
         if self._streaming:
-            return self._nonblocking_readline(message)
+            return _sanitize_submitted(self._nonblocking_readline(message))
         # 2026-09-18 方向键/历史修复：裸 input() 挂 readline —— 方向键/退格
         # 由 GNU readline 解释（不再 ^[[A 字面回显），行写入内存历史供上键翻。
         ensure_readline()
@@ -327,7 +442,7 @@ class FallbackSession:
         except KeyboardInterrupt:
             return ""
         add_history_line(_line)
-        return _line
+        return _sanitize_submitted(_line)
 
     def _nonblocking_readline(self, message: str = "") -> str:
         """streaming 期间非阻塞读一行。
@@ -389,29 +504,17 @@ class FallbackSession:
                             raise EOFError
                     except OSError:  # noqa: BLE001
                         break
-                    if leftover.startswith(b"\x1b[200~"):
-                        # bracketed paste 段:剥开/闭标记后正文照常入 buf
-                        # （降级路径无行编辑器，标记留着会污染输入）；
-                        # 整块只有标记时剥完为空，跳过。
-                        leftover = leftover.replace(b"\x1b[200~", b"", 1).replace(
-                            b"\x1b[201~", b""
-                        )
-                        if not leftover:
-                            continue
-                    elif leftover.startswith(b"\x1b"):
-                        continue  # 其他转义序列残骸，丢弃
-                    else:
-                        # 2026-09-18 粘贴漏字修复:H19 逻辑只覆盖「以 \x1b 开头」
-                        # 的分片 —— 标记/正文夹在其他正文中到达时（startswith
-                        # 不命中），\x1b[200~ 字面漏进输入行。状态机剥离：
-                        # 任何位置出现的开/闭标记都剥掉，正文保留。
-                        leftover = leftover.replace(_PASTE_START, b"").replace(
-                            _PASTE_END, b""
-                        )
-                        if not leftover:
-                            continue
-                    buf.extend(leftover)
-                    os.write(sys.stdout.fileno(), leftover)
+                    # P0-2（2026-09-20）:清洗状态机 —— 粘贴标记奇偶计数
+                    # 翻转 _rl_in_paste（任何位置/跨片），其他 CSI 整体吞，
+                    # 尾部不完整序列扣 _rl_hold 与下一分片拼接再判定。
+                    leftover = self._rl_hold + leftover
+                    leftover, _hold, self._rl_in_paste = _fallback_strip_ansi(
+                        leftover, self._rl_in_paste
+                    )
+                    self._rl_hold = _hold
+                    if leftover:
+                        buf.extend(leftover)
+                        os.write(sys.stdout.fileno(), leftover)
 
                 # 等键盘（0.05s 超时，避免卡住流式输出）
                 r, _, _ = select.select([fd], [], [], 0.05)
@@ -438,8 +541,26 @@ class FallbackSession:
                     buf[-1:] = b""  # 摘掉先入 buf 的 \x1b（任何分支都不算正文）
                     r5, _, _ = select.select([fd], [], [], 0.05)
                     if not r5:
+                        if self._rl_hold:
+                            # P0-2: hold 扣着不完整前缀（如 \x1b[200），本 ESC 是接续
+                            _joined, _hold, self._rl_in_paste = _fallback_strip_ansi(
+                                self._rl_hold + b"\x1b", self._rl_in_paste
+                            )
+                            self._rl_hold = _hold
+                            if _joined:
+                                buf.extend(_joined)
+                                os.write(sys.stdout.fileno(), _joined)
                         continue  # 孤立 Esc：消费掉
                     _n = os.read(fd, 4096)
+                    if _n[:4] in (b"[200", b"[201") and len(_n) < 5:
+                        # P0-2: 标记被拆片引导（\x1b+"[200"）—— 60ms×3 内补齐判定
+                        _tries = 3
+                        while len(_n) < 5 and _tries > 0:
+                            _r6, _, _ = select.select([fd], [], [], 0.05)
+                            if not _r6:
+                                _tries -= 1
+                                continue
+                            _n += os.read(fd, 1)
                     if _n.startswith(b"[200~"):
                         self._rl_in_paste = True
                         _n = _n[5:]
@@ -564,7 +685,7 @@ class FallbackSession:
             ensure_readline()
             _line = input(message)
             add_history_line(_line)
-            return _line
+            return _sanitize_submitted(_line)
         finally:
             self._streaming = _was_streaming
 

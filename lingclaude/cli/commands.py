@@ -9,6 +9,8 @@ quit_requested 由 nonlocal 改为实例属性（语义不变）。
 from typing import Any
 
 import os
+import subprocess
+import sys
 
 from lingclaude.cli.repl_turn import _record_long_task_metrics
 
@@ -18,6 +20,8 @@ SLASH_COMPLETER_WORDS = [
     "/resume", "/continue", "/session", "/checkpoint", "/recover", "/rewind", "/quit",
     # 2026-09-17: 任务面板（对标 AtomCode todowrite）—— /tasks /todo /plan 同义
     "/tasks",
+    # 2026-09-20: 会话历史查看（TUI 优化方案 P2-1，cc 建议）—— 退出后回看入口
+    "/history",
 ]
 
 
@@ -78,6 +82,11 @@ class SlashCommandProcessor:
             # 项目会话（带摘要）/ 切换到指定会话。会话按当前工作目录隔离。
             self._cmd_session(arg)
             return True
+        if name == "/history":
+            # 2026-09-20（TUI 优化方案 P2-1）: 会话历史查看 —— 全屏 TUI 退出后
+            # 滚轮回看不再可达，此命令是持久入口（复用 SessionManager 快照）。
+            self._cmd_history(arg)
+            return True
         if name in ("/tasks", "/todo", "/plan"):
             # 2026-09-17: 任务面板 —— 第1级（渲染）+ 第2级（状态纪律）：
             #   /tasks             列出活跃任务（in_progress 高亮 + pending）
@@ -91,6 +100,97 @@ class SlashCommandProcessor:
 
     # ---- P5 回路驱动拆分：P4.1 迁移的巨 handle (radon F(82)) 按命令分派拆方法 ----
     # 命令体自原 handle 原样机械迁移，仅 engine/status → self.engine/self.status。
+
+    def _cmd_history(self, arg: str) -> None:
+        """2026-09-20（TUI 优化方案 P2-1）: /history [N] | /history show <id>。
+
+        列表复用 SessionManager.list_sessions（按当前项目隔离）；show 用
+        ${PAGER:-less -R} 打开对话记录（非 TTY 直接打印）。只读不改上下文。
+        """
+        from lingclaude.core.session import SessionManager, _project_dir_name
+
+        arg = (arg or "").strip()
+        mgr = SessionManager()
+        try:
+            sessions = mgr.list_sessions(project_path=os.getcwd())
+        except Exception:  # noqa: BLE001 — cwd 不可用时退全局
+            sessions = mgr.list_sessions()
+
+        # show <id>（支持前缀）
+        parts = arg.split(maxsplit=1)
+        if parts and parts[0] == "show":
+            if len(parts) < 2 or not parts[1].strip():
+                print("[history] 用法: /history show <会话ID（可前缀）>")
+                return
+            sid = parts[1].strip()
+            matches = [s for s in sessions if s["session_id"].startswith(sid)]
+            if not matches:
+                print(f"[history] 未找到会话 {sid}")
+                return
+            if len(matches) > 1:
+                print(f"[history] 前缀 {sid} 匹配 {len(matches)} 条，请加长 ID：")
+                for m in matches[:5]:
+                    print(f"  {m['session_id']}")
+                return
+            full = matches[0]["session_id"]
+            proj = matches[0].get("project_path", "")
+            proj_dir = _project_dir_name(proj) if proj else "_default"
+            path = mgr.save_dir / proj_dir / f"{full}.json"
+            if not path.exists():
+                path = mgr.save_dir / "_default" / f"{full}.json"
+            try:
+                import json as _json
+
+                data = _json.loads(path.read_text(encoding="utf-8"))
+            except Exception as e:  # noqa: BLE001 — 文件损坏留痕不崩
+                print(f"[history] 会话记录读取失败: {e}")
+                return
+            lines: list[str] = [f"# 会话 {full}（{data.get('created_at', '?')}）", ""]
+            for m in data.get("messages", ()) or ():
+                if isinstance(m, str):
+                    role, text = "user", m
+                elif isinstance(m, dict):
+                    role = str(m.get("role", "user"))
+                    text = str(m.get("content", ""))
+                else:
+                    role = str(getattr(m, "role", "user"))
+                    text = str(getattr(m, "content", ""))
+                if not text.strip():
+                    continue
+                who = "🧑 用户" if role == "user" else "🤖 灵克"
+                lines.append(f"{who}: {text}")
+                lines.append("")
+            body = "\n".join(lines)
+            if not sys.stdout.isatty():
+                print(body)
+                return
+            pager = os.environ.get("PAGER", "less")
+            cmd = pager.split() if pager != "less" else ["less", "-R"]
+            try:
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                proc.communicate(body.encode("utf-8", errors="replace"))
+            except Exception:  # noqa: BLE001 — 分页器缺席直接打印
+                print(body)
+            return
+
+        # /history [N]：最近 N 条（created_at 降序）
+        n = 10
+        if arg:
+            if not arg.isdigit():
+                print("[history] 用法: /history [N] | /history show <id>")
+                return
+            n = max(1, int(arg))
+        ordered = sorted(
+            sessions, key=lambda s: str(s.get("created_at", "")), reverse=True
+        )
+        if not ordered:
+            print("[history] 无会话记录")
+            return
+        print(f"[history] 共 {len(ordered)} 个会话，最近 {min(n, len(ordered))} 条：")
+        for s in ordered[:n]:
+            sid = str(s.get("session_id", "?"))
+            print(f"  {sid[:12]}  {str(s.get('created_at', ''))[:19]}  {str(s.get('summary', ''))[:48]}")
+        print("  查看: /history show <ID>")
 
     def _cmd_help(self) -> None:
         print("[斜杠命令]")
@@ -107,6 +207,7 @@ class SlashCommandProcessor:
         print("  /continue              恢复最近一次会话（等价启动参数 --continue）")
         print("  /tasks [add|start|done|all]  任务面板（对标 AtomCode：单 in_progress + 中断退回）")
         print("  /quit、/exit           退出")
+        print("  /history [N]           最近 N 条会话列表；/history show <id> 查看记录")
 
     def _cmd_compact(self) -> None:
         # 审计#9 修复:此前无论是否达阈值都谎报「已触发压缩」— 实际多数

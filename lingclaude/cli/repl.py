@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from lingclaude.cli.commands import SLASH_COMPLETER_WORDS, SlashCommandProcessor
 from lingclaude.cli.display import SessionSummary
-from lingclaude.cli.input_queue import InputQueue
+from lingclaude.cli.input_queue import EOF_SENTINEL, InputQueue
 from lingclaude.cli.interface import (
     _patch_pt_modifier_enter,
     create_session,
@@ -37,9 +37,14 @@ from lingclaude.cli.repl_io import (
     _flush_stream_line,
     _handle_stream_event,
     get_output_format,
+    set_stream_bridged,
 )
 from lingclaude.cli.full_tui import FullTuiSession
-from lingclaude.core.lineedit import add_history_line, ensure_readline
+from lingclaude.core.lineedit import (
+    add_history_line,
+    ensure_readline,
+    reset_terminal_key_modes,
+)
 from lingclaude.cli.repl_turn import (
     _feed_behavior_to_daemon,
     _maybe_run_daemon_cycle,
@@ -678,6 +683,30 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
     # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
     _wd = StreamWatchdog()
     _wd.start()
+    # P0-1（2026-09-20，TUI 优化方案）: P1 形态生成期流式输出进 PT 托管窗口。
+    # 根治「生成期输出冲乱输入行」：patch_stdout 的 StdoutProxy 用
+    # run_in_terminal（隐藏提示符→输出→重绘提示符）替代裸写互踩。
+    # 仅 P1 形态（PromptToolkitSession）启用；FullTui 有自家 _StdoutProxy
+    # （sys.stdout 已被接管，进 patch_stdout 反而会套娃）；Fallback 无 PT。
+    # AppSession 是 contextvars 全局默认实例（current.py:72 default 单例），
+    # 泵线程 app.run() 写 session.app 不经 ContextVar.set —— 主线程建的
+    # proxy 经 app_session.app 可见（已读源码验证，跨线程成立）。
+    _pt_bridge_ctx = None
+    _pt_bridged = isinstance(session, PromptToolkitSession)
+    if _pt_bridged:
+        try:
+            from contextlib import ExitStack
+
+            from prompt_toolkit.patch_stdout import patch_stdout as _pt_patch
+
+            _pt_bridge_ctx = ExitStack()
+            _pt_bridge_ctx.enter_context(_pt_patch())
+            set_stream_bridged(True)
+        except Exception:  # noqa: BLE001 — PT 版本差异时退回裸写（行为=改动前）
+            if _pt_bridge_ctx is not None:
+                _pt_bridge_ctx.close()
+                _pt_bridge_ctx = None
+            _pt_bridged = False
     try:
         # P0-Interrupt 残留修复（2026-09-16）: 失活重建路径 set 的 interrupt
         # 本意是唤醒阻塞中的 PT prompt，降级裸 input() 后没人清它，永久残留
@@ -701,8 +730,11 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 break
             if not got_first_token and event.get("type") in ("text_delta", "error"):
                 got_first_token = True
-                sys.stdout.write(" " * 40 + "\r")  # UI 对齐:清 40 列
-                sys.stdout.flush()
+                if not _pt_bridged:
+                    # UI 对齐:清 40 列（裸写路径专用；P0-1 桥接期 PT 代理无
+                    # 原地覆写语义，40 空格+CR 会成输出窗噪声行，跳过）
+                    sys.stdout.write(" " * 40 + "\r")
+                    sys.stdout.flush()
             _handle_stream_event(event)
             if event.get("type") == "round_end":
                 # 2026-09-15（会话问题重构 P1-1）: round 边界消费挂起队列。
@@ -748,6 +780,32 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         except Exception:  # noqa: BLE001 — 测试 ctx 可能无 pump
             pass
         _flush_stream_line()
+        # P0-3（2026-09-20，TUI 优化方案）: 生成结束唤醒审计 —— 流收尾后
+        # 若挂起队列仍有项且输入泵已停转/死亡，消费端将永远等不到下一轮
+        # prompt（「生成结束输入被吞、回车无响应」的长尾形态）。此处记录
+        # 现场并强制唤醒等待者（FullTui prompt 的 _submit_cond.notify_all /
+        # PT prompt 经 interrupt_event 唤醒），输入不静默蒸发。
+        try:
+            _pend = input_pump._q.pending() if input_pump is not None else 0
+        except Exception:  # noqa: BLE001 — 测试 ctx 可能无 pump/队列
+            _pend = 0
+        try:
+            if ctx.session is not None:
+                _ft_pending = getattr(ctx.session, "pending_submissions", None)
+                if callable(_ft_pending):
+                    _pend += int(_ft_pending() or 0)
+        except Exception:  # noqa: BLE001 — 非全屏会话无该接口
+            pass
+        if _pend > 0:
+            import logging as _log
+
+            _log.getLogger(__name__).warning(
+                "[P0-3] 流收尾仍有 %d 条挂起输入未消费（泵停转/死亡现场已留痕）", _pend
+            )
+            try:
+                ctx.session.interrupt_event().set()
+            except Exception:  # noqa: BLE001 — 唤醒失败不阻塞收尾
+                pass
         if _esc_thread is not None:
             _esc_stop.set()
         session.interrupt_event().clear()
@@ -771,6 +829,16 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                     )
                 except Exception:  # noqa: BLE001 — 面板刷新失败不影响主循环
                     pass
+        # P0-1 收尾：先摘桥（后续输出回裸写），再退出 patch_stdout
+        # （恢复 sys.stdout/sys.stderr 原对象）。必须在 finally —— 异常路径
+        # 不还原会让退出统计/下一轮 prompt 输出全部消失进 PT 代理。
+        if _pt_bridged:
+            set_stream_bridged(False)
+        if _pt_bridge_ctx is not None:
+            try:
+                _pt_bridge_ctx.close()
+            except Exception:  # noqa: BLE001 — 还原失败不阻塞收尾
+                _pt_bridge_ctx = None
     if response_content and not interrupted:
         # 2026-09-17 双写修复: 正常 done 时 engine._finalize_turn 已写入
         # _messages 镜像（H20 统一点，done.finalized=True）。此前 CLI 无条件
@@ -930,6 +998,14 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             ctx.saved_termios = termios.tcgetattr(sys.stdin.fileno())
         except Exception:  # noqa: BLE001 — 无 termios 平台静默跳过
             ctx.saved_termios = None
+
+    # 2026-09-20 方向键变字面字符修复：清掉前序进程残留的终端增强键模式
+    # （kitty 协议/焦点上报/鼠标上报）。残留来源：其他 TUI 程序异常退出不
+    # 复位 —— 终端随后把方向键发成 CSI u 序列，PT/readline 均不认识，
+    # 字面插进输入框。必须在 create_session 之前写（污染发生在本进程启动
+    # 之前）；非 TTY 静默跳过。详见 core/lineedit.py reset_terminal_key_modes。
+    if sys.stdin.isatty():
+        reset_terminal_key_modes()
 
     # RFC §3.3: I/O 抽象层 — LINGCLAUDE_CLI_MODE=plain 或非 TTY → FallbackSession
     # Step 3: Tab 补全（prompt_toolkit WordCompleter）
