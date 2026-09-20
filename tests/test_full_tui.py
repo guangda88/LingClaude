@@ -741,3 +741,47 @@ class TestTuiBurstAndMulti:
         repl_src = (root / "lingclaude" / "cli" / "repl.py").read_text(encoding="utf-8")
         assert "reader=lambda: _next_input(ctx)" in repl_src
         assert 'submit=lambda t: setattr(ctx, "queued_next", t)' in repl_src
+
+
+class TestStripAnsiText:
+    """输出侧 ANSI 清洗（_write_via_buffer 汇聚点，2026-09-20）。
+
+    症状：模型回复内嵌 rich SGR 序列落 TextArea，0x1b 被渲染成 '?'，
+    再漏出 '[1;4m' 明文噪声。快速路径须同时排除裸 C0（修复回归）。
+    """
+
+    @staticmethod
+    def _f():
+        from lingclaude.cli.interface import _strip_ansi_text
+        return _strip_ansi_text
+
+    def test_sgr_bold_underline(self):
+        assert self._f()("\x1b[1;4m标题\x1b[0m 正文") == "标题 正文"
+
+    def test_sgr_256color(self):
+        assert self._f()("\x1b[48;5;235m \x1b[0m\x1b[38;5;81mif\x1b[0m") == " if"
+
+    def test_truncated_csi_swallowed(self):
+        assert self._f()("AB\x1b[1;4") == "AB"
+
+    def test_ss3_swallowed(self):
+        assert self._f()("x\x1bOAy") == "xy"
+
+    def test_bare_c0_replaced(self):
+        assert self._f()("a\x00b\x07c\nd\te") == "a b c\nd\te"
+
+    def test_bare_c0_no_esc_not_fastpath(self):
+        # 2026-09-20 修复回归：无 ESC 但含 C0 不得走快速路径直通
+        assert self._f()("a\x00b") == "a b"
+
+    def test_plain_passthrough(self):
+        assert self._f()("plain text 中文") == "plain text 中文"
+
+    def test_bracketed_paste_marks(self):
+        assert self._f()("\x1b[200~abc\x1b[201~") == "abc"
+
+    def test_query_sequences(self):
+        assert self._f()("box\x1b[?25l\x1b[2 q\x1b[6nend") == "boxend"
+
+    def test_empty(self):
+        assert self._f()("") == ""

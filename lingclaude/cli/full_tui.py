@@ -39,7 +39,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from lingclaude.cli.input_queue import EOF_SENTINEL
-from lingclaude.cli.interface import _fallback_strip_ansi, _patch_pt_modifier_enter
+from lingclaude.cli.interface import (
+    _fallback_strip_ansi,
+    _patch_pt_modifier_enter,
+    _strip_ansi_text,
+)
 from lingclaude.engine.lineedit import add_history_line, ensure_readline
 
 # prompt_toolkit 为可选依赖 — 未安装时构造抛 RuntimeError（create_session 捕获回退）
@@ -452,6 +456,10 @@ class FullTuiSession:
     def _write_via_buffer(self, s: str) -> None:
         if not s:
             return
+        # 2026-09-20 乱码修复：append_output 直通路径此前无清洗，模型回复
+        # 内嵌 SGR 序列（\x1b[1;4m…）落 TextArea 被渲染成 '?[1;4m' 明文。
+        # 汇聚点统一剥 ANSI（stdout 代理已剥过，幂等无害）。
+        s = _strip_ansi_text(s)
         frag: list[str] = []
         with self._out_lock:
             for ch in s:

@@ -128,21 +128,27 @@ def _fallback_strip_ansi(data: bytes, in_paste: bool) -> tuple[bytes, bytes, boo
 def _strip_ansi_text(s: str) -> str:
     """字符串级 ANSI/控制序列剥离（写窗汇聚点统一清洗用）。
 
-    - CSI（\x1b[...final）/ SS3（\x1bO..）：整体吞；
+    - CSI（ESC[...final）/ SS3（ESCO..）：整体吞；
     - 孤立 ESC 或尾部截断序列：连同 ESC 一并吞（文本渲染语义下残骸比
-      半截参数更糟——TextArea 会把 0x1b 渲染成 '?'，再漏出 `[1;4m` 明文）；
-    - 其他 C0 控制字符（除 \n/\r/\t）替换为空，防 '?' 渲染噪声。
+      半截参数更糟——TextArea 会把 0x1b 渲染成 '?'，再漏出 '[1;4m' 明文）；
+    - 其他 C0 控制字符（除换行/回车/制表）替换为空格，防 '?' 渲染噪声。
+
+    2026-09-20 修复：原快速路径仅查 ESC，含裸 C0（NUL/BEL 等）但无
+    ESC 的字符串绕过清洗直落 TextArea，仍渲染 '?' 噪声——快速路径必须
+    同时确认无 C0 噪声才可直通。
     """
     if not s:
         return s
-    if "\x1b" not in s:
+    ESC = chr(27)
+    C0_KEEP = "\n\r\t"
+    if ESC not in s and not any(ord(ch) < 32 and ch not in C0_KEEP for ch in s):
         return s
     out: list[str] = []
     i = 0
     n = len(s)
     while i < n:
         ch = s[i]
-        if ch == "\x1b":
+        if ch == ESC:
             j = i + 1
             if j < n and s[j] == "[":
                 k = j + 1
@@ -155,7 +161,7 @@ def _strip_ansi_text(s: str) -> str:
                 continue
             i = j  # 孤立 ESC：吞
             continue
-        if ch != "\n" and ch != "\r" and ch != "\t" and ord(ch) < 32:
+        if ord(ch) < 32 and ch not in C0_KEEP:
             out.append(" ")
         else:
             out.append(ch)
