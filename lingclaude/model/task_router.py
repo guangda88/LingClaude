@@ -104,6 +104,31 @@ def _is_local_base(base_url: str) -> bool:
 _HARD_ERROR_RE = re.compile(r"\b(401|403|404|410)\b")
 _HARD_ERROR_COOLDOWN = 1800.0  # 30min
 
+# 2026-09-20: 硬性配额耗尽（GLM 1310 周期/月度限额，code 1308 5h 限额同类）——
+# 重置时刻在小时级，30min 冷却会在重置前到期反复撞墙。按错误文本里的
+# 重置时间戳熔断到该时刻（+60s 缓冲），期间路由直接走下一候选。
+# 解析失败退回 2h 默认冷却。
+_HARD_QUOTA_RE = re.compile(r"重置时间[^\d]*([\d-]+ [\d:]+)|(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[^\d]{0,8}重置")
+_HARD_QUOTA_FALLBACK_COOLDOWN = 7200.0  # 2h
+
+
+def _hard_quota_cooldown_seconds(error_detail: str) -> float | None:
+    """硬配额错误 → 距重置时刻的秒数；非硬配额或解析失败返回 None/退回值。"""
+    from lingclaude.model.retry import is_hard_quota_error
+    if not is_hard_quota_error(error_detail or ""):
+        return None
+    m = _HARD_QUOTA_RE.search(error_detail or "")
+    if m:
+        ts = m.group(1) or m.group(2)
+        try:
+            from datetime import datetime
+            reset_at = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+            delta = (reset_at - datetime.now()).total_seconds()
+            return max(delta + 60.0, 60.0)
+        except ValueError:
+            pass
+    return _HARD_QUOTA_FALLBACK_COOLDOWN
+
 
 # F12c:provider → 环境变量映射。lingcode/config.json 的 api_key 字段留空时,
 # 按此映射从环境变量兜底取 key。key 实际单点存放于 ~/.ling_keys.env
@@ -531,7 +556,19 @@ class TaskRouter:
         slot.consecutive_errors += 1
         slot.total_errors += 1
         slot.last_error_time = time.monotonic()
-        if _HARD_ERROR_RE.search(error_detail or ""):
+        # 2026-09-20: 硬配额耗尽优先于通用硬错误 —— 冷却到重置时刻（而非
+        # 统一 30min/2h），期间路由跳过该 provider，自动落到下一候选。
+        _quota_cd = _hard_quota_cooldown_seconds(error_detail or "")
+        if _quota_cd is not None:
+            slot.cooldown_until = time.monotonic() + _quota_cd
+            slot.consecutive_errors = 0
+            logger.warning(
+                "provider %s 熔断 %.0fmin（硬配额耗尽）— 路由跳过至配额重置，期间走下一候选",
+                provider_name, _quota_cd / 60.0,
+            )
+            # 探活缓存同步校准（429 绕行语义不再适用：配额已尽，探活必 429）
+            self._probe.invalidate(provider_name)
+        elif _HARD_ERROR_RE.search(error_detail or ""):
             slot.cooldown_until = time.monotonic() + _HARD_ERROR_COOLDOWN
             slot.consecutive_errors = 0
             logger.warning(
