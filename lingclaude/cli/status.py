@@ -118,6 +118,8 @@ def toolbar_fragments(s: StatusModel):
         frag.append(("", f"│ 上下文 {s.ctx_tokens}tok "))
     task_display = s.task if len(s.task) <= 40 else s.task[:39] + "…"
     frag.append(("", f"│ {s.turns}轮 │ {task_display}"))
+    # P1-4（2026-09-20）: 多行输入常驻提示（问题 3 的交互侧防线——键位记忆兜底）
+    frag.append(("", "│ Esc+Enter 换行 · /multi 多行 "))
     if s.pending > 0:
         frag.append(("class:accent", f" │ 挂起×{s.pending}"))
     # 2026-09-17 第3级b: 任务面板角落常驻 — 有活跃任务时右下角显示

@@ -28,9 +28,15 @@ SLASH_COMPLETER_WORDS = [
 class SlashCommandProcessor:
     """T1-7: 斜杠命令。handle() 返回 True 表示已消费；/quit /exit 置 quit_requested。"""
 
-    def __init__(self, engine: Any, status: Any) -> None:
+    def __init__(self, engine: Any, status: Any, reader: Any = None,
+                 submit: Any = None) -> None:
         self.engine = engine
         self.status = status
+        # P1-4（2026-09-20）:/multi 多行模式的读/提交通道 —— 必须由 repl 注入：
+        # reader 走 _next_input（pump/队列纪律，绝不直接 input()，H17 单读者教训）；
+        # submit 把多行文本回注 ctx.queued_next（主循环既有消费机制，零新竞态）。
+        self.reader = reader
+        self.submit = submit
         self.quit_requested = False
 
     def handle(self, cmd: str) -> bool:
@@ -44,6 +50,10 @@ class SlashCommandProcessor:
         # 且补全列表还在引导用户输入（F2 删 /undo 时漏掉的同类问题）。
         if name in ("/quit", "/exit"):
             self.quit_requested = True
+            return True
+        # P1-4（2026-09-20）: 显式多行输入模式 —— 不依赖 Esc+Enter 键位记忆
+        if name == "/multi":
+            self._cmd_multi()
             return True
         if name in ("/help", "/?"):
             self._cmd_help()
@@ -192,9 +202,48 @@ class SlashCommandProcessor:
             print(f"  {sid[:12]}  {str(s.get('created_at', ''))[:19]}  {str(s.get('summary', ''))[:48]}")
         print("  查看: /history show <ID>")
 
+    def _cmd_multi(self) -> None:
+        """P1-4（2026-09-20）: 显式多行输入模式。
+
+        逐行累积，单独一行 '.' 结束并提交，Ctrl+C/EOF 放弃。
+        读经 self.reader（_next_input 包装，pump/队列纪律，H17 单读者教训）；
+        提交经 self.submit 回注 ctx.queued_next，由主循环既有机制消费——
+        不直接碰 engine，不引入第二输入通道。
+        """
+        print("[多行模式] 逐行输入，单独一行 '.' 结束并提交；Ctrl+C 放弃")
+        lines: list[str] = []
+        while True:
+            try:
+                line = self.reader() if self.reader else None
+            except (EOFError, KeyboardInterrupt, StopIteration):
+                # StopIteration：generator 型 reader 耗尽 = EOF（场景B实测捕获，
+                # 不纳入会让异常炸穿 handle() 打断主循环）
+                print("[多行模式已放弃]")
+                return
+            if line is None:
+                # reader 不可用（未注入）或返回空——放弃并提示走 Esc+Enter
+                print("[多行模式] 读通道不可用，已放弃（提示：Esc+Enter 可换行）")
+                return
+            if line.strip() == ".":
+                break
+            lines.append(line)
+            if len(lines) >= 500:
+                print("[多行模式] 达 500 行上限，自动提交")
+                break
+        text = "\n".join(lines).strip()
+        if not text:
+            print("[多行模式] 空输入，已放弃")
+            return
+        if self.submit:
+            self.submit(text)
+            print(f"[多行模式] 已提交 {len(lines)} 行")
+        else:
+            print("[多行模式] 提交通道不可用，内容未提交（提示：Esc+Enter 可换行）")
+
     def _cmd_help(self) -> None:
         print("[斜杠命令]")
         print("  /help                  本帮助")
+        print("  /multi                 多行输入模式（'.' 结束提交；平时用 Esc+Enter 换行）")
         print("  /clear                 清空会话上下文")
         print("  /compact               手动压缩（未达阈值时明确提示）")
         print("  /model [名称]          查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复路由）")

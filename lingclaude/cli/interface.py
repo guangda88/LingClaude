@@ -125,6 +125,44 @@ def _fallback_strip_ansi(data: bytes, in_paste: bool) -> tuple[bytes, bytes, boo
     return bytes(out), hold, in_paste
 
 
+def _strip_ansi_text(s: str) -> str:
+    """字符串级 ANSI/控制序列剥离（写窗汇聚点统一清洗用）。
+
+    - CSI（\x1b[...final）/ SS3（\x1bO..）：整体吞；
+    - 孤立 ESC 或尾部截断序列：连同 ESC 一并吞（文本渲染语义下残骸比
+      半截参数更糟——TextArea 会把 0x1b 渲染成 '?'，再漏出 `[1;4m` 明文）；
+    - 其他 C0 控制字符（除 \n/\r/\t）替换为空，防 '?' 渲染噪声。
+    """
+    if not s:
+        return s
+    if "\x1b" not in s:
+        return s
+    out: list[str] = []
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if ch == "\x1b":
+            j = i + 1
+            if j < n and s[j] == "[":
+                k = j + 1
+                while k < n and not (0x40 <= ord(s[k]) <= 0x7E):
+                    k += 1
+                i = k + 1 if k < n else n  # 终结或截断：整体吞
+                continue
+            if j < n and s[j] == "O":
+                i = min(j + 2, n)
+                continue
+            i = j  # 孤立 ESC：吞
+            continue
+        if ch != "\n" and ch != "\r" and ch != "\t" and ord(ch) < 32:
+            out.append(" ")
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 
 def _sanitize_submitted(text: str) -> str:
     """P0-2 兜底：提交前剥离任何残留的 bracketed paste 包裹标记。
@@ -136,6 +174,68 @@ def _sanitize_submitted(text: str) -> str:
         return text.replace("\x1b[200~", "").replace("\x1b[201~", "")
     return text
 
+
+
+# ---------------------------------------------------------------------------
+# P0-5（2026-09-20）: 粘贴爆发重组器 —— 窗口期残留多行合并为单条提交。
+#
+# 根因：bracketed paste 标记只在 PT prompt 运行期间由终端开启；生成结束
+# （InputPump 停转/终端模式复位）到下轮 prompt 启动之间的「窗口期」里，
+# 粘贴的多行文本以裸 \n 进内核行缓冲，无 \x1b[200~/201~ 包裹。下轮读入时
+# 每个 \n 都被键位表解释为提交 → 多行文本拆成多轮单行命令（用户报告：
+# 「输入遇到换行符即传到 LLM」）。P0-2 状态机只处理带标记的粘贴段，
+# 对窗口期残留无能为力，故在提交入口补这道合并防线。
+#
+# 安全论证：仅在 canonical 模式下探测——canonical 下 select 可读 ⟹ 内核
+# 已按行缓冲交付完整行，不存在偷半行。raw 模式直接放行（PT 事件循环自理）。
+_BURST_GAP_MS = float(os.environ.get("LINGCLAUDE_BURST_GAP_MS", "30"))
+_BURST_MAX_LINES = 200
+_BURST_MAX_BYTES = 65536
+
+
+def _reconcile_burst_lines(first_line: str, _select: Any = None,
+                           _readline: Any = None,
+                           _tcgetattr: Any = None) -> str:
+    """首行读出后探测 tty 残留爆发段：行间隔 <LINGCLAUDE_BURST_GAP_MS
+    （默认 30ms，env 置 0 一键关闭）视为同一粘贴动作，合并为单条提交。
+
+    人手逐行敲（间隔 >100ms）不受影响；斜杠命令语义不变（合并段仍走
+    既有消费判定）。注入参数仅供测试替身使用。
+    """
+    if not first_line or _BURST_GAP_MS <= 0 or not sys.stdin.isatty():
+        return first_line
+    try:
+        import select as _sel
+        import termios as _tio
+
+        fd = sys.stdin.fileno()
+        attrs = (_tcgetattr or _tio.tcgetattr)(fd)
+        if not (attrs[3] & _tio.ICANON):
+            return first_line  # raw 模式：禁碰（PT 事件循环自理）
+        sel = _select or _sel.select
+        readline = _readline or sys.stdin.readline
+    except Exception:  # noqa: BLE001 — 非 tty/异常环境：不重组，原样返回
+        return first_line
+
+    gap = _BURST_GAP_MS / 1000.0
+    lines = [first_line]
+    total = len(first_line.encode("utf-8", "replace"))
+    try:
+        while len(lines) < _BURST_MAX_LINES and total < _BURST_MAX_BYTES:
+            r, _, _ = sel([fd], [], [], gap)
+            if not r:
+                break  # 静默：爆发段结束（或本就是人手输入）
+            line = readline()
+            if not line:
+                break  # EOF
+            line = line.rstrip("\n")
+            lines.append(line)
+            total += len(line.encode("utf-8", "replace"))
+    except Exception:  # noqa: BLE001 — 已收部分原样合并返回
+        pass
+    if len(lines) == 1:
+        return first_line
+    return "\n".join(lines)
 
 
 def _patch_pt_modifier_enter() -> None:
@@ -314,7 +414,8 @@ class PromptToolkitSession:
         if self._streaming:
             return ""
         try:
-            return _sanitize_submitted(self._session.prompt(message))
+            # P0-5（2026-09-20）: 窗口期粘贴爆发重组 —— 多行残留合并为单条提交
+            return _sanitize_submitted(_reconcile_burst_lines(self._session.prompt(message)))
         except KeyboardInterrupt:
             # Ctrl+C 软中断：清空当前输入，返回空串让上层继续。
             # 2026-09-15（会话问题重构 P0-2）：pump 模式下生成期 Ctrl+C 此前
@@ -361,7 +462,8 @@ class PromptToolkitSession:
             _was_streaming = self._streaming
             self._streaming = False
             try:
-                return _sanitize_submitted(self._session.prompt(message, in_thread=True))
+                # P0-5（2026-09-20）: 泵收集路径同样合并窗口期粘贴爆发
+                return _sanitize_submitted(_reconcile_burst_lines(self._session.prompt(message, in_thread=True)))
             finally:
                 self._streaming = _was_streaming
         except KeyboardInterrupt:
@@ -429,7 +531,8 @@ class FallbackSession:
         self._interrupt.clear()
         # 2026-09-16（TUI 输入泵问题修复）: streaming 期间非阻塞读。
         if self._streaming:
-            return _sanitize_submitted(self._nonblocking_readline(message))
+            # P0-5（2026-09-20）: 流式期间的窗口期残留同样合并（空串早退，契约不变）
+            return _sanitize_submitted(_reconcile_burst_lines(self._nonblocking_readline(message)))
         # 2026-09-18 方向键/历史修复：裸 input() 挂 readline —— 方向键/退格
         # 由 GNU readline 解释（不再 ^[[A 字面回显），行写入内存历史供上键翻。
         ensure_readline()
@@ -441,8 +544,10 @@ class FallbackSession:
             raise
         except KeyboardInterrupt:
             return ""
-        add_history_line(_line)
-        return _sanitize_submitted(_line)
+        # P0-5（2026-09-20）: 窗口期粘贴爆发重组 —— 多行残留合并为单条提交
+        _merged = _reconcile_burst_lines(_line)
+        add_history_line(_merged.split("\n", 1)[0])
+        return _sanitize_submitted(_merged)
 
     def _nonblocking_readline(self, message: str = "") -> str:
         """streaming 期间非阻塞读一行。
@@ -684,8 +789,10 @@ class FallbackSession:
             # 同样上键可翻；落盘仍由 repl 主循环 push_to_history 负责）。
             ensure_readline()
             _line = input(message)
-            add_history_line(_line)
-            return _sanitize_submitted(_line)
+            # P0-5（2026-09-20）: 泵收集路径同样合并窗口期粘贴爆发（历史记首行）
+            _merged = _reconcile_burst_lines(_line)
+            add_history_line(_merged.split("\n", 1)[0])
+            return _sanitize_submitted(_merged)
         finally:
             self._streaming = _was_streaming
 

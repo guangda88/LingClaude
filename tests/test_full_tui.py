@@ -577,3 +577,167 @@ class TestTuiOptimizationP2:
     def test_max_output_lines_expanded(self) -> None:
         # P2-2: 800 → 5000（长会话不再静默裁剪）
         assert MAX_OUTPUT_LINES == 5000
+
+
+class TestTuiBurstAndMulti:
+    """P0-5 粘贴爆发重组器 + P1-4 /multi 多行模式（2026-09-20）。
+
+    根因：窗口期（生成结束→下轮 prompt 启动）终端无 bracketed paste 包裹，
+    粘贴多行以裸 \\n 进内核行缓冲 → 下轮逐行解释成多轮提交（用户报告
+    「输入遇到换行符即传到 LLM，多行文被截为多轮单行命令」）。
+    """
+
+    class _FakeStdin:
+        """pytest 的 sys.stdin 无 fileno()（DontReadFromInput）→ 函数 except
+        分支会早退。整体替换为带 fileno 的假对象，真实走完 select 探测路径。"""
+
+        def __init__(self, tty: bool = True) -> None:
+            self._tty = tty
+
+        def isatty(self) -> bool:
+            return self._tty
+
+        def fileno(self) -> int:
+            return 0
+
+    @staticmethod
+    def _icanon() -> int:
+        import termios
+
+        return termios.ICANON
+
+    # ---- P0-5 重组器 ------------------------------------------------------
+
+    def test_reconcile_merges_burst(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lingclaude.cli import interface as iface
+
+        monkeypatch.setattr(iface.sys, "stdin", self._FakeStdin(True))
+        calls = {"n": 0}
+
+        def fake_select(*_a, **_k):
+            calls["n"] += 1
+            return ([1], [], []) if calls["n"] <= 2 else ([], [], [])
+
+        lines = iter(["第二行\n", "第三行\n"])
+        out = iface._reconcile_burst_lines(
+            "首行",
+            _select=fake_select,
+            _readline=lambda: next(lines),
+            _tcgetattr=lambda fd: [0, 0, 0, self._icanon()],
+        )
+        assert out == "首行\n第二行\n第三行"
+
+    def test_reconcile_silent_gap_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lingclaude.cli import interface as iface
+
+        monkeypatch.setattr(iface.sys, "stdin", self._FakeStdin(True))
+
+        def _boom():
+            raise AssertionError("静默间隔后不应继续读")
+
+        out = iface._reconcile_burst_lines(
+            "单行",
+            _select=lambda *_a: ([], [], []),
+            _readline=_boom,
+            _tcgetattr=lambda fd: [0, 0, 0, self._icanon()],
+        )
+        assert out == "单行"
+
+    def test_reconcile_raw_mode_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lingclaude.cli import interface as iface
+
+        monkeypatch.setattr(iface.sys, "stdin", self._FakeStdin(True))
+
+        def _boom():
+            raise AssertionError("raw 模式下禁碰（PT 事件循环自理）")
+
+        out = iface._reconcile_burst_lines(
+            "raw行",
+            _select=lambda *_a: ([1], [], []),
+            _readline=_boom,
+            _tcgetattr=lambda fd: [0, 0, 0, 0],
+        )
+        assert out == "raw行"
+
+    def test_reconcile_not_tty_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lingclaude.cli import interface as iface
+
+        monkeypatch.setattr(iface.sys, "stdin", self._FakeStdin(False))
+        assert iface._reconcile_burst_lines("非tty") == "非tty"
+
+    def test_reconcile_line_cap_200(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lingclaude.cli import interface as iface
+
+        monkeypatch.setattr(iface.sys, "stdin", self._FakeStdin(True))
+        n = {"i": 0}
+
+        def endless_readline():
+            n["i"] += 1
+            return f"L{n['i']}\n"
+
+        out = iface._reconcile_burst_lines(
+            "L0",
+            _select=lambda *_a: ([1], [], []),
+            _readline=endless_readline,
+            _tcgetattr=lambda fd: [0, 0, 0, self._icanon()],
+        )
+        assert out.count("\n") + 1 == iface._BURST_MAX_LINES
+
+    def test_reconcile_env_kill_switch(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from lingclaude.cli import interface as iface
+
+        monkeypatch.setattr(iface, "_BURST_GAP_MS", 0.0)
+        monkeypatch.setattr(iface.sys, "stdin", self._FakeStdin(True))
+        assert iface._reconcile_burst_lines("关闭重组") == "关闭重组"
+
+    # ---- P1-4 /multi ------------------------------------------------------
+
+    def test_multi_submits_joined_text(self) -> None:
+        from lingclaude.cli.commands import SlashCommandProcessor
+
+        captured: dict = {}
+        proc = SlashCommandProcessor(
+            SimpleNamespace(), SimpleNamespace(),
+            reader=iter(["第一行", "第二行", "."]).__next__,
+            submit=lambda t: captured.setdefault("text", t),
+        )
+        assert proc.handle("/multi") is True
+        assert captured["text"] == "第一行\n第二行"
+
+    def test_multi_eof_aborts_safely(self) -> None:
+        from lingclaude.cli.commands import SlashCommandProcessor
+
+        def _no_submit(_t):
+            raise AssertionError("EOF 放弃路径不应提交")
+
+        proc = SlashCommandProcessor(
+            SimpleNamespace(), SimpleNamespace(),
+            reader=iter(["line1"]).__next__,
+            submit=_no_submit,
+        )
+        assert proc.handle("/multi") is True
+
+    def test_multi_missing_reader_safe(self) -> None:
+        from lingclaude.cli.commands import SlashCommandProcessor
+
+        proc = SlashCommandProcessor(SimpleNamespace(), SimpleNamespace())
+        assert proc.handle("/multi") is True
+
+    def test_multi_quit_priority_untouched(self) -> None:
+        from lingclaude.cli.commands import SlashCommandProcessor
+
+        proc = SlashCommandProcessor(SimpleNamespace(), SimpleNamespace())
+        assert proc.handle("/quit") is True
+        assert proc.quit_requested is True
+
+    # ---- 接线守卫 ----------------------------------------------------------
+
+    def test_wiring_burst_hooks_and_multi_injection(self) -> None:
+        """P0-5 五个入口 hook 与 P1-4 repl 注入必须真实接线（防回归删线）。"""
+        root = Path(__file__).resolve().parent.parent
+        iface_src = (root / "lingclaude" / "cli" / "interface.py").read_text(encoding="utf-8")
+        # def 本体 + 5 个入口 hook（PT prompt/collect、Fallback streaming/阻塞、泵收集）
+        assert iface_src.count("_reconcile_burst_lines(") >= 6
+        repl_src = (root / "lingclaude" / "cli" / "repl.py").read_text(encoding="utf-8")
+        assert "reader=lambda: _next_input(ctx)" in repl_src
+        assert 'submit=lambda t: setattr(ctx, "queued_next", t)' in repl_src

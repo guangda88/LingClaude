@@ -986,7 +986,7 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
 
     if get_output_format() == "plain":
         print(_logo_render(version, "交互模式"))
-        print(f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，Ctrl+C 清行）")
+        print(f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，Ctrl+C 清行；Esc+Enter 或 /multi 多行输入）")
         print(f"Provider: {_provider_status(engine)}")
         print()
 
@@ -1049,7 +1049,14 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     except Exception:  # noqa: BLE001 — token 估算失败不阻塞交互启动
         pass
     ctx.input_queue = InputQueue()
-    ctx.processor = SlashCommandProcessor(engine, status)
+    # P1-4（2026-09-20）: /multi 读/提交通道注入 —— reader 复用 _next_input
+    # （pump/降级纪律单源），submit 回注 ctx.queued_next（主循环 :1140 既有
+    # 消费机制），不新增输入通道、不碰 stdin。
+    ctx.processor = SlashCommandProcessor(
+        engine, status,
+        reader=lambda: _next_input(ctx),
+        submit=lambda t: setattr(ctx, "queued_next", t),
+    )
     ctx.input_pump = InputPump(session, ctx.input_queue, prompt_text=lambda: _status_prompt(ctx))
     ctx.pump_mode = False
 
@@ -1087,7 +1094,7 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
                 session.append_output(
                     _logo_render(version, "交互模式")
                     + f"灵克 v{version} — 交互模式（'exit'/'quit'/Ctrl+D 退出，"
-                    "Ctrl+C 中断/清行）\n"
+                    "Ctrl+C 中断/清行；Esc+Enter 或 /multi 多行输入）\n"
                     + f"Provider: {_provider_status(engine)}\n"
                 )
             ctx.input_pump.start()
