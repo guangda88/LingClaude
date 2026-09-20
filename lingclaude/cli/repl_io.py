@@ -59,6 +59,23 @@ def set_stream_bridged(bridged: bool) -> None:
     _stream_bridged = bool(bridged)
 
 
+# 乱码第四路径修复（2026-09-20）：全屏 TUI 托管旗标。
+# 症状：每条回复生成完毕时 repl_io.py done 分支调 print_markdown(content)
+# 用 rich 重渲染「正式版」，而 display.py:49 的 Console(stderr=True) 把带
+# SGR 的渲染结果写进 stderr 直达真实终端——完全绕开 stdout 侧全部清洗
+# （proxy/append_output/回放/stream_write 四处），全屏 TextArea 里 0x1b
+# 渲染成 '?' 再漏 '[48;5;235m' 明文（rich Markdown 代码块底色指纹）。
+# 处置：全屏 TUI 下输出窗已有流式全文，done 重渲染冗余且必乱 → 跳过；
+# plain 单行模式不走此旗标，保留 rich 彩色渲染（真实终端上是设计意图）。
+_full_tui_managed = False
+
+
+def set_full_tui_managed(managed: bool) -> None:
+    """全屏 TUI 会话启动/收尾时由 repl.py 调用（:1028 安装输出源处）。"""
+    global _full_tui_managed
+    _full_tui_managed = bool(managed)
+
+
 def _stream_write(s: str) -> None:
     """流式输出统一出口：PT 托管期写代理，其余清洗后裸写并 flush。
 
@@ -267,7 +284,9 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         # 新策略:TTY 下不再用 ANSI cursor 操作(保留 raw stream 输出),改用 Rich 的
         # `erase + replace` 在底部追加正式版,而非覆盖——避免与 PT 的 toolbar 控制权冲突。
         content = event.get("content", "")
-        if content and sys.stdout.isatty():
+        # 乱码第四路径守卫：全屏 TUI 下输出窗已有流式全文，rich 重渲染经
+        # stderr 直达终端（绕开 stdout 全部清洗）→ 跳过，只补空行收尾。
+        if content and sys.stdout.isatty() and not _full_tui_managed:
             # ANSI 光标下移一行(到达 stream 输出末尾之下),再向上滚回渲染
             # ——比上移 N 行覆盖安全(N 不必精确)
             _stream_write("\x1b[1B\n")

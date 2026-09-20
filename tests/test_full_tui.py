@@ -814,3 +814,68 @@ class TestAnsiStripSecondPath:
         monkeypatch.setattr(sys, "stdout", buf)
         repl_io._stream_write("\x1b[1;4m加粗\x1b[0m 正文\x1b[48;5;235m")
         assert buf.getvalue() == "加粗 正文"
+
+
+class TestAnsiStripFourthPath:
+    """乱码修复第四路径回归（2026-09-20）。
+
+    症状：done 事件在 TTY 下调 print_markdown(content) 用 rich 重渲染
+    「正式版」，display.py Console(stderr=True) 使带 SGR 的渲染结果直达
+    真实终端（stderr 绕开 stdout 清洗链），全屏 TextArea 里 0x1b → '?'，
+    参数 '[48;5;235m' 漏成明文。修复：全屏 TUI 托管期跳过重渲染。
+    """
+
+    def test_done_skips_markdown_when_full_tui_managed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import io as _io
+
+        from lingclaude.cli import repl_io
+
+        repl_io.set_full_tui_managed(True)
+        repl_io.set_stream_bridged(False)
+        buf = _io.StringIO()
+        calls: list[str] = []
+
+        class _SpyTty(_io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        fake = _SpyTty()
+        monkeypatch.setattr(sys, "stdout", fake)
+        monkeypatch.setattr(
+            "lingclaude.cli.render_facade.print_markdown",
+            lambda text: calls.append(text),
+        )
+        try:
+            repl_io._handle_stream_event(
+                {"type": "done", "content": "\x1b[1;4m标题\x1b[0m 正文"}
+            )
+        finally:
+            repl_io.set_full_tui_managed(False)
+        assert calls == []  # 全屏托管：rich 重渲染被跳过
+        assert "标题" not in fake.getvalue()  # content 不再经任何通道落 stdout
+
+    def test_done_renders_markdown_when_not_managed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import io as _io
+
+        from lingclaude.cli import repl_io
+
+        repl_io.set_full_tui_managed(False)
+        repl_io.set_stream_bridged(False)
+        calls: list[str] = []
+
+        class _SpyTty(_io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        fake = _SpyTty()
+        monkeypatch.setattr(sys, "stdout", fake)
+        monkeypatch.setattr(
+            "lingclaude.cli.render_facade.print_markdown",
+            lambda text: calls.append(text),
+        )
+        repl_io._handle_stream_event({"type": "done", "content": "# 标题"})
+        assert calls == ["# 标题"]  # plain 模式：正版渲染保留

@@ -38,6 +38,7 @@ from lingclaude.cli.repl_io import (
     _handle_stream_event,
     get_output_format,
     set_stream_bridged,
+    set_full_tui_managed,
 )
 from lingclaude.cli.full_tui import FullTuiSession
 from lingclaude.engine.lineedit import (
@@ -622,6 +623,8 @@ def _shutdown_pump(ctx: _ReplCtx) -> None:
     _pump_mode = ctx.pump_mode
     input_pump = ctx.input_pump
     session = ctx.session
+    # 乱码第四路径守卫收尾：复位全屏托管旗标（同进程再建会话不残留）。
+    set_full_tui_managed(False)
     if not _pump_mode:
         return
     input_pump.stop()
@@ -1026,6 +1029,9 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     _is_full_tui_session_obj = isinstance(session, FullTuiSession)
     if _is_full_tui_session_obj:
         session.install_output_source(_full_tui_output_source(engine))
+        # 乱码第四路径守卫接线（2026-09-20）：全屏 TUI 托管期，repl_io done
+        # 分支跳过 rich Markdown 重渲染（stderr 直通终端，绕过 stdout 清洗链）。
+        set_full_tui_managed(True)
 
     # H17-TUI: 状态栏 + 挂起队列接线 — 设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md
     # 组件（status.py/input_queue.py/interface.py）此前已就绪但从未被接线。
