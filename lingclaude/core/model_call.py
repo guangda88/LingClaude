@@ -294,6 +294,15 @@ class ModelCallMixin:
         messages = self._build_messages(prompt)
         tools = self._build_openai_tools(query=prompt)
         resolved_config, decision = self._resolve_model_config(prompt)
+        # P1（2026-09-20，atomcode inflight 快照借鉴）: turn_start 即落 checkpoint
+        # —— 「用户按下回车那一刻，数据已在磁盘上」。此前 checkpoint 只在工具轮
+        # 完成后写（R5 阶段1），纯文本回复全程 0 落盘：首 token 前 kill/崩溃
+        # → 用户输入与已建 messages 全丢。现于首模型请求前写 round=-1 checkpoint，
+        # 崩溃后 resume_interrupted 至少能把本轮 prompt 恢复出来。
+        try:
+            self._save_checkpoint(messages, -1, prompt, False, 0, 0)
+        except Exception as e:  # noqa: BLE001 — inflight 落盘是 best-effort，不阻塞主流程
+            logger.warning("turn_start checkpoint failed (non-blocking): %s", e)
         # LINGKERNEL_v1 D3: MV-1 上线 - 发模型前先落 log, 发完断言可重建
         mv1_seq = self._log_model_request(prompt, messages, tools)
         # D8 双点校验之一: pre-send fail-closed (不可重建则不发)
@@ -483,6 +492,14 @@ class ModelCallMixin:
         messages = self._build_messages(prompt)
         tools = self._build_openai_tools()
         resolved_config, _ = self._resolve_model_config(prompt)
+        # P1（2026-09-20，atomcode inflight 快照借鉴）: turn_start 即落 checkpoint
+        # —— 与 _call_model 同语义，覆盖流式路径（CLI 交互全部走这里）。
+        # 此前流式路径 checkpoint 只在工具轮后写（R5 阶段1），纯文本回复
+        # 全程 0 落盘；首 token 前 kill → 本轮输入丢失。
+        try:
+            self._save_checkpoint(messages, -1, prompt, False, 0, 0)
+        except Exception as e:  # noqa: BLE001 — best-effort，不阻塞主流程
+            logger.warning("turn_start checkpoint failed (non-blocking): %s", e)
         used_tools = False
         response_content = ""
         total_input = 0

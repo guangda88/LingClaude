@@ -22,6 +22,8 @@ SLASH_COMPLETER_WORDS = [
     "/tasks",
     # 2026-09-20: 会话历史查看（TUI 优化方案 P2-1，cc 建议）—— 退出后回看入口
     "/history",
+    # 2026-09-20: P3 全量重绘输出窗（atomcode invalidate 借鉴）
+    "/resync",
 ]
 
 
@@ -54,6 +56,10 @@ class SlashCommandProcessor:
         # P1-4（2026-09-20）: 显式多行输入模式 —— 不依赖 Esc+Enter 键位记忆
         if name == "/multi":
             self._cmd_multi()
+            return True
+        # P3（2026-09-20，atomcode invalidate 借鉴）: 全量重绘输出窗
+        if name == "/resync":
+            self._cmd_resync()
             return True
         if name in ("/help", "/?"):
             self._cmd_help()
@@ -239,6 +245,24 @@ class SlashCommandProcessor:
             print(f"[多行模式] 已提交 {len(lines)} 行")
         else:
             print("[多行模式] 提交通道不可用，内容未提交（提示：Esc+Enter 可换行）")
+
+    def _cmd_resync(self) -> None:
+        """P3（2026-09-20，atomcode invalidate 借鉴）: 全量重绘输出窗。
+
+        场景：resize 后怀疑失步 / 回放区有残留噪声 / 想强制刷新。
+        实现从 output_source（会话历史）整体重建文档——用户无需知道
+        哪条渲染路径漏了，一个原语兜底所有失步场景。
+        """
+        session = getattr(self, "session", None)
+        resync = getattr(session, "resync", None)
+        if callable(resync):
+            try:
+                resync()
+                print("[输出窗已重绘]")
+            except Exception as e:  # noqa: BLE001 — 重绘失败不阻塞会话
+                print(f"[重绘失败] {e}")
+        else:
+            print("[重绘] 当前会话类型不支持（仅全屏 TUI 可用）")
 
     def _cmd_help(self) -> None:
         print("[斜杠命令]")

@@ -562,6 +562,18 @@ class FullTuiSession:
         """注入输出窗初始内容来源（会话历史行）。"""
         self._output_source = source
 
+    def resync(self) -> None:
+        """P3 全量重绘原语（2026-09-20，atomcode invalidate 借鉴）。
+
+        终端状态可疑（resize/怀疑渲染失步/想强制刷新回放）时，调用方
+        无需知道哪条路径漏了——直接从 output_source 重建整个输出窗文档
+        并触发重绘。一个原语覆盖所有「窗口内容 vs 期望状态」失步场景，
+        替代逐路径打补丁。线程安全性同 _write_via_buffer（主线程调用
+        最佳；他线程调用经 _invalidate 请求重绘，文档替换本身幂等）。
+        """
+        self._refresh_output_area()
+        self._invalidate()
+
     # ── 内部 ──
 
     def _refresh_output_area(self) -> None:

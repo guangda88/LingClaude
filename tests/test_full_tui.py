@@ -879,3 +879,184 @@ class TestAnsiStripFourthPath:
         )
         repl_io._handle_stream_event({"type": "done", "content": "# 标题"})
         assert calls == ["# 标题"]  # plain 模式：正版渲染保留
+
+
+class TestAtomcodeP123:
+    """atomcode 三借鉴回归（2026-09-20）：inflight 快照 / 单一输出 owner / resync。"""
+
+    # ── P1: turn_start 即落 checkpoint（round=-1）──
+
+    def test_stream_turn_start_writes_checkpoint(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """流式 turn 开始时（首 token 前）必须已写 round=-1 checkpoint。"""
+        from types import SimpleNamespace as NS
+        from lingclaude.core.model_call import ModelCallMixin
+
+        saved: list[tuple] = []
+        order: list[str] = []
+
+        class _Eng(ModelCallMixin):
+            def __init__(self) -> None:
+                self.session_id = "t123"
+                self._messages = ["hi"]  # _build_messages 后的形态占位
+
+            def _build_messages(self, prompt: str) -> list:
+                return ["u", "s", prompt]
+
+            def _build_openai_tools(self, query: str = "") -> list:
+                return []
+
+            def _resolve_model_config(self, prompt: str) -> tuple:
+                return (None, None)
+
+            def _save_checkpoint(self, messages, round_idx, prompt, used_tools, ti, to, tag=None):
+                saved.append((round_idx, prompt, tuple(messages)))
+
+            def _provider_stream(self, *a, **k):
+                yield {"type": "finish", "usage": None}
+                yield {"type": "done"}
+
+        eng = _Eng()
+        # provider 首事件即 finish(usage=None) + done 前 engine 需要 finalize 链，
+        # 但本测试只关心「checkpoint 先于 provider」——provider 首次调用即抛
+        # 哨兵异常截断生成器，避免拖入 finalize 全家桶 stub。
+        class _Sentinel(Exception):
+            pass
+
+        def _provider_stream(*a, **k):
+            order.append("provider")
+            raise _Sentinel
+
+        eng._provider = type("P", (), {"stream_complete": staticmethod(_provider_stream)})()
+        orig_save = eng._save_checkpoint
+
+        def _spy_save(*a, **k):
+            order.append("checkpoint")
+            orig_save(*a, **k)
+
+        eng._save_checkpoint = _spy_save  # type: ignore[method-assign]
+        try:
+            list(eng.stream_call_model("你好"))
+        except _Sentinel:
+            pass
+        assert order == ["checkpoint", "provider"], "checkpoint 必须先于 provider 调用"
+        assert saved and saved[0][0] == -1 and saved[0][1] == "你好"
+        assert "你好" in saved[0][2]
+
+    def test_sync_turn_start_writes_checkpoint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """非流式 _call_model 同语义：round=-1 checkpoint 先于 provider。"""
+        from lingclaude.core.model_call import ModelCallMixin
+
+        saved: list[tuple] = []
+
+        class _Eng(ModelCallMixin):
+            def __init__(self) -> None:
+                self.session_id = "t123s"
+
+            def _build_messages(self, prompt: str) -> list:
+                return ["u", prompt]
+
+            def _build_openai_tools(self, query: str = "") -> list:
+                return []
+
+            def _resolve_model_config(self, prompt: str) -> tuple:
+                return (None, None)
+
+            def _save_checkpoint(self, messages, round_idx, prompt, used_tools, ti, to, tag=None):
+                saved.append((round_idx, prompt))
+
+            def _log_model_request(self, prompt, messages, tools):
+                saved.append(("model_request", prompt))
+                return 0
+
+            def _pre_send_check(self, seq, messages):
+                return False  # fail-closed：到此即返回，验证 checkpoint 已落
+
+            def _log_to_flywheel(self, *a, **k):
+                pass
+
+        eng = _Eng()
+        eng._provider = None
+        out = eng._call_model("同步路径")
+        assert saved[0][0] == -1 and saved[0][1] == "同步路径"
+        assert "MV-1 fail-closed" in out  # 走到了 fail-closed，说明 checkpoint 先落
+
+    # ── P2: 单一输出 owner（display Console 选路）──
+
+    def test_display_console_routes_stdout_when_managed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """全屏托管期 rich Console 应写 sys.stdout（代理），而非 stderr 直通。"""
+        from lingclaude.cli import display, repl_io
+
+        repl_io.set_full_tui_managed(True)
+        try:
+            console = display._get_console()
+            assert console.file is sys.stdout
+        finally:
+            repl_io.set_full_tui_managed(False)
+
+    def test_display_console_stderr_when_not_managed(self) -> None:
+        """plain 模式（未托管）保持 stderr 直通——彩色正式版是设计意图。"""
+        from lingclaude.cli import display, repl_io
+
+        repl_io.set_full_tui_managed(False)
+        console = display._get_console()
+        import sys as _s
+        assert console.file is _s.stderr
+
+    def test_is_full_tui_managed_flag_roundtrip(self) -> None:
+        from lingclaude.cli import repl_io
+
+        repl_io.set_full_tui_managed(True)
+        assert repl_io.is_full_tui_managed() is True
+        repl_io.set_full_tui_managed(False)
+        assert repl_io.is_full_tui_managed() is False
+
+    # ── P3: resync 全量重绘原语 ──
+
+    def test_resync_rebuilds_and_strips(
+        self, _pt_available: None, tmp_path: Path
+    ) -> None:
+        """resync() 从 output_source 重建文档 + 剥 SGR + 请求重绘。"""
+        s = FullTuiSession(history_file=str(tmp_path / "h"))
+        invalidated: list[bool] = []
+        s.install_output_source(
+            lambda: ["干净行", "\x1b[1;4m脏行\x1b[0m", "\x1b[48;5;235m底色\x1b[0m"]
+        )
+        s._app = None  # 未启动态：_invalidate 内部自静默
+        s.resync()
+        text = s._out_buffer.text
+        assert "干净行" in text
+        assert "\x1b" not in text, "resync 后不允许残留任何 ESC"
+        assert "脏行" in text and "底色" in text
+        assert not hasattr(s, "_resync_marker")  # 幂等：重复调用安全
+        s.resync()  # 二次调用不抛
+
+    def test_resync_cmd_dispatch(self, capsys: pytest.CaptureFixture) -> None:
+        """/resync 斜杠命令：有 resync 的会话被调用，无 resync 的提示降级。"""
+        from types import SimpleNamespace as NS
+
+        from lingclaude.cli.commands import SlashCommandProcessor
+
+        calls: list[bool] = []
+
+        class _SessionWithResync:
+            def resync(self) -> None:
+                calls.append(True)
+
+        proc = SlashCommandProcessor(engine=NS(), status=NS())
+        proc.session = _SessionWithResync()
+        assert proc.handle("/resync") is True
+        assert calls == [True]
+        assert "已重绘" in capsys.readouterr().out
+
+        proc2 = SlashCommandProcessor(engine=NS(), status=NS())
+        proc2.session = NS()  # 无 resync 方法
+        assert proc2.handle("/resync") is True
+        assert "不支持" in capsys.readouterr().out
+
+        proc3 = SlashCommandProcessor(engine=NS(), status=NS())
+        assert proc3.handle("/resync") is True  # session 未注入也安全降级
+        assert "不支持" in capsys.readouterr().out

@@ -128,6 +128,16 @@ class SessionStore:
             except OSError:
                 pass
         self._active_checkpoint = None
+        # P1 (2026-09-20, atomcode inflight 借鉴): turn_start 的 round=-1 快照写
+        # 主文件 `{session_id}.json`（无 tag，round<0 不打 round 标签）——崩溃恢复
+        # 的介质正是主文件。done 正常完成时必须连带清掉它，否则残留到下一轮，
+        # 下轮 turn_start 未写前 load 会读到上轮陈旧快照（错误恢复点）。
+        main_cp = self._checkpoint_dir / f"{self.session_id}.json"
+        if main_cp.exists():
+            try:
+                main_cp.unlink()
+            except OSError:
+                pass
 
     def save_checkpoint(
         self,

@@ -1063,6 +1063,8 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
         reader=lambda: _next_input(ctx),
         submit=lambda t: setattr(ctx, "queued_next", t),
     )
+    # P3（2026-09-20）: /resync 需要访问会话对象（全屏 TUI 的 resync 原语）。
+    ctx.processor.session = session
     ctx.input_pump = InputPump(session, ctx.input_queue, prompt_text=lambda: _status_prompt(ctx))
     ctx.pump_mode = False
 

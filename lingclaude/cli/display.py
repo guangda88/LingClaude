@@ -46,6 +46,18 @@ class QualityReport:
 
 def _get_console() -> Any:
     if _HAS_RICH:
+        # P2 单一输出 owner（2026-09-20，atomcode 借鉴）：Console(stderr=True)
+        # 是乱码第四路径的根——stderr 直达真实终端，绕开 stdout 侧全部清洗
+        # （proxy/append_output/回放/stream_write）。现全屏 TUI 托管期改走
+        # sys.stdout（此时已被 FullTuiSession 的 _StdoutProxy 接管，渲染片段
+        # 进输出窗 → 统一经 _strip_ansi_text 清洗）；plain 模式 stdout 是真实
+        # 终端（isatty），维持 stderr 直通语义不变（彩色正式版是设计意图）。
+        import sys
+
+        from lingclaude.cli.repl_io import is_full_tui_managed
+
+        if is_full_tui_managed():
+            return Console(theme=_THEME, file=sys.stdout, force_terminal=False)
         return Console(theme=_THEME, stderr=True)
     return None
 

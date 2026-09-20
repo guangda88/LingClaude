@@ -76,6 +76,15 @@ def set_full_tui_managed(managed: bool) -> None:
     _full_tui_managed = bool(managed)
 
 
+def is_full_tui_managed() -> bool:
+    """P2 单一输出 owner（2026-09-20）：display._get_console 据此选路。
+
+    True = 全屏 TUI 托管期 → rich Console 应写 sys.stdout（已被
+    _StdoutProxy 接管，片段进输出窗统一清洗），而非 stderr 直通终端。
+    """
+    return _full_tui_managed
+
+
 def _stream_write(s: str) -> None:
     """流式输出统一出口：PT 托管期写代理，其余清洗后裸写并 flush。
 
