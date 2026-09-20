@@ -580,8 +580,13 @@ class FullTuiSession:
         注意：文本末尾**不加**换行 —— 否则光标钉文末时落在幻影空行上，
         cursor_position_row = line_count（比最后一行实际行号大 1），滚动
         计算会整体偏 1。
+
+        2026-09-20 乱码修复（第二路径）：历史回放（_refresh_output_area）
+        的行来自会话 transcript，可能含模型回复内嵌的 SGR 序列——此前
+        唯一未清洗的 set_document 入口，重启回放后 0x1b 渲染成 '?' 再漏
+        明文。与 _write_via_buffer 同用一剥离器（幂等，双洗无害）。
         """
-        text = "\n".join(lines)
+        text = "\n".join(_strip_ansi_text(line) for line in lines)
         self._out_buffer.set_document(Document(text, 0), bypass_readonly=True)
         self._out_buffer.cursor_position = len(text)
         self._follow_output = True

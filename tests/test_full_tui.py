@@ -785,3 +785,32 @@ class TestStripAnsiText:
 
     def test_empty(self):
         assert self._f()("") == ""
+
+
+class TestAnsiStripSecondPath:
+    """乱码修复第二/三路径回归（2026-09-20）。
+
+    症状二：重启后历史回放（_refresh_output_area → _set_output_lines）
+    把 transcript 里带 SGR 的模型回复原样灌进 TextArea，0x1b 渲染成
+    '?' 再漏 '[1;4m' 明文。
+    症状三：repl_io._stream_write 非托管期裸写分支不清洗。
+    """
+
+    def test_history_replay_strips_sgr(self, _pt_available: None, tmp_path: Path) -> None:
+        s = FullTuiSession(history_file=str(tmp_path / "h"))
+        s._set_output_lines(["plain", "\x1b[1;4m标题\x1b[0m 正文", "\x1b[48;5;235m x\x1b[0m"])
+        text = s._out_buffer.text  # noqa: SLF001
+        assert "标题 正文" in text
+        assert "\x1b" not in text
+        assert "[1;4m" not in text
+
+    def test_stream_write_unbridged_strips_sgr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import io as _io
+
+        from lingclaude.cli import repl_io
+
+        repl_io.set_stream_bridged(False)
+        buf = _io.StringIO()
+        monkeypatch.setattr(sys, "stdout", buf)
+        repl_io._stream_write("\x1b[1;4m加粗\x1b[0m 正文\x1b[48;5;235m")
+        assert buf.getvalue() == "加粗 正文"

@@ -60,7 +60,17 @@ def set_stream_bridged(bridged: bool) -> None:
 
 
 def _stream_write(s: str) -> None:
-    """流式输出统一出口：PT 托管期写代理，其余裸写并 flush。"""
+    """流式输出统一出口：PT 托管期写代理，其余清洗后裸写并 flush。
+
+    2026-09-20 乱码修复：非托管期裸写分支此前不清洗，模型回复内嵌
+    SGR（\\x1b[1;4m…）直落终端/下游。模型文本中的转义序列是「数据」
+    而非渲染指令，统一剥除（与 full_tui._write_via_buffer 同一剥离器，
+    幂等无害）。已知边界：SGR 序列恰被 chunk 边界切开时会漏出末段残片
+    （如 "m"），概率低且噪声量级远小于完整序列，先修大头留观察。
+    """
+    from lingclaude.cli.interface import _strip_ansi_text  # 函数内延迟 import 防环
+
+    s = _strip_ansi_text(s)
     if _stream_bridged and sys.stdout is not None:
         try:
             sys.stdout.write(s)
