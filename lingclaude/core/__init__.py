@@ -32,13 +32,10 @@ from lingclaude.core.topic_stack import (
 )
 from lingclaude.core.topic_drift_detector import TopicDriftStatus
 
-from lingclaude.core.handover import (
-    HANDOVER_VERSION,
-    TaskSource,
-    Checkpoint, InfrastructureEntry,
-    HandoverV2, HandoverWriter, HandoverReader,
-)
-from lingclaude.core.handover import TaskStatus as HandoverTaskStatus
+# 2026-09-20 P3-7 承接搬移：handover 出 core 入 lingmemory（注册表 checkpoint 类型，
+# lingmemory/type_registry.yaml:1516「P3-7 会话检查点（承接 core/handover.py）」）。
+# 语义兼容走文件尾 __getattr__ 惰性转发（同 fact_checker 先例），
+# `from lingclaude.core import HandoverWriter` 等旧引用不变。
 
 from lingclaude.core.lm_quick import lm_done, lm_block, lm_status
 
@@ -221,4 +218,10 @@ def __getattr__(name: str):
         import importlib
         _fc = importlib.import_module("lingclaude.core.fact_checker")
         return getattr(_fc, name)
+    # 2026-09-20 P3-7 承接搬移：handover 符号惰性转发至 lingmemory.handover
+    if name in ("HANDOVER_VERSION", "TaskSource", "Checkpoint", "InfrastructureEntry",
+                "HandoverV2", "HandoverWriter", "HandoverReader", "HandoverTaskStatus"):
+        import importlib
+        _ho = importlib.import_module("lingmemory.handover")
+        return getattr(_ho, "TaskStatus") if name == "HandoverTaskStatus" else getattr(_ho, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

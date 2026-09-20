@@ -1513,7 +1513,7 @@ knowledge_record:
       type: int
       description: 被应用次数
 checkpoint:
-  description: P3-7 会话检查点（承接 core/handover.py）
+  description: P3-7 会话检查点（实现：lingmemory/handover.py，2026-09-20 自 core/handover.py 承接迁入）
   default_state: created
   states:
   - created

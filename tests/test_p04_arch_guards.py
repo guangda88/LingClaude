@@ -259,7 +259,8 @@ J4_MEDIA_OWNERS = {"core/state_store.py"}
 # governance/governance_v2 提案存储为 2026-09-17 对账新收编——审计所称
 # 「9 处直写盲区」逐行核对后确认清单内 12 处全为豁免导出物，真实盲区仅此一处）
 J4_STATE_MODULES = [
-    "core/handover.py", "core/layered_memory.py", "core/memory_engine.py",
+    # 2026-09-20 P3-7：core/handover.py 已迁 lingmemory/handover.py，出列
+    "core/layered_memory.py", "core/memory_engine.py",
     "core/session.py", "core/task_aggregation.py", "core/governance_verifier.py",
     "core/topic_stack.py", "core/reasoning_chain.py", "core/governance.py",
     "core/meta_cognition.py", "core/query_engine.py",
@@ -282,7 +283,7 @@ J4_KNOWN_DIRECT = {
 # 注意：读文件兼容回退（json.loads(path.read_text(...))）不构成「私连存储介质」——
 #       读旧数据是迁移期允许的兜底（StateStore 自身也读 json），守卫只盯【写】直连。
 J4_EXPORT_VIEWS = {
-    "core/handover.py": [337, 338, 339, 340],
+    # 2026-09-20 P3-7：core/handover.py 已迁 lingmemory/handover.py，出列（debt handover-export-view-j4 已 resolve）
     # layered_memory 文件兜底（StateStore 写入失败时的导出物/兼容回退，非状态主通道）
     "core/layered_memory.py": [553],
     # session 文件仓库导出视图（save 的原子写 + snapshot 导出物；list/rewind 介质）
@@ -360,7 +361,7 @@ def test_g10b_export_view_exemptions_must_carry_debt():
     该检查直接查询台账（守卫即台账查询的执行点）：
       data/arch_ledger/arch_debt/<slug>.json, state=open, due >= today
     J4_EXPORT_VIEWS 每个文件 → 期望 debt slug：
-      core/handover.py → handover-export-view-j4
+      （2026-09-20 P3-7：core/handover.py 已迁出，handover-export-view-j4 已 resolve）
       其余文件共用 slug 后缀 -export-view-j4-migration（未挂账则列出待补）。
     """
     from datetime import date as _date
@@ -379,7 +380,8 @@ def test_g10b_export_view_exemptions_must_carry_debt():
         return rec.get("state") == "open" and rec.get("due", "") >= today
 
     expected = {
-        "core/handover.py": "handover-export-view-j4",
+        # 2026-09-20 P3-7：core/handover.py 已迁 lingmemory/handover.py，
+        # debt handover-export-view-j4 已 resolve，出列（只缩不放）
         "core/layered_memory.py": "layered-memory-export-view-j4-migration",
         "core/session.py": "session-export-view-j4-migration",
         "core/governance_verifier.py": "governance-verifier-export-view-j4-migration",

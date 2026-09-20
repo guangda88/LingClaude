@@ -7,19 +7,51 @@ Design principles (from .audit/handoff_sdth_调研报告_20260517.md):
 4. Incomplete discussions tracked as 'pending', never silently dropped
 5. Triple output: YAML (primary, for AI) + JSON (backward compat) + Markdown (for AI)
 """
+# 2026-09-20 P3-7 承接搬移（core→lingmemory）：切换 core.types 依赖——
+# lingmemory 不得 import lingclaude（守护 lingclaude/core 独立性），
+# Result 原语就地复制（ok/fail/data/error/code 语义与 core.types.Result 一致）。
 from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any, Generic, TypeVar  # 2026-09-17: HandoverWriter/Reader 注解用（原靠 future annotations 掩护，F821）
 
 import yaml
 from enum import Enum
 from pathlib import Path
-from typing import Any  # 2026-09-17: HandoverWriter/Reader 注解用（原靠 future annotations 掩护，F821）
 
-from lingclaude.core.types import Result
+T = TypeVar("T")
+
+
+@dataclass(frozen=True)
+class Result(Generic[T]):
+    """轻量结果原语（自 lingclaude.core.types.Result 复制，语义一致）。
+
+    成功 = Result.ok(data)；失败 = Result.fail(msg, code)。判别用 .is_ok/.is_error。
+    """
+
+    success: bool
+    data: T | None = None
+    error: str | None = None
+    code: str | None = None
+
+    @classmethod
+    def ok(cls, data: T, code: str | None = None) -> "Result[T]":
+        return cls(success=True, data=data, code=code)
+
+    @classmethod
+    def fail(cls, error: str, code: str | None = None) -> "Result[T]":
+        return cls(success=False, error=error, code=code)
+
+    @property
+    def is_ok(self) -> bool:
+        return self.success
+
+    @property
+    def is_error(self) -> bool:
+        return not self.success
 
 logger = logging.getLogger(__name__)
 

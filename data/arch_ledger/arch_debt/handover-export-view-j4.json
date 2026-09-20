@@ -4,6 +4,7 @@
   "reason": "J4 豁免登记：handover 三件套导出物直连（状态主通道已走 StateStore，yaml/json/md 为 l5_audit/topic_drift_detector 消费的导出视图）。审计裁决（audit-g10-j4-handover）：豁免须挂账期，不得永续裸行号。行号漂移 339→340 已同步校正。清除条件：导出物职责移交后 debt resolve + 缩 J4_EXPORT_VIEWS。",
   "due": "2026-11-30",
   "resolve_hint": "移交导出物职责后 resolve；行号再漂移由守卫债务感知（豁免必须挂账）拦截",
-  "state": "open",
-  "created": "2026-09-17T15:21:26+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T15:21:26+00:00",
+  "resolved_at": "2026-09-20T04:29:51+00:00"
 }

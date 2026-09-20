@@ -1,11 +1,15 @@
-"""Tests for lingclaude.core.handover — Handover V2."""
+"""Tests for lingmemory.handover — Handover V2.
+
+2026-09-20 P3-7 承接搬移：模块自 lingclaude.core.handover 迁至 lingmemory.handover
+（注册表 checkpoint 类型，lingmemory/type_registry.yaml:1516）。
+"""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 
-from lingclaude.core.handover import (
+from lingmemory.handover import (
     HANDOVER_VERSION,
     Checkpoint,
     HandoverReader,

@@ -12,7 +12,7 @@ TaskStatus（值域完全不同：英文任务聚合 / 中文任务调度 / 交�
 """
 from __future__ import annotations
 
-from lingclaude.core.handover import HandoverTaskStatus, TaskStatus as HandoverAlias
+from lingmemory.handover import HandoverTaskStatus, TaskStatus as HandoverAlias
 from lingclaude.core.task_aggregation import AggregationTaskStatus, TaskStatus as AggAlias
 from lingclaude.core.task_scheduler import SchedulerTaskStatus, TaskStatus as SchedAlias
 
