@@ -138,7 +138,17 @@ BASELINE_SYS_PATH = 14
                      # 2026-09-16 (G3 收紧): 439 → 437 —— repl_io._esc_pressed 内
                      #   os/select/termios 属标准库无需懒加载（cbbcfaa 修复带入的
                      #   import os 纯计数污染），上提模块级。只缩不放纪律。
-BASELINE_LAZY = 437
+                     # 2026-09-21 (审查黄旗修复): 437 → 518 —— 三段账（守卫口径
+                     #   _count_lazy，SRC=lingclaude 包目录全量实测）：
+                     #   ① 437 → 512：git archive 1cb8208^ 实测，09-16 至 09-21
+                     #     期间 75 处函数内 import 未随批登记（历史欠账补账）；
+                     #   ② 512 → 518：方案C v4 + 收口批净增 6（per-file diff 实测：
+                     #     task_router 配额防御接线×2 / quota_governance 复用
+                     #     task_router+retry×2 / commands SESSION_RESUME×1 /
+                     #     display×1 / repl×1 / lifecycle _fire_hook×1，共 +8；
+                     #     scheduler 预存 2 处函数内 logging 随本轮上提消除 -2），
+                     #     均属防御接线/工厂按需取用，S3 合法。
+BASELINE_LAZY = 518
 
 def _py_files(root: Path):
     return [f for f in sorted(root.rglob("*.py")) if "__pycache__" not in f.parts]

@@ -1,0 +1,12 @@
+{
+  "id": "agent_gateway",
+  "name": "agent_gateway",
+  "state": "active",
+  "created": "2026-09-21T04:00:00+00:00",
+  "first_layer_access": true,
+  "plug_seam_key": "proj/agent-gateway",
+  "trust_level": "T3",
+  "plug_level": "L2",
+  "first_layer_at": "2026-09-21T04:00:00+00:00",
+  "note": "外部 Agent 网关 MCP 薄壳（lc 调 cc/codex/crush/opencode/atomcode），2026-09-21 对账补登记"
+}

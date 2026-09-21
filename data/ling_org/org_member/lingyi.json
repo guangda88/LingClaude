@@ -1,0 +1,14 @@
+{
+  "id": "lingyi",
+  "name": "灵依",
+  "state": "external_project",
+  "created": "2026-09-17T12:09:35+00:00",
+  "note": "AI 健康助手(并入对外工程)",
+  "reclassified_at": "2026-09-17T12:36:48+00:00",
+  "first_layer_access": true,
+  "plug_seam_key": "proj/lingyi",
+  "trust_level": "T3",
+  "plug_level": "L3",
+  "external_project": true,
+  "first_layer_at": "2026-09-17T17:01:08+00:00"
+}

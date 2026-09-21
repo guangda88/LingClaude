@@ -1,0 +1,12 @@
+{
+  "name": "灵康",
+  "domain": "健康",
+  "first_layer_access": true,
+  "plug_seam_key": "proj/lingkang",
+  "trust_level": "T3",
+  "plug_level": "L3",
+  "external_project": true,
+  "note": "AI 健康助手",
+  "created": "2026-09-17T17:01:08+00:00",
+  "first_layer_at": "2026-09-17T17:01:08+00:00"
+}

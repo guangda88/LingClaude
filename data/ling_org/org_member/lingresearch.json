@@ -1,0 +1,11 @@
+{
+  "id": "lingresearch",
+  "name": "lingresearch",
+  "state": "active",
+  "created": "2026-09-17T12:09:32+00:00",
+  "first_layer_access": true,
+  "plug_seam_key": "agent/lingresearch",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "first_layer_at": "2026-09-17T17:01:08+00:00"
+}

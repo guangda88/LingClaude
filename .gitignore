@@ -32,6 +32,10 @@ data/*
 # 须随仓库分发——CI arch-guards job checkout 后守卫即查询（J5）。
 # 其余 data/ 内容（运行时状态）仍忽略。（data/* 而非 data/，否则子级 ! 否定不生效）
 !data/arch_ledger/
+# 例外：灵族组织治理账本（org_member/org_duty/org_event/org_governance 等）
+# 是组织治理事实源，非运行时状态——N1 对账测试（test_agent_family）在
+# fresh clone 必须能查（账本缺席=守卫失效）。2026-09-21 审查黄旗修复。
+!data/ling_org/
 
 # Backup and temp files
 *.bak

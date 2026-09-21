@@ -13,6 +13,11 @@
 
 边界纪律：本模块只做窗口记录与决策，不发送任何 HTTP 探活——
 端点探活是 provider_probe 的职责（TTL 机制），两者互不侵犯。
+
+停层声明（铁律 2 细则 5）：内核=QuotaWindowPool（进程内存态窗口池，
+属 J4 存量私连存储既有形态，不新增直连）；接缝=decide_from_windows()
+协议（defer/allow/stale 三态决策面）；实现=单实现（error_text 来源），
+预留 usage_api 用量端点扩展位。
 """
 from __future__ import annotations
 

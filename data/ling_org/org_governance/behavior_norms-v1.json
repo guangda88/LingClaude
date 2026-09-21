@@ -1,0 +1,9 @@
+{
+  "name": "behavior_norms",
+  "version": 1,
+  "pointer": "docs/lacp/BEHAVIOR_NORMS_v1.1.md",
+  "parent": "behavior_norms-v0",
+  "note": "灵族行为规范v1.1",
+  "state": "active",
+  "created": "2026-09-17T12:24:04+00:00"
+}
