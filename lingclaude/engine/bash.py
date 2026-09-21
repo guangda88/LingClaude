@@ -332,8 +332,9 @@ class BashExecutor:
             self._sandbox_provider = provider
 
         bwrap_ok = provider.available()
-
-        # Fail-closed：sandbox_policy 严格模式 + bwrap 不可用 → 抛异常（不再静默降级）
+        # P0-B: 非 bwrap 后端（landlock/seatland）的 fail-closed 语义等价——
+        # 严格模式下任何沙箱后端不可用都不得静默降级 noop。
+        backend_name = getattr(provider, "name", "bwrap")
         if not bwrap_ok and self.sandbox_policy is not None:
             from lingclaude.lacp.sandbox_policy import SandboxMode
             if self.sandbox_policy.mode in (
@@ -342,15 +343,15 @@ class BashExecutor:
                 SandboxMode.PARANOID,
             ):
                 raise SandboxUnavailableError(
-                    f"sandbox_policy={self.sandbox_policy.mode.value} requires bwrap, "
-                    f"but bwrap is unavailable in this environment (fail-closed)"
+                    f"sandbox_policy={self.sandbox_policy.mode.value} requires {backend_name}, "
+                    f"but {backend_name} is unavailable in this environment (fail-closed)"
                 )
 
         if not bwrap_ok:
             # T0-10: 降级不再静默 — 无策略约束时 WARNING（策略约束路径上方已 fail-closed）
             logging.getLogger(__name__).warning(
-                "bwrap 不可用，bash 命令以非沙箱方式执行（黑名单+资源限制仍生效）: %s",
-                command[:80],
+                "%s 不可用，bash 命令以非沙箱方式执行（黑名单+资源限制仍生效）: %s",
+                backend_name, command[:80],
             )
             # 2026-09-12（codex 审计 P0-3）：降级显式化 — 标记本次执行降级，
             # run() 读取后写入 BashResult.degraded，工具输出/审计可见。

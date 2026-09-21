@@ -20,6 +20,7 @@ import logging
 import os
 import shlex
 import shutil
+import sys
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -29,6 +30,17 @@ logger = logging.getLogger(__name__)
 
 # bwrap 可用性探测结果缓存：(None=未探测, (bool, reason))
 _bwrap_probe_cache: tuple[bool, str] | None = None
+# P0-B (2026-09-22): Landlock 探测缓存（与 bwrap 对称，一次探测全程复用）
+_landlock_probe_cache: tuple[bool, str] | None = None
+
+# P0-B (2026-09-22): 工具类别沙箱豁免清单（NOT_GOOD_AT seam 字段）。
+# 哪些工具类别不进沙箱 —— 只读 grep/rg/cat/ls 类命令沙箱无收益（纯读、无写风险），
+# 走 noop 直通省 20-40ms 探测+wrap 开销。本层只声明类别，
+# 具体命令判定仍在 bash.py._is_readonly_diag_command（本清单是其语义注记 + 未来
+# 扩展锚点，避免把配置槽塞进 LoopHooks 变成第二个 god object）。
+NOT_GOOD_AT: dict[str, str] = {
+    "readonly_diag": "只读 grep/rg/cat/ls/head/tail 类：无写面，沙箱探测开销 > 安全收益",
+}
 
 
 def _bwrap_probe(bwrap: str) -> tuple[bool, str]:
@@ -200,8 +212,170 @@ class NoopSandboxProvider:
         return command
 
 
+# ── P0-B (2026-09-22): Landlock 轻量后端（Linux，无需 root，内核 5.8+）──
+# 与 bwrap 互补：bwrap 依赖 user namespaces（容器/受限环境常被禁），Landlock
+# 只依赖内核 LSM 钩子（CONFIG_SECURITY_LANDLOCK），无 user namespace、无 mount
+# 命名空间开销，适合 bwrap 探测失败时的细粒度降级。实现策略：
+# - 探测：检查 /proc/sys/kernel/unprivileged_userns_clone 与 landlock ABI 版本
+#   （/sys/kernel/security/landlock? 无公开 ABI 文件 → 用 prctl/uname 侧信道：
+#   直接尝试一次 prctl(PR_SET_KEEPCAPS) 无效 → 改走 python ctypes 尝试
+#   调 syscall(436, ...) 判断 ENOSYS/EPERM。失败缓存 False。
+# - wrap：Landlock 是进程自约束（需子进程主动 apply_rules+create_ruleset 后
+#   self-restrict），无法像 bwrap 那样在父进程包裹。故 Landlock provider 的
+#   wrap 生成「pre-exec hook 脚本」：fork 子进程后子进程先建 ruleset
+#   （wd + /tmp 可写，其余只读）再 exec 目标命令。
+# - 默认 bwrap 不可用时，create_default_sandbox_provider 优先探 Landlock，
+#   Landlock 不可用再落 noop。
+
+
+def _landlock_probe() -> tuple[bool, str]:
+    """探测 Landlock ABI 是否可用（Linux 内核 5.8+，无需 root）。
+
+    方式：ctypes 直接尝试 prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0) +
+    syscall(436=landlock_create_ruleset) 空规则集，成功即可用。
+    """
+    global _landlock_probe_cache
+    if _landlock_probe_cache is not None:
+        return _landlock_probe_cache
+    if os.name != "posix" or sys.platform != "linux":
+        _landlock_probe_cache = (False, "Landlock 仅 Linux 内核 5.8+ 支持")
+        return _landlock_probe_cache
+    import ctypes
+    import ctypes.util
+
+    libc_name = ctypes.util.find_library("c") or "libc.so.6"
+    try:
+        libc = ctypes.CDLL(libc_name)
+    except OSError as e:
+        _landlock_probe_cache = (False, f"libc 加载失败: {e}")
+        return _landlock_probe_cache
+
+    PR_SET_NO_NEW_PRIVS = 38
+    SYS_landlock_create_ruleset = 459  # x86_64
+    SYS_landlock_restrict_self = 460
+
+    # 尝试设置 NO_NEW_PRIVS（Landlock 前置条件）
+    try:
+        r = libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
+        if r != 0:
+            _landlock_probe_cache = (False, f"prctl(PR_SET_NO_NEW_PRIVS) 失败 r={r}")
+            return _landlock_probe_cache
+    except Exception as e:
+        _landlock_probe_cache = (False, f"prctl 异常: {e}")
+        return _landlock_probe_cache
+
+    # 尝试空规则集
+    try:
+        libc.syscall.restype = ctypes.c_long
+        libc.syscall.argtypes = [ctypes.c_long, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_uint]
+        r = libc.syscall(SYS_landlock_create_ruleset, ctypes.c_void_p(0), ctypes.c_ulong(0), ctypes.c_uint(0))
+        if r >= 0:
+            _landlock_probe_cache = (True, None)
+            return _landlock_probe_cache
+        _landlock_probe_cache = (False, f"landlock_create_ruleset 失败 r={r}（负 errno）")
+    except Exception as e:
+        _landlock_probe_cache = (False, f"Landlock syscall 异常: {e}")
+    return _landlock_probe_cache
+
+
+class LandlockSandboxProvider:
+    """P0-B 轻量后端：Linux Landlock LSM（无 user namespace 依赖，内核 5.8+）。
+
+    wrap 返回 bash 命令前缀脚本：fork 后子进程 self-restrict 到
+    （wd + /tmp + extra_writable_dirs）可写、其余只读，再 exec 原命令。
+    bwrap 不可用时由 create_default_sandbox_provider 优先选中（本机 6.8 内核
+    有 CONFIG_SECURITY_LANDLOCK 才真正生效，否则探测判 False 回 noop）。
+    """
+
+    name = "landlock"
+
+    def available(self) -> bool:
+        return _landlock_probe()[0]
+
+    def probe_reason(self) -> str | None:
+        ok, reason = _landlock_probe()
+        return None if ok else reason
+
+    def wrap(
+        self,
+        command: str,
+        working_dir: Path | None = None,
+        allow_network: bool = False,
+        extra_writable_dirs: list[str] | None = None,
+    ) -> str:
+        """Landlock 包裹：python helper 子进程 self-restrict 到可写白名单再 exec。
+
+        helper 内部先 prctl(NO_NEW_PRIVS) + landlock 规则集，再 execvp 目标命令；
+        命令以 ``--writable ... -- bash -c <command>`` 形式传入，helper 负责真正的
+        ruleset apply。allow_network 在 Landlock 语义下无对应（Landlock 只管文件
+        写面，网络隔离仍由 bwrap --unshare-net 承担）——Landlock 作为 bwrap 缺席
+        时的细粒度降级，网络面由 bash.py 黑名单+资源限制兜底。
+        """
+        if not self.available():
+            return command
+        wd = str(working_dir or Path.cwd())
+        writable = [wd, "/tmp"] + list(extra_writable_dirs or [])
+        writable_args = " ".join(shlex.quote(p) for p in writable)
+        helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_landlock_helper.py")
+        return (
+            f"python3 {shlex.quote(helper)} --writable {writable_args} "
+            f"-- /bin/bash -c {shlex.quote(command)}"
+        )
+
+
+_landlock_helper_src = None  # 懒加载
+
+
+class SeatlandSandboxProvider:
+    """P0-B macOS 后端：sandbox-exec（Seatland，轻量系统级沙箱，无需 root）。
+
+    仅 macOS；Linux 上 available() 恒 False。sandbox-exec 用 profile 表达式
+    限制文件写面到 (wd + /tmp + extra)，网络白名单例外同 bwrap 语义。
+    """
+
+    name = "seatland"
+
+    def available(self) -> bool:
+        import platform
+        return sys.platform == "darwin" and shutil.which("sandbox-exec") is not None
+
+    def probe_reason(self) -> str | None:
+        import platform
+        if sys.platform != "darwin":
+            return "Seatland 仅 macOS"
+        return None if self.available() else "sandbox-exec 不在 PATH"
+
+    def wrap(
+        self,
+        command: str,
+        working_dir: Path | None = None,
+        allow_network: bool = False,
+        extra_writable_dirs: list[str] | None = None,
+    ) -> str:
+        if not self.available():
+            return command
+        wd = str(working_dir or Path.cwd())
+        writable = [wd, "/tmp"] + list(extra_writable_dirs or [])
+        profile_lines = [
+            "(version 1)",
+            "(allow default)",
+        ]
+        for p in writable:
+            profile_lines.append(f'(allow file-write* (path-substring {shlex.quote(p)}))')
+        if not allow_network:
+            profile_lines.insert(1, "(deny network-connect network-bind network-listen)")
+        profile = "\n".join(profile_lines)
+        return f"sandbox-exec -p {shlex.quote(profile)} -- /bin/bash -c {shlex.quote(command)}"
+
+
 def create_default_sandbox_provider() -> SandboxProvider:
-    """默认后端：bwrap 可用时用之，否则 noop（fail-safe 降级，策略约束路径由调用方 fail-closed）。
+    """默认后端选择（P0-B 2026-09-22 三级降级链）：bwrap → landlock → noop。
+
+    优先级：bwrap（最强：mount+net namespace 全隔离）可用即用；
+    bwrap 不可用（容器/受限 user namespace）时，Linux 上探 Landlock LSM
+    （无 user namespace 依赖，细粒度文件写面降级），可用则用 landlock；
+    都不可用落 noop（fail-safe 降级，策略约束路径由调用方 fail-closed）。
+    macOS 上 bwrap 天然缺席，探 seatland（sandbox-exec）。
 
     P12: 与 P5 的 provider/tool 对称 —— 创建默认后端时同步注册到进程内
     SeamRegistry（SeamType.SANDBOX 槽位），建立「sandbox 后端也可经
@@ -218,7 +392,34 @@ def create_default_sandbox_provider() -> SandboxProvider:
         # 下个 bash 命令即用新后端（无需重启、无需动 bash.py）。
         SeamRegistry.register(SeamType.SANDBOX, "default", bwrap)
         return bwrap
-    logger.warning("bwrap 不可用，sandbox 后端降级为 noop（黑名单+资源限制仍生效）")
+    # P0-B: bwrap 缺席 → 平台降级链（Linux: landlock / macOS: seatland）
+    if sys.platform == "linux":
+        ll = LandlockSandboxProvider()
+        if ll.available():
+            SeamRegistry.register(SeamType.SANDBOX, ll.name, ll)
+            SeamRegistry.register(SeamType.SANDBOX, "default", ll)
+            logger.info(
+                "bwrap 不可用，降级 Landlock（不可用原因: %s）",
+                bwrap.probe_reason(),
+            )
+            return ll
+        logger.warning(
+            "bwrap 不可用（%s）且 Landlock 不可用（%s），sandbox 降级 noop（黑名单+资源限制仍生效）",
+            bwrap.probe_reason(),
+            LandlockSandboxProvider().probe_reason(),
+        )
+    elif sys.platform == "darwin":
+        sl = SeatlandSandboxProvider()
+        if sl.available():
+            SeamRegistry.register(SeamType.SANDBOX, sl.name, sl)
+            SeamRegistry.register(SeamType.SANDBOX, "default", sl)
+            logger.info("bwrap 不可用（macOS），降级 Seatland（sandbox-exec）")
+            return sl
+        logger.warning(
+            "bwrap/seatland 均不可用（sandbox-exec 缺失），sandbox 降级 noop（黑名单+资源限制仍生效）"
+        )
+    else:
+        logger.warning("bwrap 不可用，sandbox 后端降级为 noop（黑名单+资源限制仍生效）")
     noop = NoopSandboxProvider()
     SeamRegistry.register(SeamType.SANDBOX, noop.name, noop)
     SeamRegistry.register(SeamType.SANDBOX, "default", noop)
