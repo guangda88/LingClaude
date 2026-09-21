@@ -226,6 +226,50 @@ class TestReplWiring:
         # 无 _messages 属性也安全
         assert _full_tui_output_source(SimpleNamespace())() == []
 
+    def test_output_source_prefers_conversation(self, tmp_path: Path) -> None:
+        """2026-09-21 输入回显配套：_conversation（带角色二元组）优先于 _messages。
+
+        _messages 是纯字符串交替无角色信息 → 回放无法区分用户/灵克；
+        _conversation 四条写路径全程 (role, text) → 回放可区分。
+        """
+        from lingclaude.cli.repl import _full_tui_output_source
+
+        engine = SimpleNamespace(
+            _messages=["用户问", "灵克答"],  # 旧源：无角色，应被跳过
+            _conversation=[
+                ("user", "用户问"),
+                ("assistant", "灵克答"),
+                ("system", "[L1交接刷新 @ msg#42]"),
+                ("user", ""),  # 空文本跳过
+            ],
+        )
+        lines = _full_tui_output_source(engine)()
+        assert lines == [
+            "🧑 用户: 用户问",
+            "🤖 灵克: 灵克答",
+            "[L1交接刷新 @ msg#42]",  # system 无前缀（内容自带标识）
+        ]
+
+    def test_output_source_conversation_fallback_shapes(self, tmp_path: Path) -> None:
+        """_conversation 缺席 → 回退 _messages 旧逻辑（对象/dict/纯字符串）。"""
+        from lingclaude.cli.repl import _full_tui_output_source
+
+        class _Msg:
+            def __init__(self, role: str, content: str) -> None:
+                self.role = role
+                self.content = content
+
+        engine = SimpleNamespace(_messages=[_Msg("user", "对象消息")])
+        assert _full_tui_output_source(engine)() == ["🧑 用户: 对象消息"]
+        # _conversation 为空列表 → 也走 _messages 回退
+        engine2 = SimpleNamespace(_conversation=[], _messages=[
+            {"role": "user", "content": "dict 消息"},
+        ])
+        assert _full_tui_output_source(engine2)() == ["🧑 用户: dict 消息"]
+        # 恢复路径产生的非二元组项：防御性降级为无角色原样
+        engine3 = SimpleNamespace(_conversation=["裸字符串项"])
+        assert _full_tui_output_source(engine3)() == ["裸字符串项"]
+
 
 class TestResidentFullTui:
     """常驻全屏形态（2026-09-16 v2 重写）——纯逻辑测试，不依赖真实终端。
@@ -253,6 +297,34 @@ class TestResidentFullTui:
         with pytest.raises(EOFError):
             s.prompt()
         assert s.pending_submissions() == 0
+
+    def test_accept_echoes_input_to_output_area(self, _pt_available: None, tmp_path: Path) -> None:
+        """2026-09-21 输入回显：_on_accept 提交的输入以 "> " 前缀进输出窗。
+
+        此前提交后输出窗无痕，用户输入与模型回复在回放里无法区分。
+        """
+        s = self._make(tmp_path, started=True)
+
+        class _Buf:
+            text = "帮我看看 repl.py"
+
+        assert s._on_accept(_Buf()) is False  # 返回 False 交给 PT reset 清 buffer
+        text = s._out_buffer.text  # noqa: SLF001
+        assert "> 帮我看看 repl.py" in text
+        # 回显不影响提交主路径：文本仍进提交队列
+        assert s.pending_submissions() == 1  # noqa: SLF001
+        assert s.prompt() == "帮我看看 repl.py"
+
+    def test_accept_empty_text_no_echo(self, _pt_available: None, tmp_path: Path) -> None:
+        """空文本 accept：不回显、不入队（与旧行为一致）。"""
+        s = self._make(tmp_path, started=True)
+
+        class _Buf:
+            text = ""
+
+        assert s._on_accept(_Buf()) is False
+        assert s._out_buffer.text == ""  # noqa: SLF001
+        assert s.pending_submissions() == 0  # noqa: SLF001
 
     def test_prompt_eof_sentinel_raises(self, _pt_available: None, tmp_path: Path) -> None:
         s = self._make(tmp_path, started=True)
@@ -452,6 +524,92 @@ class TestResidentFullTui:
         assert s._follow_output is False  # noqa: SLF001
         s._on_out_wheel(+3)  # noqa: SLF001
         assert s._follow_output is True  # noqa: SLF001
+
+class TestPasteFolding:
+    """长文本粘贴折叠（2026-09-21）：≥阈值行粘贴 → 占位符，提交时还原全文。
+
+    纯逻辑测试：不依赖真实 TTY / Application，直接驱动
+    _register_paste / _expand_placeholders / _fold_echo / _on_accept。
+    """
+
+    LONG = "\n".join(f"line{i}" for i in range(10))  # 10 行
+
+    def _make(self, tmp_path: Path, started: bool = False) -> FullTuiSession:
+        s = FullTuiSession(history_file=str(tmp_path / "h"))
+        if started:
+            s._ever_started = True  # noqa: SLF001 — 模拟已启动（不真开全屏）
+        return s
+
+    def test_short_paste_passthrough(self, _pt_available: None, tmp_path: Path) -> None:
+        """短粘贴（<阈值）原样返回，不产生占位符。"""
+        s = self._make(tmp_path)
+        insert, n = s._register_paste("a\nb\nc")  # noqa: SLF001
+        assert insert == "a\nb\nc"
+        assert n == 3
+        assert s._paste_registry == {}  # noqa: SLF001
+
+    def test_long_paste_folds_to_placeholder(self, _pt_available: None, tmp_path: Path) -> None:
+        """长粘贴折叠为占位符并登记全文（编号单调递增）。"""
+        s = self._make(tmp_path)
+        ph, n = s._register_paste(self.LONG)  # noqa: SLF001
+        assert ph == f"[文本块 #1 · 10行 · {len(self.LONG)}字符]"
+        assert n == 10
+        assert s._paste_registry[1] == (self.LONG, 10)  # noqa: SLF001
+
+    def test_crlf_normalized_before_counting(self, _pt_available: None, tmp_path: Path) -> None:
+        """\\r\\n 粘贴归一为 \\n 后再计数折叠（iTerm2 形态）。"""
+        s = self._make(tmp_path)
+        ph, n = s._register_paste("a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng")  # noqa: SLF001
+        assert n == 7
+        assert "\r" not in ph
+        assert s._paste_registry[1][0] == "a\nb\nc\nd\ne\nf\ng"  # noqa: SLF001
+
+    def test_expand_restores_full_text(self, _pt_available: None, tmp_path: Path) -> None:
+        """提交还原：占位符 → 登记全文，前后缀保留。"""
+        s = self._make(tmp_path)
+        ph, _ = s._register_paste(self.LONG)  # noqa: SLF001
+        expanded = s._expand_placeholders(f"前缀 {ph} 后缀")  # noqa: SLF001
+        assert expanded == f"前缀 {self.LONG} 后缀"
+
+    def test_hand_typed_lookalike_not_expanded(self, _pt_available: None, tmp_path: Path) -> None:
+        """手打同形字面串（编号未登记）不被误还原。"""
+        s = self._make(tmp_path)
+        fake = "[文本块 #99 · 10行 · 40字符]"
+        assert s._expand_placeholders(f"x {fake} y") == f"x {fake} y"  # noqa: SLF001
+
+    def test_fold_echo_round_trip(self, _pt_available: None, tmp_path: Path) -> None:
+        """回显折叠：还原后的全文重新折回占位符（与输入框所见一致）。"""
+        s = self._make(tmp_path)
+        ph, _ = s._register_paste(self.LONG)  # noqa: SLF001
+        full = s._expand_placeholders(f"问题：{ph}")  # noqa: SLF001
+        assert s._fold_echo(full) == f"问题：{ph}"  # noqa: SLF001
+
+    def test_fold_echo_longest_first(self, _pt_available: None, tmp_path: Path) -> None:
+        """超集粘贴：按长度降序替换——先短后长会把长粘贴内部截断串位。"""
+        s = self._make(tmp_path)
+        short = "x\ny\nz\n1\n2\n3"  # 恰 6 行（达阈值）
+        long_text = short + "\nw\n4\n5\n6"  # 10 行，包含 short 为子串
+        ph_s, _ = s._register_paste(short)  # noqa: SLF001
+        ph_l, _ = s._register_paste(long_text)  # noqa: SLF001
+        assert s._fold_echo(long_text) == ph_l  # noqa: SLF001
+        assert ph_s not in s._fold_echo(long_text)  # noqa: SLF001
+
+    def test_accept_expands_and_submits_full_text(
+        self, _pt_available: None, tmp_path: Path
+    ) -> None:
+        """accept：占位符还原全文进提交队列；回显保持占位符形态防刷屏。"""
+        s = self._make(tmp_path, started=True)
+        ph, _ = s._register_paste(self.LONG)  # noqa: SLF001
+
+        class _Buf:
+            text = f"看看这段：{ph}"
+
+        assert s._on_accept(_Buf()) is False  # noqa: SLF001
+        assert s.pending_submissions() == 1
+        assert s.prompt() == f"看看这段：{self.LONG}"  # 队列里是全文
+        out = s._out_buffer.text  # noqa: SLF001
+        assert ph in out  # 回显折叠为占位符
+        assert "line9" not in out  # 粘贴全文不进输出窗
 
 
 class TestTuiOptimizationP0:

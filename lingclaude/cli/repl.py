@@ -252,11 +252,34 @@ def _is_full_tui_session(session: Any) -> bool:
 def _full_tui_output_source(engine: Any) -> Callable[[], list[str]]:
     """构造全屏 TUI 输出窗内容源（会话历史行，用户/助手前缀）。
 
-    从 engine._messages 取用户/助手消息文本；无角色标签时按原样追加。
-    闭包内 getattr 防御：消息可能是对象（.role/.content）或 dict。
+    2026-09-21（输入回显配套）：首选 _conversation 源 —— (role, text)
+    二元组四条写路径全程带角色标签（turn 收尾 turn_mixin / 会话恢复
+    session_persist / 压缩 tool_executor / L1·L2 注入 l5_audit），
+    用户输入可带 🧑 前缀与回复区分；此前从 _messages 取——它是纯
+    字符串交替（无角色信息），回放后用户与灵克回复无法分辨。
+    _conversation 缺席/为空时退回 _messages 旧逻辑（对象 .role / dict /
+    纯字符串——纯字符串无角色，原样无前缀，兼容既有测试契约）。
     """
     def _source() -> list[str]:
         lines: list[str] = []
+        conv = getattr(engine, "_conversation", None)
+        if conv:
+            for item in conv:
+                if isinstance(item, (tuple, list)) and len(item) == 2:
+                    role = str(item[0] or "")
+                    text = str(item[1] or "")
+                else:
+                    role, text = "", str(item or "")
+                if not text.strip():
+                    continue
+                if role == "user":
+                    lines.append(f"🧑 用户: {text}")
+                elif role == "assistant":
+                    lines.append(f"🤖 灵克: {text}")
+                else:
+                    # system（L1/L2 注入、压缩摘要）：内容自带标识，无前缀
+                    lines.append(text)
+            return lines
         for msg in getattr(engine, "_messages", []) or []:
             role = str(getattr(msg, "role", "") or (msg.get("role") if isinstance(msg, dict) else ""))
             text = str(getattr(msg, "content", "") or (msg.get("content") if isinstance(msg, dict) else ""))

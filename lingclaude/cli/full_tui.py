@@ -32,6 +32,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 import threading
 from collections import deque
@@ -64,6 +65,9 @@ try:
 except ImportError:  # pragma: no cover
     _HAS_PROMPT_TOOLKIT = False
 
+if _HAS_PROMPT_TOOLKIT:
+    from prompt_toolkit.keys import Keys  # noqa: E402 — 可选依赖条件导入
+
 # 与 interface.py 对齐的历史文件（项目内隔离，2026-09-15 P1-2）
 DEFAULT_HISTORY_FILE = ".lingclaude/history"
 
@@ -71,6 +75,21 @@ DEFAULT_HISTORY_FILE = ".lingclaude/history"
 # P2-2（2026-09-20）: 800→5000 —— 长会话生成内容此前被静默裁剪，回看不完整；
 # 5000 行约 0.5MB 内存，代价可忽略。
 MAX_OUTPUT_LINES = 5000
+
+# ---------------------------------------------------------------------------
+# 长文本粘贴折叠（2026-09-21）：
+# P2 全屏输入框粘贴多行长文本时逐行平铺——占满视口、淹没正在编辑的短行，
+# 提交后输出窗回显也会被同一段文本二次刷屏。改为 Claude Code 式占位块：
+# 粘贴 ≥ _PASTE_FOLD_MIN_LINES 行时，输入框内折叠为单行占位符
+# 「[文本块 #N · M行 · C字符]」，提交时还原全文进提交队列（prompt() 的
+# 消费方拿到的与未折叠行为无差异；输出窗回显保留占位符形态防刷屏）。
+# 阈值常数便于小测试 monkeypatch 调低。
+_PASTE_FOLD_MIN_LINES = 6
+
+# 占位符模板与还原正则。还原按「编号在 _paste_registry 中存在」判定——
+# 用户手打的同形字面串若编号从未登记过，不会被误还原。
+_PLACEHOLDER_FMT = "[文本块 #{n} · {lines}行 · {chars}字符]"
+_PLACEHOLDER_RE = re.compile(r"\[文本块 #(\d+) · \d+行 · \d+字符\]")
 
 
 if _HAS_PROMPT_TOOLKIT:
@@ -204,6 +223,13 @@ class FullTuiSession:
         # 流式生成期标志（set_streaming 置位；prompt 据此决定是否消费 interrupt）
         self._streaming = False
 
+        # 长文本粘贴折叠状态（_register_paste 写 / _expand_placeholders 读）：
+        # _paste_seq 占位符编号单调递增；_paste_registry 编号 → (全文, 行数)。
+        # 生命周期：全会话累计、不随提交清空——已消费占位符的残留条目无害
+        # （还原只发生在提交瞬间，按当前 buffer 文本里出现的编号命中）。
+        self._paste_seq = 0
+        self._paste_registry: dict[int, tuple[str, int]] = {}
+
         # 常驻运行状态
         self._submit_q: deque[str] = deque()
         self._submit_cond = threading.Condition()
@@ -298,6 +324,15 @@ class FullTuiSession:
         def _out_end(event: Any) -> None:
             self._out_buffer.cursor_position = len(self._out_buffer.text)
             self._invalidate()
+
+        # 长文本粘贴折叠：接管 BracketedPaste（app 级绑定优先于 PT 默认的
+        # 「直接整段插入」绑定——application.py:_create_key_bindings 反转
+        # 绑定列表后 key_processor._process 只调 matches[-1]，唯一赢家，
+        # 默认 handler 不会重复执行）。eager=True：粘贴语义独立成键，不等
+        # 更长序列匹配，行为确定。
+        @self._kb.add(Keys.BracketedPaste, eager=True)
+        def _on_bracketed_paste(event: Any) -> None:
+            self._handle_paste(event)
 
         @self._kb.add("enter")
         def _on_enter(event: Any) -> None:
@@ -438,6 +473,72 @@ class FullTuiSession:
                 except Exception:  # noqa: BLE001
                     pass
                 self._stdout_proxy = None
+
+    def _register_paste(self, data: str) -> tuple[str, int]:
+        """登记一次粘贴：返回（插入物, 行数）。
+
+        换行数 < _PASTE_FOLD_MIN_LINES → 原样返回（短粘贴不打扰编辑）；
+        达到阈值 → 折叠为占位符并登记全文（提交时还原）。占位符编号
+        全会话单调递增，注册表只增不减（残留条目无害，见 __init__ 注释）。
+        """
+        # 与 PT 默认绑定对齐的换行归一（iTerm2 粘贴 \r\n，见 basic.py:244）
+        data = data.replace("\r\n", "\n").replace("\r", "\n")
+        lines = data.count("\n") + 1
+        if lines < _PASTE_FOLD_MIN_LINES:
+            return data, lines
+        self._paste_seq += 1
+        n = self._paste_seq
+        self._paste_registry[n] = (data, lines)
+        placeholder = _PLACEHOLDER_FMT.format(n=n, lines=lines, chars=len(data))
+        return placeholder, lines
+
+    def _handle_paste(self, event: Any) -> None:
+        """BracketedPaste 处理器：折叠长粘贴 → 插入占位符/短文本。
+
+        仅在聚焦 buffer 成功时插入；任何异常静默降级为默认行为
+        （直接插入原文）——粘贴是高频路径，不能因折叠逻辑故障而丢输入。
+        """
+        data = event.data or ""
+        buf = event.app.layout.current_buffer if event.app is not None else None
+        if buf is None:
+            return
+        try:
+            insert, _lines = self._register_paste(data)
+        except Exception:  # noqa: BLE001 — 折叠失败降级为原样插入
+            insert = data.replace("\r\n", "\n").replace("\r", "\n")
+        buf.insert_text(insert)
+
+    def _expand_placeholders(self, text: str) -> str:
+        """提交前还原：buffer 文本中的占位符 → 登记的粘贴全文。
+
+        只还原注册表里存在的编号（用户手打的同形字面串不会误伤）；
+        已注册但文本中不存在的占位符忽略（复制粘贴占位符本身的边界）。
+        """
+        if not self._paste_registry:
+            return text
+
+        def _sub(m: Any) -> str:
+            entry = self._paste_registry.get(int(m.group(1)))
+            return entry[0] if entry is not None else m.group(0)
+
+        return _PLACEHOLDER_RE.sub(_sub, text)
+
+    def _fold_echo(self, full_text: str) -> str:
+        """回显折叠：还原后的全文把已登记粘贴重新折回占位符（防刷屏）。
+
+        按粘贴长度降序替换——长粘贴可能是短粘贴的超集（两次粘贴部分
+        重叠），先替换短的会把长粘贴内部截断、导致其全文匹配失败串位。
+        """
+        if not self._paste_registry:
+            return full_text
+        for n, (data, lines) in sorted(
+            self._paste_registry.items(), key=lambda kv: len(kv[1][0]), reverse=True
+        ):
+            if data in full_text:
+                full_text = full_text.replace(
+                    data, _PLACEHOLDER_FMT.format(n=n, lines=lines, chars=len(data))
+                )
+        return full_text
 
     def _submit(self, text: str) -> None:
         with self._submit_cond:
@@ -713,7 +814,21 @@ class FullTuiSession:
     def _on_accept(self, buf: Any) -> bool:
         text = buf.text
         if text:
-            self._submit(text)
+            # 2026-09-21 输入回显：提交的输入即时进输出窗（"> " 前缀，终端惯例）。
+            # 此前提交后 buffer 被 PT reset 清空，输出窗无痕——用户输入与
+            # 模型回复在历史里混在一起无法区分。回显走 append_output
+            # （_area_lock 跨线程安全，未启动时仅更新缓冲无害）。
+            # 注意：回显的是输入文本本身，escape 后换行符已被替换。
+            # 2026-09-21 粘贴折叠配套：回显前还原占位符 → 用户在输出窗
+            # 看到完整提交内容（含粘贴全文）；但回显再次折叠为占位符——
+            # 长粘贴回显会刷屏，占位符形态与输入框所见一致。
+            full_text = self._expand_placeholders(text)
+            echo_text = self._fold_echo(full_text)
+            try:
+                self.append_output("> " + echo_text + "\n")
+            except Exception:  # noqa: BLE001 — 回显失败不阻断提交
+                pass
+            self._submit(full_text)
         # 2026-09-19 输入历史修复：**不得在此清空 buffer.text**。
         # PT 标准 accept 流程（buffer.validate_and_handle）是先调 accept_handler
         # 再 append_to_history → reset；旧实现先置 buf.text=""，append_to_history
