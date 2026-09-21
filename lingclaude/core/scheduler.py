@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -31,6 +32,8 @@ from lingclaude.core.wakeup_channel import (
     LocalFileWakeupChannel,
     WakeupChannel,
 )
+
+logger = logging.getLogger(__name__)
 
 # 持久化文件路径
 _SCHEDULES_FILE = os.path.expanduser("~/.lingclaude/schedules.json")
@@ -94,8 +97,7 @@ class ScheduleManager:
             tmp_path.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp_path.replace(_SCHEDULES_FILE)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Schedule persist failed: %s", e)
+            logger.warning("Schedule persist failed: %s", e)
 
     def _load_tasks(self) -> None:
         """从文件加载任务（跨进程恢复）"""
@@ -117,12 +119,10 @@ class ScheduleManager:
                         )
                         self._tasks[task_id] = task
                     except Exception as e:
-                        import logging
-                        logging.getLogger(__name__).warning(
+                        logger.warning(
                             "Schedule load failed for %s: %s", task_id, e)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning("Schedule load failed: %s", e)
+            logger.warning("Schedule load failed: %s", e)
 
     def set_on_task_due(self, callback: Callable[[ScheduledTask], None]) -> None:
         """P1-2: 注册到期回调 — 挂回会话（如把任务内容注入会话待处理队列）。"""
@@ -247,8 +247,7 @@ class ScheduleManager:
                     try:
                         callback(task)
                     except Exception:  # noqa: BLE001 — 挂回失败不阻塞轮询
-                        import logging
-                        logging.getLogger(__name__).warning(
+                        logger.warning(
                             f"Schedule attach-to-session failed for {task.task_id}"
                         )
             
@@ -270,8 +269,7 @@ class ScheduleManager:
         try:
             self._wakeup_channel.send(task_dict)
         except Exception as e:  # 唤醒失败不阻塞轮询（fail-soft）
-            import logging
-            logging.getLogger(__name__).warning(f"Schedule wakeup failed: {e}")
+            logger.warning(f"Schedule wakeup failed: {e}")
 
     def list_tasks(self) -> list[ScheduledTask]:
         """列出所有任务"""
@@ -280,12 +278,16 @@ class ScheduleManager:
 
     def cancel(self, task_id: str) -> bool:
         """取消任务"""
+        removed = False
         with self._lock:
             if task_id in self._tasks:
                 del self._tasks[task_id]
-                self._save_tasks()
-                return True
-        return False
+                removed = True
+        if removed:
+            # 锁外持久化——与 register/_run_loop 同纪律；持锁再入非重入锁会死锁
+            # （2026-09-21 首次被 hermetic 化测试暴露的预存生产 bug）
+            self._save_tasks()
+        return removed
 
 
 # 全局单例

@@ -88,6 +88,16 @@ class TestApiProjectionEndpoint:
 class TestScheduleManagerWiring:
     """案 4: ScheduleManager 接线验证。"""
 
+    @pytest.fixture(autouse=True)
+    def _isolated_schedules_file(self, tmp_path, monkeypatch):
+        """HOME 隔离：_SCHEDULES_FILE 在模块级已定格 ~ 展开路径，须改模块属性。
+
+        防真实 ~/.lingclaude/schedules.json（常驻系统注册的任务）混入断言——
+        2026-09-21 定性为预存缺陷（stash 基线同样失败），非接线回归。
+        """
+        import lingclaude.core.scheduler as _sched
+        monkeypatch.setattr(_sched, "_SCHEDULES_FILE", str(tmp_path / "schedules.json"))
+
     def test_schedule_manager_exists(self):
         """core/scheduler.py 存在且可导入。"""
         from lingclaude.core.scheduler import ScheduleManager, get_schedule_manager
