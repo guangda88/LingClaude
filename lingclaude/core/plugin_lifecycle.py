@@ -9,7 +9,7 @@
 - 蓝绿热替换（对齐 Pi chord）：候选实例先构建+验证，成功才原子切换；失败保留旧代
 
 与外部边界的关系（架构纪律）：本模块只管 lc 内部缝图；GLM/zai 等 HTTP 端点
-探活走 model/provider_probe 的 TTL 机制，两者边界互不侵犯。
+探活走端点探活组件的 TTL 机制，两者边界互不侵犯。
 """
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ class LifecycleState(str, Enum):
 
 
 def _epoch_of(impl: Any) -> str:
-    """实现的 epoch 标识：优先实例级 _seam_epoch（provider 可显式自增），
+    """实现的 epoch 标识：优先实例级 _seam_epoch（实现方可显式自增），
     否则用 id()（进程内对象身份——register 覆盖产生新对象即新 id）。"""
     marker = getattr(impl, "_seam_epoch", None)
     return str(marker) if marker is not None else f"id:{id(impl)}"
@@ -63,7 +63,7 @@ class PluginFiber:
             (SeamType(t), str(n)) for t, n in inject
         ]
         self.state = LifecycleState.PENDING
-        self.epoch: Optional[str] = None        # 依赖指纹（'provider/glm:id:140...' 形式）
+        self.epoch: Optional[str] = None        # 依赖指纹（'端点/模型标识:id:140...' 形式）
         self.instance: Any = None
         self._disposers: list[Callable[[], None]] = []
         self.error: Optional[str] = None
@@ -125,7 +125,7 @@ class LifecycleManager:
                    **metadata: Any) -> None:
         """触发生命周期钩子（防御式：无 hooks/无该类型钩子/触发异常均静默）。
 
-        hot_swap 是显式治理动作，PRE/POST_HOT_SWAP 给治理面板留观测点；
+        hot_swap 是显式管控动作，PRE/POST_HOT_SWAP 给管控观测面板留观测点；
         钩子失败不阻断切换主路径（fail-open，与 seam 订阅者语义一致）。
         """
         if self._hooks is None:
@@ -350,7 +350,7 @@ class LifecycleManager:
         logger.warning("hot_swap[%s]: 回滚完成 state=%s", name, fiber.state.value)
         return False
 
-    # ---- 只读投影（供 lc_plugins_inspect / 治理面板）----
+    # ---- 只读投影（供 lc_plugins_inspect / 管控观测面板）----
 
     def status(self) -> dict[str, dict[str, Any]]:
         """全 fiber 状态投影（只读，inspect 数据源）。"""

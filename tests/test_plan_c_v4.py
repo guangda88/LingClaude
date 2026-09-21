@@ -218,12 +218,12 @@ def test_framing_roundtrip():
     assert f2 is not None and f2.dropped_count == 21 and "单源解析" in f2.body
 
 
-def test_is_summary_message_str_and_dict():
+def test_is_summary_entry_str_and_dict():
     eng = DefaultContextEngine()
     text = make_framing(3, "body").render()
-    assert eng.is_summary_message(text) is True
-    assert eng.is_summary_message({"role": "user", "content": text}) is True
-    assert eng.is_summary_message("普通消息") is False
+    assert eng.is_summary_entry(text) is True
+    assert eng.is_summary_entry({"role": "user", "content": text}) is True
+    assert eng.is_summary_entry("普通消息") is False
 
 
 def test_never_slice_semantics():

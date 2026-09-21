@@ -1,20 +1,20 @@
 # lingclaude/core/context_engine.py
 """上下文引擎抽象（方案C v4 P1#2，对齐 hermes native_compaction 语义）。
 
-hermes 实测锚点（agent/native_compaction.py:226）：
+hermes 实测锚点（native_compaction.py:226）：
     "A summary is never byte/character-sliced: Hermes summaries carry
      structural framing (handoff prefix, end marker) ... dropped instead."
 
 语义迁移到 lc：
 - **摘要永不切片**：压缩摘要是结构化整体（handoff 前缀 + 正文 + 结束标记），
   截断会破坏「遗嘱式」自支撑性——要么整条保留，要么整条丢弃。
-- **摘要是可识别的一等公民**：引擎提供 is_summary_message 判定，压缩层
+- **摘要是可识别的一等公民**：引擎提供 is_summary_entry 判定，压缩层
   不再靠「开头是否 ## 压缩摘要」的隐式字符串约定各自实现。
 - **框定单一来源**：handoff 前缀格式收敛到 SUMMARY_FRAMING 一处，
   context_compression 与 TUI 回放层共用，不再漂移。
 
 边界：本模块只做框定与判定，不做压缩本身——压缩算法仍是
-context_compression.py 的职责（compress_messages/generate_chinese_summary）。
+context_compression.py 的职责（摘要生成与压缩切片管线）。
 """
 from __future__ import annotations
 
@@ -73,11 +73,11 @@ class ContextEngine(ABC):
         """构建摘要框定。"""
 
     @abstractmethod
-    def is_summary_message(self, message: Any) -> bool:
-        """判定消息是否为压缩摘要（压缩层跳过它、回放层特殊渲染）。"""
+    def is_summary_entry(self, item: Any) -> bool:
+        """判定条目是否为压缩摘要（压缩层跳过它、回放层特殊渲染）。"""
 
     @abstractmethod
-    def retain_whole(self, message: Any, budget_chars: int) -> bool:
+    def retain_whole(self, item: Any, budget_chars: int) -> bool:
         """never-slice 语义：摘要要么整条保留（True）要么整条丢弃（False），
         绝不允许返回「切一半」。默认实现：装得下就保留。"""
 
@@ -88,21 +88,21 @@ class DefaultContextEngine(ContextEngine):
     def frame(self, dropped_count: int, body: str) -> SummaryFraming:
         return make_framing(dropped_count, body)
 
-    def is_summary_message(self, message: Any) -> bool:
-        text = _extract_text(message)
+    def is_summary_entry(self, item: Any) -> bool:
+        text = _extract_text(item)
         return text.lstrip().startswith(SUMMARY_HEADLINE)
 
-    def retain_whole(self, message: Any, budget_chars: int) -> bool:
-        text = _extract_text(message)
+    def retain_whole(self, item: Any, budget_chars: int) -> bool:
+        text = _extract_text(item)
         return len(text) <= budget_chars
 
 
-def extract_summary_framing(message: Any) -> Optional[SummaryFraming]:
+def extract_summary_framing(item: Any) -> Optional[SummaryFraming]:
     """从历史消息中反向解析摘要框定（回放层/审计用）。
 
     解析失败（非摘要/格式漂移）返回 None——调用方按普通消息处理。
     """
-    text = _extract_text(message)
+    text = _extract_text(item)
     stripped = text.lstrip()
     if not stripped.startswith(_SUMMARY_HEADLINE_RE_PREFIX):
         return None
@@ -117,16 +117,16 @@ def extract_summary_framing(message: Any) -> Optional[SummaryFraming]:
                           handoff_prefix=first_line, body=body.strip("\n"))
 
 
-def _extract_text(message: Any) -> str:
+def _extract_text(item: Any) -> str:
     """宽容提取消息文本：str 直返；dict 取 content；其他 repr。"""
-    if isinstance(message, str):
-        return message
-    if isinstance(message, dict):
-        content = message.get("content", "")
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        content = item.get("content", "")
         if isinstance(content, str):
             return content
         return repr(content)
-    return getattr(message, "content", "") or ""
+    return getattr(item, "content", "") or ""
 
 
 # 模块级单例（进程内唯一引擎；测试用 _reset）

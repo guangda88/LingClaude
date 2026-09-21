@@ -1,8 +1,8 @@
 # lingclaude/core/repair_card.py
 """修复卡（方案C v4 P1#3）：写失败/验证失败的结构化追踪，fail-closed 结账。
 
-动机（本会话实证）：批量落盘中 edit 参数损坏、epoch 守卫吞切换等失败，
-如果没有结构化记录，靠会话记忆追踪「哪一步坏了、验证过没有」必然漂移。
+动机（本轮实证）：批量落盘中 edit 参数损坏、epoch 守卫吞切换等失败，
+如果没有结构化记录，靠上下文回忆追踪「哪一步坏了、验证过没有」必然漂移。
 
 三态状态机：
     OPEN → REPAIRING → RESOLVED（必须携带验证证据）
@@ -55,7 +55,7 @@ class RepairCard:
     updated_at: datetime = field(default_factory=datetime.now)
     attempts: int = 0                 # 修复尝试次数
     history: list[str] = field(default_factory=list)
-    verification: Optional[dict[str, Any]] = None  # {"command":..., "evidence":...}
+    verification: Optional[dict[str, Any]] = None  # {"verify_cmd":..., "evidence":...}
 
     def _touch(self, note: str) -> None:
         self.updated_at = datetime.now()
@@ -107,9 +107,9 @@ class RepairBoard:
             card._touch(f"start_repair attempt#{card.attempts}")
             return card
 
-    def resolve(self, card_id: str, command: str, evidence: Any) -> RepairCard:
+    def resolve(self, card_id: str, verify_cmd: str, evidence: Any) -> RepairCard:
         """结账：必须携带验证证据（命令 + 通过输出），否则 fail-closed 抛错。"""
-        if not (command or "").strip() or evidence is None:
+        if not (verify_cmd or "").strip() or evidence is None:
             raise RepairEvidenceError(
                 f"{card_id}: 无验证证据不得 resolve（fail-closed）")
         with self._lock:
@@ -117,8 +117,8 @@ class RepairBoard:
             if card.state is RepairState.FAILED:
                 raise RepairTransitionError(f"{card_id}: FAILED 是终态")
             card.state = RepairState.RESOLVED
-            card.verification = {"command": command, "evidence": str(evidence)[:500]}
-            card._touch(f"resolved via: {command[:80]}")
+            card.verification = {"verify_cmd": verify_cmd, "evidence": str(evidence)[:500]}
+            card._touch(f"resolved via: {verify_cmd[:80]}")
         logger.info("repair_card: RESOLVED %s target=%s", card.card_id, card.target)
         return card
 
