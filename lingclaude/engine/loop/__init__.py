@@ -21,6 +21,11 @@ from lingclaude.engine.loop.tool_loop_detector import (
     _R5_THRESHOLDS,
     _ToolLoopDetector,
 )
+from lingclaude.engine.loop.sub_agent import (
+    SubAgent,
+    SubAgentConfig,
+    SubAgentResult,
+)
 
 __all__ = [
     "LoopHooks",
@@ -33,4 +38,7 @@ __all__ = [
     "_LOOP_WARN_HINT",
     "_LOOP_ABORT_MSG",
     "_R5_THRESHOLDS",
+    "SubAgent",
+    "SubAgentConfig",
+    "SubAgentResult",
 ]

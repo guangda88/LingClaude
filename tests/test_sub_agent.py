@@ -4,7 +4,7 @@ import json
 from unittest.mock import MagicMock
 
 
-from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig, SubAgentResult
+from lingclaude.engine.loop.sub_agent import SubAgent, SubAgentConfig, SubAgentResult
 
 
 class TestSubAgentResult:

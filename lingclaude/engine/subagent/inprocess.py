@@ -30,7 +30,7 @@ class InProcessSubagentBackend(SubagentBackend):
         self._lock = threading.Lock()
 
     def run(self, request: SubagentRequest, ctx: SubagentContext) -> SubagentResult:
-        from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig
+        from lingclaude.engine.loop.sub_agent import SubAgent, SubAgentConfig
 
         if ctx.runtime is None:
             return SubagentResult(
@@ -79,7 +79,7 @@ class InProcessSubagentBackend(SubagentBackend):
 
     def _run_parallel(self, request: SubagentRequest, ctx: SubagentContext) -> SubagentResult:
         """T1-6: 并行执行多个子任务（每个任务独立 SubAgent）。"""
-        from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig
+        from lingclaude.engine.loop.sub_agent import SubAgent, SubAgentConfig
         import uuid
 
         config = SubAgentConfig(

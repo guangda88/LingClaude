@@ -291,14 +291,14 @@ def test_tool_executor_invalid_args_code():
 # === 7. sub_agent 强类型 ===
 
 def test_subagent_execute_tool_typed():
-    from lingclaude.engine.sub_agent import SubAgent, SubAgentConfig
+    from lingclaude.engine.loop.sub_agent import SubAgent, SubAgentConfig
     eng = _FakeEngine()
     sa = SubAgent(config=SubAgentConfig(), runtime=eng._runtime)
     # 正常工具
     tr = sa._execute_tool_typed("read", json.dumps({"path": "x"}))
     assert tr.is_ok
     # 敏感路径拒绝（.env 是敏感标记）
-    from lingclaude.engine.sub_agent import SubAgentConfig as SC
+    from lingclaude.engine.loop.sub_agent import SubAgentConfig as SC
     sa2 = SubAgent(config=SC(), runtime=eng._runtime)
     tr2 = sa2._execute_tool_typed("read", json.dumps({"path": "/tmp/project/.env"}))
     assert tr2.is_error
