@@ -15,6 +15,12 @@ from lingclaude.engine.loop.l5_conversation_loop import (
     L5ConversationLoop,
     L5RoundResult,
 )
+from lingclaude.engine.loop.tool_loop_detector import (
+    _LOOP_ABORT_MSG,
+    _LOOP_WARN_HINT,
+    _R5_THRESHOLDS,
+    _ToolLoopDetector,
+)
 
 __all__ = [
     "LoopHooks",
@@ -23,4 +29,8 @@ __all__ = [
     "L5ConversationLoop",
     "L5ConversationConfig",
     "L5RoundResult",
+    "_ToolLoopDetector",
+    "_LOOP_WARN_HINT",
+    "_LOOP_ABORT_MSG",
+    "_R5_THRESHOLDS",
 ]

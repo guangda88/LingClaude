@@ -1,7 +1,7 @@
 """打转检测器 — 区分"原地打转"与"正常推进"（替代纯轮次上限的收敛判定）。"""
 from __future__ import annotations
 
-from lingclaude.core.model_call import _ToolLoopDetector
+from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector
 
 
 def _read(path: str) -> tuple[str, str]:
