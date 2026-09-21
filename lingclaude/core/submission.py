@@ -338,6 +338,26 @@ class SubmissionMixin:
             messages, round_idx, prompt, used_tools, total_input, total_output,
             tag=tag,
         )
+        # P0-1（2026-09-21，全 15 家精读 §3.2）：checkpoint 旁路追加一条
+        # rollout 事件（append-only JSONL，不覆盖、不删旧）——不可变会话的
+        # 事件溯源层。best-effort：rollout 写失败不阻塞主流程（与 checkpoint 同语义）。
+        try:
+            from lingclaude.core.rollout import RolloutRecorder
+            rr = getattr(self, "_rollout_recorder", None)
+            if rr is None:
+                rr = RolloutRecorder(session_id=self.session_id)
+                rr.open_meta(branch=getattr(self, "git_branch", None) or "")
+                self._rollout_recorder = rr
+            rr.record("checkpoint", {
+                "round_idx": round_idx,
+                "used_tools": used_tools,
+                "total_input": total_input,
+                "total_output": total_output,
+                "message_count": len(messages),
+                "tag": tag,
+            })
+        except Exception:
+            logger.debug("rollout checkpoint 旁路记录失败（best-effort）", exc_info=True)
 
     def _load_checkpoint(self) -> dict[str, Any] | None:
         return self._session_persister.load_checkpoint()

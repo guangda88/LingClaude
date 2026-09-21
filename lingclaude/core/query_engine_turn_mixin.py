@@ -126,6 +126,8 @@ class QueryEngineTurnMixin:
             total_input: int,
             total_output: int,
             resolved_config: Any,
+            total_cached: int = 0,
+            ctx_input_tokens: int | None = None,
         ) -> str:
             # P17 (2026-09-14): Cross-reference claims —— 从 journal 取本 turn 真实工具证据，
             # 传给 prior_verifier 做「声明 ↔ 工具」语义匹配（有据可查才不算未验证）。
@@ -163,7 +165,30 @@ class QueryEngineTurnMixin:
                 from lingclaude.core.model_call import _estimate_message_tokens, _estimate_tokens
                 total_input = max(1, _estimate_tokens(prompt))
                 total_output = _estimate_tokens(final_content)
-            self._usage = self._usage.add_usage(total_input, total_output)
+                # 分子口径哨兵（2026-09-21）：provider 未回传 usage 时 total_input
+                # 只是单轮 prompt 粗估（≈len/4），当「整个上下文」喂给 toolbar 会
+                # 随轮次线性低估。落哨兵：_last_turn_input<0 → 消费方回退字符估算。
+                # total_input 立即归正，下游 monitor/journal 记账语义不变。
+                ctx_input_tokens = -total_input
+                total_input = -total_input
+            self._last_turn_input = total_input
+            # ctx 口径优先（2026-09-21 修复 4743k/500k=949% 虚高）：工具循环里
+            # total_input 是「turn 内每个请求轮 prefill 之和」（含历史反复计费），
+            # 当「当前上下文体量」喂给 toolbar 随轮次线性虚高（95 轮工具的
+            # turn 可膨胀百倍）。ctx_input_tokens = 最后一请求轮的真实
+            # prompt_tokens = 当前实际发送的上下文（system+history+tools+本轮），
+            # 才是「离触发窗口上限还有多远」的正确分子。None（无工具轮/未回传）
+            # 时保持 total_input 原语义（含上方负值哨兵）。
+            if ctx_input_tokens is not None:
+                self._last_turn_input = ctx_input_tokens
+            total_input = abs(total_input)
+            self._usage = self._usage.add_usage(total_input, total_output, total_cached)
+            self._last_turn_cached = total_cached
+            # 2026-09-21: 本轮真实 input tokens（toolbar 上下文口径的真实值来源；
+            # 负值 = provider 未回传时的估算兜底哨兵，消费方见上注释）
+            self._last_model = (
+                str(resolved_config.model) if resolved_config else getattr(self, "_last_model", "?")
+            )
             self._monitor.record_usage(
                 model=str(resolved_config.model) if resolved_config else "unknown",
                 task_type="unknown",

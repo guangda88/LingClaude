@@ -37,8 +37,16 @@ _BASE_PROMPT = (
     "12. 外部知识断言（参数量/定价/限额/API 契约/版本号等训练数据内记忆）不得直接断言，"
     "必须先经 web_search/web_fetch 工具验证；无法验证时明确说「未验证」，禁止编造具体数字。\n"
     "13. 涉及模型/端点清单的问题，只引用工具返回的实时清单；未知或清单外的模型一律回答"
-    " NOT_FOUND，禁止顺着记忆猜测补全。"
+    " NOT_FOUND，禁止顺着记忆猜测补全。\n"
+    # P0-3（2026-09-21，全 15 家精读 §3.2 cc 式缓存边界行）：显式动态边界标记——
+    # 本行之前是字节级冻结的前缀（provider 前缀缓存命中区），之后全部是动态内容
+    # （SESSION_CONTEXT/extras，由 build_dynamic_system_suffix 承载 tail-append）。
+    # resume/compact 时前缀字节不变当 CI 断言（assert_prefix_stable）。
+    "__DYNAMIC_BOUNDARY__"
 )
+
+# P0-3: 前缀冻结断言用的边界行常量（与 _BASE_PROMPT 末行一致，单源防漂移）。
+DYNAMIC_BOUNDARY_MARKER = "__DYNAMIC_BOUNDARY__"
 
 
 def _build_session_context() -> str:
@@ -133,7 +141,73 @@ def build_adaptive_system_prompt(
     #   - 动态段 = 独立 system 尾随消息（_build_dynamic_system_suffix），由
     #     _build_messages 以「tail-append」方式放在历史之后、本轮 user 之前——
     #     只破坏一次尾部缓存，前缀（BASE+历史）保持可命中。
+    # P0-3（2026-09-21）：_BASE_PROMPT 末尾带显式 __DYNAMIC_BOUNDARY__ 边界行——
+    # 边界行之前为冻结前缀，build_adaptive_system_prompt 恒定只返回 _BASE_PROMPT
+    # （含边界行），动态内容全压在 build_dynamic_system_suffix 尾部，前缀字节
+    # 永不随动态内容变化。
     return _BASE_PROMPT
+
+
+def assert_prefix_stable() -> None:
+    """P0-3（2026-09-21）：前缀字节稳定 CI 断言。
+
+    校验两点（违反任一即测试红）：
+      1. `build_adaptive_system_prompt` 返回体恒等于 `_BASE_PROMPT`（不随
+         任何入参变化）——动态内容不得渗入前缀；
+      2. 返回体以 `__DYNAMIC_BOUNDARY__` 边界行结尾——边界行之后才是动态段
+         （build_dynamic_system_suffix 承载），保证 provider 前缀缓存命中区
+         与动态区的显式分界。
+
+    供 CI / 单测调用：`assert_prefix_stable()` 无参，断言失败即抛 AssertionError。
+    """
+    # 1) 返回体对任意入参字节级一致（冻结前缀）
+    def _mk(**over: Any) -> str:
+        base = dict(
+            behavior=_FakeBM(), layered_memory=_FakeLM(), meta_cognition=_FakeMeta(),
+            messages=["m"], session_cache_hits=0, dementia_detector=_FakeDD(),
+            project_index=None, tool_call_count=0,
+        )
+        base.update(over)
+        return build_adaptive_system_prompt(**base)
+
+    a = _mk()
+    b = _mk(current_query="完全不同的动态 query", tool_call_count=999)
+    c = _mk(current_query="x", tool_call_count=0)
+    assert a == b == c, "前缀随动态入参变化（缓存边界被破坏）"
+    assert a == _BASE_PROMPT, "build_adaptive_system_prompt 返回体偏离 _BASE_PROMPT"
+    # 2) 边界行结尾
+    assert _BASE_PROMPT.rstrip().endswith(DYNAMIC_BOUNDARY_MARKER), \
+        f"_BASE_PROMPT 必须以 {DYNAMIC_BOUNDARY_MARKER} 结尾（前缀/动态分界）"
+
+
+# P0-3: 断言用最小 fake（仅服务于 prefix 稳定性校验，全离线）
+class _FakeBM:
+    hallucination_risk = 0.0
+    frustration_rate = 0.0
+    tool_error_rate = 0.0
+    corrections_received = 0
+    total_turns = 0
+    tool_use_rate = 0.0
+    tool_error_count = 0
+    auto_sub_agent_threshold = 0
+
+
+class _FakeLM:
+    def inject_common_to_prompt(self) -> str:
+        return ""
+
+
+class _FakeMeta:
+    def get_system_prompt_injection(self) -> str:
+        return ""
+
+
+class _FakeDD:
+    def diagnose(self) -> Any:
+        class _D:
+            dementia_index = 0.0
+            intervention_prompt = ""
+        return _D()
 
 
 def build_dynamic_system_suffix(

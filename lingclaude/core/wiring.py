@@ -348,6 +348,10 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     # 单调不回翻（对齐 atomcode compaction 的 cache_epoch 语义）：epoch 不变期间
     # 历史前缀字节稳定，provider 前缀缓存得以命中；epoch 变更即缓存失效点，可观测。
     WiringSpec("_history_epoch", lambda ctx: 0, phase="state", note="历史字节代数（缓存失效计数）"),
+    # 第 0 步（2026-09-21）：循环体治理钩子注入面（loop_seam.LoopHooks）。
+    # 默认 None → ModelCallMixin.hooks 惰性构造 DefaultLoopHooks(self)，行为零变化；
+    # 测试 / headless / 未来热更可注入 fake 钩子全离线驱动同一循环体。
+    WiringSpec("_loop_hooks", lambda ctx: None, phase="state", note="第0步（2026-09-21）：循环体治理钩子注入面（loop_seam.LoopHooks）；默认 None → 惰性 DefaultLoopHooks(self)，行为零变化"),
     WiringSpec("_degradation_alerts", lambda ctx: [], phase="state", note="退化告警累积"),
     WiringSpec("_memory_engine", lambda ctx: None, phase="state", note="T0-4 死接线已移除，槽位保留"),
     WiringSpec("_l5_orchestrator", lambda ctx: None, phase="state", note="L5 编排器 lazy init 槽"),

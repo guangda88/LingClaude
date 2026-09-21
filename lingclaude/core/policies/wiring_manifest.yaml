@@ -93,6 +93,10 @@ manifest:
     factory: 
     phase: state
     note: "L5 编排器 lazy init 槽"
+  - attr: _loop_hooks
+    factory: 
+    phase: state
+    note: "第 0 步（2026-09-21）：循环体治理钩子注入面（loop_seam.LoopHooks）；默认 None → ModelCallMixin.hooks 惰性构造 DefaultLoopHooks(self)，行为零变化"
   - attr: _pinned_model_config
     factory: 
     phase: state

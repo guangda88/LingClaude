@@ -26,6 +26,9 @@ class PermissionDenial:
 class UsageSummary:
     input_tokens: int = 0
     output_tokens: int = 0
+    # 2026-09-21: 累计缓存命中 token（前缀缓存可观测性）。
+    # 语义 = 历次请求 prompt_tokens_details.cached_tokens 之和。
+    cached_tokens: int = 0
 
     def add_turn(self, prompt: str, output: str) -> UsageSummary:
         return UsageSummary(
@@ -33,13 +36,18 @@ class UsageSummary:
             output_tokens=self.output_tokens + len(output.split()),
         )
 
-    def add_usage(self, input_tokens: int, output_tokens: int) -> UsageSummary:
+    def add_usage(self, input_tokens: int, output_tokens: int, cached_tokens: int = 0) -> UsageSummary:
         return UsageSummary(
             input_tokens=self.input_tokens + input_tokens,
             output_tokens=self.output_tokens + output_tokens,
+            cached_tokens=self.cached_tokens + cached_tokens,
         )
 
     def to_dict(self) -> dict[str, int]:
-        return {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cached_tokens": self.cached_tokens,
+        }
 
 

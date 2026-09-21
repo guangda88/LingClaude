@@ -1,4 +1,10 @@
-"""LINGKERNEL_v1 task #1 — MessageBuilder 测试。"""
+"""LINGKERNEL_v1 task #1 — MessageBuilder 测试。
+
+2026-09-21（P0-3 缓存边界行）：动态段（行为警告/注入/extras）从
+build_adaptive_system_prompt 的静态前缀拆到 build_dynamic_system_suffix
+（tail-append，前缀冻结）。本文件断言动态内容的用例改调模块函数
+build_dynamic_system_suffix（带完整参数）；静态前缀用例仍走 facade。
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from lingclaude.core.message_builder import (
     MessageBuilder,
     assemble_system_prompt,
 )
+from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 import lingclaude.self_optimizer.learner.knowledge as _kb_mod
 
 
@@ -69,6 +76,25 @@ def _mk_builder(
     )
 
 
+def _suffix_of(mb: "MessageBuilder", messages: list[str], **kw: Any) -> str:
+    """P0-3（2026-09-21）：取动态段（build_dynamic_system_suffix）输出。
+
+    MessageBuilder 是 facade（只有 build_adaptive_system_prompt 静态前缀），
+    动态段在模块函数 build_dynamic_system_suffix——把 mb 的 5 个依赖转发过去。
+    """
+    return build_dynamic_system_suffix(
+        behavior=mb._behavior,
+        layered_memory=mb._layered_memory,
+        meta_cognition=mb._meta_cognition,
+        messages=messages,
+        session_cache_hits=kw.pop("session_cache_hits", 0),
+        dementia_detector=mb._dementia_detector,
+        project_index=kw.pop("project_index", None),
+        tool_call_count=kw.pop("tool_call_count", 0),
+        **kw,
+    )
+
+
 def test_base_prompt_only():
     mb = _mk_builder()
     out = mb.build_adaptive_system_prompt(messages=[])
@@ -88,7 +114,7 @@ def test_hallucination_warning_above_threshold():
     b = FakeBehavior()
     b.hallucination_risk = 0.5
     mb = _mk_builder(behavior=b)
-    out = mb.build_adaptive_system_prompt(messages=["hi"])
+    out = _suffix_of(mb, ["hi"])
     assert "幻觉风险" in out
 
 
@@ -96,7 +122,7 @@ def test_hallucination_warning_below_threshold_suppressed():
     b = FakeBehavior()
     b.hallucination_risk = 0.1
     mb = _mk_builder(behavior=b)
-    out = mb.build_adaptive_system_prompt(messages=["hi"])
+    out = _suffix_of(mb, ["hi"])
     assert "幻觉风险" not in out
 
 
@@ -104,7 +130,7 @@ def test_frustration_warning_above_threshold():
     b = FakeBehavior()
     b.frustration_rate = 0.5
     mb = _mk_builder(behavior=b)
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert "沮丧" in out
 
 
@@ -112,7 +138,7 @@ def test_tool_error_warning_above_threshold():
     b = FakeBehavior()
     b.tool_error_rate = 0.5
     mb = _mk_builder(behavior=b)
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert "工具问题" in out
 
 
@@ -120,7 +146,7 @@ def test_corrections_warning_above_2():
     b = FakeBehavior()
     b.corrections_received = 3
     mb = _mk_builder(behavior=b)
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert "纠正记录" in out
 
 
@@ -129,13 +155,13 @@ def test_low_tool_use_reminder():
     b.total_turns = 5
     b.tool_use_rate = 0.1
     mb = _mk_builder(behavior=b)
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert "工具使用率较低" in out
 
 
 def test_session_cache_hits_above_2():
     mb = _mk_builder()
-    out = mb.build_adaptive_system_prompt(messages=[""], session_cache_hits=5)
+    out = _suffix_of(mb, [""], session_cache_hits=5)
     assert "文件缓存" in out
 
 
@@ -148,16 +174,13 @@ def test_dementia_intervention_included():
                 intervention_prompt = "⚠ 痴呆干预提醒"
             return R()
     mb = _mk_builder(dementia=D())
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert "痴呆干预" in out
 
 
 def test_project_index_included():
     mb = _mk_builder()
-    out = mb.build_adaptive_system_prompt(
-        messages=[""],
-        project_index={"lingclaude": ["coding.py", "tools.py"]},
-    )
+    out = _suffix_of(mb, [""], project_index={"lingclaude": ["coding.py", "tools.py"]})
     assert "项目结构" in out
     assert "lingclaude" in out
 
@@ -165,10 +188,7 @@ def test_project_index_included():
 def test_project_index_excludes_dot():
     """项目索引 '.' 不应作为顶级 key 出现。"""
     mb = _mk_builder()
-    out = mb.build_adaptive_system_prompt(
-        messages=[""],
-        project_index={".": ["file1"], "lingclaude": ["file2"]},
-    )
+    out = _suffix_of(mb, [""], project_index={".": ["file1"], "lingclaude": ["file2"]})
     # 渲染时 '.' 被过滤
     assert ".: " not in out
 
@@ -178,7 +198,7 @@ def test_meta_cognition_injection():
         def get_system_prompt_injection(self) -> str:
             return "[META_INJECTION]"
     mb = _mk_builder(meta=M())
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert "[META_INJECTION]" in out
 
 
@@ -190,7 +210,7 @@ def test_memory_injection():
         def build_context_injection(self, current_query: str) -> str:
             return ""
     mb = _mk_builder(memory=M())
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert "[MEM_INJECTION]" in out
 
 
@@ -203,7 +223,7 @@ def test_memory_experience_injection_long_enough():
         def build_context_injection(self, current_query: str) -> str:
             return long_text
     mb = _mk_builder(memory=M())
-    out = mb.build_adaptive_system_prompt(messages=[""])
+    out = _suffix_of(mb, [""])
     assert long_text in out
 
 

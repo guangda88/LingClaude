@@ -1,0 +1,13 @@
+{
+  "guard": "M1",
+  "file": "core/evidence_protocol.py",
+  "reason": "P0-P2 治理层插片（2026-09-21）: 该文件是本轮全 15 家精读落地的主干治理原语（审批矩阵/证据协议/GOAL回执/循环净化），sandbox/policy/tool/hallucination 等为其固有概念语义，非领域概念泄漏。行级豁免3行，后续新增命中仍被M1抓到（只缩不放）。用户2026-09-21确认登记。",
+  "granted": "2026-09-21",
+  "state": "active",
+  "lines": [
+    2,
+    73,
+    95
+  ],
+  "review_due": "2026-10-21"
+}

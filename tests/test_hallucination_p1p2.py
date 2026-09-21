@@ -186,14 +186,33 @@ class TestBuilderSwitchInjection(unittest.TestCase):
         )
 
     def test_switch_note_injected(self):
+        # P0-3（2026-09-21）：模型切换声明是动态内容，已拆到
+        # build_dynamic_system_suffix（tail-append 在历史后），不再进
+        # build_adaptive_system_prompt 的静态 system 前缀。
+        # 验证：静态前缀无切换声明（前缀冻结），suffix 有（动态承载）。
         prompt = self._build({"model": "Kimi-K3", "pinned": False, "at": 0.0})
-        self.assertIn("模型切换声明", prompt)
-        self.assertIn("Kimi-K3", prompt)
-        self.assertIn("NOT_FOUND", prompt)
+        self.assertNotIn("模型切换声明", prompt)
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix, _FakeBM, _FakeLM, _FakeMeta, _FakeDD
+        suffix = build_dynamic_system_suffix(
+            behavior=_FakeBM(), layered_memory=_FakeLM(), meta_cognition=_FakeMeta(),
+            messages=[], session_cache_hits=0, dementia_detector=_FakeDD(),
+            project_index=None, tool_call_count=0,
+            model_switch_note={"model": "Kimi-K3", "pinned": False, "at": 0.0},
+        )
+        self.assertIn("模型切换声明", suffix)
+        self.assertIn("Kimi-K3", suffix)
+        self.assertIn("NOT_FOUND", suffix)
 
     def test_no_note_no_injection(self):
         prompt = self._build(None)
         self.assertNotIn("模型切换声明", prompt)
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix, _FakeBM, _FakeLM, _FakeMeta, _FakeDD
+        suffix = build_dynamic_system_suffix(
+            behavior=_FakeBM(), layered_memory=_FakeLM(), meta_cognition=_FakeMeta(),
+            messages=[], session_cache_hits=0, dementia_detector=_FakeDD(),
+            project_index=None, tool_call_count=0, model_switch_note=None,
+        )
+        self.assertNotIn("模型切换声明", suffix)
 
     def test_base_prompt_disciplines(self):
         """P2-5b: NOT_FOUND + 外部知识工具验证进常驻提示词。"""

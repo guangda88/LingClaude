@@ -32,6 +32,34 @@ def _estimate_tokens(text: str, per_char: float = 0.28) -> int:
     return max(1, int(len(text) * per_char))
 
 
+# P1-5（2026-09-21, 全 15 家精读 §3.2 codex 式大结果瘦身）：
+# 工具结果进历史前的瘦身阈值。codex 语义：rollout 只存引用/摘要，
+# 客户端按需重建——lc 在历史里存「前 N 字符 + 截断说明 + 总长度引用」，
+# 既省长会话 token 膨胀，又保留关键信息（头 800 字符通常含报错/结果核心）。
+_TOOL_RESULT_SLIM_THRESHOLD = 1600   # 超过此字符数的工具结果进历史前截断
+_TOOL_RESULT_SLIM_KEEP = 800         # 截断后保留的前缀字符数
+
+
+def _slim_tool_output(tool_name: str, output: str) -> str:
+    """P1-5: 大工具结果瘦身——超过阈值只进历史存「前缀 + 截断说明 + 总长引用」。
+
+    小结果原样返回（零开销）；大结果截断为前 800 字符 + 显式标记，
+    标记里带总长与工具名，模型需要更多时可重新调用同一工具取全量。
+    这是「进历史前截断」（§3.2），不改工具执行层——工具本身仍拿到全量。
+    """
+    if output is None:
+        return ""
+    if len(output) <= _TOOL_RESULT_SLIM_THRESHOLD:
+        return output
+    kept = output[:_TOOL_RESULT_SLIM_KEEP]
+    return (
+        f"{kept}\n"
+        f"[工具结果瘦身: {tool_name} 输出共 {len(output)} 字符，"
+        f"历史仅保留前 {_TOOL_RESULT_SLIM_KEEP} 字符。"
+        f"如需完整内容请重新调用该工具。]"
+    )
+
+
 def _estimate_message_tokens(messages: list[Any]) -> int:
     """估算 messages 总 token 数（兜底；消息可为 str/dict/带 content 对象）。
 
@@ -51,20 +79,26 @@ def _estimate_message_tokens(messages: list[Any]) -> int:
             total_chars += len(str(m))
     return total_chars // 4
 
-def _accumulate_usage(total_input: int, total_output: int, response: Any, text: str) -> tuple[int, int]:
+def _accumulate_usage(total_input: int, total_output: int, response: Any, text: str,
+                      total_cached: int = 0) -> tuple[int, int, int]:
     """累加 usage；只累加真实值，缺失（全 0）保持 0，不估算。
 
     response 可以是带 .usage 的 response（_call_model），也可以是 ModelUsage 本身
     （stream finish 事件已解析过）。两种情况都正确读取真实值。
     估算兜底在 _finalize_turn 层做（保证 journal 遥测非 0），不动 done/CLI 契约。
+    2026-09-21: 返回三元组，第三项为累计 cached_tokens（0 = provider 未回传）。
     """
     usage = getattr(response, "usage", None)
     if usage is None:
         # 传入对象本身可能已是 ModelUsage（stream 路径已解析）
         usage = response
     if hasattr(usage, "input_tokens"):
-        return total_input + (usage.input_tokens or 0), total_output + (usage.output_tokens or 0)
-    return total_input, total_output
+        return (
+            total_input + (usage.input_tokens or 0),
+            total_output + (usage.output_tokens or 0),
+            total_cached + (getattr(usage, "cached_tokens", 0) or 0),
+        )
+    return total_input, total_output, total_cached
 
 
 _CFG_MTIME_CACHE: dict[str, float] = {}
@@ -216,6 +250,21 @@ _R5_THRESHOLDS: dict[str, int] = {
 class ModelCallMixin:
     """模型调用 + MV-1 校验 + 幻觉闭环。"""
 
+    @property
+    def hooks(self) -> "Any":
+        """第 0 步（2026-09-21）：循环体治理钩子注入面（loop_seam.LoopHooks）。
+
+        默认来自 wiring 装配的 self._loop_hooks（DefaultLoopHooks(self)，行为零
+        变化）；测试 / headless / 热更可替换为 fake 实现驱动同一循环体。
+        缺失时惰性构造 DefaultLoopHooks(self) 兜底（裸构造 / 老引擎兼容）。
+        """
+        h = getattr(self, "_loop_hooks", None)
+        if h is None:
+            from lingclaude.core.loop_seam import DefaultLoopHooks
+            self._loop_hooks = DefaultLoopHooks(self)
+            h = self._loop_hooks
+        return h
+
     def _get_journal(self) -> SessionJournal:
         """R5: 获取缓存的 SessionJournal 实例（持久化文件句柄复用）。
 
@@ -228,6 +277,20 @@ class ModelCallMixin:
             )
             self._journal_cache_key = cache_key
         return self._journal_cache
+
+    def _get_evidence_ledger(self) -> Any:
+        """P2-9（2026-09-21）: 获取缓存的 EvidenceLedger（H17 协议化观测源）。
+
+        工具结果进历史时登记 runtime_observation（成功证据=测试结果/exit=0），
+        裸完成宣称打回时查 ledger——有成功观测则放行，无观测 fail-closed。
+        session 变化时重建（与会话隔离）。
+        """
+        from lingclaude.core.evidence_protocol import EvidenceLedger
+        cache_key = self.session_id
+        if not hasattr(self, "_evidence_ledger") or getattr(self, "_evidence_ledger_key", None) != cache_key:
+            self._evidence_ledger = EvidenceLedger()
+            self._evidence_ledger_key = cache_key
+        return self._evidence_ledger
 
     def _journal_append(self, event_type: str, data: dict[str, Any] | None = None) -> None:
         """R5: journal append (best-effort, 不阻塞主流程)。"""
@@ -313,6 +376,10 @@ class ModelCallMixin:
         response = None
         total_input = 0
         total_output = 0
+        total_cached = 0
+        # ctx 口径采样（2026-09-21）：最后一个成功请求轮的 prompt_tokens，
+        # 语义同 stream_call_model——toolbar ctx 分子的正确来源。
+        last_round_input = 0
         consecutive_failures = 0
 
         loop_detector = _ToolLoopDetector()
@@ -326,27 +393,31 @@ class ModelCallMixin:
                 consecutive_failures += 1
                 self._track_behavior(prompt, f"[模型调用失败] {result.error}", used_tools=False)
                 if resolved_config:
-                    self._record_provider_outcome(resolved_config, "error", result.error)
+                    self.hooks.record_provider_outcome(resolved_config, "error", result.error)
                 if consecutive_failures >= self.config.consecutive_failure_limit:
                     return self._hard_interrupt_message("model_call", consecutive_failures)
                 continue
 
             response = result.data
             round_text = getattr(response, "content", "") or ""
-            total_input, total_output = _accumulate_usage(
-                total_input, total_output, response, round_text,
+            total_input, total_output, total_cached = _accumulate_usage(
+                total_input, total_output, response, round_text, total_cached,
             )
+            # ctx 口径采样：本请求轮真实 prompt_tokens（整包非增量），见初始化注释
+            last_round_input = (
+                getattr(getattr(response, "usage", None), "input_tokens", 0) or 0
+            ) or last_round_input
             if resolved_config:
-                self._record_provider_outcome(resolved_config, "success")
+                self.hooks.record_provider_outcome(resolved_config, "success")
 
             if not response.tool_calls:
                 content = response.content
-                if self._should_hallucination_correct(prompt, used_tools, messages):
-                    content = self._hallucination_correction(messages, content, tools, resolved_config)
+                if self.hooks.should_hallucination_correct(prompt, used_tools, messages):
+                    content = self.hooks.hallucination_correction(messages, content, tools, resolved_config)
                     if content:
-                        return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+                        return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
                 self._clear_checkpoint()
-                return self._finalize_turn(prompt, response.content, used_tools, total_input, total_output, resolved_config)
+                return self._finalize_turn(prompt, response.content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
 
             used_tools = True
             self._tool_call_executor.process(response.tool_calls, messages, content=response.content)
@@ -355,7 +426,7 @@ class ModelCallMixin:
                 messages, round_idx, prompt, used_tools, total_input, total_output,
             )
             for tc in response.tool_calls:
-                self._journal_append("tool_call", {
+                self.hooks.journal_append("tool_call", {
                     "tool_call_id": tc.id, "name": tc.name, "arguments": tc.arguments,
                 })
 
@@ -375,7 +446,8 @@ class ModelCallMixin:
                     return self._finalize_turn(
                         prompt,
                         (response.content or "") + _LOOP_ABORT_MSG,
-                        used_tools, total_input, total_output, resolved_config,
+                        used_tools, total_input, total_output, resolved_config, total_cached,
+                        ctx_input_tokens=last_round_input or None,
                     )
             if round_error_count == len(response.tool_calls) and round_error_count > 0:
                 consecutive_failures += 1
@@ -384,13 +456,14 @@ class ModelCallMixin:
                     return self._finalize_turn(
                         prompt,
                         content + self._hard_interrupt_message("tool_loop_call", consecutive_failures),
-                        used_tools, total_input, total_output, resolved_config,
+                        used_tools, total_input, total_output, resolved_config, total_cached,
+                        ctx_input_tokens=last_round_input or None,
                     )
             else:
                 consecutive_failures = 0
 
         content = response.content if response and response.content else "[达到最大工具调用轮次]"
-        return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+        return self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
 
     def _log_model_request(self, prompt: str, messages: list, tools: Any) -> int:
         """MV-1 L-a: model-visible means logged. 返回 seq 供事后断言。"""
@@ -504,6 +577,10 @@ class ModelCallMixin:
         response_content = ""
         total_input = 0
         total_output = 0
+        total_cached = 0
+        # ctx 口径采样（2026-09-21）：最后一个成功请求轮的 prompt_tokens。
+        # 语义见流式循环内注释——toolbar ctx 分子的正确来源。
+        last_round_input = 0
         consecutive_failures = 0
         # 2026-09-17 双写修复: 标记本 turn 的 _messages 镜像是否已由 engine
         # 写入（_finalize_turn 是唯一写入点）。CLI 层据 done.finalized 决定
@@ -542,20 +619,27 @@ class ModelCallMixin:
                         # N5a-v2: usage key 存在但值为 None 时 .get 默认值不生效,
                         # 显式 or 兜底, 防 provider 异常流炸穿整个 turn
                         usage = event.get("usage") or ModelUsage()
-                        total_input, total_output = _accumulate_usage(
+                        total_input, total_output, total_cached = _accumulate_usage(
                             total_input, total_output, usage,
-                            "".join(round_text_parts),
+                            "".join(round_text_parts), total_cached,
                         )
                     elif event["type"] == "error":
                         stream_error = event["error"]
 
                 if stream_error is None:
                     # F12f:成功也记 success(与 _call_model 对称)
-                    self._record_provider_outcome(resolved_config, "success")
+                    self.hooks.record_provider_outcome(resolved_config, "success")
+                    # ctx 口径采样（2026-09-21 修复 toolbar 949% 虚高）：
+                    # 本请求轮的真实 prompt_tokens = 当前实际发送的上下文体量，
+                    # 供 _finalize_turn 写 _last_turn_input（toolbar ctx 口径）。
+                    # usage.input_tokens 是本请求轮整包（非增量）。
+                    last_round_input = (
+                        getattr(usage, "input_tokens", 0) or 0
+                    ) or last_round_input
                     break
 
                 # 失败:记录 provider 错误(熔断统计,与 _call_model 对称;F12j 硬错误立即熔断)
-                failed_pname = self._record_provider_outcome(
+                failed_pname = self.hooks.record_provider_outcome(
                     resolved_config, "error", stream_error,
                 )
 
@@ -578,7 +662,7 @@ class ModelCallMixin:
                             )
                             if _sw_provider:
                                 _sw_allowed, _sw_reason = (
-                                    self._task_router.check_switch_target_health(_sw_provider)
+                                    self.hooks.switch_target_health(_sw_provider)
                                 )
                         except Exception as _sw_err:  # 门禁自身故障不放大队失败
                             logger.debug("switch health gate error: %s", _sw_err)
@@ -620,15 +704,15 @@ class ModelCallMixin:
 
             if not round_tool_calls:
                 content = round_content
-                if self._should_hallucination_correct(prompt, used_tools, messages):
+                if self.hooks.should_hallucination_correct(prompt, used_tools, messages):
                     yield {"type": "status", "message": "幻觉闭环修正中..."}
-                    corrected = self._hallucination_correction(
+                    corrected = self.hooks.hallucination_correction(
                         messages, content, tools, resolved_config,
                     )
                     if corrected:
                         yield {"type": "text_delta", "text": corrected}
                         content = corrected
-                final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+                final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
                 self._append_to_session_history(prompt, final_content)
                 self._learn_from_turn(prompt, final_content)
                 # R5 阶段1: turn 正常完成 → 清 checkpoint + journal turn_end
@@ -643,12 +727,13 @@ class ModelCallMixin:
                 if j_in == 0 and j_out == 0:
                     j_in = max(1, _estimate_tokens(prompt))
                     j_out = _estimate_tokens(final_content)
-                self._journal_append("turn_end", {
+                self.hooks.journal_append("turn_end", {
                     "final_content_preview": final_content[:200],
                     "total_input": j_in, "total_output": j_out,
                 })
                 yield {"type": "done", "content": final_content,
-                       "usage": {"input_tokens": j_in, "output_tokens": j_out},
+                       "usage": {"input_tokens": j_in, "output_tokens": j_out,
+                                 "cached_tokens": total_cached},
                        "finalized": finalized}
                 return
 
@@ -662,7 +747,7 @@ class ModelCallMixin:
 
             round_error_count = 0
             for tc in round_tool_calls:
-                self._journal_append("tool_call", {
+                self.hooks.journal_append("tool_call", {
                     "tool_call_id": tc.id, "name": tc.name, "arguments": tc.arguments,
                 })
                 yield {"type": "tool_call_start", "name": tc.name, "arguments": tc.arguments}
@@ -671,7 +756,7 @@ class ModelCallMixin:
                 if is_error:
                     round_error_count += 1
                     self._behavior = self._behavior.record_tool_calls(count=0, errors=1)
-                    self._log_to_flywheel(
+                    self.hooks.log_flywheel(
                         pattern_type="tool_error",
                         error_message=tool_output[:200],
                         tool_name=tc.name,
@@ -685,22 +770,34 @@ class ModelCallMixin:
                 }
                 messages.append(ModelMessage(
                     role=MessageRole.TOOL,
-                    content=tool_output,
+                    content=_slim_tool_output(tc.name, tool_output),
                     name=tc.name,
                     tool_call_id=tc.id,
                 ))
-                self._journal_append("tool_result", {
+                self.hooks.journal_append("tool_result", {
                     "tool_call_id": tc.id,
                     "output_preview": preview,
                     "is_error": is_error,
                 })
+                # P2-9（2026-09-21）：工具结果登记 runtime_observation（H17 观测源）。
+                # 成功证据 = 工具执行且非 error（exit=0/无异常）；测试类工具（pytest/
+                # 编译）的成功是本回合「已完成/已通过」宣称的合法观测支撑。
+                try:
+                    self._get_evidence_ledger().record_observation(
+                        "tool_result",
+                        source=tc.name,
+                        payload={"tool_call_id": tc.id, "is_error": is_error},
+                        is_success_evidence=(not is_error),
+                    )
+                except Exception:
+                    pass  # 观测登记 best-effort，不阻断主流程
 
             # R5 阶段1: 工具轮执行完 → 保存 checkpoint（stream 路径此前 0 调用）
             # 崩溃/kill 后 resume_interrupted 可从此处恢复，最多丢一轮
             self._save_checkpoint(
                 messages, round_idx, prompt, used_tools, total_input, total_output,
             )
-            self._journal_append("checkpoint", {
+            self.hooks.journal_append("checkpoint", {
                 "round_idx": round_idx, "messages_count": len(messages),
             })
 
@@ -726,7 +823,8 @@ class ModelCallMixin:
                 elif verdict == "abort":
                     yield {"type": "text_delta", "text": _LOOP_ABORT_MSG}
                     yield {"type": "done", "content": response_content + _LOOP_ABORT_MSG,
-                           "usage": {"input_tokens": total_input, "output_tokens": total_output},
+                           "usage": {"input_tokens": total_input, "output_tokens": total_output,
+                              "cached_tokens": total_cached},
                            "finalized": False}
                     return
 
@@ -752,11 +850,12 @@ class ModelCallMixin:
             }
 
         content = response_content or "[达到最大工具调用轮次]"
-        final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config)
+        final_content = self._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config, total_cached)
         # 超轮次路径 engine 已写镜像（同正常 done），CLI 不再兜底
         finalized = True
         yield {"type": "done", "content": final_content,
-               "usage": {"input_tokens": total_input, "output_tokens": total_output},
+               "usage": {"input_tokens": total_input, "output_tokens": total_output,
+                         "cached_tokens": total_cached},
                "finalized": finalized}
 
     def _should_hallucination_correct(
@@ -786,7 +885,22 @@ class ModelCallMixin:
                 claims = detect_bare_completion_claims(round_text)
                 if not claims:
                     return False
-                # 无工具调用 → 无从 cross-reference → 命中即打回
+                # P2-9（2026-09-21）：H17 升格为证据边界协议——裸完成宣称打回前
+                # 先查 EvidenceLedger：本回合若已有成功观测（工具执行且非 error，
+                # 如 pytest/编译 exit=0）则宣称有观测支撑，放行不打回；无成功观测
+                # 才 fail-closed 打回（H17 裸宣称协议化核心）。
+                try:
+                    ledger = self._get_evidence_ledger()
+                    success_obs = [o for o in ledger.all() if o.is_success_evidence]
+                    if success_obs:
+                        logger.info(
+                            "P2-9 H17 协议化: 裸完成宣称 %d 条但有 %d 条成功观测支撑，放行",
+                            len(claims), len(success_obs),
+                        )
+                        return False
+                except Exception:
+                    logger.debug("P2-9 证据账本查询失败（fail-closed 保持原打回）", exc_info=True)
+                # 无成功观测 → 原语义打回（高精度完成式强信号）
                 logger.warning(
                     "P1-3 凭空完成声明打回: %d 条 (%s)",
                     len(claims),
@@ -864,19 +978,19 @@ class ModelCallMixin:
                 tool_calls=response.tool_calls,
             ))
             for tc in response.tool_calls:
-                self._journal_append("tool_call", {
+                self.hooks.journal_append("tool_call", {
                     "tool_call_id": tc.id, "name": tc.name, "arguments": tc.arguments,
                 })
                 tool_output = self._execute_tool_with_retry(tc.name, tc.arguments)
                 preview = tool_output[:200] if len(tool_output) > 200 else tool_output
-                self._journal_append("tool_result", {
+                self.hooks.journal_append("tool_result", {
                     "tool_call_id": tc.id,
                     "output_preview": preview,
                     "is_error": is_tool_error(tool_output),
                 })
                 messages.append(ModelMessage(
                     role=MessageRole.TOOL,
-                    content=tool_output,
+                    content=_slim_tool_output(tc.name, tool_output),
                     name=tc.name,
                     tool_call_id=tc.id,
                 ))
