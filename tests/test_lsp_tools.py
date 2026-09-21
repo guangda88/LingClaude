@@ -108,3 +108,93 @@ def test_lsp_handler_uses_provider_when_available():
     assert data["ok"] is True
     assert data["command"] == "goto_def"
     assert isinstance(data["result"], list)
+
+
+def test_lsp_structure_commands_route_to_provider():
+    """P2-12: outline/search/diagnostics 路由到 provider 新方法（结构查询省 token）。"""
+    from lingclaude.engine.tool_handlers.lsp_tools import LspToolsMixin
+
+    class _FakeProvider:
+        async def initialize(self, *a, **k):
+            pass
+
+        async def document_symbols(self, *a, **k):
+            return [{"kind": "function", "name": "foo", "line": 1, "end_line": 5, "depth": 0}]
+
+        async def workspace_symbols(self, *a, **k):
+            return [{"kind": "function", "name": "foo", "container": "", "file": "/x/foo.py", "line": 3}]
+
+        async def diagnostics(self, *a, **k):
+            return [{"severity": 1, "message": "error here", "line": 3, "col": 1}]
+
+    class _RT:
+        def __init__(self):
+            self._lsp_provider = _FakeProvider()
+            self._lsp_workspace_root = None
+            self._lsp_handler = LspToolsMixin._lsp_handler.__get__(self)
+
+    rt = _RT()
+    # outline → documentSymbols 大纲
+    res = rt._lsp_handler("outline", "foo.py")
+    assert res.is_ok, res.error
+    assert res.data["command"] == "outline"
+    assert res.data["result"][0]["name"] == "foo"
+    assert res.data["result"][0]["kind"] == "function"
+
+    # search → workspace/symbol（query 参数透传）
+    res = rt._lsp_handler("search", "foo.py", query="foo")
+    assert res.is_ok, res.error
+    assert res.data["command"] == "search"
+    assert res.data["result"][0]["file"].endswith("foo.py")
+
+    # diagnostics → publishDiagnostics 捕获
+    res = rt._lsp_handler("diagnostics", "foo.py")
+    assert res.is_ok, res.error
+    assert res.data["command"] == "diagnostics"
+    assert res.data["result"][0]["severity"] == 1
+    assert res.data["result"][0]["line"] == 3
+
+
+def test_lsp_document_symbol_parser_flattens_tree():
+    """P2-12: documentSymbol 树形结果展平为带 depth 的扁平大纲。"""
+    from lingclaude.engine.lsp_provider import _parse_document_symbols
+
+    tree = [
+        {
+            "kind": 5, "name": "MyClass",
+            "selectionRange": {"start": {"line": 0}, "end": {"line": 0}},
+            "range": {"start": {"line": 0}, "end": {"line": 10}},
+            "children": [
+                {
+                    "kind": 6, "name": "method_a",
+                    "selectionRange": {"start": {"line": 2}, "end": {"line": 2}},
+                    "range": {"start": {"line": 2}, "end": {"line": 5}},
+                },
+            ],
+        },
+    ]
+    flat = _parse_document_symbols(tree)
+    assert len(flat) == 2
+    assert flat[0]["name"] == "MyClass" and flat[0]["depth"] == 0
+    assert flat[0]["kind"] == "class" and flat[0]["line"] == 1 and flat[0]["end_line"] == 11
+    assert flat[1]["name"] == "method_a" and flat[1]["depth"] == 1
+    assert flat[1]["kind"] == "method" and flat[1]["line"] == 3
+
+
+def test_lsp_diagnostics_parser():
+    """P2-12: publishDiagnostics 通知 → 紧凑结构（1-based 行列）。"""
+    from lingclaude.engine.lsp_provider import _parse_diagnostics
+
+    diags = [
+        {
+            "severity": 1,
+            "message": "undefined name",
+            "range": {"start": {"line": 2, "character": 4}, "end": {"line": 2, "character": 9}},
+            "source": "pylint",
+            "code": "E0602",
+        },
+    ]
+    out = _parse_diagnostics(diags)
+    assert out[0]["severity"] == 1
+    assert out[0]["line"] == 3 and out[0]["col"] == 5  # 1-based
+    assert out[0]["source"] == "pylint" and out[0]["code"] == "E0602"

@@ -130,6 +130,10 @@ class StdioLspProvider:
         self._reader_task: asyncio.Task | None = None
         self._initialized = False
         self._caps: dict[str, Any] = {}
+        # P2-12（crush 式 LSP 工具面）：server 推送的 publishDiagnostics 缓存
+        # （uri -> diagnostics 列表）。诊断是通知（无 id），只能被动接收后
+        # 由 diagnostics() 轮询取——见 _read_loop 的通知捕获分支。
+        self._diagnostics: dict[str, list[dict[str, Any]]] = {}
         # 2026-09-17 (诊断化): server stderr 尾部环形缓冲 — rustup shim
         # 等启动即退的场景，initialize 超时若不含 stderr 会不可诊断
         # （实测 "Unknown binary 'rust-analyzer'" 曾被完全吞掉）。
@@ -286,6 +290,65 @@ class StdioLspProvider:
         )
         return _parse_locations(resp)
 
+    # ----- P2-12（crush 式 LSP 工具面）：结构查询（省 token） -----
+
+    async def document_symbols(self, file_path: str) -> list[dict[str, Any]]:
+        """textDocument/documentSymbol — 文件符号大纲（替代读整文件猜结构）。
+
+        返回扁平化符号表：{kind, name, line, end_line, depth, [container, uri]}。
+        DocumentSymbol（树形，带 children）展平为带 depth 的序列；SymbolInformation
+        （扁平）直接收。line 转 1-based 便于人类/模型对读。
+        """
+        resp = await self._call(
+            "textDocument/documentSymbol",
+            {"textDocument": {"uri": _path_to_uri(file_path)}},
+        )
+        return _parse_document_symbols(_extract_result(resp) or [])
+
+    async def workspace_symbols(self, query: str) -> list[dict[str, Any]]:
+        """workspace/symbol — 按名跨文件搜符号（替代 grep 找定义）。
+
+        返回 [{kind, name, container, file, line}]（file 为绝对路径，1-based 行号）。
+        """
+        resp = await self._call(
+            "workspace/symbol",
+            {"query": query},
+        )
+        out: list[dict[str, Any]] = []
+        for item in _extract_result(resp) or []:
+            if not isinstance(item, dict):
+                continue
+            loc = item.get("location") or {}
+            uri = loc.get("uri", "")
+            rng = loc.get("range") or {}
+            out.append({
+                "kind": _SYMBOL_KINDS.get(item.get("kind"), str(item.get("kind", "?"))),
+                "name": item.get("name", ""),
+                "container": item.get("containerName", ""),
+                "file": _uri_to_path(uri) if uri else "",
+                "line": rng.get("start", {}).get("line", 0) + 1,
+            })
+        return out
+
+    async def diagnostics(self, file_path: str, timeout: float = 5.0) -> list[dict[str, Any]]:
+        """取 server 对该文件推送的诊断（替代编译/试错看错）。
+
+        诊断走 publishDiagnostics 通知（无 id，被动接收）。要求调用方已 ensure_open
+        该文件（handler 的 _sync_then_dispatch 保证）。这里轮询 _diagnostics 直到
+        该 uri 出现或超时；超时返回空列表（server 不支持/未就绪时优雅降级）。
+        每项：{severity, message, line, col, end_line, end_col, source, code}。
+        """
+        uri = _path_to_uri(file_path)
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while True:
+            diags = self._diagnostics.get(uri)
+            if diags is not None:
+                return _parse_diagnostics(diags)
+            if loop.time() >= deadline:
+                return []
+            await asyncio.sleep(0.05)
+
     # ----- document sync (codex P1-1: LSP 常驻会话池配套, 2026-09-17) -----
 
     async def did_open(self, file_path: str, text: str, version: int = 1) -> None:
@@ -423,6 +486,13 @@ class StdioLspProvider:
                         pending.future.set_exception(RuntimeError(f"LSP error: {msg['error']}"))
                     else:
                         pending.future.set_result(result or {})
+            elif msg.get("method") == "textDocument/publishDiagnostics":
+                # P2-12：诊断通知捕获（无 id 的通知）。uri 键，diagnostics 列表存原样，
+                # diagnostics() 轮询取时再解析——不在 reader 热路径做重量解析。
+                params = msg.get("params") or {}
+                u = params.get("uri", "")
+                if u:
+                    self._diagnostics[u] = params.get("diagnostics") or []
 
     # ----- context manager -----
 
@@ -480,8 +550,24 @@ def _parse_range(rng: dict[str, Any]) -> Range:
     )
 
 
-def _parse_locations(resp: dict[str, Any]) -> list[LocationLink]:
-    result = resp.get("result") or []
+def _extract_result(resp: Any) -> Any:
+    """归一化 _call 的返回值（2026-09-21 契约修复）。
+
+    _read_loop 里 set_result(result or {}) —— _call 返回的已是 JSON-RPC
+    **result 字段的载荷本身**（list/dict），不是完整 envelope。此前
+    document_symbols/workspace_symbols/_parse_locations 又对返回值做
+    .get("result")：非空 list 载荷上必崩（AttributeError），空结果因
+    `[] or {}` 归一成 dict 侥幸过——4 个导航命令 + 2 个结构查询命令在真
+    server 返回非空结果时全部受影响（e2e 探针实证）。
+    兼容层：若确实收到带 "result" 键的 envelope dict（容错），剥一层。
+    """
+    if isinstance(resp, dict) and "result" in resp:
+        return resp["result"]
+    return resp
+
+
+def _parse_locations(resp: Any) -> list[LocationLink]:
+    result = _extract_result(resp) or []
     if not isinstance(result, list):
         result = [result] if result else []
     out = []
@@ -502,4 +588,74 @@ def _parse_locations(resp: dict[str, Any]) -> list[LocationLink]:
                 origin_selection_range=_parse_range(origin) if origin else None,
             )
         )
+    return out
+
+
+# ---------------------------------------------------------------------------
+# P2-12（crush 式 LSP 工具面）：结构查询解析器
+# ---------------------------------------------------------------------------
+
+# LSP SymbolKind 数值 → 短名（token 友好；未知值原样返回数字字符串）
+_SYMBOL_KINDS: dict[int, str] = {
+    1: "file", 2: "module", 3: "namespace", 4: "package", 5: "class",
+    6: "method", 7: "property", 8: "field", 9: "constructor", 10: "enum",
+    11: "interface", 12: "function", 13: "variable", 14: "constant",
+    15: "string", 16: "number", 17: "boolean", 18: "array", 19: "object",
+    20: "key", 21: "null", 22: "enum_member", 23: "struct", 24: "event",
+    25: "operator", 26: "type_parameter",
+}
+
+
+def _parse_document_symbols(result: Any, depth: int = 0) -> list[dict[str, Any]]:
+    """documentSymbol 结果展平为带 depth 的符号序列（树 → 扁平大纲）。"""
+    out: list[dict[str, Any]] = []
+    if not isinstance(result, list):
+        return out
+    for item in result:
+        if not isinstance(item, dict):
+            continue
+        rng = item.get("selectionRange") or item.get("range") or {}
+        full = item.get("range") or {}
+        sym: dict[str, Any] = {
+            "kind": _SYMBOL_KINDS.get(item.get("kind"), str(item.get("kind", "?"))),
+            "name": item.get("name", ""),
+            "line": rng.get("start", {}).get("line", 0) + 1,
+            "end_line": full.get("end", {}).get("line", 0) + 1,
+            "depth": depth,
+        }
+        # SymbolInformation（扁平，带 location/containerName）补 file 字段
+        if "location" in item:
+            loc = item.get("location") or {}
+            if loc.get("uri"):
+                sym["file"] = _uri_to_path(loc["uri"])
+            if item.get("containerName"):
+                sym["container"] = item["containerName"]
+        out.append(sym)
+        children = item.get("children")
+        if children:
+            out.extend(_parse_document_symbols(children, depth + 1))
+    return out
+
+
+def _parse_diagnostics(diags: Any) -> list[dict[str, Any]]:
+    """publishDiagnostics 通知里的诊断列表 → 紧凑结构（1-based 行列）。"""
+    out: list[dict[str, Any]] = []
+    if not isinstance(diags, list):
+        return out
+    for d in diags:
+        if not isinstance(d, dict):
+            continue
+        rng = d.get("range") or {}
+        start = rng.get("start") or {}
+        end = rng.get("end") or {}
+        out.append({
+            "severity": d.get("severity", 0),
+            "message": d.get("message", ""),
+            "line": start.get("line", 0) + 1,
+            "col": start.get("character", 0) + 1,
+            "end_line": end.get("line", 0) + 1,
+            "end_col": end.get("character", 0) + 1,
+            "source": d.get("source", ""),
+            "code": d.get("code", ""),
+        })
     return out

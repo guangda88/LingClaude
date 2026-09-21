@@ -10,6 +10,11 @@ LspToolsMixin: lsp（依赖 self._lsp_provider / self._lsp_workspace_root + Stdi
 新路径按 (server_cmd, workspace_root) 缓存常驻会话，didOpen/didChange
 保证 server 文档视图与磁盘一致；``self._lsp_provider`` 预置注入的
 legacy 路径保留（测试/宿主显式注入场景）。
+
+2026-09-21 P2-12（crush 式 LSP 工具面）：新增 3 个结构查询命令——
+  - outline：documentSymbol 文件符号大纲（替代读整文件猜结构）
+  - search：workspace/symbol 按名跨文件搜符号（替代 grep 找定义）
+  - diagnostics：publishDiagnostics 文件诊断（替代编译/试错看错）
 """
 
 from __future__ import annotations
@@ -20,9 +25,15 @@ from typing import Any
 from lingclaude.core.types import ToolResult
 from lingclaude.engine.lsp_provider import StdioLspProvider
 
+# P2-12：支持的 LSP 命令白名单（导航 4 + 结构查询 3）
+_LSP_COMMANDS = (
+    "goto_def", "find_refs", "hover", "goto_impl",
+    "outline", "search", "diagnostics",
+)
+
 
 class LspToolsMixin:
-    """lsp 工具 handler（P1-1: LSP dispatcher）。"""
+    """lsp 工具 handler（P1-1: LSP dispatcher + P2-12 结构查询）。"""
 
     def _lsp_handler(
         self,
@@ -32,18 +43,24 @@ class LspToolsMixin:
         character: int = 0,
         **_: Any,
     ) -> ToolResult[dict[str, Any]]:
-        """P1-1: LSP dispatcher — 常驻池路由；provider 注入时走 legacy 路径。"""
+        """P1-1: LSP dispatcher — 常驻池路由；provider 注入时走 legacy 路径。
+
+        P2-12: 新增 outline/search/diagnostics 命令；search 用 query 参数
+        （workspace/symbol 全仓查询），其余命令 query 忽略。
+        """
         cmd = command.lower()
-        if cmd not in ("goto_def", "find_refs", "hover", "goto_impl"):
+        if cmd not in _LSP_COMMANDS:
             return ToolResult.err(
                 f"unknown LSP command: {command}",
                 tool_name="lsp",
             )
+        query = str(_.get("query", "") or "")
 
         # legacy 注入路径：宿主显式预置 provider（测试/特殊宿主）时沿用原语义
         if self._lsp_provider is not None:
             return _lsp_run_injected(
-                self._lsp_provider, self._lsp_workspace_root, cmd, file_path, line, character
+                self._lsp_provider, self._lsp_workspace_root,
+                cmd, file_path, line, character, query,
             )
 
         # 生产路径：常驻会话池
@@ -52,10 +69,14 @@ class LspToolsMixin:
 
         lang = detect_lang(file_path)
         if lang is None:
-            return ToolResult.err(
-                f"unsupported language for file: {file_path}",
-                tool_name="lsp",
-            )
+            if cmd == "search":
+                # workspace/symbol 全仓查询：无 file_path 时回退 python 默认 server
+                lang = "python"
+            else:
+                return ToolResult.err(
+                    f"unsupported language for file: {file_path}",
+                    tool_name="lsp",
+                )
         server_cfg = get_server(lang)
         server_command = server_cfg["command"] if server_cfg else "pylsp"
         args = server_cfg.get("args", []) if server_cfg else []
@@ -67,7 +88,7 @@ class LspToolsMixin:
                 [server_command, *args],
                 workspace_root,
                 lambda session: _sync_then_dispatch(
-                    session, cmd, file_path, line, character
+                    session, cmd, file_path, line, character, query
                 ),
             )
             return ToolResult.ok(
@@ -96,6 +117,7 @@ def _lsp_run_injected(
     file_path: str,
     line: int,
     character: int,
+    query: str = "",
 ):
     """provider 由宿主预置时的旧路径（模块级：宿主测试类只绑定单方法）。
     保留原因：test_lsp_tools.py 通过 _RT 预置 _FakeProvider 验证 mixin
@@ -106,7 +128,7 @@ def _lsp_run_injected(
         if not getattr(provider, "_initialized", False):
             await provider.initialize(workspace_root or Path.cwd())
             provider._initialized = True
-        return await _dispatch(provider, cmd, file_path, line, character)
+        return await _dispatch(provider, cmd, file_path, line, character, query)
 
     try:
         result = asyncio.run(run())
@@ -124,28 +146,51 @@ def _lsp_run_injected(
         )
 
 
-async def _sync_then_dispatch(session, cmd: str, file_path: str, line: int, character: int):
-    """didOpen 同步文档视图后执行查询（await 确保严格序，不依赖 and 短路）。"""
-    await session.ensure_open(file_path)
-    return await _dispatch(session.provider, cmd, file_path, line, character)
+async def _sync_then_dispatch(session, cmd: str, file_path: str, line: int,
+                              character: int, query: str = ""):
+    """didOpen 同步文档视图后执行查询（await 确保严格序，不依赖 and 短路）。
+
+    P2-12：outline/diagnostics 依赖单文件 didOpen；search（workspace/symbol）
+    是全仓查询不依赖 didOpen，跳过同步省一次全量文本写入。
+    """
+    if cmd in ("outline", "diagnostics") and file_path:
+        await session.ensure_open(file_path)
+    return await _dispatch(session.provider, cmd, file_path, line, character, query)
 
 
-async def _dispatch(provider, cmd: str, file_path: str, line: int, character: int):
+async def _dispatch(provider, cmd: str, file_path: str, line: int, character: int,
+                    query: str = ""):
     if cmd == "goto_def":
         return await provider.go_to_definition(file_path, line, character)
     if cmd == "find_refs":
         return await provider.find_references(file_path, line, character)
     if cmd == "hover":
         return await provider.hover(file_path, line, character)
-    return await provider.go_to_implementation(file_path, line, character)
+    if cmd == "goto_impl":
+        return await provider.go_to_implementation(file_path, line, character)
+    # P2-12：crush 式结构查询（省 token）
+    if cmd == "outline":
+        return await provider.document_symbols(file_path)
+    if cmd == "search":
+        return await provider.workspace_symbols(query)
+    if cmd == "diagnostics":
+        return await provider.diagnostics(file_path)
+    raise ValueError(f"unknown LSP command: {cmd}")
 
 
 def _format_locations(result: Any) -> list[dict[str, Any]]:
     if isinstance(result, list):
-        return [
-            {"uri": loc.uri, "line": loc.range.start.line, "col": loc.range.start.character}
-            for loc in result
-        ]
+        out: list[dict[str, Any]] = []
+        for loc in result:
+            if isinstance(loc, dict):
+                # P2-12：outline/search/diagnostics 已在 provider 侧解析为 dict，直传
+                out.append(loc)
+            else:
+                out.append(
+                    {"uri": loc.uri, "line": loc.range.start.line,
+                     "col": loc.range.start.character}
+                )
+        return out
     # hover: 返回 Hover / None — 统一成 list 结构便于调用方判空
     if result is None:
         return []
@@ -157,7 +202,10 @@ def _format_locations(result: Any) -> list[dict[str, Any]]:
 
 def _detect_workspace_root(file_path: str) -> Path:
     """Auto-detect workspace root: find pyproject.toml / Cargo.toml / .git。"""
-    cwd = Path(file_path).resolve().parent
+    if file_path:
+        cwd = Path(file_path).resolve().parent
+    else:
+        cwd = Path.cwd()
     for parent in [cwd, *cwd.parents]:
         if (parent / "pyproject.toml").exists():
             return parent

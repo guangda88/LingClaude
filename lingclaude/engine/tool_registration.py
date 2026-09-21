@@ -332,8 +332,14 @@ SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name='lsp',
-        description='LSP code navigation: goto_def / find_refs / hover / goto_impl',
-        parameters={'command': {'type': 'string', 'description': 'lsp command: goto_def|find_refs|hover|goto_impl'}, 'file_path': {'type': 'string', 'description': 'Absolute file path'}, 'line': {'type': 'integer', 'description': '0-based line number'}, 'character': {'type': 'integer', 'description': '0-based character offset'}},
+        description='LSP code navigation & structure: goto_def / find_refs / hover / goto_impl / outline / search / diagnostics',
+        parameters={
+            'command': {'type': 'string', 'description': 'lsp command: goto_def|find_refs|hover|goto_impl|outline|search|diagnostics'},
+            'file_path': {'type': 'string', 'description': 'Absolute file path (goto_*/hover/outline/diagnostics; optional for search to infer language)'},
+            'line': {'type': 'integer', 'description': '0-based line number (goto_*/hover only)'},
+            'character': {'type': 'integer', 'description': '0-based character offset (goto_*/hover only)'},
+            'query': {'type': 'string', 'description': 'Symbol name to search across workspace (search command only)'},
+        },
         handler_attr='_lsp_handler',
         security_scope='read',
         concurrency_safe=False,
