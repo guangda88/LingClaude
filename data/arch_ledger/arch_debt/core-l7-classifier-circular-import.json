@@ -1,0 +1,9 @@
+{
+  "kind": "arch_debt",
+  "location": "lingclaude/core/l7_classifier.py:14",
+  "reason": "存量脆弱点(非本会话引入)：l7_classifier 顶层 import l7_cognitive，l7_cognitive 顶层反向 re-export MessageClassifier——直接 import l7_classifier 触发循环(ImportError)，经 l7_cognitive 入口则正常；全量回归绿说明入口序恰稳。PKG 冒烟(walk_packages)暴露。P0-A L0 迁移后导入冒烟审计发现，属模块初始化顺序地雷",
+  "due": "2026-10-15",
+  "resolve_hint": "把 l7_cognitive 对 MessageClassifier 的 re-export 改为延迟(lazy)或移入函数内，斩断顶层双向依赖",
+  "state": "open",
+  "created": "2026-09-21T17:15:38+00:00"
+}

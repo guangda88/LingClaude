@@ -3,3 +3,6 @@
 - 薄主干是分形的（用户补充 2026-09-15）：每个插片本身也是薄主干带小插片（递归结构）。审计时对任一层级都适用同一判据：该模块是否有自己的状态机内核+可热拔插的子插片，而不是把"插片"当原子不可再分。
 - 性能归因教训：AtomCode 与 lingclaude(lc) 同跑 glm5.3-flash 同审计任务，AtomCode 快数倍——差异在 harness 层（工具批量合并/轮次极简 vs 治理仪式逐条串行），不在模型也不在上下文长度（AtomCode 带更长历史反而更快）。归因前先对齐"谁是谁"，勿代入错误身份。
 - atomgit 凭证轮换管理：新 token 写入 ~/.ling_keys.env（export ATOMGIT_TOKEN），凭证明文永不入会话记录/仓库文件；docs/audit/GIT_NETWORK_FIX_v1.md:86 的泄漏旧 token 已吊销，文档占位待改
+- LingBus 节流是灵信的防乱发机制（设计如此）：30s 最小间隔 + 300s 窗口最多 5 条 + 同内容 300s 去重。密集发消息（如冒烟测试）需主动 sleep ≥30s、议题带唯一内容（时间戳）；遇到 throttled 报错是正常拦截，不是故障，不要绕过或加重试风暴。
+- Laya/TypeSafe Jev 增量精读（docs/peer-borrow/JEV_LAYA_OPTIMIZATION_PLAN.md，2026-09-21）：Laya 作者=Nandakishor M（Apache 2.0，真 PyPI 可 pip install，3 checkpoints：laya 421M 英语 512ctx / laya-multilingual mmBERT 322M 100+语种 1024ctx / laya-typed-decisions；Router 自动派 sub-ms）；Jev=TypeSafe 闭源（Diogo Almeida 非 OpenAI 联创，是 InstructGPT co-inventor ex-Google Brain）。关键数字 33ms/7.2ms 是 T4 GPU，CPU 估 5-10×（不可写 SLA，须本地实测）。行动阈值 62.5% 由 cost matrix(+1/-3/-0.5) 解出，须本地校准不可直接借。
+- P0-A 迁移最大教训（2026-09-22）：G1 白名单/M3 台账/S3 倒装三套守卫独立记账会漂移——大迁移改动 import 边时，必须一次 AST 实测同步全部守卫+全部消费方（含测试），漏一边就是一次回归。本会话四回归皆此根源；修复基准=守卫三件套 20 passed + 行为包 85 passed。
