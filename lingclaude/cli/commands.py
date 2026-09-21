@@ -619,6 +619,17 @@ class SlashCommandProcessor:
             except Exception:  # noqa: BLE001 钩子失败不阻断恢复主路径
                 logging.getLogger(__name__).exception(
                     "SESSION_RESUME hook failed (session=%s)", target_id)
+            # 验证台账锚点注入（2026-09-21 幻觉审计治理 层3）：恢复的不是
+            # 「我记得验证过」，而是带 digest 的台账原文——压缩丢证据、
+            # 恢复后无依据撤回（发作B）都失去土壤。台账缺席/故障静默跳过。
+            try:
+                from lingclaude.core.verify_ledger import get_verify_ledger
+                anchor = get_verify_ledger().anchor_block(target_id)
+                if anchor:
+                    engine._conversation.append(("system", anchor))
+            except Exception:  # noqa: BLE001 锚点故障不阻断恢复主路径
+                logging.getLogger(__name__).exception(
+                    "verify anchor inject failed (session=%s)", target_id)
             print(f"[会话已恢复] {target_id}（{len(engine._conversation)} 轮对话；当前上下文已被替换）")
         else:
             print(f"[会话恢复失败] {target_id} 不存在或已损坏（当前上下文未受影响）")
