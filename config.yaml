@@ -1,6 +1,9 @@
 engine:
   compact_after_turns: 20
   max_budget_tokens: 500000
+  # 2026-09-21: 真实模型上下文窗口（toolbar tok % 的分母；此前误用
+  # max_budget_tokens=500k 当窗口 → 4743k/500k=949% 虚假告警）
+  context_window_tokens: 128000
   max_turns: 500
   structured_output: false
 guard:

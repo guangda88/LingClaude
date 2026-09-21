@@ -81,7 +81,7 @@ class TestDoneEventUsage:
 
         done = [e for e in events if e["type"] == "done"]
         assert len(done) == 1
-        assert done[0]["usage"] == {"input_tokens": _IN, "output_tokens": _OUT}
+        assert done[0]["usage"] == {"input_tokens": _IN, "output_tokens": _OUT, "cached_tokens": 0}
         # 与 _finalize_turn 记账同源(total_output == 本轮 finish 累计)
         assert done[0]["content"] == "回答正文"
 
@@ -103,7 +103,7 @@ class TestDoneEventUsage:
 
         events = list(engine.stream_call_model("第二问"))
         done = [e for e in events if e["type"] == "done"][-1]
-        assert done["usage"] == {"input_tokens": _IN, "output_tokens": _OUT}
+        assert done["usage"] == {"input_tokens": _IN, "output_tokens": _OUT, "cached_tokens": 0}
 
 
 class TestGuardEndToEnd:

@@ -1,0 +1,221 @@
+{
+  "as_of": "2026-09-21",
+  "device": "cpu",
+  "api": "Agent.system_one(triage_questions)",
+  "baseline_T4_ms": 33,
+  "results": {
+    "english": {
+      "load_s": 46.89,
+      "n_states": 4,
+      "lat_ms_avg": 3305.7,
+      "lat_ms_min": 2767.6,
+      "lat_ms_max": 4361.3,
+      "sample": {
+        "answers": {
+          "intent": {
+            "type": "choice",
+            "choice": "technical_help",
+            "probabilities": {
+              "refund": 0.0016,
+              "technical_help": 0.9902,
+              "billing_question": 0.001,
+              "information": 0.0008,
+              "cancellation": 0.0046,
+              "other": 0.0018
+            },
+            "confidence": 0.9614,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "is_urgent": {
+            "type": "noul",
+            "noul": 0.6088,
+            "confidence": 0.6088,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "frustration": {
+            "type": "score",
+            "score": 1.3492,
+            "legend": {
+              "0": "calm and neutral",
+              "1": "concerned but civil",
+              "2": "clearly annoyed",
+              "3": "very angry or using strong language"
+            },
+            "probabilities": {
+              "0": 0.1455,
+              "1": 0.4016,
+              "2": 0.411,
+              "3": 0.0418
+            },
+            "confidence": 0.174,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "refund_requested": {
+            "type": "noul",
+            "noul": 0.0218,
+            "confidence": 0.9782,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "churn_risk": {
+            "type": "noul",
+            "noul": 0.1202,
+            "confidence": 0.8798,
+            "action": {
+              "act_probability": 1.0
+            }
+          }
+        }
+      }
+    },
+    "multilingual": {
+      "load_s": 33.86,
+      "n_states": 4,
+      "lat_ms_avg": 1253.3,
+      "lat_ms_min": 935.1,
+      "lat_ms_max": 1619.2,
+      "sample": {
+        "answers": {
+          "intent": {
+            "type": "choice",
+            "choice": "technical_help",
+            "probabilities": {
+              "refund": 0.0017,
+              "technical_help": 0.8694,
+              "billing_question": 0.0018,
+              "information": 0.0051,
+              "cancellation": 0.1112,
+              "other": 0.0109
+            },
+            "confidence": 0.741,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "is_urgent": {
+            "type": "noul",
+            "noul": 0.7305,
+            "confidence": 0.7305,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "frustration": {
+            "type": "score",
+            "score": 2.451,
+            "legend": {
+              "0": "calm and neutral",
+              "1": "concerned but civil",
+              "2": "clearly annoyed",
+              "3": "very angry or using strong language"
+            },
+            "probabilities": {
+              "0": 0.0196,
+              "1": 0.1131,
+              "2": 0.264,
+              "3": 0.6033
+            },
+            "confidence": 0.293,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "refund_requested": {
+            "type": "noul",
+            "noul": 0.4124,
+            "confidence": 0.5876,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "churn_risk": {
+            "type": "noul",
+            "noul": 0.9662,
+            "confidence": 0.9662,
+            "action": {
+              "act_probability": 1.0
+            }
+          }
+        }
+      }
+    },
+    "typed-decisions": {
+      "load_s": 33.2,
+      "n_states": 4,
+      "lat_ms_avg": 3503.7,
+      "lat_ms_min": 2893.9,
+      "lat_ms_max": 4624.6,
+      "sample": {
+        "answers": {
+          "intent": {
+            "type": "choice",
+            "choice": "technical_help",
+            "probabilities": {
+              "refund": 0.0033,
+              "technical_help": 0.9601,
+              "billing_question": 0.0058,
+              "information": 0.0035,
+              "cancellation": 0.0175,
+              "other": 0.0098
+            },
+            "confidence": 0.8752,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "is_urgent": {
+            "type": "noul",
+            "noul": 0.7151,
+            "confidence": 0.7151,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "frustration": {
+            "type": "score",
+            "score": 2.041,
+            "legend": {
+              "0": "calm and neutral",
+              "1": "concerned but civil",
+              "2": "clearly annoyed",
+              "3": "very angry or using strong language"
+            },
+            "probabilities": {
+              "0": 0.0348,
+              "1": 0.1979,
+              "2": 0.4588,
+              "3": 0.3085
+            },
+            "confidence": 0.1649,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "refund_requested": {
+            "type": "noul",
+            "noul": 0.0653,
+            "confidence": 0.9347,
+            "action": {
+              "act_probability": 1.0
+            }
+          },
+          "churn_risk": {
+            "type": "noul",
+            "noul": 0.3097,
+            "confidence": 0.6903,
+            "action": {
+              "act_probability": 1.0
+            }
+          }
+        }
+      }
+    }
+  }
+}

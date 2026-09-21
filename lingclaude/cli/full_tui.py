@@ -32,12 +32,15 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import threading
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from lingclaude.cli.input_queue import EOF_SENTINEL
 from lingclaude.cli.interface import (
@@ -367,17 +370,15 @@ class FullTuiSession:
 
     # ── 生命周期 ──
 
-    def start(self) -> None:
-        """启动常驻全屏 Application（后台线程 + stdout 代理接管）。"""
-        if self._running:
-            return
-        self._refresh_output_area()
-        # 先保存真实 stdout（代理替换之前）—— PT 渲染输出必须直连真 stdout，
-        # 否则走 sys.stdout 命中 _StdoutProxy → 写进输出窗 → invalidate →
-        # 再渲染 → 死循环。
-        self._stdout_original = sys.stdout
-        out = create_output(stdout=self._stdout_original)
-        self._app = Application(
+    def _build_application(self, output: Any) -> Any:
+        """P2-13（Pi chord 双代热更）：新一代全屏 Application 的构造工厂。
+
+        把 start() 里原本硬编码的 Application 构造抽成工厂——双代 cutover
+        对「新一代」与「首代」共用同一构建逻辑。output 由调用方注入
+        （首代取真实 stdout；候选代可注 fake 做离线 verify，不抢终端控制权）。
+        返回未 run 的 Application 实例（生命周期归 cutover/start 管）。
+        """
+        return Application(
             layout=Layout(HSplit([
                 self._output_area,
                 self._sep_win,
@@ -390,8 +391,20 @@ class FullTuiSession:
             refresh_interval=0.2,
             # PT3: output/input 只能在构造期注入（run() 不接受 output 参数，
             # 传了直接 TypeError → 全屏线程启动即死）。
-            output=out,
+            output=output,
         )
+
+    def start(self) -> None:
+        """启动常驻全屏 Application（后台线程 + stdout 代理接管）。"""
+        if self._running:
+            return
+        self._refresh_output_area()
+        # 先保存真实 stdout（代理替换之前）—— PT 渲染输出必须直连真 stdout，
+        # 否则走 sys.stdout 命中 _StdoutProxy → 写进输出窗 → invalidate →
+        # 再渲染 → 死循环。
+        self._stdout_original = sys.stdout
+        out = create_output(stdout=self._stdout_original)
+        self._app = self._build_application(out)
         self._stdout_proxy = _StdoutProxy(self, self._stdout_original)
         sys.stdout = self._stdout_proxy
         self._running = True
@@ -406,6 +419,108 @@ class FullTuiSession:
         _probe = threading.Timer(1.0, self._startup_health_probe)
         _probe.daemon = True
         _probe.start()
+
+    def cutover_generation(
+        self,
+        build_new: "Callable[[], Any] | None" = None,
+        verify: "Callable[[Any], None] | None" = None,
+    ) -> bool:
+        """P2-13（Pi chord 双代热更）：新一代渲染 cutover（蓝绿，零不可用窗口）。
+
+        Pi chord 语义：新一代渲染器以 **candidate** 先构建 + 验证（不动现役
+        app），验证成功才 **cutover**（旧代优雅退役 → 新代接管），失败则
+        **dispose candidate**、旧代继续服务。旧代全程在线兜底，用户零感知。
+
+        参数：
+        - build_new: 新一代 Application 工厂。缺省用 self._build_application
+          （注真实 stdout 同源 output，等价当前 start() 的构造逻辑）；
+          宿主可注入自定义工厂（换渲染主题/布局/刷新策略等「新一代」形态）。
+        - verify: 候选验证钩子（candidate → 断言/异常）。缺省做最小健全性
+          检查（非 None + 是 Application + 有 layout）。verify 抛异常即候选
+          验证失败 → dispose 回退旧代。
+
+        返回 True=切换成功；False=候选失败已回退（旧代仍服务，零不可用窗口）。
+
+        与 plugin_lifecycle.hot_swap 对齐的蓝绿语义（本方法是其「渲染层」
+        对位——插片实例面已在 plugin_lifecycle 落地，此处补齐 TUI 渲染代次
+        的双代 cutover，即 §3.2 P2-13 缺口）：
+        - candidate 构建在现役 app 之外（不抢终端控制权，output 可离线注入）；
+        - 切换原子化：旧代 app.exit() + 线程 join 完成后才起新代线程；
+        - 失败不破坏旧代：candidate dispose + 旧代零扰动。
+
+        线程安全：持有 self._app_thread 的 join 语义；与 prompt()/_run_app
+        通过 _submit_cond / _running 状态协作（切换瞬间输出窗按「旧线程退出、
+        新线程接管」有序接力，不丢行——pending_lines 跨代保留）。
+        """
+        # 1) 构建候选（不动现役 self._app）
+        try:
+            if build_new is not None:
+                candidate = build_new()
+            else:
+                # 缺省工厂：与 start() 同源——真实 stdout 的 output
+                out = create_output(stdout=self._stdout_original or sys.stdout)
+                candidate = self._build_application(out)
+        except Exception:  # noqa: BLE001 — 构建失败 = 候选不可用，旧代不动
+            logger.warning("cutover_generation: 候选构建失败，保留旧代", exc_info=True)
+            return False
+
+        # 2) 验证候选（候选态，未接管）
+        try:
+            if verify is not None:
+                verify(candidate)
+            else:
+                self._verify_candidate(candidate)
+        except Exception:  # noqa: BLE001 — 验证失败 = dispose 候选，旧代不动
+            logger.warning("cutover_generation: 候选验证失败，保留旧代", exc_info=True)
+            return False
+
+        # 3) 切换（原子接力：旧代退役 → 新代接管）
+        old_app = self._app
+        old_thread = self._app_thread
+        self._app = candidate
+
+        # 3a) 优雅退役旧代（若正在运行）：exit + join（超时兜底不阻塞）
+        if old_app is not None:
+            try:
+                old_app.exit()
+            except Exception:  # noqa: BLE001
+                pass
+        if old_thread is not None and old_thread.is_alive():
+            old_thread.join(timeout=3.0)
+
+        # 3b) 起新代线程（接管 stdout 代理与事件循环）
+        if self._running or (old_thread is not None):
+            self._app_thread = threading.Thread(
+                target=self._run_app, daemon=True, name="full-tui-app-gen2",
+            )
+            self._app_thread.start()
+        else:
+            # 首代尚未 start（冷 cutover）：补全 start() 的初始化路径
+            self._stdout_proxy = _StdoutProxy(self, self._stdout_original or sys.stdout)
+            sys.stdout = self._stdout_proxy
+            self._running = True
+            self._ever_started = True
+            self._app_thread = threading.Thread(
+                target=self._run_app, daemon=True, name="full-tui-app-gen2",
+            )
+            self._app_thread.start()
+
+        logger.info("cutover_generation: 蓝绿切换完成（旧代退役 → 新代接管）")
+        return True
+
+    def _verify_candidate(self, candidate: Any) -> None:
+        """P2-13: 候选代最小健全性验证（verify 缺省实现）。
+
+        健全性门（不真 run 抢终端）：非 None + 是 Application 实例 + 有
+        layout + 有 key_bindings。宿主可传自定义 verify 覆盖（更强断言）。
+        """
+        if candidate is None:
+            raise ValueError("候选 Application 为 None")
+        from prompt_toolkit.application import Application as _PTApp
+        if not isinstance(candidate, _PTApp):
+            raise TypeError(f"候选不是 prompt_toolkit Application: {type(candidate)}")
+        if not getattr(candidate, "layout", None):
+            raise ValueError("候选 Application 缺 layout（无法接管渲染）")
 
     def _startup_health_probe(self) -> None:
         """P2-3: start 后 1s 自检 —— 全屏未驻留时显式告知已降级。"""

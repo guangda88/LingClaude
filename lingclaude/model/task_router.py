@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from lingclaude.model.openrouter_oauth import ensure_env_key
 from lingclaude.model.types import ModelConfig
 from lingclaude.model.intelligent_router import TaskType
 from lingclaude.core.rate_limiter import LeakyBucket, ProviderSlot
@@ -331,9 +332,19 @@ class TaskRouter:
         # 410/401/404 剔除、429 绕行（不误杀）。LINGCLAUDE_PROBE_DISABLE=1 关闭。
         self._probe_disabled = probe_disabled_by_env()
         self._probe = ProviderProbe()
+        # P1-8（2026-09-21）: 构造期惰性注入 OpenRouter key——凭据仓有存档且 env
+        # 未设置时注入，随后 _load_config 的 F12c 解析链即刻读到。已有 env（用户
+        # 显式设置 / OAuth 当场注入）一律不覆盖；凭据仓故障 fail-open 不阻断装配。
+        try:
+            ensure_env_key()
+        except Exception:  # noqa: BLE001
+            logger.debug("openrouter_oauth 凭据仓注入跳过", exc_info=True)
         self._load_config()
 
+    _raw_provider_keys: dict[str, str]
+
     def _load_config(self) -> None:
+        self._raw_provider_keys = getattr(self, "_raw_provider_keys", {})
         if not self._path.exists():
             logger.warning("TaskRouter: config not found at %s, using empty config", self._path)
             return
@@ -349,6 +360,10 @@ class TaskRouter:
         for name, pdef in routing.get("providers", {}).items():
             # F12k:字符串简写 / 缺字段 dict → 用知名 provider 默认值表补全
             normalized = _normalize_provider_def(name, pdef)
+            if isinstance(pdef, dict):
+                self._raw_provider_keys[name] = str(pdef.get("api_key", "") or "")
+            elif isinstance(pdef, str):
+                self._raw_provider_keys[name] = pdef
             if normalized is None:
                 logger.warning("TaskRouter: provider '%s' is not usable (type=%s, no known defaults), skipped",
                                name, type(pdef).__name__)
@@ -398,6 +413,24 @@ class TaskRouter:
             len(self._providers), len(self._task_routes), self._path,
         )
 
+    def refresh_api_keys(self) -> int:
+        """P1-8（2026-09-21）: 重解析全部 provider api_key（env 热更新后自愈）。
+
+        场景：/openrouter OAuth 完成 → os.environ 注入 OPENROUTER_API_KEY
+        → 既有 router 实例的 _providers[*].api_key（构造时固化）感知不到。
+        只重解析 key（F12c 同一解析链），不动路由表/熔断桶/探活缓存。
+        返回本次有变化的 provider 数。无锁竞态风险：单字段赋值原子。
+        """
+        changed = 0
+        for name, pinfo in self._providers.items():
+            raw = (self._raw_provider_keys or {}).get(name, "")
+            new_key = _resolve_api_key(name, raw)
+            if new_key and new_key != pinfo.api_key:
+                pinfo.api_key = new_key
+                changed += 1
+                logger.info("TaskRouter: provider %s api_key 已热更新", name)
+        return changed
+
     def resolve(
         self,
         prompt: str,
@@ -443,14 +476,20 @@ class TaskRouter:
             # F12b:云端 provider 缺 api_key → 跳过选下一候选,不让请求
             # 炸在 provider.stream_complete 层。本地服务无 key 是正常形态,不跳过。
             if not pinfo.api_key and not _is_local_base(pinfo.base_url):
-                _env_var = _PROVIDER_ENV_KEY_MAP.get(ref.provider, "<未映射>")
-                logger.debug(
-                    "路由跳过 %s:云端 provider 无 api_key"
-                    "(候选 %d/%d, 期望环境变量: %s, 已设置: %s)",
-                    ref.provider, pos + 1, len(models),
-                    _env_var, bool(os.environ.get(_env_var, "")),
-                )
-                continue
+                # P1-8: OAuth 注入/启动后 env 才有 key 的自愈口——先重解析一次，
+                # 本 provider 的 key 真灌进来了才继续；否则走跳过逻辑。
+                # （refresh>0 只代表有变化，未必是本 provider，须复查。）
+                if self.refresh_api_keys() > 0 and pinfo.api_key:
+                    pass  # 自愈成功：落到下方正常选中路径
+                else:
+                    _env_var = _PROVIDER_ENV_KEY_MAP.get(ref.provider, "<未映射>")
+                    logger.debug(
+                        "路由跳过 %s:云端 provider 无 api_key"
+                        "(候选 %d/%d, 期望环境变量: %s, 已设置: %s)",
+                        ref.provider, pos + 1, len(models),
+                        _env_var, bool(os.environ.get(_env_var, "")),
+                    )
+                    continue
 
             slot = self._slots.get(ref.provider)
             if slot and not slot.is_available:
@@ -577,7 +616,8 @@ class TaskRouter:
             slot.cooldown_until = time.monotonic() + _quota_cd
             slot.consecutive_errors = 0
             logger.warning(
-                "provider %s 熔断 %.0fmin（硬配额耗尽）— 路由跳过至配额重置，期间走下一候选",
+                "provider %s 熔断 %.0fmin（硬配额耗尽）— 路由跳过至配额重置，期间走下一候选"
+                "（无候选可用? 输入 /openrouter 一键接入 OpenRouter 免费池）",
                 provider_name, _quota_cd / 60.0,
             )
             # 探活缓存同步校准（429 绕行语义不再适用：配额已尽，探活必 429）
