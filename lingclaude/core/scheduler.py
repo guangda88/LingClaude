@@ -14,12 +14,15 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable
 
 from lingclaude.core.task_scheduler import Task, TaskPriority, TaskScheduler
@@ -28,6 +31,9 @@ from lingclaude.core.wakeup_channel import (
     LocalFileWakeupChannel,
     WakeupChannel,
 )
+
+# 持久化文件路径
+_SCHEDULES_FILE = os.path.expanduser("~/.lingclaude/schedules.json")
 
 
 class ScheduleType(str, Enum):
@@ -75,6 +81,48 @@ class ScheduleManager:
         self._on_task_due: Callable[[ScheduledTask], None] | None = None
         # P1-3: 唤醒通道（灵元尺子：变化变成插片）— 默认 LingBus，可注入 LocalFile 等
         self._wakeup_channel = LingBusWakeupChannel()
+        # P1-4: 任务持久化（跨进程/重启不丢失）
+        self._load_tasks()
+
+    def _save_tasks(self) -> None:
+        """将任务持久化到文件（注册/取消/到期后调用）"""
+        try:
+            with self._lock:
+                tasks = {task_id: asdict(task) for task_id, task in self._tasks.items()}
+            Path(_SCHEDULES_FILE).parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = Path(_SCHEDULES_FILE).with_suffix(".tmp")
+            tmp_path.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_path.replace(_SCHEDULES_FILE)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Schedule persist failed: %s", e)
+
+    def _load_tasks(self) -> None:
+        """从文件加载任务（跨进程恢复）"""
+        if not Path(_SCHEDULES_FILE).exists():
+            return
+        try:
+            data = json.loads(Path(_SCHEDULES_FILE).read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for task_id, task_dict in data.items():
+                    try:
+                        task = ScheduledTask(
+                            task_id=str(task_id),
+                            cron=str(task_dict.get("cron", "")),
+                            query=str(task_dict.get("query", "")),
+                            priority=TaskPriority(task_dict.get("priority", TaskPriority.MEDIUM)),
+                            next_run=str(task_dict.get("next_run", "")),
+                            enabled=bool(task_dict.get("enabled", True)),
+                            metadata=dict(task_dict.get("metadata", {})),
+                        )
+                        self._tasks[task_id] = task
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "Schedule load failed for %s: %s", task_id, e)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Schedule load failed: %s", e)
 
     def set_on_task_due(self, callback: Callable[[ScheduledTask], None]) -> None:
         """P1-2: 注册到期回调 — 挂回会话（如把任务内容注入会话待处理队列）。"""
@@ -114,6 +162,7 @@ class ScheduleManager:
         with self._lock:
             self._tasks[task_id] = task
         
+        self._save_tasks()
         return task_id
 
     def _compute_next_run(self, cron: str) -> str:
@@ -187,6 +236,7 @@ class ScheduleManager:
                         self._tasks[task_id] = task.__class__(
                             **{**task.__dict__, "next_run": new_next}
                         )
+                self._save_tasks()
             
             # 发 LingBus 唤醒
             for task in due_tasks:
@@ -233,6 +283,7 @@ class ScheduleManager:
         with self._lock:
             if task_id in self._tasks:
                 del self._tasks[task_id]
+                self._save_tasks()
                 return True
         return False
 

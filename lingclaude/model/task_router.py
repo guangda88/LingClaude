@@ -540,6 +540,12 @@ class TaskRouter:
         # P1-F1: 真实成功是最强健康证据——清探活缓存，防陈旧 hard_4xx 结论
         # 在 TTL 内继续误杀已恢复的节点（探活只在路由前做，样本远少于真实调用）
         self._probe.invalidate(provider_name)
+        # 方案C v4 P0#1: 真实成功同时清配额窗口（窗口只是观察，成功推翻它）
+        try:
+            from lingclaude.model.quota_governance import get_quota_pool
+            get_quota_pool().clear(provider_name)
+        except Exception:  # noqa: BLE001
+            logger.exception("quota_governance: 窗口清除失败 provider=%s", provider_name)
 
     def record_error(self, provider_name: str, error_detail: str = "") -> None:
         """记录 provider 错误（F12j：硬错误立即熔断）。
@@ -556,6 +562,14 @@ class TaskRouter:
         slot.consecutive_errors += 1
         slot.total_errors += 1
         slot.last_error_time = time.monotonic()
+        # 方案C v4 P0#1: 配额窗口直查——错误路径顺带提取窗口（问窗口不猜），
+        # 路由层可经 QuotaWindowPool.decide_from_windows() 查询 defer/allow；
+        # 非配额错误 no-op；窗口记录失败不影响熔断主路径。
+        try:
+            from lingclaude.model.quota_governance import get_quota_pool
+            get_quota_pool().record_from_error(provider_name, error_detail or "")
+        except Exception:  # noqa: BLE001
+            logger.exception("quota_governance: 窗口记录失败 provider=%s", provider_name)
         # 2026-09-20: 硬配额耗尽优先于通用硬错误 —— 冷却到重置时刻（而非
         # 统一 30min/2h），期间路由跳过该 provider，自动落到下一候选。
         _quota_cd = _hard_quota_cooldown_seconds(error_detail or "")

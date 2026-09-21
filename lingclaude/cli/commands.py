@@ -8,6 +8,7 @@ quit_requested 由 nonlocal 改为实例属性（语义不变）。
 
 from typing import Any
 
+import logging
 import os
 import subprocess
 import sys
@@ -603,6 +604,21 @@ class SlashCommandProcessor:
                     print(f"  - {s.get('session_id')} | {s.get('created_at', '')}")
                 return
         if engine._session_persister.load_session(target_id):
+            # 方案C v4: 恢复成功 → SESSION_RESUME 钩子（快照来源与会话 ID 随钩子传播；
+            # 无注册钩子时零开销——HookManager.trigger 对空表 no-op）
+            try:
+                from lingclaude.core.hooks import HookContext, HookType
+                hooks_mgr = getattr(engine, "_hooks", None)
+                if hooks_mgr is not None:
+                    hooks_mgr.trigger(HookContext(
+                        hook_type=HookType.SESSION_RESUME,
+                        session_id=target_id,
+                        resumed=True,
+                        resumed_from_snapshot=target_id,
+                    ))
+            except Exception:  # noqa: BLE001 钩子失败不阻断恢复主路径
+                logging.getLogger(__name__).exception(
+                    "SESSION_RESUME hook failed (session=%s)", target_id)
             print(f"[会话已恢复] {target_id}（{len(engine._conversation)} 轮对话；当前上下文已被替换）")
         else:
             print(f"[会话恢复失败] {target_id} 不存在或已损坏（当前上下文未受影响）")

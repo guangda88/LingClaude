@@ -11,7 +11,11 @@ from lingclaude.core.hooks import (
 
 class TestHookType:
     def test_all_values(self) -> None:
-        expected = {"pre_task", "post_task", "on_error", "on_stop", "pre_compact", "post_compact"}
+        # 方案C v4 扩容：+session_resume/pre_hot_swap/post_hot_swap（有意变更，快照同步）
+        expected = {
+            "pre_task", "post_task", "on_error", "on_stop", "pre_compact", "post_compact",
+            "session_resume", "pre_hot_swap", "post_hot_swap",
+        }
         assert {h.value for h in HookType} == expected
 
     def test_str_enum(self) -> None:

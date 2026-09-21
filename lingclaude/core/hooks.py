@@ -27,6 +27,10 @@ class HookType(str, Enum):
     ON_STOP = "on_stop"
     PRE_COMPACT = "pre_compact"
     POST_COMPACT = "post_compact"
+    # 方案C v4 扩容：会话恢复 + 插片热替换（atomcode 钩子存储语义分区对齐）
+    SESSION_RESUME = "session_resume"   # 会话从快照恢复后触发（context.resumed=True）
+    PRE_HOT_SWAP = "pre_hot_swap"       # plugin_lifecycle.hot_swap 切换前
+    POST_HOT_SWAP = "post_hot_swap"     # plugin_lifecycle.hot_swap 切换后
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,9 @@ class HookContext:
     tool_name: str = ""
     error_message: str = ""
     stop_reason: str = ""
+    # 方案C v4：会话恢复语义（仅 SESSION_RESUME 钩子填充）
+    resumed: bool = False
+    resumed_from_snapshot: str = ""     # 恢复来源快照路径/标识
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -49,6 +56,9 @@ class HookResult:
     modified_context: HookContext | None
     blocked: bool = False
     error: str = ""
+    # 方案C v4：钩子存储语义标注（atomcode 对齐）——
+    # PERMANENT: 产物应落盘持久化；EPHEMERAL: 仅本会话内存可见
+    storage_hint: str = ""              # "" | "PERMANENT" | "EPHEMERAL"
 
 
 @dataclass

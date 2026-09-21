@@ -189,6 +189,7 @@ class SeamRegistry:
 
     _registry: dict[SeamType, dict[str, Any]] = {}
     _lock = None  # 惰性初始化（避免 import 期锁开销）
+    _subscribers: list = []  # P0#2: 缝变更订阅（回调签名 fn(action: str, seam_type: SeamType, name: str)）
 
     @classmethod
     def _get_lock(cls):
@@ -208,6 +209,7 @@ class SeamRegistry:
         with cls._get_lock():
             cls._registry.setdefault(seam_type, {})[name] = instance
         logger.debug("SeamRegistry: register %s/%s -> %r", seam_type.value, name, instance)
+        cls._notify_change("register", seam_type, name)
 
     @classmethod
     def get(cls, seam_type: SeamType, name: str) -> Any:
@@ -244,6 +246,7 @@ class SeamRegistry:
             if not bucket:
                 cls._registry.pop(seam_type, None)
         logger.info("SeamRegistry: unregister %s/%s", seam_type.value, name)
+        cls._notify_change("unregister", seam_type, name)
         return True
 
     @classmethod
@@ -287,6 +290,39 @@ class SeamRegistry:
         """清空注册表（仅测试用）。"""
         with cls._get_lock():
             cls._registry.clear()
+            cls._subscribers.clear()
+
+    @classmethod
+    def subscribe_change(cls, callback) -> None:
+        """订阅缝变更（P0#2：plugin_lifecycle 依赖图刷新钩子）。
+
+        callback(action, seam_type, name)：action ∈ {"register", "unregister"}。
+        回调在注册锁外执行；单个订阅者异常不中断广播（fail-open）。
+        """
+        with cls._get_lock():
+            if callback not in cls._subscribers:
+                cls._subscribers.append(callback)
+
+    @classmethod
+    def unsubscribe_change(cls, callback) -> None:  # noqa: C901
+        """取消订阅（幂等：未订阅则 no-op）。"""
+        with cls._get_lock():
+            if callback in cls._subscribers:
+                cls._subscribers.remove(callback)
+
+    @classmethod
+    def _notify_change(cls, action: str, seam_type: SeamType, name: str) -> None:
+        """向全部订阅者广播缝变更（锁外快照订阅者列表再逐个调用）。"""
+        with cls._get_lock():
+            subscribers = list(cls._subscribers)
+        for callback in subscribers:
+            try:
+                callback(action, seam_type, name)
+            except Exception:  # noqa: BLE001 订阅者异常只记日志，不反噬注册方
+                logger.exception(
+                    "SeamRegistry subscriber error (action=%s seam=%s/%s)",
+                    action, seam_type.value, name,
+                )
 
     @classmethod
     def check_protocol(cls, seam_type: SeamType, instance: Any) -> list[str]:
