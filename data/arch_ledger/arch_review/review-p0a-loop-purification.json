@@ -1,0 +1,11 @@
+{
+  "kind": "arch_review_entry",
+  "contract": "docs/CORE_SURFACE_CONTRACT.md v1（DoD 判定标准）",
+  "summary": "P0-A 循环纯化 L0 批次 1-5 + 阶段 3 Thread 薄壳完成：双路径循环体（_call_model/stream_call_model）单源迁 engine/loop/loop_body.py（run_call_model_loop/run_stream_call_model_loop，self→engine 显式参数），_ToolLoopDetector+循环常量迁 tool_loop_detector.py，sub_agent 搭车迁入，LingClaudeThread 薄 facade 落地（零自有状态，价值随 P1-0 兑现）。golden master 双路径基线每步全绿（9/29/55/49 passed），行为零变化。core→engine 消费边走 M3 行级台账（review_due 2026-10-31，随 L1 钩子替换回收）。L1（self._*→hooks.* 逐类替换）与 P1-0（Speculative Fan Out 挂子 seam）为后续轨。",
+  "state": "resolved",
+  "created": "2026-09-22T07:00:00+00:00",
+  "evidence": {
+    "commits": ["da1de2c L0批次3", "f2ff293 L0批次4", "3a5deee L0批次5", "b026246 阶段3 Thread"],
+    "verification": "golden master 9 + loop_detection + r5_denial + usage + n5_done = 49 passed；ruff T201 全过；facade import 探针 OK"
+  }
+}

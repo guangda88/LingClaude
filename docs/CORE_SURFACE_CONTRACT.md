@@ -38,10 +38,11 @@ lingclaude/engine/loop/
 `engine/loop/` 的**公共出口白名单**（`__init__.py` 只 re-export 以下名字）：
 
 - `LoopHooks`, `DefaultLoopHooks`, `default_hooks_for`（自 `core/loop_seam.py` 迁入
-  `engine/loop/hooks.py`，L0 批次 1，2026-09-22；旧路径 shim 见 §8）
+  `engine/loop/hooks.py`，L0 批次 1，2026-09-22；旧路径 shim 因 M3 铁律删除——core
+  不得 import engine，改为引用方直切，见 §8）
 - `L5ConversationLoop`, `L5ConversationConfig`, `L5RoundResult`（自
   `core/l5_conversation_loop.py` 迁入 `engine/loop/l5_conversation_loop.py`，
-  L0 批次 2，2026-09-22；旧路径 shim 见 §8）
+  L0 批次 2，2026-09-22；旧路径 shim 同上删除，引用方直切）
 - `run_call_model_loop`, `run_stream_call_model_loop`（L1 迁移时的循环体入口名，
   仍在 `core/model_call.py`）
 - `AGENT_MAX_TOOL_ROUNDS`, `_resolve_max_tool_rounds`
@@ -51,9 +52,36 @@ lingclaude/engine/loop/
 1. `engine/loop/` **不得 import** `lingclaude.cli.*`（任何层级）。
 2. `engine/loop/` 内部模块之间不得互相 import 私有槽位；一切经 `LoopHooks` 或显式参数。
 3. `core/query_engine*.py` 只允许 `from lingclaude.engine.loop import <白名单名>`；
-   迁移期旧路径 re-export shim 保持可用（阶段 4 删）。
+   旧路径 shim 已于 L0 删除（M3 铁律），core→engine 消费边走 M3 行级台账过渡（见 §七）。
 4. 迁移**不得新增**对 `config.yaml` 的直接读取；配置注入继续走 `_resolve_model_config`
    边界与 wiring 槽位。
+
+### L1 槽位面预览（AST 实测 2026-09-22）
+
+**L0 迁移执行记录（2026-09-22，批次 1-5 全部完成，每批独立提交 + 基线全绿）**：
+
+| 批次 | 内容 | 提交 | 验证 |
+|---|---|---|---|
+| 1 | `core/loop_seam.py` → `engine/loop/hooks.py` | L0 批次 1-2（此前提交） | 注入 fake 钩子离线回归 |
+| 2 | `core/l5_conversation_loop.py` → `engine/loop/` | 同上 | 同上 |
+| 3 | `_ToolLoopDetector`+循环常量 → `engine/loop/tool_loop_detector.py` | `da1de2c` | 29 passed |
+| 4 | `engine/sub_agent.py` → `engine/loop/sub_agent.py` | `f2ff293` | 55 passed |
+| 5 | 双路径循环体 → `engine/loop/loop_body.py`（`run_call_model_loop`/`run_stream_call_model_loop`，循环纯函数助手随行单源） | `3a5deee` | 49 passed |
+| 阶段 3 | `LingClaudeThread` 薄壳 facade（`engine/loop/thread.py`） | `b026246` | 9 passed + import 探针 |
+
+`ModelCallMixin._call_model`/`stream_call_model` 保留薄委托壳（调用面零变化）；
+循环体单源在 `engine/loop/loop_body.py`。shim 按契约 §七未落盘（M3 铁律，
+引用方直切）。
+
+`_call_model` 与 `stream_call_model` 的 `self.*` 槽位各 17 个，**交集 11**（双路径
+共同 seam 参数面）：`_build_messages` `_build_openai_tools` `_clear_checkpoint`
+`_finalize_turn` `_hard_interrupt_message` `_provider` `_resolve_model_config`
+`_save_checkpoint` `_track_behavior` `config` `hooks`。
+仅非流 6：`_assert_model_visible` `_get_last_tool_output` `_log_model_request`
+`_log_to_flywheel` `_pre_send_check` `_tool_call_executor`。
+仅流式 6：`_append_to_session_history` `_behavior` `_execute_tool_with_retry`
+`_get_evidence_ledger` `_learn_from_turn` `_task_router`。
+（注：引擎自有方法如 `_mv`/`_seen` 未计入，L1 随循环体走、不过 seam。）
 
 ## 三、print 禁令（ruff T20 ratchet）
 
@@ -188,13 +216,22 @@ lingclaude/engine/loop/
 
 - 每个迁移步骤 = 一个独立可回滚提交；提交信息注明等级（L0/L1/...）与覆盖的基线用例。
 - 顺序铁律：**先挪文件（L0），后换钩子（L1）**；反向会让 diff 不可 review。
-- shim 删除（阶段 4）前置条件：全仓 `grep` 无旧路径 import + 基线全绿 + 一轮完整 e2e。
+- shim 删除前置条件：全仓 `grep` 无旧路径 import + 基线全绿 + 一轮完整 e2e。
+  **实际执行记录（2026-09-22 L0）**：shim 方案在铁律守卫审计中被 M3 拦截
+  （core/ 不得 import engine/，shim 恰是反向边）——守卫先于 shim 落地，符合
+  "守卫即查询"。处置：13 处引用方（core 4 + tests 9）直切 `engine/loop/` 正身，
+  shim 即删不落盘；core 侧 4 行消费边走 M3 行级台账过渡（review_due 2026-10-31），
+  L1 循环体迁移完成后随宿主文件迁移回收。同批回收 M1 死账 2 条（旧 core 路径）。
 
 ## 八、迁移完成定义（DoD）
 
-- [ ] 阶段 1 登记表（§四）补齐并评审
-- [ ] `engine/loop/` 白名单出口与其余文件隔离（import linter 或测试强制）
-- [ ] `tests/test_golden_loop_master.py` 全绿且自基线建立日起无违规修改
-- [ ] ruff T20 ratchet 生效（新增 print 拦截 + 存量豁免清单未扩大）
-- [ ] `l5_conversation_loop.py` / `sub_agent.py` 按搭车件/收尾件完成迁移
-- [ ] arch_ledger 记 entry（引用本契约版本号）
+- [x] 阶段 1 登记表（§四）补齐并评审（2026-09-22，59 条槽位 A/B/C/D 四类）
+- [x] `engine/loop/` 白名单出口与其余文件隔离（`__init__.py` 白名单 + golden master
+  import 探针；M3 铁律 core↔engine 方向由守卫审计强制）
+- [x] `tests/test_golden_loop_master.py` 全绿且自基线建立日起无违规修改
+  （L0 批次 3/4/5 + 阶段 3 每步 9/29/55/49 passed）
+- [x] ruff T20 ratchet 生效（pyproject.toml per-file-ignores 存量豁免，
+  新增 print 拦截，豁免清单未扩大）
+- [x] `l5_conversation_loop.py` / `sub_agent.py` 按搭车件/收尾件完成迁移
+  （L0 批次 2/4）
+- [ ] arch_ledger 记 entry（引用本契约版本号）→ 见 arch_ledger 提交

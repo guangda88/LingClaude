@@ -3,6 +3,7 @@
   "file": "core/l5_conversation_loop.py",
   "reason": "存量基线(2026-09-17首扫)，只缩不放",
   "granted": "2026-09-17",
-  "state": "active",
-  "review_due": "2026-10-17"
+  "state": "removed",
+  "review_due": "2026-10-17",
+  "removed_at": "2026-09-21T17:13:36+00:00"
 }
