@@ -16,6 +16,13 @@ network_allowed_commands:
   - "curl -sI"
   - "curl -s -o /dev/null"
   - "wget --spider"
+  # AI 插片（2026-09-21）：claude/atomcode/crush/codex/opencode 需要出网调用各自 API 端点。
+  # 经主代理提请、用户批准后加入。命令行注入风险由沙箱其余层兜底（非 root、内存 rlimit）。
+  - "atomcode"
+  - "codex exec"
+  - "crush run"
+  - "claude -p"
+  - "opencode run"
 
 # 默认可写目录：未显式设置 LINGCLAUDE_EXTRA_WRITABLE_DIRS 时，这些协作路径放开写。
 # 对齐策略层 allowed_paths（/home/ai 下所有协作目录可信）。

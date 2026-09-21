@@ -84,9 +84,18 @@ def _protect_project_lingclaude(request: pytest.FixtureRequest) -> None:
     # meta_cognition/knowledge.db，那是设计行为）。只 fail 破坏性签名：
     #   1. 之前存在的文件被删除（rm -rf 类）
     #   2. 之前非空的文件变成 0 字节（截断/清空类）
-    # SQLite -wal/-shm 是连接 checkpoint 后的正常瞬态文件，不算破坏
+    # SQLite -wal/-shm 是连接 checkpoint 后的正常瞬态文件，不算破坏。
+    # 原子写中间产物 *.tmp<PID>（state_store._atomic_write_json，2026-09-21 账）：
+    # 活体灵克进程 3671643 的 tmp 恰跨测试 before/after 快照窗口，replace 后
+    # 消失，被误判为「删除类破坏」（meta_cognition.json.tmp3671643 误报实证）。
+    # tmp 本就是短命设计产物，与 -wal/-shm 同类豁免。
+    import re
+
+    _tmp_pid_re = re.compile(r"\.tmp\d+$")
+
     def _transient(k: str) -> bool:
-        return k.endswith(("-wal", "-shm"))
+        name = k.rsplit("/", 1)[-1]
+        return name.endswith(("-wal", "-shm")) or bool(_tmp_pid_re.search(name))
 
     polluted = sorted(
         k for k, (mt, size) in before.items()

@@ -1060,3 +1060,79 @@ class TestAtomcodeP123:
         proc3 = SlashCommandProcessor(engine=NS(), status=NS())
         assert proc3.handle("/resync") is True  # session 未注入也安全降级
         assert "不支持" in capsys.readouterr().out
+
+# ── B: plain 模式禁色降级口（2026-09-21 乱码战役收尾）─────────────────
+
+
+class TestPlainNoColor:
+    """NO_COLOR / LINGCLAUDE_PLAIN_NO_COLOR → rich 零 SGR 输出。
+
+    背景：实测终端声明 TERM=xterm-256color 却把 ESC 渲染成字面 '?'，
+    plain 模式 rich→stderr 彩色直通即乱码。禁色开关让第四路径在
+    plain 模式下物理消灭（force_terminal=False → rich 判定非终端）。
+    """
+
+    def test_no_color_env_plain_console_no_sgr(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """NO_COLOR=1 → plain Console 渲染不产生任何 ESC 序列。"""
+        import re
+
+        from lingclaude.cli import display, repl_io
+
+        repl_io.set_full_tui_managed(False)
+        monkeypatch.setenv("NO_COLOR", "1")
+        monkeypatch.delenv("LINGCLAUDE_PLAIN_NO_COLOR", raising=False)
+        console = display._get_console()
+        assert console.file is sys.stderr  # 直通语义不变，只是禁色
+        console.print("[bold red]加粗[/bold red] [cyan]青色[/cyan]")
+        err = capsys.readouterr().err
+        # ESC = \x1b；禁色后不得存在任何 CSI 序列
+        assert not re.search(r"\x1b\[[0-9;]*m", err), f"残留 SGR: {err!r}"
+        assert "加粗" in err and "青色" in err  # 内容仍在，只去色
+
+    def test_lingclaude_plain_no_color_alias(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """LINGCLAUDE_PLAIN_NO_COLOR=1 与 NO_COLOR 等效（行为级：零 SGR）。"""
+        import re
+
+        from lingclaude.cli import display, repl_io
+
+        repl_io.set_full_tui_managed(False)
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("LINGCLAUDE_PLAIN_NO_COLOR", "1")
+        console = display._get_console()
+        # 禁色分支显式传 force_terminal=False（rich 实测不存 _no_color 属性）
+        assert console._force_terminal is False
+        console.print("[bold red]加粗[/bold red]")
+        err = capsys.readouterr().err
+        assert not re.search(r"\x1b\[[0-9;]*m", err), f"残留 SGR: {err!r}"
+        assert "加粗" in err
+
+    def test_managed_takes_precedence_over_no_color(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """托管期不受禁色开关影响——stdout 代理路径优先（P2 语义保持）。"""
+        from lingclaude.cli import display, repl_io
+
+        monkeypatch.setenv("NO_COLOR", "1")
+        repl_io.set_full_tui_managed(True)
+        try:
+            console = display._get_console()
+            assert console.file is sys.stdout
+        finally:
+            repl_io.set_full_tui_managed(False)
+
+    def test_plain_console_colorful_without_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """无环境变量时 plain Console 走原彩色分支（force_terminal 未显式禁）。"""
+        from lingclaude.cli import display, repl_io
+
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.delenv("LINGCLAUDE_PLAIN_NO_COLOR", raising=False)
+        repl_io.set_full_tui_managed(False)
+        console = display._get_console()
+        # 默认分支不传 force_terminal（None）；禁色分支才是显式 False
+        assert console._force_terminal is None

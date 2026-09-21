@@ -325,8 +325,14 @@ class SubmissionMixin:
         total_output: int,
         tag: str | None = None,
     ) -> None:
-        # P1 rewind: 每轮工具轮保存带 round 标签的版本（tag=None 时兼容旧语义覆盖写）
-        if tag is None:
+        # P1 (2026-09-20, atomcode inflight 借鉴): turn_start 的 round=-1 inflight
+        # 快照必须写主文件 `{session_id}.json`（不带 tag）——主文件是崩溃恢复介质
+        # （load_checkpoint 在 _active_checkpoint 缺失时回落读主文件），且 done 时
+        # clear_checkpoint 只删 _active_checkpoint 指向的最后一个文件，带 tag 的
+        # 版本文件会残留到下轮（test_session_journal::checkpoint_saved_after_tool_round
+        # 实证）。turn_start 落主文件 = resume 链路 0 改动即可消费（round_idx=-1 →
+        # range(0, ...) 从头重放，无 tool_calls → 走 finalize 分支）。
+        if tag is None and round_idx is not None and round_idx >= 0:
             tag = f"round{round_idx}"
         self._session_persister.save_checkpoint(
             messages, round_idx, prompt, used_tools, total_input, total_output,

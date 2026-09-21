@@ -44,6 +44,24 @@ class QualityReport:
     knowledge: float
 
 
+def _plain_no_color() -> bool:
+    """plain 模式禁色判定：标准 NO_COLOR 或 LINGCLAUDE_PLAIN_NO_COLOR 任一命中。
+
+    背景（2026-09-21 乱码战役收尾）：plain 模式 rich 经 stderr 直通渲染
+    「彩色正式版」，前提假设是终端真实消费 SGR。实测启动终端声明
+    TERM=xterm-256color 却把 ESC 显示为字面 '?'（声明能力≠真实能力）
+    → 彩色直通 = 乱码。本开关提供 plain 模式降级口：force_terminal=False
+    让 rich 判定非终端 → 零 SGR 输出，第四路径在 plain 模式下物理消灭。
+    """
+    import os
+
+    if os.environ.get("NO_COLOR", "") != "":
+        return True
+    return os.environ.get("LINGCLAUDE_PLAIN_NO_COLOR", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def _get_console() -> Any:
     if _HAS_RICH:
         # P2 单一输出 owner（2026-09-20，atomcode 借鉴）：Console(stderr=True)
@@ -51,13 +69,22 @@ def _get_console() -> Any:
         # （proxy/append_output/回放/stream_write）。现全屏 TUI 托管期改走
         # sys.stdout（此时已被 FullTuiSession 的 _StdoutProxy 接管，渲染片段
         # 进输出窗 → 统一经 _strip_ansi_text 清洗）；plain 模式 stdout 是真实
-        # 终端（isatty），维持 stderr 直通语义不变（彩色正式版是设计意图）。
+        # 终端（isatty），维持 stderr 直通语义（彩色正式版是设计意图），
+        # 但支持 NO_COLOR / LINGCLAUDE_PLAIN_NO_COLOR 强制纯文本降级
+        # （2026-09-21：终端声明彩色却不消费 SGR 的环境实测乱码）。
         import sys
 
         from lingclaude.cli.repl_io import is_full_tui_managed
 
         if is_full_tui_managed():
             return Console(theme=_THEME, file=sys.stdout, force_terminal=False)
+        if _plain_no_color():
+            return Console(
+                theme=_THEME,
+                stderr=True,
+                force_terminal=False,
+                no_color=True,
+            )
         return Console(theme=_THEME, stderr=True)
     return None
 

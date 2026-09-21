@@ -74,9 +74,13 @@ manifest:
     phase: state
     note: "L1 上次触发轮次"
   - attr: _l1_handover_checksum
-    factory: 
+    factory:
     phase: state
     note: "L1 交接校验和"
+  - attr: _history_epoch
+    factory:
+    phase: state
+    note: "历史字节代数（缓存失效计数，P1 前缀缓存优化 2026-09-21）"
   - attr: _degradation_alerts
     factory: 
     phase: state

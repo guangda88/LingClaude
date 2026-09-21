@@ -235,10 +235,10 @@ def test_all_20_seam_keys_match_ledger():
         org = json.loads(jf.read_text(encoding="utf-8"))
         if org.get("plug_seam_key"):
             org_keys.add(org["plug_seam_key"])
-    assert len(org_keys) == 20  # 12 agent/ + 8 proj/
+    assert len(org_keys) == 22  # 12 agent/ + 8 proj/ + 2（family-meeting/agent-gateway 对账补登记 2026-09-21）
     mine = {json.loads((AG / d / "manifest.agent.json").read_text(encoding="utf-8"))["name"]
             for d in AG.iterdir() if d.is_dir() and (AG / d / "manifest.agent.json").is_file()
             and (d.name.startswith("agent_") or d.name.startswith("proj_"))}
-    # agent_lingxi 目录也在（既有批）→ 目录扫描覆盖全集 20，与账本一一对应
+    # agent_lingxi 目录也在（既有批）→ 目录扫描覆盖全集，与账本一一对应
     assert org_keys == mine
-    assert len(mine) == 20
+    assert len(mine) == 22

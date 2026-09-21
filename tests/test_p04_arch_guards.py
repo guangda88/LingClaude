@@ -285,7 +285,9 @@ J4_KNOWN_DIRECT = {
 J4_EXPORT_VIEWS = {
     # 2026-09-20 P3-7：core/handover.py 已迁 lingmemory/handover.py，出列（debt handover-export-view-j4 已 resolve）
     # layered_memory 文件兜底（StateStore 写入失败时的导出物/兼容回退，非状态主通道）
-    "core/layered_memory.py": [553],
+    # 2026-09-21: _save_json 收敛重构（_save_meta/_save_shared 合一），写点 553→584
+    # 漂移修正——同一兼容回退语义，豁免点数 1→1 未扩大（登记修正，非放宽）。
+    "core/layered_memory.py": [584],
     # session 文件仓库导出视图（save 的原子写 + snapshot 导出物；list/rewind 介质）
     "core/session.py": [110, 186],
     # governance_verifier 审计报告导出物（audit_*.json + latest_audit_summary.json，供外部消费）

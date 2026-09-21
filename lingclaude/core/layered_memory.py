@@ -120,6 +120,12 @@ def ebbinghaus_weight(
 
 
 _COMMON_KNOWLEDGE: dict[str, dict[str, str]] = {
+    # 12 子名册（2026-09-19 用户裁定：灵通+并入灵通，灵安入列）
+    "灵通": {
+        "en": "lingflow",
+        "alias": "灵通,lingflow,灵通+,lingflowplus",
+        "role": "AI生态平台，工作流编排（原灵通+已并入）",
+    },
     "灵克": {
         "en": "lingclaude",
         "alias": "灵克,lingclaude",
@@ -130,25 +136,50 @@ _COMMON_KNOWLEDGE: dict[str, dict[str, str]] = {
         "alias": "灵研,lingresearch",
         "role": "研究员，负责深度分析和学术研究",
     },
-    "灵信": {
-        "en": "lingmessage",
-        "alias": "灵信,lingmessage",
-        "role": "跨agent通信系统，灵字辈的邮差",
+    "灵知": {
+        "en": "lingzhi",
+        "alias": "灵知,lingzhi",
+        "role": "知识管理",
+    },
+    "灵通问道": {
+        "en": "lingtongask",
+        "alias": "灵通问道,lingtongask",
+        "role": "智能气功播客生成与发布",
+    },
+    "灵扬": {
+        "en": "lingyang",
+        "alias": "灵扬,lingyang",
+        "role": "对外联络与宣传",
+    },
+    "灵网": {
+        "en": "lingweb",
+        "alias": "灵网,lingweb",
+        "role": "全栈网站开发",
+    },
+    "灵创": {
+        "en": "lingcreate",
+        "alias": "灵创,lingcreate",
+        "role": "多模态生成（图片/视频/3D），试用期",
     },
     "灵犀": {
         "en": "lingxi",
         "alias": "灵犀,lingxi",
         "role": "MCP服务器，灵字辈的工具桥梁",
     },
-    "灵知": {
-        "en": "lingzhi",
-        "alias": "灵知,lingzhi",
-        "role": "知识管理",
+    "灵信": {
+        "en": "lingmessage",
+        "alias": "灵信,lingmessage",
+        "role": "跨agent通信系统，灵字辈的邮差",
     },
     "灵极优": {
-        "en": "LingJiYou",
-        "alias": "灵极优,LingJiYou",
+        "en": "lingminopt",
+        "alias": "灵极优,LingJiYou,lingminopt",
         "role": "极致优化",
+    },
+    "灵安": {
+        "en": "lingan",
+        "alias": "灵安,lingan",
+        "role": "灵族安全官，6层 security_gate owner",
     },
 }
 

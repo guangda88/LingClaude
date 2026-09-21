@@ -361,7 +361,9 @@ def _looks_like_network_failure(text: str) -> bool:
 _DEFAULT_MEMORY_LIMIT = 1024 * 1024 * 1024  # 1 GB（git 实测需 ~500MB，留余量）
 _DEFAULT_CPU_LIMIT = 120  # seconds（30s 误杀编译/大grep）
 # 修复 2026-09-11：白名单 git 远程操作内存限额放宽（git 需 ~500MB 堆，512MB 撞限）
-_NETWORK_ALLOWED_MEMORY_LIMIT = 1024 * 1024 * 1024  # 1 GB
+# 修复 2026-09-21：Bun 系插片（opencode/claude）JSC 需预留大块虚拟地址空间，
+# 1GB RLIMIT_AS 导致 MemoryExhaustion 段错误；放宽到 4GB（宿主 24G available）
+_NETWORK_ALLOWED_MEMORY_LIMIT = 4 * 1024 * 1024 * 1024  # 4 GB
 
 # P0-1: 凭据模式检测（对标 AtomCode atomgit_bash_gate.rs TOKEN_MARKERS）
 # 防止模型通过 bash 传递凭据（access_token、bearer token、环境变量引用）
