@@ -26,6 +26,11 @@ from lingclaude.engine.loop.sub_agent import (
     SubAgentConfig,
     SubAgentResult,
 )
+from lingclaude.engine.loop.loop_body import (
+    run_call_model_loop,
+    run_stream_call_model_loop,
+)
+from lingclaude.engine.loop.thread import LingClaudeThread
 
 __all__ = [
     "LoopHooks",
@@ -41,4 +46,7 @@ __all__ = [
     "SubAgent",
     "SubAgentConfig",
     "SubAgentResult",
+    "run_call_model_loop",
+    "run_stream_call_model_loop",
+    "LingClaudeThread",
 ]
