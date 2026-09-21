@@ -213,6 +213,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.prompt:
         if args.interactive:
             return _interactive_loop(engine, args.prompt)
+        # P1-4 headless: --print / --json 走无装饰驱动（stdout 只出最终结果）
+        if getattr(args, "print_", False) or getattr(args, "json_out", False):
+            from lingclaude.cli.repl_turn import _headless_turn
+            return _headless_turn(engine, args.prompt, as_json=bool(getattr(args, "json_out", False)))
         return _single_turn(engine, args.prompt, args.verbose)
     elif args.interactive:
         return _interactive_loop(engine, None)
@@ -394,6 +398,107 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
         daemon.state = DaemonState()
         daemon.state.save(daemon.state_path)
         print_success("状态已重置")
+    return 0
+
+
+def _cmd_app_server(args: argparse.Namespace) -> int:
+    """P1-4 headless JSON-RPC app-server（codex app-server / opencode server 对齐）。
+
+    常驻进程暴露 `run` / `stream` 两个方法，宿主可编程调用（族级探活、CI
+    编排、其他 harness 把 lc 引擎当族员调度——B 路线『Agent 编队操作系统』
+    的工程前置：lc 引擎可被外部编排器 invoke）。
+
+    传输：
+    - `--stdio`：JSON-RPC over stdin/stdout（一行一 JSON 消息），无端口占用，
+      最易嵌入（codex app-server 的 stdio 模式同款）。
+    - 默认 HTTP：`--host/--port`（默认 127.0.0.1:13461，本机独占，不暴露公网
+      ——对齐 hermes-webui『隧道是唯一暴露面』安全模型）。
+
+    方法：
+    - `run(prompt, config?)` → `{content, usage, ok}`（同步单次）
+    - `stream(prompt)` → NDJSON 事件流（text_delta/tool_call_start/.../done）
+    - `health()` → `{ok, session_id, model}`（族级探活面，SDT-lc-002 可直接消费）
+    """
+    import json as _json
+    import sys as _sys
+
+    from lingclaude.core.query_engine import QueryEngine
+
+    engine = QueryEngine.from_config_file(args.config).data
+
+    def _do_run(params: dict) -> dict:
+        prompt = params.get("prompt", "")
+        from lingclaude.cli.repl_turn import _headless_turn
+        import io
+        buf = io.StringIO()
+        _old_stdout = _sys.stdout
+        _sys.stdout = buf
+        try:
+            _headless_turn(engine, prompt, as_json=True)
+        finally:
+            _sys.stdout = _old_stdout
+        return _json.loads(buf.getvalue() or "{}")
+
+    def _health() -> dict:
+        return {"ok": True, "session_id": getattr(engine, "session_id", None),
+                "model": getattr(getattr(engine, "_model_config", None), "model", "")}
+
+    def _dispatch(method: str, params: dict) -> dict | None:
+        if method == "run":
+            return _do_run(params)
+        if method == "health":
+            return _health()
+        if method == "stream":
+            # stream 走 NDJSON 由调用方按行消费；此处返回事件列表（stdio 单次模式）
+            prompt = params.get("prompt", "")
+            return {"events": [e for e in engine.stream_call_model(prompt)]}
+        return {"error": f"unknown method: {method}"}
+
+    if getattr(args, "stdio", False):
+        # JSON-RPC over stdio：一行一消息 {jsonrpc, id, method, params}
+        for line in _sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                req = _json.loads(line)
+                result = _dispatch(req.get("method", ""), req.get("params", {}))
+                out = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}
+            except Exception as e:
+                out = {"jsonrpc": "2.0", "id": None, "error": str(e)}
+            _sys.stdout.write(_json.dumps(out, ensure_ascii=False) + "\n")
+            _sys.stdout.flush()
+        return 0
+
+    # HTTP 传输（默认）：极简 JSON-RPC over HTTP POST（单端点 /rpc）
+    import http.server
+    import socketserver
+
+    class _Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length).decode("utf-8")
+                req = _json.loads(body or "{}")
+                result = _dispatch(req.get("method", ""), req.get("params", {}))
+                resp = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}
+            except Exception as e:
+                resp = {"jsonrpc": "2.0", "id": None, "error": str(e)}
+            payload = _json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *a) -> None:  # 静默默认日志（headless 无 UI 噪音）
+            pass
+
+    host = getattr(args, "host", "127.0.0.1")
+    port = int(getattr(args, "port", 13461))
+    print(f"[app-server] JSON-RPC listening on http://{host}:{port} (run/stream/health)")
+    with socketserver.ThreadingTCPServer((host, port), _Handler) as httpd:
+        httpd.serve_forever()
     return 0
 
 
@@ -779,6 +884,20 @@ def main() -> int:
                             help="Resume the latest interrupted tool-round checkpoint")
     run_parser.add_argument("--output-format", choices=["plain", "json", "jsonl"], default="plain",
                             help="Output format (jsonl = one JSON per stream event)")
+    # P1-4 headless（2026-09-21, opencode/codex 对齐）：--print 一行出结果
+    run_parser.add_argument("--print", dest="print_", action="store_true",
+                            help="Headless: print only the final answer to stdout (no banner/UI noise), CI-friendly")
+    run_parser.add_argument("--json", dest="json_out", action="store_true",
+                            help="Headless: emit final result as a single JSON object on stdout")
+
+    # P1-4 headless JSON-RPC app-server 面（codex app-server 对齐）：常驻进程
+    # 暴露 run/stream 方法，宿主可编程调用（族级探活/CI 编排受益）。
+    app_server_parser = subparsers.add_parser("app-server",
+                            help="Headless JSON-RPC app-server (run/stream over stdio/HTTP)")
+    app_server_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default 127.0.0.1)")
+    app_server_parser.add_argument("--port", type=int, default=13461, help="Bind port (default 13461)")
+    app_server_parser.add_argument("--stdio", action="store_true",
+                            help="Serve JSON-RPC over stdio instead of HTTP")
 
     opt_parser = subparsers.add_parser("optimize", help="Run self-optimization")
     opt_parser.add_argument("--target", "-t", help="Target path")
@@ -900,6 +1019,8 @@ def main() -> int:
         return _cmd_doctor(args)
     elif args.command == "webui":
         return _cmd_webui(args)
+    elif args.command == "app-server":
+        return _cmd_app_server(args)
     elif args.command == "unknowns":
         if not getattr(args, "unknowns_command", None):
             unknowns_parser.print_help()

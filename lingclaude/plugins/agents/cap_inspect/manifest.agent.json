@@ -1,0 +1,30 @@
+{
+  "name": "cap/inspect",
+  "target": "lc-plugins-inspect",
+  "display_name": "插片自省面（cordis_inspect 对位）",
+  "version": "0.1.0",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "in_process",
+    "mode": "direct",
+    "note": "纯只读自省：查询 SeamRegistry 注册表 / TaskRouter 熔断 slot / 凭据池状态，无任何 I/O 副作用。信任级 T1（只读、无写权限）+ plug L1（unregister 后主干照跑）。",
+    "call_timeout_s": 10
+  },
+  "stop_layer": {
+    "kernel": "inspect() 聚合 SeamRegistry.snapshot + TaskRouter slot + CredentialPool.pool_status 三路只读面",
+    "seams": ["seam_registry", "task_router", "credential_pool"],
+    "implementations": 1,
+    "note": "内核=聚合三路只读自省面；接缝=三个可注入数据源（registry/router/pool，None 时降级只报可用面）；实现=单实现（进程内直查）。"
+  },
+  "capabilities": [
+    "list_plugins",
+    "plugin_status",
+    "router_health",
+    "credential_pool_status",
+    "seam_snapshot"
+  ],
+  "read_only": true,
+  "note": "DSH cordis_inspect 对位：模型在会话内可自查 25 插片注册状态/熔断 slot/路由健康/凭据池，替代只能外部 wake 探活的盲区（全 15 家精读 §3.2 P1-8）。"
+}

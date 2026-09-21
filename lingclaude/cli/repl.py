@@ -36,6 +36,7 @@ from lingclaude.cli.repl_io import (
     _esc_listen_loop,
     _flush_stream_line,
     _handle_stream_event,
+    _stream_write,
     get_output_format,
     set_stream_bridged,
     set_full_tui_managed,
@@ -205,6 +206,12 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
         if now - getattr(_toolbar_snapshot, "_last_heavy", 0.0) >= 1.0:
             _toolbar_snapshot._last_heavy = now  # type: ignore[attr-defined]
             _refresh_ctx_tokens(ctx)
+            # 2026-09-21: 权限模式上 toolbar（⏵⏵ auto 语义，atomcode 借鉴）
+            try:
+                from lingclaude.core.permissions import get_permission_mode
+                status.set_perm_mode(get_permission_mode())
+            except Exception:  # noqa: BLE001
+                pass
             status.refresh_cwd()
         pending = ctx.input_queue.pending() if ctx.input_queue is not None else 0
         full_tui = getattr(ctx.session, "pending_submissions", None)
@@ -229,13 +236,24 @@ def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
     engine = ctx.engine
     status = ctx.status
     try:
-        from lingclaude.core.tool_executor import _estimate_message_tokens
-
-        status.set_ctx(
-            _estimate_message_tokens(engine._messages),
-            int(getattr(engine.config, "context_window_tokens", None)
-                or getattr(engine.config, "max_budget_tokens", 0) or 0),
-        )
+        # 2026-09-21: 上下文口径修复（修「一直 1%」）——优先用上一轮真实
+        # input_tokens（含 system+history+tools 的实际 prefill 体量），
+        # 无真实值时回退字符估算。
+        # 2026-09-21 二次修复（toolbar 949%）：分母取真实模型窗口。
+        # max_budget_tokens(500k) 是会话累计预算，当窗口用 → 分母虚大；
+        # context_window_tokens 未配置时回退 flash 档 128_000。
+        # 分子哨兵：_last_turn_input<0 = provider 未回传 usage 的估算兜底
+        # （单轮 prompt 粗估），回退字符估算，防口径污染。
+        _real = int(getattr(engine, "_last_turn_input", 0) or 0)
+        _win = int(getattr(engine.config, "context_window_tokens", None) or 0) or 128_000
+        if _real > 0:
+            status.set_ctx(_real, _win)
+        else:
+            from lingclaude.core.tool_executor import _estimate_message_tokens
+            status.set_ctx(
+                _estimate_message_tokens(engine._messages),
+                _win,
+            )
     except Exception:  # noqa: BLE001
         pass
 
@@ -686,6 +704,8 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
     observed_text_deltas = 0
     observed_stream_error = False
     turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
+    turn_cached_tokens = 0  # 2026-09-21: 本轮缓存命中 token（done 事件携带）
+    observed_rounds = 0  # 2026-09-21: 工具轮计数（round_end 事件）
     turn_t0 = time.monotonic()  # P1.1: turn 级耗时计时起点
     # 2026-09-17 双写修复: 每回合开始重置镜像写入标记（防上一回合残留误判）
     ctx.turn_finalized = False
@@ -707,7 +727,8 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         )
         _esc_thread.start()
     # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
-    _wd = StreamWatchdog()
+    # 修复B（2026-09-21）: notify 注入 owned 通道，告警不再裸写 stderr 撕裂工具栏
+    _wd = StreamWatchdog(notify=_stream_write)
     _wd.start()
     # P0-1（2026-09-20，TUI 优化方案）: P1 形态生成期流式输出进 PT 托管窗口。
     # 根治「生成期输出冲乱输入行」：patch_stdout 的 StdoutProxy 用
@@ -763,6 +784,17 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                     sys.stdout.flush()
             _handle_stream_event(event)
             if event.get("type") == "round_end":
+                # 2026-09-21: 工具轮数上 toolbar + 摘要行（atomcode 语义）
+                observed_rounds += 1
+                status.bump_turns()
+                # 模型名动态刷新（修「/model 切换后 toolbar 名字不变」）
+                try:
+                    _rc = getattr(engine, "_last_resolved_config", None) \
+                        or (getattr(engine._provider, "_config", None) if engine._provider else None)
+                    if _rc and getattr(_rc, "model", ""):
+                        status.set_model(str(_rc.model))
+                except Exception:  # noqa: BLE001 — 名字刷新失败不阻塞轮循环
+                    pass
                 # 2026-09-15（会话问题重构 P1-1）: round 边界消费挂起队列。
                 # 斜杠命令立即执行；普通文本插队（queued_next，turn 结束后
                 # 直接作为下一轮输入）；EOF/quit 中止当前 turn。
@@ -788,6 +820,10 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 ctx.turn_finalized = bool(event.get("finalized", False))
                 turn_output_tokens = int(
                     (event.get("usage") or {}).get("output_tokens", 0) or 0
+                )
+                # 2026-09-21: 本轮 cached_tokens（前缀缓存命中率可观测性）
+                turn_cached_tokens = int(
+                    (event.get("usage") or {}).get("cached_tokens", 0) or 0
                 )
     except KeyboardInterrupt:
         # pump 模式下 Ctrl+C 承担中断语义（Esc 让位给输入框）
@@ -836,7 +872,8 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
             _esc_stop.set()
         session.interrupt_event().clear()
         if _status_bar_active:
-            status.bump_turns()
+            # 2026-09-21: bump_turns 移至 round_end 逐轮计数（:761-762），
+            # turn 收尾不再 +1——否则 toolbar 轮数 = round 数 + 1 虚高（双计数）。
             status.set_task("空闲")
             # 2026-09-17 第3级b: 每轮刷新任务面板角落数据（TodoStore 聚合 →
             # toolbar 🔄当前执行 + 待办数）。无 runtime/单轮模式静默跳过。
@@ -882,6 +919,31 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         persist_result = engine._session_persister.persist_session()
         if persist_result.is_error and get_output_format() == "plain":
             print(f"[警告] 会话逐轮落盘失败: {persist_result.error}")
+    # 2026-09-21: turn 摘要行（借鉴 atomcode 的 "✓ Wrapped · 10 轮 · 9 工具 · 2m59s · 13.98K tokens · 99% cached"）
+    try:
+        if not interrupted and response_content:
+            _dur = time.monotonic() - turn_t0
+            _mm, _ss = divmod(int(_dur), 60)
+            _dur_s = f"{_mm}m{_ss:02d}s" if _mm else f"{_ss}s"
+            _usage_now = engine.get_stats().get("usage") or {}
+            _in_all = int(_usage_now.get("input_tokens", 0) or 0)
+            _cached_all = int(_usage_now.get("cached_tokens", 0) or 0)
+            _cpct = int(_cached_all * 100 / _in_all) if _in_all > 0 else -1
+            _in_delta = max(0, _in_all - int(usage_t0.get("input_tokens", 0) or 0))
+            _segs = [f"✓ Wrapped · {observed_rounds} 轮"]
+            if observed_tool_calls:
+                _segs.append(f"{observed_tool_calls} 工具")
+            _segs.append(_dur_s)
+            if _in_delta > 0:
+                _segs.append(f"{_in_delta / 1000.0:.2f}K tok" if _in_delta >= 10000 else f"{_in_delta} tok")
+            if _cpct >= 0:
+                _segs.append(f"cache {_cpct}%")
+            _stream_write("\n" + " · ".join(_segs) + "\n\n")
+            # toolbar 缓存命中率同步
+            if _cpct >= 0:
+                status.set_cache_pct(_cpct)
+    except Exception:  # noqa: BLE001 — 摘要行失败不阻塞收尾
+        pass
     _record_long_task_metrics(
         engine,
         event="interrupted_turn" if interrupted else "turn_complete",
@@ -1072,8 +1134,9 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
 
         status.set_ctx(
             _estimate_message_tokens(engine._messages),
-            int(getattr(engine.config, "context_window_tokens", None)
-                or getattr(engine.config, "max_budget_tokens", 0) or 0),
+            # 分母同 _refresh_ctx_tokens 二次修复口径：真实模型窗口，
+            # max_budget_tokens 是累计预算不是窗口（修 toolbar 949%）
+            int(getattr(engine.config, "context_window_tokens", None) or 0) or 128_000,
         )
     except Exception:  # noqa: BLE001 — token 估算失败不阻塞交互启动
         pass

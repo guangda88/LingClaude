@@ -17,7 +17,7 @@ from lingclaude.cli.render_facade import print_session_summary
 from lingclaude.cli.long_task_metrics import append_long_task_metrics
 from lingclaude.cli.n5_stream_watchdog import StreamWatchdog
 from lingclaude.cli.n5_token_guard import check_token_exhaustion, resolve_max_tokens
-from lingclaude.cli.repl_io import _flush_stream_line, _handle_stream_event, get_output_format
+from lingclaude.cli.repl_io import _flush_stream_line, _handle_stream_event, _stream_write, get_output_format
 from lingclaude.core.config import load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.ops.rss_watchdog import check_rss_watchdog, sample_rss_mb
@@ -182,8 +182,51 @@ def _record_long_task_metrics(
 
 
 
+def _headless_turn(engine: QueryEngine, prompt: str, *, as_json: bool = False) -> int:
+    """P1-4 headless（2026-09-21, opencode `run --print` / codex app-server 对齐）。
+
+    与 `_single_turn` 的差异：
+    - 无「思考中...」UI 装饰、无 watchdog 噪音、无交互；stdout 只出最终结果。
+    - `as_json=False`：stdout 打印最终答案纯文本（一行/多行，CI 管道友好）。
+    - `as_json=True`：stdout 打印单个 JSON 对象 `{content, usage, ok}`（机读）。
+
+    复用引擎驱动逻辑（stream_call_model 事件流），但砍掉所有 UI 装饰——
+    这是 headless 与交互模式共享同一循环实例（第 0 步 seam 接口化的直接收益）。
+    """
+    import json as _json
+
+    response_content = ""
+    stream_error = False
+    usage: dict[str, int] = {}
+    for event in engine.stream_call_model(prompt):
+        etype = event.get("type")
+        if etype == "text_delta":
+            response_content += event.get("text", "")
+        elif etype == "done":
+            response_content = event.get("content", response_content)
+            usage = event.get("usage") or {}
+        elif etype == "error":
+            stream_error = True
+
+    # 双写修复：正常 done 时 engine 已写 _messages，此处不重复
+    if response_content:
+        engine._compact_if_needed()
+
+    if as_json:
+        _json.dump({
+            "ok": not stream_error,
+            "content": response_content,
+            "usage": usage,
+        }, sys.stdout, ensure_ascii=False)
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(response_content)
+        if not response_content.endswith("\n"):
+            sys.stdout.write("\n")
+    return 0
+
+
 def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int:
-    print(f"灵克> {prompt}")
     if engine._provider:
         sys.stdout.write("思考中...\r")
         sys.stdout.flush()
@@ -199,7 +242,8 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         turn_finalized = False
         usage_t0 = dict(engine.get_stats().get("usage") or {})  # P1.1: delta 基线
         # N5b: 流内停滞 watchdog — 旁路线程监视事件心跳，只告警不打断（详见模块 docstring）
-        _wd = StreamWatchdog()
+        # 修复B（2026-09-21）: notify 注入 owned 通道，告警不再裸写 stderr
+        _wd = StreamWatchdog(notify=_stream_write)
         _wd.start()
         try:
             for event in engine.stream_call_model(prompt):

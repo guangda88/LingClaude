@@ -8,10 +8,13 @@ quit_requested 由 nonlocal 改为实例属性（语义不变）。
 
 from typing import Any
 
+import json
 import logging
 import os
 import subprocess
 import sys
+import threading
+import time
 
 from lingclaude.cli.repl_turn import _record_long_task_metrics
 
@@ -23,6 +26,9 @@ SLASH_COMPLETER_WORDS = [
     "/tasks",
     # 2026-09-20: 会话历史查看（TUI 优化方案 P2-1，cc 建议）—— 退出后回看入口
     "/history",
+    # 2026-09-21: OpenRouter 一键接入（OAuth PKCE，学 atomcode）——
+    # CodingPlan 配额耗尽时的免费池逃生门
+    "/openrouter",
     # 2026-09-20: P3 全量重绘输出窗（atomcode invalidate 借鉴）
     "/resync",
 ]
@@ -78,6 +84,9 @@ class SlashCommandProcessor:
             return True
         if name == "/schedule":
             self._cmd_schedule(arg)
+            return True
+        if name == "/openrouter":
+            self._cmd_openrouter(arg)
             return True
         if name == "/lsp":
             self._cmd_lsp(arg)
@@ -375,6 +384,97 @@ class SlashCommandProcessor:
                         print(f"    {m}{default_tag}  [{sel}]")
             else:
                 print("[可用模型] TaskRouter 未加载或无 provider")
+
+    def _cmd_openrouter(self, arg: str) -> None:
+        """P1-8（2026-09-21）: OpenRouter 一键接入（学 atomcode 同款体验）。
+
+        /openrouter          OAuth 授权（浏览器打开授权页，本地回调收 code）
+        /openrouter status   查看接入状态（key 是否在 env/凭据仓 + 免费模型数）
+        /openrouter logout   注销（删凭据仓 + 清 env）
+        /openrouter models   刷新免费模型清单（:free 结尾）进 lingcode config
+        授权成功后：key 落盘（0600）+ env 注入 + router api_key 热更新 +
+        免费模型刷新，即刻可 /model openrouter/<:free 模型> 或 /model --unpin。
+        """
+        from lingclaude.model import openrouter_oauth as orx
+
+        sub = (arg or "").strip().lower()
+        if sub == "status":
+            env_has = bool(os.environ.get(orx.ENV_KEY_NAME))
+            saved = orx.load_saved_key()
+            print(f"env {orx.ENV_KEY_NAME}: {'已设置' if env_has else '未设置'}")
+            print(f"凭据仓: {'已存 key' if saved else '无存档'} ({orx._KEY_FILE})")
+            try:
+                from lingclaude.model.task_router import CONFIG_PATH
+                cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                models = cfg["routing"]["providers"]["openrouter"].get("models", [])
+                free = [m for m in models if m.endswith(":free")]
+                print(f"路由清单: {len(models)} 模型（免费 {len(free)}）")
+            except Exception as e:  # noqa: BLE001
+                print(f"路由清单读取失败: {e}")
+            return
+        if sub == "logout":
+            orx.clear_saved_key()
+            print("已注销 OpenRouter（凭据删除 + env 清除）")
+            return
+        if sub == "models":
+            print("正在拉取免费模型清单…")
+            free = orx.fetch_free_models()
+            if free is None:
+                print("❌ 拉取失败（网络）——路由清单维持现状")
+                return
+            r = orx.merge_free_models_into_lingcode(free)
+            print(f"✅ 免费 {len(free)} 个，新增 {r['added']}，路由清单合计 {r['total']}")
+            return
+
+        # 默认：OAuth 授权全流程
+        if os.environ.get(orx.ENV_KEY_NAME) and not sub:
+            print("OPENROUTER_API_KEY 已在环境中。重授权请先 /openrouter logout。")
+            return
+        print("正在连接 OpenRouter…（浏览器授权，或稍候）")
+        result_holder: dict[str, Any] = {}
+
+        def _flow() -> None:
+            result_holder["r"] = orx.authorize()
+            result_holder["done"].set()
+
+        result_holder["done"] = threading.Event()
+        th = threading.Thread(target=_flow, daemon=True, name="or-auth")
+        th.start()
+        # 等回调服务器起端口 → 打印授权 URL（authorize() 内部已生成，这里轮询等）
+        deadline = time.time() + 10
+        auth_url = ""
+        while time.time() < deadline:
+            au = getattr(orx, "_last_auth_url", "")
+            if au:
+                auth_url = au
+                break
+            time.sleep(0.1)
+        if not auth_url:
+            print("⚠ 回调服务器未及时就绪（10s），重试请再跑 /openrouter")
+        else:
+            print(f"浏览器未自动打开? 手动访问完成授权:\n{auth_url}")
+        th.join(timeout=330)  # 授权等待 300s + 余量
+        r = result_holder.get("r")
+        if r is None:
+            print("❌ 授权流程无结果（超时）")
+            return
+        if not r.ok:
+            print(f"❌ 接入失败: {r.error}")
+            return
+        print("✅ 已接入 OpenRouter，key 已落盘并注入环境")
+        # router 热更新 + 免费模型刷新
+        try:
+            router = getattr(self.engine, "_task_router", None)
+            n = router.refresh_api_keys() if router else 0
+            print(f"路由层已热更新（{n} 个 provider key 变化）")
+        except Exception as e:  # noqa: BLE001
+            print(f"路由层热更新跳过: {e}")
+        free = orx.fetch_free_models()
+        if free:
+            rr = orx.merge_free_models_into_lingcode(free)
+            print(f"新增免费模型 {rr['added']} 个（路由清单合计 {rr['total']}）。/model openrouter/<模型> 即可切换。")
+        else:
+            print("免费模型清单拉取失败，可稍后 /openrouter models 重试")
 
     def _cmd_schedule(self, arg: str) -> None:
         from lingclaude.core.scheduler import ScheduleType, get_schedule_manager
