@@ -1,0 +1,11 @@
+{
+  "guard": "M3",
+  "file": "core/l5_audit.py",
+  "reason": "P0-A L0迁移过渡态：core消费方直切engine/loop正身，shim因M3删除；L1循环体迁移后随core/l5_audit.py整体迁移回收",
+  "granted": "2026-09-22",
+  "state": "active",
+  "lines": [
+    8
+  ],
+  "review_due": "2026-10-31"
+}

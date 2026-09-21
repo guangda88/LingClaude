@@ -260,7 +260,7 @@ class ModelCallMixin:
         """
         h = getattr(self, "_loop_hooks", None)
         if h is None:
-            from lingclaude.core.loop_seam import DefaultLoopHooks
+            from lingclaude.engine.loop.hooks import DefaultLoopHooks
             self._loop_hooks = DefaultLoopHooks(self)
             h = self._loop_hooks
         return h

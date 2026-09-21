@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from lingclaude.core.loop_seam import DefaultLoopHooks, LoopHooks
+from lingclaude.engine.loop.hooks import DefaultLoopHooks, LoopHooks
 
 
 class _SpyHooks:

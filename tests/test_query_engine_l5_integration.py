@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import pytest
-from lingclaude.core.l5_conversation_loop import (
+from lingclaude.engine.loop.l5_conversation_loop import (
     L5ConversationConfig,
     L5ConversationLoop,
     L5RoundResult,

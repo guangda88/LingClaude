@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from lingclaude.core.l5_conversation_loop import L5ConversationLoop, L5ConversationConfig, L5RoundResult
+from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop, L5ConversationConfig, L5RoundResult
 from lingclaude.core.degradation_detector import extract_tool_calls_from_text
 
 logger = logging.getLogger(__name__)

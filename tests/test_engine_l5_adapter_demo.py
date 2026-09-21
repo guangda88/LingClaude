@@ -1,7 +1,7 @@
 """小闭环验证: test_l5 部分测试适配到 TestCase 契约"""
 import sys; sys.path.insert(0, "lingmemory")
 from test_engine import TestCase, run, check, report
-from lingclaude.core.l5_conversation_loop import L5ConversationLoop, L5ConversationConfig
+from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop, L5ConversationConfig
 
 def test_should_trigger():
     """关键词触发 — 适配为 TestCase 契约"""

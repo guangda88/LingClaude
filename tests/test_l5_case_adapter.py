@@ -8,7 +8,7 @@ import sys
 sys.path.insert(0, "lingmemory")
 
 from test_engine import TestCase, pytest_case
-from lingclaude.core.l5_conversation_loop import (
+from lingclaude.engine.loop.l5_conversation_loop import (
     L5ConversationConfig,
     L5ConversationLoop,
 )

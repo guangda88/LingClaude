@@ -45,7 +45,7 @@ from lingclaude.core.task_manager import TaskManager
 from lingclaude.core.task_manager import TaskSnapshot as TaskSnapshot  # noqa: F401 — re-export（原唯一跨模块消费点，wiring gate 据此判活）
 from lingclaude.core.skill_index import SkillIndex
 from lingclaude.core.role_separation import create_lingclaude_role_separation
-from lingclaude.core.l5_conversation_loop import L5ConversationLoop
+from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop
 from lingclaude.core.wiring import WiringContext, assemble  # P2.b: 装配收敛至 WIRING_MANIFEST
 # Q4 (2026-09-14): 厚模块按 循环/模型/生命周期 三职责拆分 —— 方法体机械搬迁至
 # mixin（行为零变化，AST 提取原方法体仅调缩进），本文件主干仅保留装配/委托面。

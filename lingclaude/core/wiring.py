@@ -196,7 +196,7 @@ def _make_role_checker(ctx: WiringContext) -> Any:
 
 
 def _make_l5_loop(ctx: WiringContext) -> Any:
-    from lingclaude.core.l5_conversation_loop import L5ConversationLoop
+    from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop
 
     return L5ConversationLoop(l5_session_id=ctx.engine.session_id)
 

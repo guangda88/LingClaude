@@ -103,7 +103,7 @@ class TestL5ContextAlignment:
         """灵克 L5ConversationLoop.get_l5_metadata() 返回同格式"""
         sys.path.insert(0, "/home/ai/lingclaude")
         try:
-            from lingclaude.core.l5_conversation_loop import L5ConversationLoop
+            from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop
         except ImportError:
             pytest.skip("lingclaude.l5_conversation_loop 不可用")
         loop = L5ConversationLoop(l5_session_id="test", config=None)
@@ -228,7 +228,7 @@ class TestL5AwareMetadataEnd2End:
         """灵克 L5 loop 设置 round 后, 灵极优 orchestrator 读取一致"""
         sys.path.insert(0, "/home/ai/lingclaude")
         try:
-            from lingclaude.core.l5_conversation_loop import L5ConversationLoop
+            from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop
         except ImportError:
             pytest.skip("lingclaude.l5_conversation_loop 不可用")
 

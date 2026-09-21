@@ -44,6 +44,59 @@ filterwarnings = [
     "ignore:ToolDefinition.*已废弃.*:DeprecationWarning",
 ]
 
+# ---------------------------------------------------------------------------
+# ruff ratchet（P0-A 阶段 0，2026-09-21，见 docs/CORE_SURFACE_CONTRACT.md §三）
+#
+# 原则：T20(print) 全局启用拦截**新增** print；存量只允许豁免清单**缩小**，
+# 不允许扩大。每清零一个文件，把对应行从 per-file-ignores 删除。
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# 契约 §三 的管辖范围 = 主包（lingclaude/）+ tests；
+# scripts/workspace/benchmarks/沙箱目录是一次性脚本与实验区，不在 ratchet 管辖内
+include = ["lingclaude/**/*.py", "tests/**/*.py"]
+exclude = ["**/__pycache__", "**/*.bak"]
+
+[tool.ruff.lint]
+select = ["T20"]  # 只拦 print/printf；其余规则族按需逐个启用
+
+[tool.ruff.lint.per-file-ignores]
+# —— 存量豁免（ratchet 底座，只减不增）——
+# core 层 5 文件 59 处：调试/守护进程诊断输出，P0-A 迁移期逐步清零
+"lingclaude/core/context_cache.py" = ["T201"]
+"lingclaude/core/task_scheduler.py" = ["T201"]
+"lingclaude/core/lm_quick.py" = ["T201"]
+"lingclaude/core/manifest_lock.py" = ["T201"]
+"lingclaude/core/llm_probe.py" = ["T201"]
+# model/router 25 处：路由决策诊断
+"lingclaude/model/intelligent_router.py" = ["T201"]
+# engine 层零散 8 处：网关/插件诊断
+"lingclaude/engine/plugin_runner.py" = ["T201"]
+"lingclaude/engine/coding_wiring.py" = ["T201"]
+"lingclaude/engine/coding.py" = ["T201"]
+"lingclaude/engine/sensitive_path_gate.py" = ["T201"]
+# lacp 17 处：市场/沙箱策略 CLI 面向输出
+"lingclaude/lacp/marketplace.py" = ["T201"]
+"lingclaude/lacp/sandbox_policy.py" = ["T201"]
+# 自优化守护/协调/MCP 代理/webui 接缝：进程级诊断
+"lingclaude/self_optimizer/daemon.py" = ["T201"]
+"lingclaude/coordination/message_signer.py" = ["T201"]
+"lingclaude/mcp/http_proxy.py" = ["T201"]
+"lingclaude/webui_seam.py" = ["T201"]
+# CLI/TUI 层：print 是合法输出通道（契约 §三 明确豁免层），一次性全免
+"lingclaude/cli/*" = ["T201"]
+# —— tests 存量豁免 9 文件 41 处（ratchet：只减不增；新测试文件不享受豁免）——
+"tests/hallucination_bench.py" = ["T201"]
+"tests/test_cleanup_sandbox.py" = ["T201"]
+"tests/test_d8_mv1b.py" = ["T201"]
+"tests/test_engine_l5_adapter_demo.py" = ["T201"]
+"tests/test_full_tui.py" = ["T201"]
+"tests/test_message_builder.py" = ["T201"]
+"tests/test_process_guard.py" = ["T201"]
+"tests/test_tool_pipeline.py" = ["T201"]
+"tests/test_tools_v2.py" = ["T201"]
+
 [tool.mypy]
 python_version = "3.10"
 strict = true

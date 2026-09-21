@@ -1,11 +1,12 @@
 {
   "guard": "M3",
   "file": "core/wiring.py",
-  "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源",
-  "granted": "2026-09-17",
+  "reason": "S3纪律存量函数内延迟import engine(148/216/218)，与G1白名单同源；2026-09-22 P0-A L0迁移新增199(engine/loop正身直切过渡态，L1后随装配根回收)",
+  "granted": "2026-09-22",
   "state": "active",
   "lines": [
     148,
+    199,
     216,
     218
   ],
