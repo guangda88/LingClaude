@@ -1,11 +1,15 @@
 {
   "guard": "M3",
   "file": "core/model_call.py",
-  "reason": "P0-A L0迁移过渡态：core消费方直切engine/loop正身，shim因M3删除；L1循环体迁移后随model_call.py整体迁移回收",
+  "lines": [
+    79,
+    100,
+    198,
+    300,
+    364
+  ],
+  "reason": "P0-A 迁移过渡态(2026-09-22行号校准): hooks懒加载:79/100, 循环体委托:198/300, 幻觉修正:364; L1收尾回收, review_due 2026-10-31",
   "granted": "2026-09-22",
   "state": "active",
-  "lines": [
-    263
-  ],
   "review_due": "2026-10-31"
 }

@@ -81,7 +81,7 @@ class TestBlocksWithRule:
 class TestObserveDenial:
     def test_first_denial_returns_warn(self):
         """5b:第 1 次 denial 返回 'denial_warn'（不熔断,给一次机会）。"""
-        from lingclaude.core.model_call import _ToolLoopDetector
+        from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector  # P0-A L0批次3: 直切正身
 
         d = _ToolLoopDetector()
         verdict = d.observe_denial("config.deny_tools.exact", "bash")
@@ -89,7 +89,7 @@ class TestObserveDenial:
 
     def test_second_denial_aborts(self):
         """5b:同 rule_id 连续 2 次 → 'denial_abort',应暂停+升级用户（非停止）。"""
-        from lingclaude.core.model_call import _ToolLoopDetector
+        from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector  # P0-A L0批次3: 直切正身
 
         d = _ToolLoopDetector()
         d.observe_denial("config.deny_tools.exact", "bash")
@@ -98,7 +98,7 @@ class TestObserveDenial:
 
     def test_different_rule_ids_isolated(self):
         """5b:不同 rule_id 各自计数,互不污染。"""
-        from lingclaude.core.model_call import _ToolLoopDetector
+        from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector  # P0-A L0批次3: 直切正身
 
         d = _ToolLoopDetector()
         # rule A 一次、rule B 一次 —— 都未达阈值
@@ -111,7 +111,7 @@ class TestObserveDenial:
 
     def test_reset_denial_clears_counter(self):
         """5b:成功后调用 reset_denial 应清空计数(与现有 has_new 清零 streak 对齐)。"""
-        from lingclaude.core.model_call import _ToolLoopDetector
+        from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector  # P0-A L0批次3: 直切正身
 
         d = _ToolLoopDetector()
         d.observe_denial("config.deny_tools.exact", "bash")
@@ -121,7 +121,7 @@ class TestObserveDenial:
 
     def test_observable_alongside_loop_detector(self):
         """5b 与现有打转检测并存:observe_denial 独立计数,observe_round 独立状态。"""
-        from lingclaude.core.model_call import _ToolLoopDetector
+        from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector  # P0-A L0批次3: 直切正身
 
         d = _ToolLoopDetector()
         # 现有打转:同签名首次返 None,再 +1 次 = warn,再 +1 = abort
@@ -140,7 +140,7 @@ class TestObserveDenial:
         - 同签名第 2 次 → "warn"
         - 同签名第 3 次（streak >= 2）→ "abort"
         """
-        from lingclaude.core.model_call import _ToolLoopDetector
+        from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector  # P0-A L0批次3: 直切正身
 
         d = _ToolLoopDetector()
         # 新签名首次出现 = 正常推进,清零 streak,返 None

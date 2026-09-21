@@ -26,7 +26,7 @@ import pytest
 
 from lingclaude.engine.loop.hooks import DefaultLoopHooks  # noqa: F401 — 契约参照物
 from lingclaude.engine.loop.tool_loop_detector import _ToolLoopDetector  # noqa: F401
-from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS
+from lingclaude.engine.loop.loop_body import AGENT_MAX_TOOL_ROUNDS
 from lingclaude.core.model_types import (
     MessageRole,
     ModelConfig,

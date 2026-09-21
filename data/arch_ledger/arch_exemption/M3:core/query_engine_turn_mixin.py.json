@@ -1,0 +1,12 @@
+{
+  "guard": "M3",
+  "file": "core/query_engine_turn_mixin.py",
+  "lines": [
+    164,
+    303
+  ],
+  "reason": "P0-A 过渡态: usage遥测兜底函数内延迟import engine/loop/loop_body; L1收尾回收; +_pre_check_compact 延迟import(303)",
+  "granted": "2026-09-22",
+  "state": "active",
+  "review_due": "2026-10-31"
+}

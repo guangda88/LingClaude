@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from lingclaude.core.config import PermissionConfig, lingclaudeConfig
-from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS, _resolve_max_tool_rounds
+from lingclaude.engine.loop.loop_body import AGENT_MAX_TOOL_ROUNDS, _resolve_max_tool_rounds
 from lingclaude.core.query_engine import QueryEngineConfig
 
 

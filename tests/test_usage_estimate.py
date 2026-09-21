@@ -1,7 +1,7 @@
 """P0: token 遥测兜底 — usage 缺失时 _finalize_turn/journal 层估算，保证遥测非 0。"""
 from dataclasses import dataclass
 
-from lingclaude.core.model_call import _accumulate_usage, _estimate_tokens
+from lingclaude.engine.loop.loop_body import _accumulate_usage, _estimate_tokens
 from lingclaude.model.types import ModelUsage
 
 

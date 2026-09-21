@@ -23,7 +23,6 @@ from lingclaude.core.layered_memory import EmotionIntensity, Experience
 from lingclaude.core.redact import redact as _redact_text
 from lingclaude.core.types import Result, is_tool_error
 from lingclaude.core.model_types import ModelMessage, MessageRole
-from lingclaude.core.model_call import _estimate_message_tokens, _estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +161,10 @@ class QueryEngineTurnMixin:
             self._track_behavior(prompt, final_content, used_tools=used_tools)
             # P0: usage 遥测兜底 — provider 未回传 usage(全 0) 时估算, 保证 journal 非 0
             if total_input == 0 and total_output == 0 and final_content:
-                from lingclaude.core.model_call import _estimate_message_tokens, _estimate_tokens
+                from lingclaude.engine.loop.loop_body import (  # P0-A: core→engine 消费边, M3 行级豁免
+                    _estimate_message_tokens,
+                    _estimate_tokens,
+                )
                 total_input = max(1, _estimate_tokens(prompt))
                 total_output = _estimate_tokens(final_content)
                 # 分子口径哨兵（2026-09-21）：provider 未回传 usage 时 total_input
@@ -298,6 +300,7 @@ class QueryEngineTurnMixin:
             发给模型（原实现仅在 turn 结束后才压缩，超预算请求已经发出）。
             压缩条件由 tool_executor._compact_if_needed 内部判定，此处幂等调用。
             """
+            from lingclaude.engine.loop.loop_body import _estimate_message_tokens  # P0-A: core→engine 消费边, M3 行级豁免
             msg_tokens = _estimate_message_tokens(self._messages)
             threshold = self.config.max_budget_tokens * 0.8
             if msg_tokens > threshold:

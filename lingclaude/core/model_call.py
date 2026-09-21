@@ -22,18 +22,9 @@ logger = logging.getLogger(__name__)
 # 本模块回 import re-export 保持既有引用面（submission/query_engine/tests 消费）。
 # 注意：这只是"未配置时的兜底值"。运行时上限由 _resolve_max_tool_rounds()
 # 从实例 config.max_turns（config.yaml → agent.max_turns）读取。
-from lingclaude.engine.loop.loop_body import (  # noqa: E402
-    AGENT_MAX_TOOL_ROUNDS,
-    _estimate_tokens,
-    _estimate_message_tokens,
-    _slim_tool_output,
-    _accumulate_usage,
-    _resolve_max_tool_rounds,
-    _TOOL_RESULT_SLIM_THRESHOLD,
-    _TOOL_RESULT_SLIM_KEEP,
-)
-
-
+# P0-A L0 批次 5（2026-09-22）：循环体迁 engine/loop/loop_body.py。
+# core 不再模块级再导出 engine 符号（S3 守卫）；消费方直切 engine/loop 正身，
+# M3 行级台账与 G1 白名单同源收缩。
 _CFG_MTIME_CACHE: dict[str, float] = {}
 _HOT_RELOAD_INTERVAL = 30.0  # 秒；节流，避免每轮读盘
 _last_hot_reload_check = [0.0]
@@ -85,16 +76,12 @@ def _resolve_max_tool_rounds(engine: Any) -> int:
         val = getattr(cfg, "max_turns", None) if cfg is not None else None
         if isinstance(val, int) and val > 0:
             return val
+    from lingclaude.engine.loop.loop_body import AGENT_MAX_TOOL_ROUNDS  # P0-A: 兜底常量随循环体迁出, S3 合规懒加载
     return AGENT_MAX_TOOL_ROUNDS
 
-# P0-A L0 批次 3（2026-09-22）：打转检测器 + 循环常量迁 engine/loop/tool_loop_detector.py
-# （契约 §二 白名单件；core→engine 消费边走 M3 行级台账，随循环体 L1 迁移回收）
-from lingclaude.engine.loop.tool_loop_detector import (  # noqa: F401,E402
-    _LOOP_WARN_HINT,
-    _LOOP_ABORT_MSG,
-    _R5_THRESHOLDS,
-    _ToolLoopDetector,
-)
+# P0-A L0 批次 3（2026-09-22）：打转检测器 + 循环常量迁 engine/loop/tool_loop_detector.py。
+# core 不再模块级再导出 engine 符号（S3 守卫）；消费方直切 engine/loop 正身，
+# M3 行级台账与 G1 白名单同源收缩。
 
 
 class ModelCallMixin:
@@ -374,6 +361,7 @@ class ModelCallMixin:
         config: Any,
         depth: int = 0,
     ) -> str | None:
+        from lingclaude.engine.loop.loop_body import _slim_tool_output  # P0-A: core→engine 消费边, M3 行级豁免
         MAX_CORRECTION_DEPTH = 2
         if depth >= MAX_CORRECTION_DEPTH:
             logger.warning("幻觉闭环达到最大递归深度，放弃修正")

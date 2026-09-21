@@ -1,11 +1,9 @@
 {
   "guard": "M3",
   "file": "core/query_engine.py",
-  "reason": "P0-A L0迁移过渡态：core消费方直切engine/loop正身，shim因M3删除；L1循环体迁移后随query_engine.py整体迁移回收",
+  "lines": [],
+  "reason": "2026-09-22 豁免解除: 死导入L5ConversationLoop已删除, AST实测core→engine边为零",
   "granted": "2026-09-22",
-  "state": "active",
-  "lines": [
-    48
-  ],
+  "state": "resolved",
   "review_due": "2026-10-31"
 }

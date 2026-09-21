@@ -31,10 +31,7 @@ from lingclaude.core.data_flywheel import DataFlywheel
 from lingclaude.core.state_store import StateStore
 from lingclaude.core.tool_call_executor import ToolCallExecutor
 from lingclaude.core.types import is_tool_error
-from lingclaude.core.model_call import ModelCallMixin
-# 显式 re-export（消费方：test_agent_loop 等）— T3-3 瘦身后 query_engine 仍是对外兼容面
-from lingclaude.core.model_call import AGENT_MAX_TOOL_ROUNDS as AGENT_MAX_TOOL_ROUNDS  # noqa: F401
-from lingclaude.core.model_call import _estimate_message_tokens
+from lingclaude.core.model_call import ModelCallMixin  # 显式 re-export（消费方：test_agent_loop 等）— T3-3 瘦身后 query_engine 仍是对外兼容面
 from lingclaude.core.image_content import extract_image_content as extract_image_content  # noqa: F401
 from lingclaude.core.image_content import image_tool_text as image_tool_text  # noqa: F401
 from lingclaude.core.mcp_tools import McpToolsMixin
@@ -45,7 +42,6 @@ from lingclaude.core.task_manager import TaskManager
 from lingclaude.core.task_manager import TaskSnapshot as TaskSnapshot  # noqa: F401 — re-export（原唯一跨模块消费点，wiring gate 据此判活）
 from lingclaude.core.skill_index import SkillIndex
 from lingclaude.core.role_separation import create_lingclaude_role_separation
-from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop
 from lingclaude.core.wiring import WiringContext, assemble  # P2.b: 装配收敛至 WIRING_MANIFEST
 # Q4 (2026-09-14): 厚模块按 循环/模型/生命周期 三职责拆分 —— 方法体机械搬迁至
 # mixin（行为零变化，AST 提取原方法体仅调缩进），本文件主干仅保留装配/委托面。

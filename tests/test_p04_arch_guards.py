@@ -19,41 +19,26 @@ SRC = ROOT / "lingclaude"
 
 # 基线（只缩不放；缩小时同步更新并删除白名单项）
 CORE_ENGINE_WHITELIST = [
-    # 2026-09-14 (S2/S3): mcp_tools.py 模块级倒装已清零（原 :11/:12 删除），
-    # 改为函数内延迟 import（:36/:65/:66/:102/:126/:127，运行时按需取，主干零持有）。
-    # 这是「主干不 import 插片实现」的正解 —— 模块级倒装消除，函数内按需取。
-    # 2026-09-15 (P2): A/C 类（ToolDefinition/MAX_TOOLS_PER_REQUEST）已下沉 core.types，
-    # mcp_tools.py :36/:65/:66 三处 engine 引用消除（原 :36 ToolRouter、:65 ToolDefinition）；
-    # B 类（mcp_proxy/discover_and_register 运行时单例）保留，行号顺延 1 行：
-    #   :66→:65（mcp_proxy）、:102→:101（mcp_proxy）、:126→:125（discover_and_register）、
-    #   :127→:126（mcp_proxy）。
-    "core/mcp_tools.py:65",
+    # === 2026-09-22 (P0-A 修复批次): 由 AST 实测重建（G1 同款扫描），与 M3 行级台账同源。
+    # 收缩 4 条（wiring:148/216、tool_executor:13/168 已随代码消失）= 棘轮允许方向；
+    # 过渡态条目见 M3:core 台账（L1 收尾回收，review_due 2026-10-31）。===
     "core/mcp_tools.py:101",
     "core/mcp_tools.py:125",
     "core/mcp_tools.py:126",
-    "core/wiring.py:148",
-    "core/wiring.py:216",
-    "core/tool_executor.py:13",
-    "core/tool_executor.py:168",
-    # 2026-09-13: 补登记 9237537 已入库的合法懒加载（_execute_mcp_tool_typed
-    # 函数内 import mcp_proxy，规避 core 模块级循环），此前漏登记致 g1 误报。
-    "core/tool_executor.py:179",
-    # 2026-09-14 (P4/P5): 补登记 83781a2 已入库的合法懒加载 —— wiring.py
-    # _make_tool_router 函数内 import engine.tool_router（规避 core 模块级循环），
-    # 此前漏登记致 g1 误报（HEAD bd64a11 已含，非本次引入）。
-    # 2026-09-14 (S3): wiring.py:213 → :216（上方新增 _load_plugins_if_present 函数，
-    # 行号顺延）；函数内 import 语义不变。
-    # 2026-09-15 (I1): wiring.py:216 → :218（_make_session_runtime 注入共享 state_store
-    # 增加 4 行，行号顺延）；函数内 import 语义不变。
-    "core/wiring.py:218",
-    # 2026-09-14 (P19/P20): core/prior_verifier.py:113 —— P17 提交时遗漏入库的
-    # _derive_evidence_map 函数内延迟 import SPECS（从工具注册表派生声明类型→证据
-    # 工具名映射，防止工具名演化导致 cross-reference 映射失配）。属合法懒加载
-    # （core 不模块级 import engine，S3 倒装纪律），补登记消除 g1 误报。
-    # 2026-09-19 (P1-3/P2-5b, 幻觉调研二三批): 113 → 128 —— prior_verifier.py
-    # 新增 thread_claim/file_reference_claim/external_knowledge_claim 声明模式与
-    # 证据映射（语义不变，行号顺延）。
+    "core/mcp_tools.py:65",
     "core/prior_verifier.py:128",
+    "core/tool_executor.py:179",
+    "core/wiring.py:218",
+    # --- P0-A 过渡态 ---
+    "core/l5_audit.py:88",
+    "core/model_call.py:100",
+    "core/model_call.py:198",
+    "core/model_call.py:300",
+    "core/model_call.py:364",
+    "core/model_call.py:79",
+    "core/query_engine_turn_mixin.py:164",
+    "core/wiring.py:199",
+    "core/query_engine_turn_mixin.py:303",
 ]
 BASELINE_SYS_PATH = 14
 # 340 (2026-09-10): P2.a wiring.py 新增 22 个工厂函数内 import —— WIRING_MANIFEST

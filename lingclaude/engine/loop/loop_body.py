@@ -115,6 +115,14 @@ def _accumulate_usage(total_input: int, total_output: int, response: Any, text: 
 
 def _resolve_max_tool_rounds(engine: Any) -> int:
     """运行时工具轮次上限：config.max_turns 优先，兜底 AGENT_MAX_TOOL_ROUNDS。"""
+    try:
+        # P0-A 行为保真（2026-09-22）：迁移前主循环经 core.model_call 版本取值，
+        # 每轮触发配置热重载检查；迁移副本必须保留该语义，否则 config.yaml
+        # 的 max_turns 热更在主循环路径失效（第四回归修复）。
+        from lingclaude.core.model_call import _maybe_hot_reload_config
+        _maybe_hot_reload_config(engine)
+    except Exception:
+        pass
     for attr in ("config", "engine_config", "_config", "cfg"):
         cfg = getattr(engine, attr, None)
         val = getattr(cfg, "max_turns", None) if cfg is not None else None

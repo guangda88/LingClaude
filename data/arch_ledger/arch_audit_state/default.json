@@ -1,5 +1,5 @@
 {
-  "head": "263270d",
+  "head": "31d092f",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "262d9e28230f",
     "tests/test_iron_law_guards.py": "5c177c8cdfb5",
@@ -16,6 +16,7 @@
     "arch_debt:candzone-ironlaw8-faultdomain-arbitration": "8cf959468e57",
     "arch_debt:candzone-j5-efficiency-arbitration": "b0e8fac0171f",
     "arch_debt:cap-crew-lingflow-deferred": "9c9854936dc2",
+    "arch_debt:core-l7-classifier-circular-import": "34f965757e66",
     "arch_debt:governance-export-view-j4-migration": "accd07c3e3be",
     "arch_debt:governance-v2-proposals-j4-migration": "7a7c33a8e775",
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
@@ -62,7 +63,7 @@
     "arch_exemption:intel.py": "6a8bfac5c162",
     "arch_exemption:l10_a_post_audit.py": "37ae68c820b4",
     "arch_exemption:l5_audit.py": "9ad92f9fa5ff",
-    "arch_exemption:l5_conversation_loop.py": "318fef15d188",
+    "arch_exemption:l5_conversation_loop.py": "5b07a1178ba3",
     "arch_exemption:l7_classifier.py": "b94173c846b2",
     "arch_exemption:l7_cognitive.py": "4dda9117e66b",
     "arch_exemption:l7_cognitive_bridge.py": "9c7686d42c26",
@@ -76,7 +77,7 @@
     "arch_exemption:lingmemory_token_bridge.py": "1ce4e7504aa7",
     "arch_exemption:llm_probe.py": "e69d7044d1f0",
     "arch_exemption:lm_quick.py": "447bf40094aa",
-    "arch_exemption:loop_seam.py": "8e7603c30b20",
+    "arch_exemption:loop_seam.py": "796318bd54da",
     "arch_exemption:manifest_lock.py": "026b4e1c1bfe",
     "arch_exemption:mcp_tools.py": "fd1f1b7797a5",
     "arch_exemption:memory_engine.py": "41ca0b81ef1b",
@@ -132,5 +133,5 @@
     "arch_exemption:wiring.py": "02031fb97732",
     "arch_exemption:worktree.py": "9f48db0097d5"
   },
-  "checked": "2026-09-21T16:55:58+00:00"
+  "checked": "2026-09-21T22:51:40+00:00"
 }

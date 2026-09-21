@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from lingclaude.engine.loop.l5_conversation_loop import L5ConversationLoop, L5ConversationConfig, L5RoundResult
 from lingclaude.core.degradation_detector import extract_tool_calls_from_text
 
 logger = logging.getLogger(__name__)
@@ -86,6 +85,7 @@ class L5Auditor:
         """
         if not self._engine._l5_loop.should_trigger(prompt):
             return output
+        from lingclaude.engine.loop.l5_conversation_loop import L5RoundResult  # P0-A: core→engine 消费边, M3 行级豁免
         try:
             rules = self._engine._collect_relevant_rules()
             tool_log = self._engine._collect_tool_call_log()

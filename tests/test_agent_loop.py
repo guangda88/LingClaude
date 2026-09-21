@@ -6,7 +6,8 @@ from typing import Any
 from unittest.mock import MagicMock
 
 
-from lingclaude.core.query_engine import AGENT_MAX_TOOL_ROUNDS, QueryEngine, QueryEngineConfig, StopReason, CONSECUTIVE_FAILURE_LIMIT
+from lingclaude.core.query_engine import QueryEngine, QueryEngineConfig, StopReason, CONSECUTIVE_FAILURE_LIMIT
+from lingclaude.engine.loop.loop_body import AGENT_MAX_TOOL_ROUNDS  # P0-A: 常量随循环体迁出, query_engine 再导出已删
 from lingclaude.model.types import (
     ModelConfig,
     ModelMessage,
@@ -826,7 +827,10 @@ class TestLoopRecoverGuide:
     """熔断后的继续指引（2026-09-12）：_LOOP_ABORT_MSG 携带恢复指引。"""
 
     def test_abort_msg_contains_recover_guide(self) -> None:
-        from lingclaude.core.model_call import _LOOP_ABORT_MSG, _LOOP_RECOVER_GUIDE
+        from lingclaude.engine.loop.tool_loop_detector import (  # P0-A L0批次3: 常量随迁, 旧路径 import 失效
+            _LOOP_ABORT_MSG,
+            _LOOP_RECOVER_GUIDE,
+        )
         # 保留既有关键词（回归：老断言依赖）
         assert "原地打转" in _LOOP_ABORT_MSG
         assert "熔断" in _LOOP_ABORT_MSG
@@ -860,5 +864,5 @@ class TestLoopRecoverGuide:
 
     def test_warn_hint_mentions_abort_consequence(self) -> None:
         """warn 阶段预告熔断后果（行为变化点）。"""
-        from lingclaude.core.model_call import _LOOP_WARN_HINT
+        from lingclaude.engine.loop.tool_loop_detector import _LOOP_WARN_HINT  # P0-A L0批次3: 常量随迁
         assert "熔断中止" in _LOOP_WARN_HINT
