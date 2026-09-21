@@ -292,6 +292,21 @@ class OpenAIProvider(ModelProvider):
                     continue
 
                 choices = data.get("choices", [])
+
+                # 2026-09-21: usage 尾帧修复——OpenAI 协议里 stream_options.
+                # include_usage 的 usage 在 choices 为空数组的终结 chunk 中到达
+                # （volcengine/智谱实测 choices:[]），此前 `if not choices: continue`
+                # 把它直接跳过 → usage 恒 0、缓存命中不可观测。解析必须在
+                # choices 守卫之前。
+                usage_raw = data.get("usage")
+                if usage_raw:
+                    ptd = usage_raw.get("prompt_tokens_details") or {}
+                    usage = ModelUsage(
+                        input_tokens=usage_raw.get("prompt_tokens", 0),
+                        output_tokens=usage_raw.get("completion_tokens", 0),
+                        cached_tokens=ptd.get("cached_tokens", 0) if isinstance(ptd, dict) else 0,
+                    )
+
                 if not choices:
                     continue
                 delta = choices[0].get("delta", {})

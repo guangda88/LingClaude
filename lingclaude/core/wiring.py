@@ -343,6 +343,11 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     WiringSpec("_total_messages_sent", lambda ctx: 0, phase="state", note="消息发送计数"),
     WiringSpec("_l1_last_triggered_at", lambda ctx: -1, phase="state", note="L1 上次触发轮次"),
     WiringSpec("_l1_handover_checksum", lambda ctx: "", phase="state", note="L1 交接校验和"),
+    # 2026-09-21 (前缀缓存优化 P1): 历史字节代数——任何重写 _conversation/_messages
+    # 历史字节的操作（L1 裁剪/L2 重启/reset/压缩）必须 +1，且只在 turn 边界触发。
+    # 单调不回翻（对齐 atomcode compaction 的 cache_epoch 语义）：epoch 不变期间
+    # 历史前缀字节稳定，provider 前缀缓存得以命中；epoch 变更即缓存失效点，可观测。
+    WiringSpec("_history_epoch", lambda ctx: 0, phase="state", note="历史字节代数（缓存失效计数）"),
     WiringSpec("_degradation_alerts", lambda ctx: [], phase="state", note="退化告警累积"),
     WiringSpec("_memory_engine", lambda ctx: None, phase="state", note="T0-4 死接线已移除，槽位保留"),
     WiringSpec("_l5_orchestrator", lambda ctx: None, phase="state", note="L5 编排器 lazy init 槽"),

@@ -339,7 +339,10 @@ class L5Auditor:
         if len(self._engine._conversation) > keep_pairs:
             conv_recent = self._engine._conversation[-keep_pairs:]
             self._engine._conversation[:] = [("system", injection)] + conv_recent
-
+        # 2026-09-21 (P1 cache_epoch): L1 裁剪重写了历史头部字节 → 前缀缓存失效。
+        # epoch 单调 +1（对齐 atomcode compaction 语义），turn 边界由调用方保证
+        # （本方法只在 turn 收尾时被调用）。
+        self._engine._history_epoch += 1
         handover_path = Path.home() / ".lingclaude" / "handover.md"
         if handover_path.exists():
             self._engine._l1_handover_checksum = hashlib.md5(
@@ -372,6 +375,8 @@ class L5Auditor:
         self._engine._l1_last_triggered_at = -1
         self._engine._l1_handover_checksum = ""
         self._engine._degradation_detector.reset()
+        # 2026-09-21 (P1 cache_epoch): L2 清空历史 = 最大粒度的缓存失效，单调 +1。
+        self._engine._history_epoch += 1
         injection = (
             f"[L2会话重启 — 旧会话 {old_session}]\n"
             f"{handover_text}"

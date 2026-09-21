@@ -78,15 +78,45 @@ class QueryEngineTurnMixin:
 
         def _build_messages(self, prompt: str) -> list:
             messages: list[ModelMessage] = []
+            # 2026-09-21 (前缀缓存优化 P0-2): system prompt 只含纯静态 _BASE_PROMPT
+            # （字节级稳定 → provider 前缀缓存可命中）；动态段（SESSION_CONTEXT/
+            # 行为警告/工具计数提示等）拆到 build_dynamic_system_suffix，以独立
+            # system 消息 tail-append 在历史之后——每轮只破坏一次尾部缓存。
             system_prompt = self._build_adaptive_system_prompt(current_query=prompt)
             if system_prompt:
                 messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system_prompt))
             for role, content in self._conversation:
-                # A1b (2026-09-13): 发送前脱敏保险 — 历史/当前会话若残留明文 key
-                # （升级前落盘的数据），防止再次回传给模型。幂等，正常文本不受影响。
+                # A1b (2026-09-13): 脱敏保险。2026-09-21 (P0-2) 脱敏前移到写入点
+                # （_record_user_prompt/_append_assistant 均过 _redact_text），
+                # 发送时保留 redact 作为幂等保险网：对已脱敏历史是 no-op
+                # （redact 幂等且不误伤普通文本 → 字节级不变，前缀缓存仍命中）；
+                # 对升级前落盘的残留明文仍强制 scrub（安全属性不回退）。
                 messages.append(ModelMessage(role=MessageRole(role), content=_redact_text(content)))
+            dynamic_suffix = self._build_dynamic_suffix(current_query=prompt)
+            if dynamic_suffix:
+                messages.append(ModelMessage(role=MessageRole.SYSTEM, content=dynamic_suffix))
             messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
             return messages
+
+        def _build_dynamic_suffix(self, current_query: str) -> str:
+            """动态上下文尾随块（前缀缓存优化 P0-2 拆出，语义同旧 adaptive extras）。"""
+            from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
+            try:
+                return build_dynamic_system_suffix(
+                    behavior=self._behavior,
+                    layered_memory=self._layered_memory,
+                    meta_cognition=self._meta_cognition,
+                    messages=self._messages,
+                    session_cache_hits=self._session_cache_hits,
+                    dementia_detector=self._dementia_detector,
+                    project_index=self._project_index,
+                    tool_call_count=self._tool_call_count,
+                    current_query=current_query,
+                    model_switch_note=self._model_switch_note,
+                )
+            except Exception:  # noqa: BLE001 — 动态段失败不影响主输出
+                logger.debug("dynamic system suffix 构建失败", exc_info=True)
+                return ""
 
         def _finalize_turn(
             self,
@@ -141,7 +171,9 @@ class QueryEngineTurnMixin:
                 input_tokens=total_input,
                 output_tokens=total_output,
             )
-            self._conversation.append(("user", prompt))
+            # 2026-09-21 (前缀缓存优化 P0-2): 脱敏前移到写入点——历史一经写入
+            # 即为脱敏后的稳定字节，发送时原样透传（见 _build_messages 注释）。
+            self._conversation.append(("user", _redact_text(prompt)))
             self._conversation.append(("assistant", final_content))
             self._layered_memory.working.append("user", prompt)
             self._layered_memory.working.append("assistant", final_content)

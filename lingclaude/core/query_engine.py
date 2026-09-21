@@ -301,6 +301,8 @@ class QueryEngine(
         self.session_id = uuid4().hex[:16]
         self._messages.clear()
         self._conversation.clear()
+        # 2026-09-21 (P1 cache_epoch): reset 清空历史 → 缓存失效，单调 +1。
+        self._history_epoch += 1
         self._denials.clear()
         self._usage = UsageSummary()
         self._transcript.clear()

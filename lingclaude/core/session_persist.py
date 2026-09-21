@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from lingclaude.core.models import UsageSummary
+from lingclaude.core.redact import redact as _redact_text
 from lingclaude.core.session import Session
 from lingclaude.core.types import Result
 
@@ -54,9 +55,11 @@ class SessionPersister:
         engine._usage = UsageSummary(session.input_tokens, session.output_tokens)
         engine._transcript = list(session.messages)
         engine._conversation.clear()
+        # 2026-09-21 (前缀缓存优化 P0-2): 恢复路径同样在写入点脱敏——
+        # 旧会话可能残留明文 key（升级前落盘），保持 A1b 保险语义。
         for i in range(0, len(session.messages) - 1, 2):
-            user_msg = session.messages[i]
-            asst_msg = session.messages[i + 1] if i + 1 < len(session.messages) else ""
+            user_msg = _redact_text(session.messages[i])
+            asst_msg = _redact_text(session.messages[i + 1]) if i + 1 < len(session.messages) else ""
             engine._conversation.append(("user", user_msg))
             engine._conversation.append(("assistant", asst_msg))
         return True

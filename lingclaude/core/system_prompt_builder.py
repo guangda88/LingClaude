@@ -125,6 +125,34 @@ def build_adaptive_system_prompt(
     Returns:
         Complete system prompt string.
     """
+    # 2026-09-21 (前缀缓存优化 P0-2): 动态段（SESSION_CONTEXT + extras）不再拼入
+    # system prompt —— 它们每轮变化（git 状态/行为指标/工具计数/当前 query），
+    # 混在前缀里使 provider 前缀缓存每轮 miss（GLM cached_tokens 价为标准价 29%）。
+    # 现拆为两部分：
+    #   - system prompt = _BASE_PROMPT（纯静态，会话内字节级稳定 → 缓存命中）；
+    #   - 动态段 = 独立 system 尾随消息（_build_dynamic_system_suffix），由
+    #     _build_messages 以「tail-append」方式放在历史之后、本轮 user 之前——
+    #     只破坏一次尾部缓存，前缀（BASE+历史）保持可命中。
+    return _BASE_PROMPT
+
+
+def build_dynamic_system_suffix(
+    behavior: Any,
+    layered_memory: Any,
+    meta_cognition: Any,
+    messages: list[str],
+    session_cache_hits: int,
+    dementia_detector: Any,
+    project_index: dict[str, Any] | None,
+    tool_call_count: int = 0,
+    current_query: str = "",
+    model_switch_note: dict[str, Any] | None = None,
+) -> str:
+    """动态上下文尾随块（原 build_adaptive_system_prompt 的 SESSION_CONTEXT+extras）。
+
+    2026-09-21 拆分自 build_adaptive_system_prompt（见其 docstring）。语义不变，
+    仅改承载位置：作为独立 system 消息 append 在对话尾部，前缀缓存只破尾部一次。
+    """
     extras: list[str] = []
     bm = behavior
 
@@ -294,4 +322,6 @@ def build_adaptive_system_prompt(
             "若上下文中出现你无法确认的模型名/清单，宁可回答 NOT_FOUND 也不得猜测。"
         )
 
-    return _BASE_PROMPT + _build_session_context() + "".join(extras)
+    # 2026-09-21: 动态段独立成块返回（不含 _BASE_PROMPT——那已在 system 首
+    # 消息里冻结）。包含 SESSION_CONTEXT + 全部 extras，语义与拆分前一致。
+    return _build_session_context() + "".join(extras)

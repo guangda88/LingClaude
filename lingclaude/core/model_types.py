@@ -82,9 +82,19 @@ class ToolCall:
 class ModelUsage:
     input_tokens: int = 0
     output_tokens: int = 0
+    # 2026-09-21: 缓存命中 token（OpenAI prompt_tokens_details.cached_tokens）。
+    # 0 = 无缓存信息或未命中。前缀缓存优化（同日）的可观测性依据。
+    cached_tokens: int = 0
 
     def to_dict(self) -> dict[str, int]:
-        return {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens}
+        d: dict[str, int] = {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+        }
+        # 仅在有缓存命中信息时输出（0 = 无信息，不污染下游快照/统计）
+        if self.cached_tokens:
+            d["cached_tokens"] = self.cached_tokens
+        return d
 
 
 @dataclass(frozen=True)

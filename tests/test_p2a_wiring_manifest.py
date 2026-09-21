@@ -27,6 +27,7 @@ EXPECTED_ATTRS = {
     "_active_checkpoint", "_session_cache_hits", "_tool_call_count",
     "_tool_call_log",
     "_total_messages_sent", "_l1_last_triggered_at", "_l1_handover_checksum",
+    "_history_epoch",
     "_degradation_alerts", "_memory_engine", "_l5_orchestrator",
     "_pinned_model_config", "_pinned_model_expires", "_mv1_violations",
     "_usage", "_write_lock",
@@ -66,7 +67,7 @@ def _make_ctx(engine):
 
 class TestManifestIntegrity:
     def test_manifest_covers_exactly_55(self):
-        assert len(WIRING_MANIFEST) == 57
+        assert len(WIRING_MANIFEST) == 58  # 2026-09-21: +_history_epoch（前缀缓存优化）
 
     def test_manifest_attrs_match_frozen_set(self):
         attrs = {spec.attr for spec in WIRING_MANIFEST}
@@ -77,7 +78,7 @@ class TestManifestIntegrity:
         assert len(attrs) == len(set(attrs)), "manifest 存在重复条目"
 
     def test_phase_vocabulary_conserved(self):
-        counts = {"state": 26, "collaborator": 29, "parameterized": 2}
+        counts = {"state": 27, "collaborator": 29, "parameterized": 2}  # 2026-09-21: state 26→27 (+_history_epoch)
         actual: dict[str, int] = {}
         for spec in WIRING_MANIFEST:
             assert spec.phase in counts, f"未知 phase: {spec.phase}"
@@ -93,7 +94,7 @@ class TestAssembleSemantics:
     def test_assemble_bare_engine_all_attrs_present(self):
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
-        assert len(wired) == 57
+        assert len(wired) == 58  # 2026-09-21: +_history_epoch
         for attr in EXPECTED_ATTRS:
             assert hasattr(engine, attr), f"装配后缺 {attr}"
 
@@ -143,7 +144,7 @@ class TestAssembleSemantics:
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
         assert engine.audit_collector is not None
-        assert len(wired) == 57
+        assert len(wired) == 58  # 2026-09-21: +_history_epoch
 
     def test_overrides_state_phase_also_injectable(self):
         """P2.d: overrides 对 state 条目同样生效。
