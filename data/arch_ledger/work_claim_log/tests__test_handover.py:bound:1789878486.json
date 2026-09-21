@@ -1,0 +1,9 @@
+{
+  "claim_key": "tests__test_handover.py",
+  "event": "bound",
+  "member": "lingke",
+  "path": "tests/test_handover.py",
+  "note": "P3-7: handover 承接搬移 core->lingmemory",
+  "ttl_min": 60,
+  "at": 1789878486.5562935
+}

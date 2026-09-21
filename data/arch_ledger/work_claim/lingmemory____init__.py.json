@@ -1,0 +1,10 @@
+{
+  "member": "lingke",
+  "path": "lingmemory/__init__.py",
+  "state": "released",
+  "bound_at": 1789878486.555896,
+  "expires_at": 1789882086.5558953,
+  "note": "P3-7: handover 承接搬移 core->lingmemory",
+  "released_at": 1789879028.1601965,
+  "released_by": "lingke"
+}

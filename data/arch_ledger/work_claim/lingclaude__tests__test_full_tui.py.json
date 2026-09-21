@@ -1,0 +1,10 @@
+{
+  "member": "lingke",
+  "path": "tests/test_full_tui.py",
+  "state": "released",
+  "bound_at": 1789912404.783915,
+  "expires_at": 1789916004.783915,
+  "note": "乱码修复第二三路径: 历史回放SGR清洗 + _stream_write非托管期清洗",
+  "released_at": 1789912439.2850797,
+  "released_by": "lingke"
+}

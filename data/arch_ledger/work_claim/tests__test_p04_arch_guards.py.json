@@ -1,0 +1,10 @@
+{
+  "member": "lingke",
+  "path": "tests/test_p04_arch_guards.py",
+  "state": "released",
+  "bound_at": 1789878486.5566387,
+  "expires_at": 1789882086.5566375,
+  "note": "P3-7: handover 承接搬移 core->lingmemory",
+  "released_at": 1789879028.1610842,
+  "released_by": "lingke"
+}

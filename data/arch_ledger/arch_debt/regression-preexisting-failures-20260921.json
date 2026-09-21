@@ -1,0 +1,9 @@
+{
+  "kind": "test_regression_debt",
+  "location": "tests/ (全量回归 4051 项，pytest tests/ -rA --timeout 90，2026-09-21 实测 1:28:33)",
+  "reason": "全量回归实测 33 failed + 16 errors（3951 passed, 82 skipped）——远超交接文档 §4 预估的 3 个 F。归因分类：\n(A) 既有失败、非本轮 15 项引入（占大多数）：\n  - tests/test_mcp_server.py 16 E：MCP server stdio transport 环境依赖（MCP server closed stdout）\n  - tests/test_adaptive.py×2 / test_intelligence / test_gray_zone / test_l7_hook×2 / test_daemon / test_long_session_stress×6 / test_r8×4 / test_r9×2 / test_system_prompt_builder×2 / test_mcp_proxy：system prompt 结构断言过期（断言 len(system_msgs)==1 但现为 2 段；'# SESSION_CONTEXT' 锚点已改 __DYNAMIC_BOUNDARY__）\n  - tests/agents/test_agent_lingxi.py：manifest 命令双源漂移（--use-openssl-ca vs dist/cli.js）\n  - tests/test_wiring_gate.py::test_core_classes_are_imported_somewhere：死模块扫描\n(B) 疑似本轮改动引入、需复核：\n  - tests/test_p15_mixin_specs_contract.py::test_mixin_files_stay_thin：lsp_tools.py 216 行 > 200 行契约（P2-12 LSP 工具面超厚）\n  - tests/test_t0_wiring.py 沙箱策略×2 / test_security_capability_balance / test_security_sandbox_fixes（p11 超时 killpg 残留 sleep）：沙箱相关，bwrap 已装但断言失败\n  - tests/test_tool_plugins_p1_p2_warm.py×4：stdio transport error",
+  "due": "2026-10-05",
+  "resolve_hint": "B 组先复核是否 P0/P1/P2 桶提交引入（git stash + 单测对照）；A 组 system prompt 断言过期项批量更新锚点；mcp_server 16E 检查 node MCP 依赖版本",
+  "state": "open",
+  "created": "2026-09-21T15:30:00+00:00"
+}

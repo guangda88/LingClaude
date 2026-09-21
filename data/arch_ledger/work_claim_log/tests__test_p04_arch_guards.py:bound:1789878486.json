@@ -1,0 +1,9 @@
+{
+  "claim_key": "tests__test_p04_arch_guards.py",
+  "event": "bound",
+  "member": "lingke",
+  "path": "tests/test_p04_arch_guards.py",
+  "note": "P3-7: handover 承接搬移 core->lingmemory",
+  "ttl_min": 60,
+  "at": 1789878486.55678
+}
