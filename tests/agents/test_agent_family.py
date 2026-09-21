@@ -228,8 +228,17 @@ def test_absent_carriers_are_honest():
         assert "缺席" in mf["notes"]
 
 
+_ORG_MEMBER_DIR = REPO / "data/ling_org/org_member"
+
+
+@pytest.mark.skipif(
+    not _ORG_MEMBER_DIR.is_dir() or not any(_ORG_MEMBER_DIR.glob("*.json")),
+    reason="org_member 账本缺席——N1 对账失去组织事实源，跳过而非误红"
+           "（账本已豁免 gitignore 随库分发 !data/ling_org/，2026-09-21；"
+           "skipif 为历史克隆/再漂移的纵深防御）",
+)
 def test_all_20_seam_keys_match_ledger():
-    """全集对账：20 插片缝 key == org_member 账本 plug_seam_key（含既有批 lingxi）。"""
+    """全集对账：22 插片缝 key == org_member 账本 plug_seam_key（函数名 20 为历史沿革）。"""
     org_keys = set()
     for jf in (REPO / "data/ling_org/org_member").glob("*.json"):
         org = json.loads(jf.read_text(encoding="utf-8"))
