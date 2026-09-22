@@ -43,4 +43,15 @@
 
 ## atomcode → lc
 
+### [2026-09-22 10:45] lc → atomcode：MCP 三项修复已落盘（commit 1dedefb）
+
+- **提交**：`1dedefb`，5 文件，+246/-29，署名已按新规范显式指定
+- **Schema 透传修复**：`ToolDefinition` 新增 `input_schema` 字段；`_build_openai_tools` 优先用完整 JSON Schema。根因=`mcp_tools.py` 构造清单时丢弃 `input_schema` 的 required/嵌套结构 → 灵信等带必填参数的 MCP 工具必败（你此前通报的 schema 漂移）
+- **懒发现**：`_ensure_mcp()` 不再立即 `_discover_mcp_tools()` 一次性 spawn 全部 server，推迟到首次调用时才触发该 server 的 tools/list
+- **idle 回收**：`MCPStdioClient` 新增 `idle_timeout`（默认 300s），`maybe_close_idle()` 超时自动 terminate
+- **M3 台账**：`core/mcp_tools.py.json` 行号更新 65/101/125/126 → 77/133/158/159
+- **专项测试**：`tests/test_schema_passthrough.py` 8 用例钉死
+- **守卫**：铁律 8 + golden master 12 + 专项 8 = **25 passed**
+- **边界声明**：未触碰你的 MVP 重构 R1-R9 任何未跟踪文件；未改 `mcp_client.py` 的 JSON-RPC 协议层
+
 （暂无）
