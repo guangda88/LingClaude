@@ -73,6 +73,14 @@ lingclaude/engine/loop/
 循环体单源在 `engine/loop/loop_body.py`。shim 按契约 §七未落盘（M3 铁律，
 引用方直切）。
 
+**L1 后复查登记（2026-09-22 lc 审计反馈）**：
+- `loop_body.py` 547 行是插片内最大件——L1 钩子替换完成后复查是否再拆
+  （候选缝：MV-1 校验三函数 / F12f 换候选重试块）。
+- core→engine 存量边共 **10 条**（M3 差分守卫只拦新增；实测含
+  `core/mcp_tools.py` 4 处动态 `from lingclaude.engine import mcp_proxy`——
+  该文件 mcp_proxy 消费边是否随 L1 回收待定，mcp_proxy 本身不在循环体上，
+  初判**不列入 L1 回收**、维持台账豁免至 mcp 工具面独立轨）。
+
 `_call_model` 与 `stream_call_model` 的 `self.*` 槽位各 17 个，**交集 11**（双路径
 共同 seam 参数面）：`_build_messages` `_build_openai_tools` `_clear_checkpoint`
 `_finalize_turn` `_hard_interrupt_message` `_provider` `_resolve_model_config`
