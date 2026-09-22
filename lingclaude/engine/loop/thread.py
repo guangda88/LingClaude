@@ -64,19 +64,40 @@ class LingClaudeThread:
             if hasattr(scheduler, "should_continue") else True
         )
 
-    def run_speculative(self, branches: list[dict[str, str]]) -> dict[str, Any]:
-        """执行投机分支（并行扇出的串行降级版；每分支 fail-soft 独立捕获）。
+    def run_speculative(self, branches: list[dict[str, str]], *, parallel: bool = False) -> dict[str, Any]:
+        """执行投机分支（串行降级版默认；parallel=True 走 ThreadPoolExecutor）。
 
         branches: [{"prompt": str, "tag": str}]。返回 {tag: result_str}；
         结果不直接进主路径——由调度器 verify() 决定采纳（契约：投机永不拖垮主循环）。
+
+        parallel 语义（P1-4 评估项）：默认串行（零行为分叉，兼容既有调用）；
+        parallel=True 时各分支独立线程执行、逐分支 fail-soft（单分支异常只丢该分支，
+        不影响其他分支与主路径）。GIL 下纯 Python 分支无真并行收益，但 Laya/torch
+        推理类分支（释放 GIL 的 C 扩展）可获线程级并发——收益由调用方实测判定。
         """
         results: dict[str, Any] = {}
-        for b in branches or []:
+        if not parallel:
+            for b in branches or []:
+                tag = b.get("tag", "")
+                try:
+                    results[tag] = run_call_model_loop(self._engine, b["prompt"])
+                except Exception as e:  # noqa: BLE001 — 投机分支失败即丢弃该分支
+                    results[tag] = f"[speculative-branch-error] {e}"
+            return results
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _run_one(b: dict[str, str]) -> tuple[str, Any]:
             tag = b.get("tag", "")
             try:
-                results[tag] = run_call_model_loop(self._engine, b["prompt"])
-            except Exception as e:  # noqa: BLE001 — 投机分支失败即丢弃该分支
-                results[tag] = f"[speculative-branch-error] {e}"
+                return tag, run_call_model_loop(self._engine, b["prompt"])
+            except Exception as e:  # noqa: BLE001 — 逐分支 fail-soft
+                return tag, f"[speculative-branch-error] {e}"
+
+        with ThreadPoolExecutor(max_workers=max(1, min(4, len(branches)))) as pool:
+            futures = [pool.submit(_run_one, b) for b in (branches or [])]
+            for f in futures:
+                tag, res = f.result()
+                results[tag] = res
         return results
 
     def run_turn(self, prompt: str, *, stream: bool = False) -> Any:
