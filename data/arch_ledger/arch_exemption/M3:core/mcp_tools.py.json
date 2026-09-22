@@ -1,7 +1,7 @@
 {
   "guard": "M3",
   "file": "core/mcp_tools.py",
-  "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源。2026-09-22 schema透传+懒发现改造后行号更新",
+  "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源。2026-09-22 schema透传+懒发现改造后行号更新 2026-09-22 A2 核对：4 条 mcp_proxy/mcp_client 动态边均属 mcp 工具面，不在循环体上，**不列 L1 回收**（契约 §L1 执行记录已裁定），维持台账豁免至 mcp 工具面独立轨",
   "granted": "2026-09-17",
   "state": "active",
   "lines": [
