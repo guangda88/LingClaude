@@ -58,13 +58,35 @@ class MCPStdioClient:
         client.close()
     """
 
-    def __init__(self, command: list[str], cwd: str | None = None, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        command: list[str],
+        cwd: str | None = None,
+        timeout: float = 30.0,
+        idle_timeout: float = 300.0,  # 5 分钟无活动自动回收（懒发现配套）
+    ) -> None:
         self._command = list(command)
         self._cwd = cwd
         self._timeout = timeout
+        self._idle_timeout = idle_timeout
         self._proc: subprocess.Popen | None = None
         self._next_id = 0
         self._lock = threading.Lock()
+        self._last_used: float = time.time()  # 每次 RPC 后刷新
+
+    def _touch(self) -> None:
+        """记录最近一次活动时间（idle 回收用）。"""
+        self._last_used = time.time()
+
+    def maybe_close_idle(self) -> bool:
+        """若超过 idle_timeout 无活动则关闭子进程，返回是否已关闭。"""
+        if self._proc is None:
+            return False
+        if time.time() - self._last_used < self._idle_timeout:
+            return False
+        logger.info("MCP stdio idle %.0fs, terminating pid=%s", self._idle_timeout, self._proc.pid)
+        self.close()
+        return True
 
     # ----- 生命周期 -----
 
@@ -142,6 +164,7 @@ class MCPStdioClient:
 
     def _request(self, method: str, params: dict[str, Any]) -> Result[dict[str, Any]]:
         with self._lock:
+            self._touch()  # idle 回收：每次活跃 RPC 前刷新时间戳
             self._next_id += 1
             req_id = self._next_id
             payload = {
@@ -154,6 +177,7 @@ class MCPStdioClient:
                 self._write_line(json.dumps(payload))
                 resp = self._read_line()
                 data = json.loads(resp)
+                self._touch()  # 成功响应后再刷一次（长调用场景）
             except Exception as e:  # noqa: BLE001 — 传输层错误统一包装
                 return Result.fail(f"stdio transport error: {e}", code="TRANSPORT_ERROR")
             if "error" in data and data["error"]:

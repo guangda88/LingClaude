@@ -1,14 +1,14 @@
 {
   "guard": "M3",
   "file": "core/mcp_tools.py",
-  "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源",
+  "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源。2026-09-22 schema透传+懒发现改造后行号更新",
   "granted": "2026-09-17",
   "state": "active",
   "lines": [
-    65,
-    101,
-    125,
-    126
+    77,
+    133,
+    158,
+    159
   ],
   "review_due": "2026-10-31"
 }

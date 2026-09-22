@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Generic, TypeVar
 
@@ -309,6 +309,11 @@ class ToolDefinition:
     # 而是通过 HandlerRegistry 按名查找；这样定义（schema）与实现解耦。
     # 优先级：handler (Callable, 向后兼容) > handler_name (按名查找) > None
     handler_name: str | None = None
+    # Schema 透传：完整 JSON Schema（含 required/type/嵌套 properties）。
+    # MCP 工具经 mcp_client 拿到的 inputSchema 原样存这里，
+    # _build_openai_tools 优先用它而非压平的 parameters dict。
+    # 空 dict = 无完整 schema，退回 parameters+required_params 重建（旧行为）。
+    input_schema: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # T3 强制化（opencode 架构演进项）：handler 直传已废弃 — 定义（schema）

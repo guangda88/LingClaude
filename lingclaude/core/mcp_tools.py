@@ -5,6 +5,7 @@ QueryEngine 通过多继承接入本 mixin；方法内 self 即 QueryEngine 实�
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -36,20 +37,31 @@ class McpToolsMixin:
         # S3: 延迟 import 消除 core→engine 倒装 — 常量取值轻量，仅此处使用；
         # 路由本身走 self._tool_router。MAX_TOOLS_PER_REQUEST 已下沉 core.types。
         if not query or len(tool_defs) <= MAX_TOOLS_PER_REQUEST:
+            # Schema 透传修复：优先用 t.input_schema（完整 JSON Schema，含 required/type/嵌套），
+            # t.parameters 仅作 fallback（旧行为）。断点原在丢弃 input_schema 导致灵信等
+            # 带必填参数的 MCP 工具 schema 压平、调用必败（MCP_CALL_FAILED）。
+            def _build_schema(t: Any) -> dict[str, Any]:
+                full = getattr(t, "input_schema", None)
+                if isinstance(full, dict) and full:
+                    # input_schema 已是合法 JSON Schema（来自 mcp_client MCPTool.input_schema）
+                    # 深拷贝防跨工具共享可变状态
+                    return json.loads(json.dumps(full))
+                # fallback：从压平的 parameters/required_params 重建
+                return {
+                    "type": "object",
+                    "properties": {k: v for k, v in t.parameters.items()},
+                    "required": (
+                        list(t.required_params)
+                        if getattr(t, "required_params", ())
+                        else list(t.parameters.keys())
+                    ),
+                }
+
             return tuple(
                 {
                     "name": t.name,
                     "description": t.description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": {k: v for k, v in t.parameters.items()},
-                        # T0-8: MCP 工具带显式 required 列表时用它；空 = 全部 required（旧行为）
-                        "required": (
-                            list(t.required_params)
-                            if getattr(t, "required_params", ())
-                            else list(t.parameters.keys())
-                        ),
-                    },
+                    "parameters": _build_schema(t),
                 }
                 for t in tool_defs
             )
@@ -65,6 +77,9 @@ class McpToolsMixin:
         from lingclaude.engine import mcp_proxy
 
         self._ensure_mcp()
+        # 懒发现：只列出已 discover 的工具；未 discover 的 server 首次调用时才触发。
+        # 原行为：_ensure_mcp() 里一次性 discover 全部 server（100+ 工具 schema 全量注册）。
+        # 新行为：server 元数据已注册，但 tools/list 推迟到首次调用。
         mcp_names = mcp_proxy.list_all_tools()
         if not mcp_names:
             return []
@@ -81,17 +96,34 @@ class McpToolsMixin:
             if name in native_names:
                 continue
             server_name = server_map.get(name, "unknown")
-            # T0-8: 注入参数 schema — 优先 FastMCP Tool.parameters，其次函数签名推导
+            # Schema 透传修复：优先完整 input_schema（保留 required/嵌套结构）
+            full_schema: dict[str, Any] = {}
+            try:
+                server = mcp_proxy._SERVERS.get(server_name)
+                if server is not None:
+                    full_schema = server.tool_schemas.get(name) or {}
+            except Exception:
+                full_schema = {}
             try:
                 props, required = mcp_proxy.get_tool_schema(name)
             except Exception:
                 props, required = {}, []
-            defs.append(ToolDefinition(
-                name=name,
-                description=f"[MCP:{server_name}] {name}",
-                parameters=dict(props),
-                required_params=tuple(required),
-            ))
+            # 若拿到完整 schema 则直接透传；否则退回 parameters+required_params 重建
+            if full_schema:
+                defs.append(ToolDefinition(
+                    name=name,
+                    description=f"[MCP:{server_name}] {name}",
+                    parameters={},  # 不再用压平 properties，走 input_schema 路径
+                    required_params=tuple(required),
+                    input_schema=full_schema,
+                ))
+            else:
+                defs.append(ToolDefinition(
+                    name=name,
+                    description=f"[MCP:{server_name}] {name}",
+                    parameters=dict(props),
+                    required_params=tuple(required),
+                ))
         return defs
 
     def _ensure_mcp(self) -> None:
@@ -113,14 +145,15 @@ class McpToolsMixin:
                 logger.info("T1-5: registered %d MCP servers from LACP manifests", count)
         except Exception as e:
             logger.debug("LACP MCP manifest scan skipped: %s", e)
-        # T1-5 深化: tools/list 发现 — 对 stdio/http 传输连接并发现工具名
-        self._discover_mcp_tools()
+        # T1-5 深化: 不再立即 discover。懒发现——首次调用时才触发 tools/list。
+        # 原逻辑在这里 self._discover_mcp_tools() 一次性 spawn 全部 stdio/http server，
+        # 100+ schema 全量注册进函数清单，是启动/首次工具调用的大头。
+        # 改为只登记 server 元数据，真正 discover 推迟到首次 call。
 
     def _discover_mcp_tools(self) -> None:
-        """T1-5 深化: 对 stdio/http MCP server 执行 tools/list 发现，填充 server.tools。
+        """[保留接口兼容] 对全部空 server 执行 tools/list。
 
-        仅对有 tools=() 的空 server 执行发现（避免重复调用）。
-        发现失败不阻塞主流程，仅记录警告。
+        已废弃为内部兼容路径。正常流程走 _lazy_discover(server_key)。
         """
         from lingclaude.engine.mcp_client import discover_and_register
         from lingclaude.engine import mcp_proxy
