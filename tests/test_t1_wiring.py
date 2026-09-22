@@ -511,50 +511,22 @@ class TestSendMessageWithdrawn:
 
 
 # ── 任务5: 工具结果 pruner 验收 ───────────────────────────────────────────
+# 2026-09-23: 旧 8KB stub pruner（ToolExecutor._prune_output）已删——
+# 零生产调用方，瘦身职责由 pipeline spill(16KB)+loop slim(1600字符)覆盖。
+# 下方哨兵防复活: 若有人重新引入 stub 化 pruner，应显式重审三层分工。
 
 
-class TestToolOutputPruner:
-    """AtomCode Tier1 stub 化 / DSH compaction-tool-result-pruner 对位。
+class TestNoStubPrunerResurrection:
+    """哨兵: ToolExecutor 不应再有 stub 化 pruner（防止死代码复活）"""
 
-    阈值默认 8KB,超阈值返回 head + [truncated] + tail。
-    """
+    def test_no_prune_output_method(self):
+        import inspect
 
-    def test_prune_under_threshold_passthrough(self):
-        """短输出原样透传"""
         from lingclaude.core.tool_executor import ToolExecutor
-        out = "short output" * 10  # ~120 字符
-        assert ToolExecutor._prune_output(out) == out
-
-    def test_prune_over_threshold_stubs(self):
-        """超阈值输出加 truncated 标记"""
-        from lingclaude.core.tool_executor import ToolExecutor
-        out = "x" * 20480  # 20KB
-        pruned = ToolExecutor._prune_output(out)
-        assert "[... truncated:" in pruned
-        assert "20480 bytes total" in pruned
-        # head 保留前 2KB
-        # head 保留前 2048 个 x（+ 换行）
-        assert pruned.startswith("x" * 2048)
-        # tail 保留后 2048 个 x
-        assert pruned.endswith("x" * 2048)
-
-    def test_prune_custom_threshold(self):
-        """自定义阈值生效"""
-        from lingclaude.core.tool_executor import ToolExecutor
-        out = "y" * 1000
-        pruned = ToolExecutor._prune_output(out, threshold_bytes=500)
-        assert "[... truncated:" in pruned
-
-    def test_prune_utf8_safe(self):
-        """UTF-8 中文不能因切字节产生乱码"""
-        from lingclaude.core.tool_executor import ToolExecutor
-        # 中文 3 字节/字符,20K 字符 = 60KB
-        out = "中" * 20000
-        pruned = ToolExecutor._prune_output(out)
-        assert "[... truncated:" in pruned
-        # head 和 tail 都应是合法中文（decode errors=replace 不报错）
-        # 验证不抛异常且不出现 null 字节
-        assert "\x00" not in pruned
+        assert not hasattr(ToolExecutor, "_prune_output")
+        src = inspect.getsource(ToolExecutor)
+        assert "_prune_output" not in src
+        assert "DEFAULT_PRUNE" not in src
 
 
 # ── 任务1: marketplace 接线验收（修复死接线第6 案）──

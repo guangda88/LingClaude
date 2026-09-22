@@ -35,38 +35,12 @@ def _estimate_message_tokens(messages: list[Any]) -> int:
 
 
 class ToolExecutor:
-    # 任务5: 工具结果 pruner 阈值 — 超 8KB 字符 (~2k token) 自动 stub 化
-    # 与 DSH compaction-tool-result-pruner / AtomCode Tier1 对齐
-    DEFAULT_PRUNE_THRESHOLD_BYTES = 8 * 1024
-    DEFAULT_PRUNE_KEEP_BYTES = 2 * 1024  # 保留前 2KB + 后 2KB
-    DEFAULT_PRUNE_KEEP_TAIL_BYTES = 2 * 1024
+    # 注: 旧 8KB stub pruner 已删（2026-09-23）——零生产调用方，瘦身
+    # 职责由 pipeline spill（16KB）+ loop slim（1600 字符）覆盖，
+    # 详见 data/arch_ledger/ 三层瘦身立档。
 
     def __init__(self, engine) -> None:
         self._engine = engine
-
-    @staticmethod
-    def _prune_output(output: str, threshold_bytes: int = DEFAULT_PRUNE_THRESHOLD_BYTES,
-                      keep_bytes: int = DEFAULT_PRUNE_KEEP_BYTES,
-                      keep_tail_bytes: int = DEFAULT_PRUNE_KEEP_TAIL_BYTES) -> str:
-        """工具结果 pruner — 超阈值返回 stub 占位符 + 头尾保留。
-
-        对标 DSH compaction-tool-result-pruner / AtomCode Tier1 stub 化:
-        超阈值时原文本替换为 "[truncated: N bytes total, head + tail kept]"，
-        保留 head + tail 让模型仍能抓住上下文。prefix cache 友好
-        （截断边界稳定,前缀不变）。
-        """
-        raw = output.encode("utf-8", errors="replace")
-        if len(raw) <= threshold_bytes:
-            return output
-        # head + ellipsis + tail
-        head = raw[:keep_bytes].decode("utf-8", errors="replace")
-        tail = raw[-keep_tail_bytes:].decode("utf-8", errors="replace") if keep_tail_bytes else ""
-        return (
-            f"{head}\n\n"
-            f"[... truncated: {len(raw)} bytes total, "
-            f"head {keep_bytes} + tail {keep_tail_bytes} bytes kept ...]\n\n"
-            f"{tail}"
-        )
 
     def _execute_tool(self, name: str, arguments_json: str) -> str:
         """执行工具，返回模型可见的 JSON 字符串（序列化边界）。"""

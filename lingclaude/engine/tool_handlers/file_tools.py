@@ -14,6 +14,10 @@ class FileToolsMixin:
     依赖 self.file_read / self.file_ops / self.file_edit / self._gate_sensitive。
     """
 
+    # 瘦身读（2026-09-23）: 模型不传 limit 时的默认读取窗口（行）。
+    # 对齐 Claude Code read 纪律；显式 limit 优先，limit=0 = 读全文。
+    DEFAULT_READ_WINDOW = 200
+
     # P2-2: 写路径白名单 — verification.allowed_write_roots 非空时强制。
     # 空列表 = 不限制(向后兼容)。fail-closed:路径解析失败一律拒绝。
     def _write_allowed(self, path: str) -> str | None:
@@ -49,10 +53,36 @@ class FileToolsMixin:
         gated = self._gate_sensitive("read", path)
         if gated:
             return ToolResult.err(gated, tool_name="read")
-        result = self.file_read.read(path, offset=offset, limit=limit, line_numbers=line_numbers)
+        # 瘦身读（2026-09-23）: handler 层默认窗口——模型不传 limit 时不再
+        # 全量返回（全量会让大文件撑爆上下文，再被 loop 层 1600 字符截断
+        # 只剩头部）。分层契约: 库层 file_read.py limit=None=全读不变；
+        # MCP 桥 server.py limit=0=不限不变；仅 TUI agent 工具面默认收窗。
+        applied_limit = limit
+        if limit is None:
+            applied_limit = self.DEFAULT_READ_WINDOW
+        elif limit == 0:
+            # 0 = 不限制（对齐 MCP 桥「limit=0 表示不限制」契约）: 库层把 0
+            # 解释为「读 0 行」，此处归一化为 None(全读)，保证 _read_hint
+            # 给模型的逃生门指令真实有效。
+            applied_limit = None
+        result = self.file_read.read(
+            path, offset=offset, limit=applied_limit, line_numbers=line_numbers
+        )
         if result.is_error:
             return ToolResult.err(str(result.error), tool_name="read")
-        return ToolResult.ok(result.data.to_dict())
+        payload = result.data.to_dict()
+        if (
+            limit is None
+            and result.data.truncated
+            and result.data.lines > (applied_limit or 0)
+        ):
+            base = result.data.offset or 0
+            shown = base + min(applied_limit or 0, max(result.data.lines - base, 0))
+            payload["_read_hint"] = (
+                f"[read] 文件共 {result.data.lines} 行，本次显示第 "
+                f"{base + 1}-{shown} 行。继续读: offset={shown}；读全文: limit=0。"
+            )
+        return ToolResult.ok(payload)
 
     def _write_handler(
         self, path: str, content: str, **_kwargs: Any
