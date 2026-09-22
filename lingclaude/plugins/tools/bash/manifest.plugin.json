@@ -13,9 +13,13 @@
   "test_entry": "lingclaude/plugins/tools/bash/test_bash_plugin.py",
   "stop_layer": {
     "kernel": "execute 分派薄壳（bash 链执行，SandboxProvider 协议为子插片接缝）",
-    "seams": [
-      "SandboxProvider"
-    ],
-    "implementations": 1
+    "sub_seams": {
+      "seams": [
+        "SandboxProvider"
+      ],
+      "implementations": 2,
+      "note": "2 后端实证：BwrapSandboxProvider（bwrap 沙箱）+ NoopSandboxProvider（直通降级），P0-B 新增 Landlock 双后端探测（bwrap 缺席时走 Landlock）"
+    },
+    "note": "bash 链执行 + SandboxProvider 子插片接缝（铁律2细则5实证）"
   }
 }

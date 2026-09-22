@@ -2,6 +2,8 @@
   "severity": "P2",
   "finding": "J3停层声明欠账实锤：抽查6个plugins/tools manifest（ast/bash/file_ops/git/read/web），kernel声明全有，但sub_seams字段全缺——铁律2细则5要求'声明本插片的内核、子插片接缝在哪、当前有几个实现'，三要素缺二；与基线表'部分插片未声明停层'欠账一致，实测证实其规模=全部抽查样本",
   "source": "2026-09-17全仓审计（演进实录+铁律精读基准）",
-  "state": "open",
-  "created": "2026-09-17T14:35:16+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T14:35:16+00:00",
+  "resolved": "2026-09-22T22:35:00+00:00",
+  "resolution": "2026-09-22 灵克收口：抽查的 6 个 plugins/tools manifest（ast/bash/file_ops/git/read/web）全部补写 stop_layer.sub_seams 要素（内核+子插片接缝+实现数）。bash=SandboxProvider 2 后端实证（Bwrap/Noop，P0-B 含 Landlock 双探测）；ast/file_ops/git/read/web 各 1 实现（engine 委托面单实现+扩展位注记）。回读 6/6 验证通过，铁律2细则5『子插片接缝哪怕单实现也要显式声明』落地，J3 分形成立判据可机械核验。"
 }

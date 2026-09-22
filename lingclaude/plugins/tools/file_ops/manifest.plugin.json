@@ -17,9 +17,13 @@
   "test_entry": "lingclaude/plugins/tools/file_ops/test_file_ops_plugin.py",
   "stop_layer": {
     "kernel": "execute 分派薄壳（工具名→engine/file_edit.FileEditTool 委托）",
-    "seams": [
-      "engine/file_edit"
-    ],
-    "implementations": 1
+    "sub_seams": {
+      "seams": [
+        "engine/file_edit.FileEditTool"
+      ],
+      "implementations": 1,
+      "note": "FileEditTool 单实现（write/edit/create/insert/delete/undo 六工具同内核）"
+    },
+    "note": "file_ops 工具组：execute 分派薄壳下挂 engine/file_edit 委托面"
   }
 }

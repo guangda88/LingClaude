@@ -13,9 +13,13 @@
   "test_entry": "lingclaude/plugins/tools/ast/test_ast_plugin.py",
   "stop_layer": {
     "kernel": "execute 分派薄壳（工具名→engine/ast_edit 委托）",
-    "seams": [
-      "engine/ast_edit"
-    ],
-    "implementations": 1
+    "sub_seams": {
+      "seams": [
+        "engine/ast_edit"
+      ],
+      "implementations": 1,
+      "note": "ast_edit 单实现（引擎 AST 原语），无多后端；保留扩展位（如 LSP backend）"
+    },
+    "note": "ast 工具组：execute 分派薄壳下挂 engine/ast_edit 委托面"
   }
 }

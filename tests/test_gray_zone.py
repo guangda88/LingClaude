@@ -88,9 +88,18 @@ class TestExecuteToolGrayZone:
         assert any(rec["action"] == "write" for rec in lines)
 
     def test_ask_bash_escalated(self, runtime):
-        """ask 模式执行域工具（bash）→ 灰区 escalate。"""
+        """ask 模式 bash 执行域 → 灰区 escalate。
+
+        2026-09-22 断言同步：escalate 语义是「被 permissions 拦下才 escalate」
+        （coding.py:524-533 触发条件 = active_mode==ask AND 非只读 AND error 非
+        None AND _is_permission_block）。`echo hi` 在 ask+bash 执行域默认**放行
+        执行**（exit=0、无 error）→ 不满足 escalate 条件，state 不写——旧断言
+        `state==escalated` 基于「ask+bash 必 escalate」的过期假设。改用 deny
+        名单命令（rm -rf 硬拒绝）确保被拦下，escalate 才触发。
+        """
         set_permission_mode("ask")
-        res = runtime.execute_tool("bash", command="echo hi")
+        res = runtime.execute_tool("bash", command="rm -rf /nonexistent_probe_target")
+        # 硬拒绝/拦下 → error 非 None → escalate 触发 → state=escalated
         assert res.get("state") == "escalated"
         assert any(rec["action"] == "bash" for rec in _pending_lines())
 

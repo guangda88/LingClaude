@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,39 @@ NOT_GOOD_AT_PATTERNS = ("```", "def ", "class ", "diff --git")
 #   故低置信判定一律回退 LLM（gate 0.3 对齐质量验证结论，不写 SLA）。
 # - factual_lookup 域是 Laya 最薄弱域（3 条里 2 条偏到别处），无论 confidence
 #   多高，判定结果为 factual_lookup 时直接回退——该类查询本就应走 LLM 事实检索。
-_MIN_CONFIDENCE = 0.3
+#
+# B2-R（2026-09-22 放宽试点，fast lane 转正收益验证）：门控参数从硬编码
+# 上移到策略文件 fan_out_questions.yaml defaults（hot-update，m-time watch）：
+#   min_confidence（0.3→0.1 试点）、weak_domains（factual_lookup 保留回退）、
+#   speculative_min_difficulty（1.5→0.5，FanOut pre-classifier 消费）。
+# 读失败回退下述内置默认（与原硬编码值一致——零行为分叉兜底）。
+_MIN_CONFIDENCE = 0.1          # B2-R：放宽试点（内置兜底值）
 _WEAK_DOMAINS = ("factual_lookup",)
+
+# B2-R：策略文件门控参数（hot-update；读取失败用内置默认）
+_B2_GATE_KEYS = ("fast_lane_min_confidence", "fast_lane_weak_domains",
+                 "fan_out_speculative_min_difficulty")
+_b2_gate_cache: dict[str, Any] = {"ts": 0.0, "values": None}
+
+
+def _b2_gate_params() -> dict[str, Any]:
+    """策略文件门控参数（mtime watch + 30s 节流；读失败→内置默认，不崩）。"""
+    now = time.monotonic()
+    if _b2_gate_cache["values"] is not None and now - _b2_gate_cache["ts"] < 30:
+        return _b2_gate_cache["values"]
+    vals: dict[str, Any] = {}
+    try:
+        from lingclaude.core.policy_loader import get as policy_get
+        data = policy_get("fan_out_questions") or {}
+        defaults = data.get("defaults") or {}
+        for key in _B2_GATE_KEYS:
+            if key in defaults:
+                vals[key] = defaults[key]
+    except Exception:
+        logger.debug("fast lane 门控参数读取失败（用内置默认）", exc_info=True)
+    _b2_gate_cache.update(ts=now, values=vals)
+    return vals
+
 
 _laya_agent: Any = None  # 进程内单例
 _laya_failed: bool = False  # 探测失败后不再重试（fail-soft 收敛）
@@ -85,14 +117,26 @@ def _load_questions() -> dict[str, dict[str, Any]] | None:
 
 
 def _gate_verdict(result: dict[str, Any]) -> dict[str, Any] | None:
-    """B2：对 Laya 判定结果做 confidence 门控 + 薄弱域回退。
+    """B2/B2-R：对 Laya 判定结果做 confidence 门控 + 薄弱域回退。
 
-    规则（质量验证裁定，不写 SLA）：
+    规则（质量验证裁定，不写 SLA；B2-R 阈值/薄弱域清单走策略文件热更）：
     - answers 缺失/非 dict → 无法门控，回退（返回 None）
-    - domain 判定 confidence < _MIN_CONFIDENCE → 回退（低置信不可采信）
-    - domain 判定结果命中 _WEAK_DOMAINS（factual_lookup）→ 回退（薄弱域）
+    - domain 判定 confidence < min_confidence（默认 0.1，策略可热调）→ 回退
+    - domain 判定结果命中 weak_domains（默认 factual_lookup）→ 回退（薄弱域）
     - 通过 → 返回原 result（调用方直接采信）
     """
+    params = _b2_gate_params()
+    min_conf = params.get("fast_lane_min_confidence", _MIN_CONFIDENCE)
+    weak = params.get("fast_lane_weak_domains", _WEAK_DOMAINS)
+    if not isinstance(min_conf, (int, float)):
+        min_conf = _MIN_CONFIDENCE
+    if isinstance(weak, (list, tuple)):
+        weak = tuple(str(d).lower() for d in weak)
+    elif isinstance(weak, str) and weak:
+        weak = (weak.lower(),)
+    else:
+        weak = _WEAK_DOMAINS
+
     if not isinstance(result, dict):
         return None
     answers = result.get("answers")
@@ -105,10 +149,10 @@ def _gate_verdict(result: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(confidence, (int, float)):
         # confidence 缺失（异常输出形态）→ 保守回退，不冒险采信
         return None
-    if confidence < _MIN_CONFIDENCE:
+    if confidence < min_conf:
         return None
     got_domain = str(dom_ans.get("choice", "")).lower()
-    if got_domain in _WEAK_DOMAINS:
+    if got_domain in weak:
         return None
     return result
 

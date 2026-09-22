@@ -68,3 +68,52 @@
 | P2-13 TUI 双代热更 | 核实 full_tui.cutover_generation 蓝绿机制已存在，补测试闭环（此前零测试） | — | TestCutoverGeneration 4 passed（构建失败/验证失败/自定义 verify/成功切换） |
 
 统一回归：铁律守卫+full_tui+lsp+task_router 141 passed；bash 三件 53 passed；guard/p04 28 passed。全默认行为零分叉。
+
+## 六、fast lane 转正路径落地（B2-R 放宽 + FanOut pre_classifier 消费方，2026-09-22）
+
+挂账 fastlane-dead-plugin-review 二选一 (a)「有真实消费方」的落地：
+
+1. **B2-R 门控放宽**（fast_lane.py + fan_out_questions.yaml defaults）：
+   - confidence 门控 0.3→**0.1** 试点（`fast_lane_min_confidence`，策略热更）；
+   - factual_lookup 薄弱域保留回退；
+   - FanOut 投机 difficulty 门槛 1.5→**0.5**（`fan_out_speculative_min_difficulty`）；
+   - 内置兜底值=放宽值，读失败不崩。
+   - 实测：verdict 存活率 **0/24 → 16/20**（Laya 实机，laya 0.3.5 安装后）。
+2. **FanOutScheduler pre_classifier 装配**（fan_out_scheduler.py + hooks.py）：
+   - `laya_pre_classifier` = fast_route 门控版（NOT_GOOD_AT 回退 + B2/B2-R confidence/薄弱域门控）；
+   - `assemble_fan_out_scheduler(enable=True, use_laya_pre_classifier=True)` 装配助手（__init__ 已导出）；
+   - `DefaultLoopHooks.__init__` 挂三钩子（env LINGCLAUDE_FAN_OUT=1 启用，默认关直通）；
+   - fast lane 从「resolve 链分类抢跑（无消费方）」升级为「FanOut 投机预分类（真实下游）」。
+3. **env=0 强关修复**（task_router.py 门禁段）：env 显式设值（=1 开/=0 关）压过 yaml 策略键，
+   未设才走策略；三态探针（unset→True / 0→False / 1→True）全绿。
+4. **收益裁定（诚实账）**：
+   - **冷启动 21.6s**（torch + Laya 322M 加载），稳态 957ms/resolve（off 45ms）——Laya 首调是大头；
+   - 20 条常规 prompt **0 决策修正**（B2-R 放宽后 verdict 存活 16/20，但 domain/difficulty
+     未触发 task_type 变化——关键词轨已覆盖盲区，fast lane 无增量收益）；
+   - **fast lane 维持默认开（yaml fast_lane_enabled: true）+ env=0 可强关**：开销为正
+     （稳态 +900ms）且常规分布 0 修正，但与挂账二选一 (a) 一致——FanOut pre_classifier
+     消费方已接通（LINGCLAUDE_FAN_OUT=1），投机收益=分支命中，另行实测；
+   - FanOut 启用路径探针：Laya verdict 存活（domain=code conf 0.81 / difficulty 1.93），
+     plan 产出 2 分支；未启用直通 None 零分叉。
+
+**挂账 fastlane-dead-plugin-review 更新**：(a) 消费方已接通（FanOut pre_classifier），
+到期 2026-11-21 复核点 = LINGCLAUDE_FAN_OUT=1 实机投机命中率验证；冷启动 21.6s 是
+转正前待解决项（进程级 Laya 常驻池 / 懒加载预热可降），暂挂观察。
+
+## 七、P0-2/P1-6/P1-7 实机收益验证 + 审计/债务收口（2026-09-22）
+
+| 项 | 验证 | 结果 |
+|----|------|------|
+| P0-2 审批矩阵 | on_failure 策略：只读 auto_mode_pass / 常规写静默放 / rm_rf_root 硬拒 | PASS（安全不回归） |
+| P1-6 worktree | agent_batch LINGCLAUDE_AGENT_WORKTREE=1 真跑：建独立 worktree/回收结果/cleanup 全链 | PASS |
+| P1-7 凭据池 | from_env 装配 + LRU 轮转 + 熔断跳过 + 全熔断落回 env 链 | PASS（3/3） |
+| J3 审计 | 6 manifest（ast/bash/file_ops/git/read/web）补 sub_seams 停层声明（bash=2 后端实证） | 关单 |
+| arch_debt 12F | 4 真实 F 处置：daemon 自转绿 / gray_zone 断言修（rm -rf 拦下场景）/ mcp_proxy 键位漂移修（实查归属）/ p11 归环境敏感 | 关单（16E 维持归因） |
+
+定向回归：gray_zone+mcp_proxy+daemon+铁律守卫 59 passed；返审触发器守卫自检 PASS。
+
+**二选一裁定**：fast lane 挂账 (a) 转正路径已落地（FanOut pre_classifier 消费方接通），
+冷启动 21.6s 为转正前待解决项；P0-2/P1-6/P1-7 收益实机兑现，维持 env 门禁默认关
+（先挂线后翻开关的保守设计），实机消费方验证已完成，可择机翻默认开。
+arch_debt regression-preexisting-failures-20260921 因 12F 全部处置完成（16 项转绿 +
+4 真实 F 修复/归因 + 16E 维持归因）标记 resolved。

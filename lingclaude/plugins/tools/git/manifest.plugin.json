@@ -18,9 +18,13 @@
   "test_entry": "lingclaude/plugins/tools/git/test_git_plugin.py",
   "stop_layer": {
     "kernel": "execute 分派薄壳（工具名→engine/git 委托）",
-    "seams": [
-      "engine/git"
-    ],
-    "implementations": 1
+    "sub_seams": {
+      "seams": [
+        "engine/git"
+      ],
+      "implementations": 1,
+      "note": "engine/git 单实现（status/diff/log/blame/push/preflight/probe 七工具同内核）"
+    },
+    "note": "git 工具组：execute 分派薄壳下挂 engine/git 委托面"
   }
 }

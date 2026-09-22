@@ -34,7 +34,9 @@ from lingclaude.engine.loop.thread import LingClaudeThread
 from lingclaude.engine.loop.fan_out_scheduler import (
     FanOutPlan,
     FanOutScheduler,
+    assemble_fan_out_scheduler,
     default_scheduler,
+    laya_pre_classifier,
 )
 
 __all__ = [
@@ -57,4 +59,6 @@ __all__ = [
     "FanOutScheduler",
     "FanOutPlan",
     "default_scheduler",
+    "assemble_fan_out_scheduler",
+    "laya_pre_classifier",
 ]

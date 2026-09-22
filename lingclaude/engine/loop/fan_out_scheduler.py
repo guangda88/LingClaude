@@ -195,7 +195,9 @@ class FanOutScheduler:
     _SPECULATIVE_MIN_DIFFICULTY = 1.5
 
     def _difficulty_gate(self, verdict: dict | None) -> bool:
-        """B1-T：difficulty 分桶门控——verdict 带 difficulty score 且 >= 阈值才允许投机。
+        """B1-T/B2-R：difficulty 分桶门控——verdict 带 difficulty score 且
+        >= 阈值才允许投机。阈值走策略文件 fan_out_speculative_min_difficulty
+        （默认 0.5，热更；读失败回退内置 1.5——保守不放大投机面）。
 
         verdict 无 difficulty 答案（triage 问题集）或 score 缺失 → 保守放行（None 语义=
         无法判难度时按原 plan 逻辑走，由 verify 兜底）。
@@ -208,7 +210,20 @@ class FanOutScheduler:
         score = diff.get("score")
         if not isinstance(score, (int, float)):
             return True
-        return score >= self._SPECULATIVE_MIN_DIFFICULTY
+        return score >= self._speculative_min_difficulty()
+
+    def _speculative_min_difficulty(self) -> float:
+        """B2-R：投机 difficulty 门槛（策略文件热更；读失败回退内置 1.5）。"""
+        try:
+            from lingclaude.core.policy_loader import get as policy_get
+            v = (policy_get("fan_out_questions") or {}).get("defaults", {}).get(
+                "fan_out_speculative_min_difficulty")
+            if isinstance(v, (int, float)):
+                return float(v)
+        except Exception:
+            logger.debug("fan_out_speculative_min_difficulty 读取失败（用内置 1.5）",
+                         exc_info=True)
+        return self._SPECULATIVE_MIN_DIFFICULTY
 
     def _make_branch_prompt(self, tag: str) -> str:
         """分支 prompt：模板可配（P1-4/B1 策略扩展），默认最小 echo 模板。
@@ -236,3 +251,36 @@ class FanOutScheduler:
 def default_scheduler() -> FanOutScheduler:
     """装配助手：默认配置（enable=False 直通挂接，零行为分叉）。"""
     return FanOutScheduler()
+
+
+def laya_pre_classifier(prompt: str, messages: list) -> dict | None:
+    """fast lane 门控版 pre_classifier（B2-R 放宽后）——FanOutScheduler 的消费方。
+
+    接 Laya fast_route（fast_lane.py 主链同款：NOT_GOOD_AT 回退 + B2 confidence/
+    薄弱域门控 + difficulty 分桶在调度器侧二次筛）作为预分类器：
+    - 返回 fast_route verdict（dict，含 answers.domain/difficulty）
+    - None = 不可投机（Laya 不可用/低置信/薄弱域）——调度器据此放弃本轮 fan-out
+    这让 fast lane 从「分类抢跑（resolve 链）」升级为「投机预分类（FanOut 链）」
+    ——有真实下游消费方（投机分支命中），解决挂账 fastlane-dead-plugin-review 的
+    「无消费方」死路径。
+    """
+    try:
+        from laya.presets import router_questions
+        from lingclaude.model.fast_lane import fast_route
+        return fast_route(prompt[:500], router_questions())
+    except Exception:  # noqa: BLE001 — pre_classifier 故障 → None（不投机，fail-soft）
+        return None
+
+
+def assemble_fan_out_scheduler(*, enable: bool = True,
+                               use_laya_pre_classifier: bool = True) -> FanOutScheduler:
+    """P1-0/B2-R 装配：FanOutScheduler(enable=True) + 可选 Laya pre_classifier。
+
+    - enable=True 才投机（False 走 default_scheduler 直通）
+    - use_laya_pre_classifier=True 时接 fast lane 门控版 pre_classifier；
+      False 则不用预分类器（只靠 prompt 长度 + fan_out_tags + difficulty 分桶）
+    """
+    if not enable:
+        return default_scheduler()
+    pre = laya_pre_classifier if use_laya_pre_classifier else None
+    return FanOutScheduler(enable=enable, pre_classifier=pre)

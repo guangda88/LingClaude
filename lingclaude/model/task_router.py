@@ -443,15 +443,17 @@ class TaskRouter:
             task_type = TaskType.from_query(prompt)
 
         # P1-1（2026-09-22）：Laya fast lane 接入 resolve 链。
-        # 门禁双通道：env LINGCLAUDE_LAYA_FAST_LANE=1 强制开（最高优先级）；
-        # 策略文件 fan_out_questions.yaml fast_lane_enabled 热开关（每次 resolve
-        # 实时读，mtime watch + 30s 节流，读失败视为关——fail-closed）。
+        # 门禁双通道：env LINGCLAUDE_LAYA_FAST_LANE 显式设值（=1 强制开 / =0 强制关，
+        # 优先级最高）；未设才走策略文件 fan_out_questions.yaml fast_lane_enabled
+        # 热开关（mtime watch + 30s 节流，读失败视为关——fail-closed）。
         # 语义：fast_route 先行做 System-1 分类判定（本地 ~150ms vs LLM 路由 1-5s）；
         # 返回 None（插片不可用 / NOT_GOOD_AT 命中代码长文类 / 判定失败）→ 无缝回退
         # 原关键词分类路径（fail-soft，resolve 契约不变）。
-        _env_force = os.environ.get("LINGCLAUDE_LAYA_FAST_LANE", "") in ("1", "true", "TRUE")
-        if _env_force:
+        _env_val = os.environ.get("LINGCLAUDE_LAYA_FAST_LANE", "").strip().lower()
+        if _env_val in ("1", "true", "on", "yes"):
             _gate_open = True
+        elif _env_val in ("0", "false", "off", "no"):
+            _gate_open = False
         else:
             try:
                 from lingclaude.core.policy_loader import get as _policy_get

@@ -13,9 +13,13 @@
   "test_entry": "lingclaude/plugins/tools/read/test_read_plugin.py",
   "stop_layer": {
     "kernel": "execute 分派薄壳（文件读取 → engine/file_read 委托）",
-    "seams": [
-      "engine/file_read"
-    ],
-    "implementations": 1
+    "sub_seams": {
+      "seams": [
+        "engine/file_read"
+      ],
+      "implementations": 1,
+      "note": "file_read 单实现（read/file 两工具同内核，切片/分页内置）"
+    },
+    "note": "read 工具组：execute 分派薄壳下挂 engine/file_read 委托面"
   }
 }

@@ -105,6 +105,36 @@ class DefaultLoopHooks:
 
     def __init__(self, engine: Any) -> None:
         self._engine = engine
+        # B2-R（2026-09-22）：投机扇出预分类器消费方——fast lane 门控版
+        # pre_classifier（fast_route）经装配助手挂到 DefaultLoopHooks，让
+        # fast lane 从「resolve 链分类抢跑」获得真实下游（FanOut 投机分支）。
+        # enable=False（默认）直通：不挂三钩子，pre_decide 恒 None，零行为分叉。
+        self._fan_out_scheduler = self._attach_fan_out_scheduler()
+
+    def _attach_fan_out_scheduler(self) -> Any:
+        """装配 fan out 调度器（enable 走 env/策略双通道，默认关）。
+
+        env LINGCLAUDE_FAN_OUT=1 启用（与 fast lane 门禁同哲学：显式开）。
+        失败/未启用 → 不挂钩子（DefaultLoopHooks 的 _fan_out_* 属性缺失，
+        pre_decide 走「fn is None → None」直通路径，语义不变）。
+        """
+        import os
+        if os.environ.get("LINGCLAUDE_FAN_OUT", "") not in ("1", "true", "TRUE"):
+            return None
+        try:
+            from lingclaude.engine.loop.fan_out_scheduler import assemble_fan_out_scheduler
+            sched = assemble_fan_out_scheduler(enable=True, use_laya_pre_classifier=True)
+            # 接通三钩子（语义与 LingClaudeThread.set_fan_out_scheduler 一致）
+            hooks = self
+            hooks._fan_out_pre_decide = lambda p, m: sched.plan(p, m)
+            hooks._fan_out_post_check = lambda t, r: bool(sched.verify(t, r))
+            hooks._fan_out_decide_continue = lambda p, i, plan: bool(
+                sched.should_continue(p, i, plan))
+            logger.info("fan out 调度器已挂（Laya pre_classifier 门控版）")
+            return sched
+        except Exception:  # noqa: BLE001 — 挂不上保持直通，不拖垮引擎
+            logger.warning("fan out 调度器装配失败（直通）", exc_info=True)
+            return None
 
     # ── 逐点转发到 ModelCallMixin 现有方法（调用面 1:1，不改任何语义） ──
 
