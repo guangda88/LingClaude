@@ -442,6 +442,43 @@ class TaskRouter:
         if task_type is None:
             task_type = TaskType.from_query(prompt)
 
+        # P1-1（2026-09-22）：Laya fast lane 接入 resolve 链（env 门禁，默认关）。
+        # 语义：fast_route 先行做 System-1 分类判定（本地 ~150ms vs LLM 路由 1-5s）；
+        # 返回 None（插片不可用 / NOT_GOOD_AT 命中代码长文类 / 判定失败）→ 无缝回退
+        # 原关键词分类路径（fail-soft，resolve 契约不变）。env 开关沿用
+        # _FLASH_GATE_DISABLE_ENV 反向模式：显式 LAYA_FAST_LANE=1 才启用。
+        if os.environ.get("LINGCLAUDE_LAYA_FAST_LANE", "") in ("1", "true", "TRUE"):
+            try:
+                from lingclaude.model.fast_lane import fast_route
+                from laya.presets import router_questions
+
+                verdict = fast_route(prompt[:500], router_questions())
+                if verdict is not None and task_type is TaskType.OTHER:
+                    # fast lane 命中且关键词分类为 OTHER（关键词轨的盲区）时，
+                    # 用 domain 判定修正 task_type（对齐 TaskType 枚举面）
+                    answers = verdict.get("answers") or {}
+                    domain = str(answers.get("domain", "")).lower()
+                    _domain_map = {
+                        "code": TaskType.CODE_GENERATION,
+                        "math_or_logic": TaskType.ANALYSIS,
+                        "data_analysis": TaskType.ANALYSIS,
+                        "writing": TaskType.DOCUMENTATION,
+                        "factual_lookup": TaskType.SEARCH,
+                    }
+                    if domain in _domain_map:
+                        task_type = _domain_map[domain]
+                # verdict 的 difficulty 低分（trivial/easy）走 fast_response 已是默认；
+                # 高分（hard）显式提升到 analysis 路由以获得更强模型
+                if verdict is not None:
+                    answers = verdict.get("answers") or {}
+                    difficulty = str(answers.get("difficulty", "")).lower()
+                    if difficulty.startswith("hard") and task_type in (
+                        TaskType.OTHER, TaskType.SEARCH,
+                    ):
+                        task_type = TaskType.ANALYSIS
+            except Exception:  # noqa: BLE001 — fast lane 任何故障不影响 resolve 主链
+                pass
+
         # P2-2: 运行时读策略（热更生效），模块常量仅作回退
         mapping = _load_task_type_to_route()
         route_key = mapping.get(task_type, "fast_response")
