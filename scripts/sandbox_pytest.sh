@@ -6,4 +6,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}"
+# pytest 参数路径守卫：凭记忆猜的测试文件名在此 fail-fast（防 no tests ran 假绿）
+python3 scripts/guard_pytest_args.py "$@" || exit $?
 exec python -m pytest "$@"

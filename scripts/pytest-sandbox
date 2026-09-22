@@ -3,4 +3,6 @@
 # 用法: scripts/pytest-sandbox [pytest 参数...]
 HERE="$(cd "$(dirname "$0")" && pwd)"
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+# pytest 参数路径守卫：凭记忆猜的测试文件名在此 fail-fast（防 no tests ran 假绿）
+python3 "$HERE/guard_pytest_args.py" "$@" || exit $?
 exec python3 -m pytest -p devnull_fallback_plugin "$@"
