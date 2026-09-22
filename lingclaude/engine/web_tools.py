@@ -67,6 +67,18 @@ class WebFetcher:
                     except json.JSONDecodeError:
                         pass
 
+                # NanoJev 契约消费层（消费点④ 安全守门，2026-09-22）：
+                # 注入筛查——只提醒不拦截不改写。命中嫌疑时把独立提醒块追加到
+                # 内容尾部（内容原文不动，模型可区分"数据"与"提醒"）；fail-open
+                # （筛查故障不影响 fetch 结果本身）。
+                try:
+                    from lingclaude.engine.injection_screen import screen_injection
+                    verdict = screen_injection(text)
+                    if verdict.suspicious and verdict.alert_text:
+                        text = text + "\n\n" + verdict.alert_text
+                except Exception:  # noqa: BLE001 — 筛查故障 fail-open（内容原样返回）
+                    logger.debug("injection screen failed (fail-open)", exc_info=True)
+
                 return Result.ok(text)
 
         except urllib.error.HTTPError as e:
@@ -126,6 +138,7 @@ class WebSearcher:
                     "url": str(item.get("url", "")),
                     "snippet": str(item.get("content", ""))[:500],
                 })
+            _screen_search_results(results)
             return Result.ok(results[:max_results])
 
         except Exception as e:
@@ -161,7 +174,28 @@ class WebSearcher:
                     "url": data.get("AbstractURL", ""),
                     "snippet": data["AbstractText"],
                 })
+            _screen_search_results(results)
             return Result.ok(results[:max_results])
 
         except Exception as e:
             return Result.fail(f"Search failed: {e}", code="SEARCH_ERROR")
+
+
+def _screen_search_results(results: list[dict[str, str]]) -> None:
+    """NanoJev 消费点④：搜索结果的 snippet 注入筛查（只提醒不拦截不改写）。
+
+    命中嫌疑的条目挂 injection_alert 字段（提醒文本），snippet 原文不动。
+    纯本地先验（0 模型调用主路径），fail-open（筛查异常不影响结果本身）。
+    """
+    try:
+        from lingclaude.engine.injection_screen import screen_injection
+    except Exception:  # noqa: BLE001 — 筛查模块不可用则跳过（不反噬搜索）
+        return
+    for r in results:
+        snippet = r.get("snippet", "") or ""
+        try:
+            v = screen_injection(snippet)
+            if v.suspicious and v.alert_text:
+                r["injection_alert"] = v.alert_text
+        except Exception:  # noqa: BLE001
+            continue

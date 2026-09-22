@@ -143,6 +143,14 @@ class ToolExecutor:
                     self._engine._session_cache_hits += 1
                     logger.debug("ContextCache hit for %s (duplicate=%s)", kwargs["path"], is_dup)
                 result_dict = {"content": content, "cache_hit": cache_hit}
+                # NanoJev 契约消费层（消费点⑨ 执行是否成功 Noul 门控，2026-09-22）：
+                # 工具结果挂 success_verdict（P(成功)+依据，0 LLM token 本地先验）。
+                # fail-soft：门控异常不影响工具结果本身（不挂字段，保持原结果）。
+                try:
+                    from lingclaude.core.success_gate import gate_success
+                    result_dict["success_verdict"] = gate_success(name, result_dict).to_dict()
+                except Exception:  # noqa: BLE001 — 门控故障 fail-soft，保持原结果
+                    logger.debug("success_gate fail-soft（不挂 success_verdict）", exc_info=True)
                 return ToolResult.ok(result_dict)
             except FileNotFoundError:
                 pass

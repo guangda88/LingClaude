@@ -55,6 +55,11 @@ class CompressionConfig:
     use_llm_summary: bool = False
     # T1-1: LLM 摘要 provider — 由调用方传入 engine 持有的 provider；None 时自动降级正则
     provider: Any | None = None
+    # NanoJev 契约消费层（消费点⑧，2026-09-22）：有界类型化压缩开关。
+    # True 且 level≠TRUNCATE 时，被丢弃段走有界类型化决策模式（bounded_compaction，
+    # 纯本地提取 0 模型调用），无实质信号/故障回退自由文本摘要（fail-open）。
+    # 默认 False 零行为分叉；策略键 bounded_compaction_enabled 可热更。
+    bounded_type: bool = False
 
     def __post_init__(self):
         if self.priority_hints is None:
@@ -325,6 +330,29 @@ def compress_messages(
     budget = config.effective_summary_chars()
     if len(summary) > budget:
         summary = summary[:budget] + "\n... (摘要已截断)"
+
+    # NanoJev 契约消费层（消费点⑧ 上下文压缩有界类型化，2026-09-22）：
+    # 策略键 bounded_compaction_enabled 开启时，把被丢弃段压成有界类型化决策模式
+    # （声明字段/有界选项/来源引用，纯本地提取 0 模型调用），产物比自由文本摘要
+    # 更不易丢关键项、且下游可类型化解析（治信息损失 + 解析成本双降）。
+    # 未启用（默认）→ 保持上段自由文本摘要路径，零行为分叉；
+    # 有界提取无实质信号（fail-open）→ 回退自由文本摘要。
+    if config.bounded_type and config.level not in (CompressionLevel.TRUNCATE,):
+        try:
+            from lingclaude.core.bounded_compaction import (
+                build_bounded_decision_pattern, render_bounded_pattern)
+            pattern = build_bounded_decision_pattern(
+                dropped, dropped_count, recent_context=recent_text,
+            )
+            if pattern is not None:
+                bounded_text = render_bounded_pattern(pattern)
+                # 有界产物必须「比自由摘要更小」才算真压缩（治 F 场景：有界提取
+                # 字段全量时 427 chars > 自由摘要 192 chars，反而膨胀增 token）。
+                # 更大/相当时保留自由文本摘要（fail-open，不采纳反效果产物）。
+                if len(bounded_text) < len(summary) and len(bounded_text) <= budget:
+                    summary = bounded_text
+        except Exception:  # noqa: BLE001 — 有界通道故障 fail-open，保留自由文本摘要
+            logger.debug("bounded_compaction fail-open（保留自由文本摘要）", exc_info=True)
 
     return CompressionResult(
         compressed_messages=[summary] + kept,

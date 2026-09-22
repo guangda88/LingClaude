@@ -27,7 +27,7 @@ CORE_ENGINE_WHITELIST = [
     "core/mcp_tools.py:158",
     "core/mcp_tools.py:159",
     "core/prior_verifier.py:128",
-    "core/tool_executor.py:179",
+    "core/tool_executor.py:187",
     "core/wiring.py:218",
     # --- P0-A 过渡态 ---
     "core/l5_audit.py:88",

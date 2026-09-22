@@ -34,3 +34,8 @@ defaults:
   spec_decision_value_threshold: 0.5
   spec_decision_score_threshold: 0.6
   claim_gate_threshold: 0.5
+  # 有界类型化压缩（NanoJev 契约消费层消费点⑧，context_compression.compress_messages 消费）：
+  # true 时被丢弃对话段走 bounded_compaction 有界类型化决策模式（声明字段/有界选项/
+  # 来源引用，纯本地提取 0 模型调用），无实质信号/故障回退自由文本摘要（fail-open）。
+  # 默认 false 保持原自由文本摘要路径零行为分叉。
+  bounded_compaction_enabled: false
