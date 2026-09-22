@@ -1375,3 +1375,56 @@ class TestToolbarStyle:
         # PT 包进 DynamicStyle 代理，但查询结果必须等于我们的规则
         got = s._session.app.style.get_attrs_for_style_str("class:green")
         assert got.color == "ansigreen"
+
+
+class TestCutoverGeneration:
+    """P2-13（Pi chord 双代热更）：蓝绿 cutover 语义测试。
+
+    不真 run 抢终端——candidate 用 fake（非 PT Application 走 verify 抛错路径）
+    或最小 stub Application；断言「失败回退旧代不动 / 成功切换 _app 替换」。
+    """
+
+    def _mk_session(self, tmp_path: Path) -> Any:
+        return FullTuiSession(history_file=str(tmp_path / "hist"))
+
+    def test_candidate_build_fail_keeps_old(self, _pt_available: None, tmp_path: Path) -> None:
+        """候选构建失败 → 返回 False，旧代 self._app 零扰动。"""
+        s = self._mk_session(tmp_path)
+        old_app = SimpleNamespace(exit=lambda: None)
+        s._app = old_app
+        ok = s.cutover_generation(build_new=lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+        assert ok is False
+        assert s._app is old_app  # 旧代未动
+
+    def test_candidate_verify_fail_keeps_old(self, _pt_available: None, tmp_path: Path) -> None:
+        """候选验证失败 → dispose 回退，旧代继续服务。"""
+        s = self._mk_session(tmp_path)
+        old_app = SimpleNamespace(exit=lambda: None)
+        s._app = old_app
+        candidate = SimpleNamespace(layout=None)  # 缺 layout → 缺省 verify 抛 ValueError
+        ok = s.cutover_generation(build_new=lambda: candidate)
+        assert ok is False
+        assert s._app is old_app
+
+    def test_candidate_verify_override_fail_keeps_old(self, _pt_available: None, tmp_path: Path) -> None:
+        """自定义 verify 抛异常 → 同样回退（verify 钩子语义）。"""
+        s = self._mk_session(tmp_path)
+        old_app = SimpleNamespace(exit=lambda: None)
+        s._app = old_app
+        cand = SimpleNamespace(layout=object())
+        def bad_verify(_c: Any) -> None:
+            raise AssertionError("not ready")
+        ok = s.cutover_generation(build_new=lambda: cand, verify=bad_verify)
+        assert ok is False
+        assert s._app is old_app
+
+    def test_cutover_success_swaps_app(self, _pt_available: None, tmp_path: Path) -> None:
+        """验证通过 → _app 替换为候选（冷 cutover：旧代未运行线程路径）。"""
+        s = self._mk_session(tmp_path)
+        s._running = False
+        s._app_thread = None  # 冷切换：无旧线程
+        cand = SimpleNamespace(layout=object(), exit=lambda: None)
+        ok = s.cutover_generation(build_new=lambda: cand,
+                                  verify=lambda c: None)  # 自定义 verify 放行
+        assert ok is True
+        assert s._app is cand

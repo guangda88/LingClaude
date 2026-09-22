@@ -6,6 +6,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,21 @@ class PermissionContext:
         if lowered in READ_ONLY_TOOLS:
             return (True, REASON_READ_ONLY)
 
+        # P0-2 接线（2026-09-22）：approval_matrix 上层裁决面。
+        # 门禁双通道：env LINGCLAUDE_APPROVAL_MATRIX=1 启用（默认关，零行为分叉）；
+        # 沙箱/策略档位可由 LINGCLAUDE_SANDBOX_MODE / LINGCLAUDE_APPROVAL_POLICY 覆盖。
+        # 裁决语义：asset/只读/auto 放行 → 采信；capability/policy 拒绝 → 静默拒；
+        # 需审批 → 落回下方 ask/strict 原语义（pending 落盘链路不绕开）。
+        matrix = _get_approval_matrix()
+        if matrix is not None:
+            v = matrix.decide(lowered)
+            if v.allowed:
+                return (True, v.reason)
+            if v.reason in (REASON_NEED_APPROVAL, REASON_PENDING):
+                pass  # 需审批 → 走原 ask/strict 语义（pending 落盘链路不绕开）
+            else:
+                return (False, v.reason)
+
         if self.mode == "auto":
             return (True, REASON_AUTO)
 
@@ -225,6 +241,43 @@ _PERSIST_PATH = Path(__file__).resolve().parent.parent / "data" / "approvals.jso
 _PERSISTED_TOOLS: set[str] = set()
 # T1-2: 全局 permission mode — auto/ask/strict（webUI 可读可设，落同一 JSON）
 _GLOBAL_MODE: str = "ask"
+
+# P0-2 接线（2026-09-22）：approval_matrix 裁决面单例（env 门禁，默认关）。
+_APPROVAL_MATRIX_SINGLETON: Any | None = None
+
+
+def _get_approval_matrix() -> Any | None:
+    """P0-2 接线（2026-09-22）：approval_matrix 裁决面获取（env 门禁，默认关）。
+
+    env LINGCLAUDE_APPROVAL_MATRIX=1 时构建单例矩阵（档位可由
+    LINGCLAUDE_SANDBOX_MODE / LINGCLAUDE_APPROVAL_POLICY 覆盖，资产读
+    approvals.json always_allow）；未启用/构建失败 → None（调用方走原语义）。
+    """
+    import os as _os
+    if _os.environ.get("LINGCLAUDE_APPROVAL_MATRIX", "") not in ("1", "true", "TRUE"):
+        return None
+    global _APPROVAL_MATRIX_SINGLETON
+    if _APPROVAL_MATRIX_SINGLETON is not None:
+        return _APPROVAL_MATRIX_SINGLETON
+    try:
+        from lingclaude.core.approval_matrix import (
+            ApprovalMatrix, ApprovalPolicy, SandboxMode,
+        )
+        sandbox = SandboxMode(
+            _os.environ.get("LINGCLAUDE_SANDBOX_MODE", SandboxMode.WORKSPACE_WRITE.value)
+        )
+        policy = ApprovalPolicy(
+            _os.environ.get("LINGCLAUDE_APPROVAL_POLICY", ApprovalPolicy.ON_FAILURE.value)
+        )
+        matrix = ApprovalMatrix(
+            sandbox=sandbox, policy=policy,
+            always_allow=ApprovalMatrix.load_assets(),
+        )
+        _APPROVAL_MATRIX_SINGLETON = matrix
+        return matrix
+    except Exception:  # noqa: BLE001 — 矩阵不可用 → 原语义（fail-soft）
+        logger.debug("approval_matrix 构建失败，走原 check_action 语义", exc_info=True)
+        return None
 # 2026-09-22: 跨进程热更 —— 盘上 approvals.json 被外部进程（API server / 手改）
 # 写入后，本进程经 _maybe_reload_mode 在下一次 get_permission_mode 时自动捡起。
 # mtime 节流：每秒 toolbar 快照调用也只 stat 一次，值变才解析 JSON（µs 级开销）。

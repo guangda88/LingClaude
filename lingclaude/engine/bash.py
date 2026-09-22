@@ -184,6 +184,39 @@ class BashExecutor:
         self.sandbox_policy = sandbox_policy
         # 2026-09-12（codex 审计 P0-3）：降级显式化标记（每命令执行前复位）
         self._last_degraded = False
+        # P1-6 接线（2026-09-22）：session-owned 持久 shell（env 门禁，默认关）。
+        # env LINGCLAUDE_BASH_SESSION=1 时启用——同 executor 实例的多条命令
+        # 复用同一持久 bash（cwd/env/shell 函数保持，DSH 语义）；沙箱包裹
+        # 命令不走此通道（bwrap 与持久 shell 不兼容，仍走原 subprocess 路径）。
+        # 已知限制（2026-09-22 实测）：本机 bwrap 全量包裹时此通道不可达——
+        # 沙箱优先是有意设计（安全>便利）；持久 shell 收益在 bwrap 缺席或
+        # 未来"状态性命令白名单绕沙箱"扩展后兑现。探针：强制非沙箱路径
+        # env 保持 OK（BAR=ok42）。
+        self._shell_session: Any | None = None
+        self._shell_session_ok: bool = (
+            os.environ.get("LINGCLAUDE_BASH_SESSION", "") in ("1", "true", "TRUE")
+        )
+
+    def _shell_exec(self, command: str, effective_timeout: int) -> "BashResult | None":
+        """持久 shell 执行通道（P1-6 接线）。不可用/失败返回 None（调用方回退原路径）。"""
+        if not self._shell_session_ok:
+            return None
+        try:
+            from lingclaude.engine.bash_session import BashSession
+            if self._shell_session is None:
+                self._shell_session = BashSession(
+                    session_id=f"bash-{id(self)}", working_dir=self.working_dir,
+                    timeout=effective_timeout,
+                )
+            r = self._shell_session.execute(command, timeout=effective_timeout)
+        except Exception:  # noqa: BLE001 — 持久 shell 任何故障回退原路径
+            logging.getLogger(__name__).debug(
+                "bash_session 执行失败，回退 subprocess 路径", exc_info=True)
+            return None
+        return BashResult(
+            exit_code=r.exit_code, stdout=r.stdout, stderr="",
+            duration=r.duration, command=command, degraded=False,
+        )
 
     def run(self, command: str, timeout: int | None = None) -> BashResult:
         effective_timeout = timeout or self.timeout
@@ -208,7 +241,12 @@ class BashExecutor:
                 # 内层命令的引号/命令替换（P1-1 审计修复）
                 result = self._run_subprocess(cmd, command, effective_timeout, shell=True)
             else:
-                # 无 bwrap：显式使用 bash 而非 sh（dash），避免 bash 语法兼容问题
+                # P1-6 接线：持久 shell 通道（env 门禁启用时优先；沙箱命令不走此路）。
+                # 返回 None（未启用/故障）→ 回退原 subprocess 路径，行为零分叉。
+                sh = self._shell_exec(command, effective_timeout)
+                if sh is not None:
+                    return sh
+                # 无 bwrap：显式使用 bash 而非 sh（dash），不支持数组、() 等语法
                 # shell=True 默认用 /bin/sh（本环境是 dash），不支持数组、() 等语法
                 result = self._run_subprocess(["/bin/bash", "-c", cmd], command, effective_timeout)
             duration = time.monotonic() - start

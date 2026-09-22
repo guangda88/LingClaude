@@ -59,6 +59,13 @@ def _detect_provider(cfg: ModelConfig) -> str:
 
 
 def _get_env_key(provider: str) -> str:
+    # P1-7 接线（2026-09-22）：credential_pool 优先（env 门禁，默认关）。
+    # env LINGCLAUDE_CREDENTIAL_POOL=1 时先从池取 key（LRU 轮转，跳过熔断账号）；
+    # 池空/未配置该 provider → 落回原 env/key_store 链（行为零分叉）。
+    if os.environ.get("LINGCLAUDE_CREDENTIAL_POOL", "") in ("1", "true", "TRUE"):
+        pool_key = _pool_get_key(provider)
+        if pool_key:
+            return pool_key
     if provider == "openai":
         return (
             os.environ.get("OPENAI_API_KEY", "")
@@ -89,3 +96,34 @@ def _key_store_get(key_name: str) -> str:
         return get_key(key_name) or ""
     except (ImportError, ModuleNotFoundError, AttributeError):
         return ""
+
+
+# P1-7 接线（2026-09-22）：credential_pool 进程级单例与取 key 助手。
+_CREDENTIAL_POOL: Any | None = None
+
+
+def _pool_get_key(provider: str) -> str:
+    """从凭据池取该 provider 的下一个可用 key（LRU，跳过熔断账号）。
+
+    池未建/该 provider 无账号/全部熔断 → 空串（调用方落回 env/key_store 链）。
+    """
+    global _CREDENTIAL_POOL
+    try:
+        from lingclaude.model.credential_pool import CredentialPool
+        if _CREDENTIAL_POOL is None:
+            _CREDENTIAL_POOL = CredentialPool.from_env()
+        if _CREDENTIAL_POOL is None:
+            return ""
+        return _CREDENTIAL_POOL.next_key(provider) or ""
+    except Exception:  # noqa: BLE001 — 池不可用 → 空 key 落回原链
+        return ""
+
+
+def _pool_record_exhausted(provider: str, api_key: str) -> None:
+    """配额耗尽上报（供 provider 调用失败侧调用；池未启用时静默）。"""
+    if _CREDENTIAL_POOL is None:
+        return
+    try:
+        _CREDENTIAL_POOL.record_exhausted(provider, api_key)
+    except Exception:  # noqa: BLE001 — 上报失败不影响主流程
+        pass

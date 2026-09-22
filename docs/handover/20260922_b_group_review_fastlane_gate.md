@@ -55,3 +55,16 @@
 - B2 门控阈值/薄弱域清单有新质量数据支持放宽；
 - fan_out_questions.yaml 换用非 $ref 的精调问题集提升 verdict 存活率；
 - FanOutScheduler（enable=True）上线后 fast lane 作为其 pre_classifier 有明确消费方（届时收益=投机分支命中，另行测）。
+
+## 五、四条接线 + P2 两项收口（2026-09-22 会话，全 env 门禁默认关·零行为分叉）
+
+| 项 | 接线点 | 门禁/通道 | 验证 |
+|----|--------|----------|------|
+| ① approval_matrix→裁决链 | permissions.check_action 消费矩阵（asset 放行/能力策略拒/需审批落回原语义） | env LINGCLAUDE_APPROVAL_MATRIX=1，档位 LINGCLAUDE_SANDBOX_MODE/APPROVAL_POLICY | 探针 5 场景全符合（默认关 pending、on_failure 放、granular pending、资产命中放、deny 硬拒不破） |
+| ② worktree→agent_batch | proj_agent_gateway agent_batch 每 agent cwd 升级独立 worktree（非 git/失败降级 scratch） | env LINGCLAUDE_AGENT_WORKTREE=1 | AST+模块加载 OK，返回 JSON 带 worktree 字段 |
+| ③ BashSession→engine | BashExecutor._shell_exec 持久 shell 通道（沙箱命令不走此路） | env LINGCLAUDE_BASH_SESSION=1 | env/cwd 保持实测 OK；已知限制：本机 bwrap 全量包裹时通道不可达（沙箱优先，有意设计，注释已标） |
+| ④ credential_pool→factory | _get_env_key 池优先（LRU+熔断），CredentialPool.from_env 新增装配 | env LINGCLAUDE_CREDENTIAL_POOL=1 + LINGCLAUDE_CREDENTIAL_POOL_KEYS=`prov:k1,k2;...` | 探针 3/3（轮转 kA,kB,kA / 熔断跳过 / 默认关回退） |
+| P2-12 LSP 工具面 | 核实 f9b0102 已落地（engine/lsp_provider.py + tool_handlers/lsp_tools.py，tool_registration 已注册 7 命令），无需新做 | — | tests/test_lsp_tools.py 7 passed |
+| P2-13 TUI 双代热更 | 核实 full_tui.cutover_generation 蓝绿机制已存在，补测试闭环（此前零测试） | — | TestCutoverGeneration 4 passed（构建失败/验证失败/自定义 verify/成功切换） |
+
+统一回归：铁律守卫+full_tui+lsp+task_router 141 passed；bash 三件 53 passed；guard/p04 28 passed。全默认行为零分叉。
