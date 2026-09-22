@@ -287,7 +287,11 @@ def build_dynamic_system_suffix(
     try:
         from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
         kb = KnowledgeBase()
-        keyword = messages[-1][:50] if messages else ""
+        keyword = (
+            current_query or (messages[-1] if messages else "")
+        )[:50]  # F3-3: 检索信号源升级——优先当轮用户输入原文（current_query
+        # 由 _build_dynamic_suffix 传入）；messages[-1] 在多轮场景下常为注入的
+        # SYSTEM 动态后缀，LIKE 检索会漂移到无关规则。无 current_query 时回退旧行为。
         result = kb.search_rules(keyword=keyword, limit=5)
         if result.is_ok and result.data:
             rule_lines = [

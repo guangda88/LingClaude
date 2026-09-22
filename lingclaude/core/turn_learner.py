@@ -81,18 +81,48 @@ def record_turn_learnings(
             kb.close()
 
         if bm.corrections_received > 0:
+            # F3-2: corrections 流落库——「记错」之后必须留「改对」的账，
+            # 供 F0 指标（规则有效率）与未来证据挂钩消费；历史 corrections 恒 0
+            # 的缺口在此闭合（log_correction 此前全仓零调用）。
+            try:
+                from datetime import datetime as _dt
+
+                from lingclaude.core.data_flywheel import CorrectionEntry, DataFlywheel
+                from lingclaude.self_optimizer.experiments import ExperimentLedger
+
+                # F2 归因链：纠错发生时若存在 pending 实验单，即处于该参数
+                # 应用的观察窗内 → 携带 experiment_id 作为证据上下文
+                # （corrections.experiment_id 列，F5 证据挂钩的挂点）。
+                exp_id = ExperimentLedger().current_pending_id()
+                fw = DataFlywheel()
+                fw.log_correction(
+                    CorrectionEntry(
+                        original_error=f"turn_{turn_num}: {prompt[:60]}",
+                        correction=(
+                            f"user correction x{bm.corrections_received} "
+                            f"(session {session_id[:8]})"
+                        ),
+                        source="turn_learner",
+                        confidence=0.9,
+                        applied_at=_dt.now().isoformat(),
+                        experiment_id=exp_id,
+                    )
+                )
+                fw.close()
+            except Exception as e:
+                logger.warning("log_correction failed: %s", e)
             kb = KnowledgeBase()
             rule = LearnedRule(
-                id=f"correction_turn_{turn_num}_{session_id[:8]}",
-                name="用户纠正记录",
-                description=f"第{turn_num}轮用户纠正={bm.corrections_received}, query={prompt[:60]}",
+                id=f"correction_pattern_{session_id[:8]}",
+                name="用户纠正模式",
+                description=f"用户纠正累计={bm.corrections_received}, 最近 query={prompt[:60]}",
                 category=FeedbackCategory.BEST_PRACTICE,
                 pattern=Pattern(
                     context_keywords=("correction", prompt[:30]),
                     severity_distribution={"count": bm.corrections_received},
                 ),
                 tools=("behavior",),
-                frequency=1,
+                frequency=max(1, bm.corrections_received),
                 confidence=0.9,
                 quality_score=0.6,
                 status="active",
@@ -100,28 +130,8 @@ def record_turn_learnings(
             kb.add_rule(rule)
             kb.close()
 
-        if turn_num > 0 and turn_num % 5 == 0:
-            kb = KnowledgeBase()
-            rule = LearnedRule(
-                id=f"session_milestone_{turn_num}_{session_id[:8]}",
-                name=f"会话里程碑 #{turn_num}",
-                description=f"会话进行到第{turn_num}轮, 幻觉风险={bm.hallucination_risk:.0%}, 沮丧率={bm.frustration_rate:.0%}, 工具错误={bm.tool_error_count}",
-                category=FeedbackCategory.BEST_PRACTICE,
-                pattern=Pattern(
-                    context_keywords=("milestone", str(turn_num)),
-                    severity_distribution={
-                        "hallucination_risk": bm.hallucination_risk,
-                        "frustration_rate": bm.frustration_rate,
-                    },
-                ),
-                tools=("behavior", "meta_cognition"),
-                frequency=1,
-                confidence=0.6,
-                quality_score=0.5,
-                status="active",
-            )
-            kb.add_rule(rule)
-            kb.close()
+        # F3-2b: per-turn 里程碑占位规则已移除——纯轮次流水账（#N）不构成知识，
+        # 曾累计 ~5000 行噪声。轮次级指标由 DATALOG/T_SNAP 遥测快照承载（P0#1）。
 
     except Exception as e:
         logger.warning("知识库学习失败: %s", e)

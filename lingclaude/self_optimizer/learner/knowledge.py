@@ -74,10 +74,64 @@ class KnowledgeBase:
             self._conn = None
 
     def add_rule(self, rule: LearnedRule) -> Result[bool]:
+        """新增规则（F3-1 同名合并语义）。
+
+        - 同 id：先删后插（保持 P0#2 聚合器依赖的 upsert 语义，幂等不翻倍）
+        - 异 id 同名：合并进已有一行——frequency 累加、confidence/quality_score 取 max、
+          pattern_json 刷新为最新语境；description/created_at 保留首见记录。
+          治理目标：终结「同一条经验 N 万行」的写入膨胀（历史 20392 行重复的根因）。
+        """
         try:
             conn = self._get_connection()
             cursor = conn.cursor()
             now = datetime.now().isoformat()
+
+            pattern_json = json.dumps(
+                {
+                    "file_patterns": rule.pattern.file_patterns,
+                    "code_patterns": rule.pattern.code_patterns,
+                    "context_keywords": rule.pattern.context_keywords,
+                    "severity_distribution": rule.pattern.severity_distribution,
+                    "tool_support": rule.pattern.tool_support,
+                }
+            )
+
+            cursor.execute("SELECT id FROM rules WHERE id = ?", (rule.id,))
+            row = cursor.fetchone()
+            if row is not None:
+                # 同 id：upsert（先删后插，等价旧 INSERT OR REPLACE）
+                cursor.execute("DELETE FROM rules WHERE id = ?", (rule.id,))
+            else:
+                # 异 id 同名：合并（F3-1 核心——不再新增行）
+                cursor.execute(
+                    "SELECT id FROM rules WHERE name = ? LIMIT 1", (rule.name,)
+                )
+                row = cursor.fetchone()
+                if row is not None:
+                    existing_id = row[0]
+                    cursor.execute(
+                        """
+                        UPDATE rules SET
+                            frequency = frequency + ?,
+                            confidence = MAX(confidence, ?),
+                            quality_score = MAX(quality_score, ?),
+                            pattern_json = ?,
+                            status = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            max(1, rule.frequency),
+                            rule.confidence,
+                            rule.quality_score,
+                            pattern_json,
+                            rule.status,
+                            now,
+                            existing_id,
+                        ),
+                    )
+                    safe_commit(conn)
+                    return Result.ok(True)
 
             cursor.execute(
                 """
@@ -93,15 +147,7 @@ class KnowledgeBase:
                     rule.name,
                     rule.description,
                     rule.category.value,
-                    json.dumps(
-                        {
-                            "file_patterns": rule.pattern.file_patterns,
-                            "code_patterns": rule.pattern.code_patterns,
-                            "context_keywords": rule.pattern.context_keywords,
-                            "severity_distribution": rule.pattern.severity_distribution,
-                            "tool_support": rule.pattern.tool_support,
-                        }
-                    ),
+                    pattern_json,
                     json.dumps(rule.tools),
                     rule.frequency,
                     rule.confidence,
