@@ -1,0 +1,122 @@
+{
+  "as_of": "2026-09-22",
+  "device": "cpu",
+  "method": "warmup3+median-of-3+thread-sweep",
+  "baseline_T4_ms_single_q": 33,
+  "checkpoints": {
+    "english": {
+      "1": {
+        "median_single_q_ms": 716.3,
+        "full_preset_ms": [
+          4926.4,
+          4496.9,
+          4193.8,
+          4454.7
+        ]
+      },
+      "2": {
+        "median_single_q_ms": 444.3,
+        "full_preset_ms": [
+          2751.3,
+          2395.7,
+          2354.5,
+          2592.8
+        ]
+      },
+      "4": {
+        "median_single_q_ms": 428.4,
+        "full_preset_ms": [
+          2668.9,
+          2530.7,
+          2510.9,
+          2505.5
+        ]
+      },
+      "8": {
+        "median_single_q_ms": 2536.0,
+        "full_preset_ms": [
+          5192.1,
+          6090.1,
+          5108.1,
+          5205.0
+        ]
+      }
+    },
+    "multilingual": {
+      "1": {
+        "median_single_q_ms": 233.7,
+        "full_preset_ms": [
+          1696.1,
+          1561.5,
+          1508.9,
+          1684.4
+        ]
+      },
+      "2": {
+        "median_single_q_ms": 151.4,
+        "full_preset_ms": [
+          987.6,
+          920.2,
+          854.8,
+          897.2
+        ]
+      },
+      "4": {
+        "median_single_q_ms": 164.4,
+        "full_preset_ms": [
+          938.4,
+          891.9,
+          829.1,
+          878.2
+        ]
+      },
+      "8": {
+        "median_single_q_ms": 1309.2,
+        "full_preset_ms": [
+          2818.0,
+          1660.2,
+          2677.3,
+          3128.0
+        ]
+      }
+    },
+    "typed-decisions": {
+      "1": {
+        "median_single_q_ms": 781.0,
+        "full_preset_ms": [
+          4915.5,
+          4523.9,
+          4098.9,
+          4673.3
+        ]
+      },
+      "2": {
+        "median_single_q_ms": 463.4,
+        "full_preset_ms": [
+          2802.2,
+          2611.8,
+          2488.0,
+          2527.2
+        ]
+      },
+      "4": {
+        "median_single_q_ms": 430.3,
+        "full_preset_ms": [
+          2674.1,
+          2349.2,
+          2322.5,
+          2742.8
+        ]
+      },
+      "8": {
+        "median_single_q_ms": 1960.7,
+        "full_preset_ms": [
+          5815.8,
+          5460.7,
+          5367.2,
+          5381.1
+        ]
+      }
+    }
+  }
+}
