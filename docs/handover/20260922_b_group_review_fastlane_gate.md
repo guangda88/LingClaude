@@ -31,3 +31,27 @@
 - `task_router.py resolve()` 门禁双通道：env `LINGCLAUDE_LAYA_FAST_LANE=1` 强制开（最高优先级）> 策略文件热开关
 - 探针验证三场景：off 不引入 fast_lane 模块 / env=1 强制开（模块被加载）/ policy_get 抛异常 fail-closed
 - 回归：test_task_router + 铁律守卫 30 passed
+
+## 四、实机会话验证（2026-09-22 会话补测，翻默认开裁定依据）
+
+双配置批量探针（20 条混合 prompt，干净 import 对照）：
+
+| 指标 | gate off | gate on (env=1) |
+|------|----------|-----------------|
+| 稳态 avg | 45.6ms | 64.8ms（**+19.2ms/次**） |
+| 首调 | 630ms | 951ms（+321ms，Laya 单例懒加载） |
+| 分类决策差异 | — | **0/20** |
+
+定向收益用例（盲区修正/难度提升 4 条：费马大定理、kafka vs rabbitmq、需求文档模板、用药咨询）：on/off 对照 **0 差异**。
+
+归因：fast_route 全链经 B2 门控（confidence<0.3 回退、factual_lookup 薄弱域回退、NOT_GOOD_AT 代码/长文回退、difficulty 无 score 保守放行但 verdict 普遍 None）后，测试分布上 verdict→None，domain/difficulty 修正未实际生效。
+
+**裁定：维持默认关**（fast_lane_enabled: false 不动）。理由：
+1. 收益未兑现——20+4 条实测 0 决策修正，B2 门控在常规 prompt 分布上过滤掉了几乎全部判定；
+2. 开销为正——稳态 +19ms/次、首调 +321ms，纯付无收；
+3. 保留通道完好——env `LINGCLAUDE_LAYA_FAST_LANE=1` 可随时强制开，翻默认仅改 yaml 一行且热更。
+
+**复评条件**（满足其一可重测）：
+- B2 门控阈值/薄弱域清单有新质量数据支持放宽；
+- fan_out_questions.yaml 换用非 $ref 的精调问题集提升 verdict 存活率；
+- FanOutScheduler（enable=True）上线后 fast lane 作为其 pre_classifier 有明确消费方（届时收益=投机分支命中，另行测）。
