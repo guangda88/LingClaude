@@ -22,6 +22,7 @@ from lingclaude.core.config import load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.ops.rss_watchdog import check_rss_watchdog, sample_rss_mb
 from lingclaude.self_optimizer.daemon import OptimizationDaemon
+import json
 
 if TYPE_CHECKING:
     from lingclaude.core.config import lingclaudeConfig
@@ -193,7 +194,6 @@ def _headless_turn(engine: QueryEngine, prompt: str, *, as_json: bool = False) -
     复用引擎驱动逻辑（stream_call_model 事件流），但砍掉所有 UI 装饰——
     这是 headless 与交互模式共享同一循环实例（第 0 步 seam 接口化的直接收益）。
     """
-    import json as _json
 
     response_content = ""
     stream_error = False

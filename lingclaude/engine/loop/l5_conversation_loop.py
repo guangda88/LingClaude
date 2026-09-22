@@ -23,6 +23,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -245,7 +246,6 @@ class L5ConversationLoop:
 
     def _parse_audit(self, response: str) -> tuple[float, list[str]]:
         """解析审计结果，提取consistency_score和inconsistencies"""
-        import json
 
         try:
             match = re.search(r'\{[^}]+\}', response, re.DOTALL)

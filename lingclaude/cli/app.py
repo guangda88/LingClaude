@@ -82,6 +82,9 @@ from lingclaude.cli.repl_io import get_output_format, set_output_format  # noqa:
 from lingclaude.cli.repl_turn import (  # noqa: E402,F401
     start_bus_responder_background as _start_bus_responder_background,
 )
+import http.server
+import io
+import socketserver
 
 
 
@@ -419,8 +422,6 @@ def _cmd_app_server(args: argparse.Namespace) -> int:
     - `stream(prompt)` → NDJSON 事件流（text_delta/tool_call_start/.../done）
     - `health()` → `{ok, session_id, model}`（族级探活面，SDT-lc-002 可直接消费）
     """
-    import json as _json
-    import sys as _sys
 
     from lingclaude.core.query_engine import QueryEngine
 
@@ -429,7 +430,6 @@ def _cmd_app_server(args: argparse.Namespace) -> int:
     def _do_run(params: dict) -> dict:
         prompt = params.get("prompt", "")
         from lingclaude.cli.repl_turn import _headless_turn
-        import io
         buf = io.StringIO()
         _old_stdout = _sys.stdout
         _sys.stdout = buf
@@ -471,8 +471,6 @@ def _cmd_app_server(args: argparse.Namespace) -> int:
         return 0
 
     # HTTP 传输（默认）：极简 JSON-RPC over HTTP POST（单端点 /rpc）
-    import http.server
-    import socketserver
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:

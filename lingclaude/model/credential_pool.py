@@ -33,6 +33,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,26 @@ class CredentialPool:
         self._cursor: dict[str, int] = {}
 
     # ── 装配 ──
+
+    @classmethod
+    def from_env(cls) -> "CredentialPool":
+        """从环境装配凭据池（P1-7 接线，2026-09-22）。
+
+        env LINGCLAUDE_CREDENTIAL_POOL_KEYS 格式：`provider:key1,key2;other:key3`
+        （分号分 provider，逗号分账号）。env 未设/解析为空 → 返回空池（调用方
+        next_key 返回 None，落回 env/key_store 链，行为零分叉）。
+        """
+        pool = cls()
+        raw = os.environ.get("LINGCLAUDE_CREDENTIAL_POOL_KEYS", "")
+        for part in raw.split(";"):
+            part = part.strip()
+            if not part or ":" not in part:
+                continue
+            provider, _, keys = part.partition(":")
+            api_keys = [k.strip() for k in keys.split(",") if k.strip()]
+            if provider and api_keys:
+                pool.add_accounts(provider.strip(), api_keys)
+        return pool
 
     def add_accounts(
         self,

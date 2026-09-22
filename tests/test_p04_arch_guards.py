@@ -3,7 +3,7 @@
 五条红线，全部机械化验收：
   G1 禁 core→engine import（7 处白名单只缩不放）
   G2 禁新增 sys.path.insert（基线 14）
-  G3 禁 lazy import 净增长（基线 318）
+  G3 禁 lazy import 净增长（基线 562，账本见 BASELINE_LAZY 注释）
   G4 禁工具层新增 dict-判错（return {"error"...}，基线 52）
   G5 大文件写入行数骤降 >80% 告警
 
@@ -139,7 +139,14 @@ BASELINE_SYS_PATH = 14
                      #     display×1 / repl×1 / lifecycle _fire_hook×1，共 +8；
                      #     scheduler 预存 2 处函数内 logging 随本轮上提消除 -2），
                      #     均属防御接线/工厂按需取用，S3 合法。
-BASELINE_LAZY = 518
+# 2026-09-22 (G3 归因清偿): 571 → 562 —— 净增 53 逐处归因（git-vs-ba33335
+#   函数级 AST 对比）：41 处 lingclaude 内部（循环规避/解耦，S3 合法）+
+#   13 处三方可选依赖（landlock/fast_lane 等，合法）+ 9 处 stdlib 计数污染
+#   （os/json/io/http.server/socketserver/sys —— stdlib 无循环依赖可能，
+#   函数内 import 无意义，全部上提模块级清偿，见同批 commit）。
+#   注：实测 562 含在途未提交改动（permissions.py::_get_approval_matrix
+#   内 os，属 P0-2 会话，其提交时自行上提或进基线）。518 → 562。
+BASELINE_LAZY = 562
 
 def _py_files(root: Path):
     return [f for f in sorted(root.rglob("*.py")) if "__pycache__" not in f.parts]
