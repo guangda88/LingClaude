@@ -362,7 +362,12 @@ def test_read_fastpath_allowed_reads_cache():
     te = ToolExecutor(eng)
     tr = te._execute_tool_typed("read", json.dumps({"path": "/etc/ok.txt"}))
     assert tr.is_ok
-    assert tr.data == {"content": "content-abc", "cache_hit": True}
+    # 2026-09-23 起（c3102e1 消费点⑨ + 9790999 spec_decision 默认开），read 快路径
+    # 结果附带 success_verdict 元数据。断言只钉核心两键 + verdict 存在，
+    # 不对 verdict 内部结构过度耦合（noul_fallback 兜底实现可能演进）。
+    assert tr.data["content"] == "content-abc"
+    assert tr.data["cache_hit"] is True
+    assert "success_verdict" in tr.data
     assert calls == ["/etc/ok.txt"]
 
 
