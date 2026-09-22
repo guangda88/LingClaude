@@ -1,0 +1,123 @@
+{
+  "day": "2026-09-20",
+  "generated_at": "2026-09-22T19:23:47",
+  "total_events": 983,
+  "bad_lines": 0,
+  "all_events": {
+    "model.call": 980,
+    "l5.audit.round": 1,
+    "t0.behavior.check": 1,
+    "tool.degradation.alert": 1
+  },
+  "models": {
+    "glm-5.3-flash": {
+      "calls": 845,
+      "latency_ms_avg": 35226.3,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    },
+    "agnes-3.0-flash": {
+      "calls": 1,
+      "latency_ms_avg": 15930.2,
+      "tokens_in": 13505,
+      "tokens_out": 35,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "free/auto": {
+      "calls": 1,
+      "latency_ms_avg": 6270.9,
+      "tokens_in": 10746,
+      "tokens_out": 122,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "deepseek-v4-flash": {
+      "calls": 2,
+      "latency_ms_avg": 1213.0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    },
+    "k3-256k": {
+      "calls": 80,
+      "latency_ms_avg": 13582.2,
+      "tokens_in": 319959,
+      "tokens_out": 8078,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o-2024-08-06": {
+      "calls": 1,
+      "latency_ms_avg": 0.0,
+      "tokens_in": 15,
+      "tokens_out": 8,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "waterfall": {
+      "calls": 1,
+      "latency_ms_avg": 0.2,
+      "tokens_in": 1,
+      "tokens_out": 1,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o": {
+      "calls": 3,
+      "latency_ms_avg": 0.1,
+      "tokens_in": 15,
+      "tokens_out": 9,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5.1": {
+      "calls": 4,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 20,
+      "tokens_out": 12,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5-turbo": {
+      "calls": 2,
+      "latency_ms_avg": 0.5,
+      "tokens_in": 10,
+      "tokens_out": 6,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "Kimi-K2.8-Preview": {
+      "calls": 30,
+      "latency_ms_avg": 16424.3,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    },
+    "kimi-k2-8-preview": {
+      "calls": 10,
+      "latency_ms_avg": 14413.5,
+      "tokens_in": 316383,
+      "tokens_out": 5653,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    }
+  },
+  "paths": {
+    "stream": 943,
+    "complete": 37
+  },
+  "signals": {
+    "t0:edit_verify:nudge": 1,
+    "t0:tool_repetition:pass": 1,
+    "degradation:tool_repeat": 1
+  },
+  "t0_nudges": 1,
+  "t0_blocks": 0,
+  "l5_rounds": 1,
+  "l5_consistency_avg": 0.95
+}

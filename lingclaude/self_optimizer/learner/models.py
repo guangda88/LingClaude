@@ -21,6 +21,10 @@ class FeedbackCategory(str, Enum):
     BEST_PRACTICE = "best_practice"
     BUG_RISK = "bug_risk"
     ARCHITECTURE = "architecture"
+    # 2026-09-22 P0#1：datalog 聚合快照专用类别（telemetry 数据非行为规则，
+    # 注入检索按 category 过滤天然隔离）。全仓唯一 isinstance 校验在
+    # rule_extractor.py:239，非穷举依赖，加成员安全。
+    TELEMETRY = "telemetry"
 
 
 class ToolType(str, Enum):

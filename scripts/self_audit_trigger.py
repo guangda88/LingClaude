@@ -44,7 +44,9 @@ SELF_FILES = [
     ".github/workflows/ci.yml",
 ]
 # 审外界：台账 record 类型（外部经 arch_ledger.py 或手改文件都会变 mtime/hash）
-LEDGER_TYPES = ["arch_debt", "arch_exemption"]
+# 2026-09-22 P0#1：纳入 arch_m6_snapshot——datalog_aggregator 写出新快照 =
+# fingerprint 变化 → 触发返审（diagnosis §D 新 P0#1 改动面第 2 点）
+LEDGER_TYPES = ["arch_debt", "arch_exemption", "arch_m6_snapshot"]
 
 
 def _store() -> StateStore:

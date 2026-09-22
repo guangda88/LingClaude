@@ -1,0 +1,91 @@
+{
+  "day": "2026-09-18",
+  "generated_at": "2026-09-22T19:23:47",
+  "total_events": 1416,
+  "bad_lines": 0,
+  "all_events": {
+    "model.call": 1383,
+    "l5.audit.round": 11,
+    "t0.behavior.check": 11,
+    "tool.degradation.alert": 11
+  },
+  "models": {
+    "glm-5.3-flash": {
+      "calls": 1232,
+      "latency_ms_avg": 22865.0,
+      "tokens_in": 40787951,
+      "tokens_out": 740369,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "deepseek-flash": {
+      "calls": 18,
+      "latency_ms_avg": 5382.0,
+      "tokens_in": 537862,
+      "tokens_out": 13801,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5.1": {
+      "calls": 12,
+      "latency_ms_avg": 1.9,
+      "tokens_in": 60,
+      "tokens_out": 36,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5-turbo": {
+      "calls": 6,
+      "latency_ms_avg": 1.4,
+      "tokens_in": 30,
+      "tokens_out": 18,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o": {
+      "calls": 13,
+      "latency_ms_avg": 0.9,
+      "tokens_in": 65,
+      "tokens_out": 39,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o-2024-08-06": {
+      "calls": 7,
+      "latency_ms_avg": 0.0,
+      "tokens_in": 105,
+      "tokens_out": 56,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "waterfall": {
+      "calls": 7,
+      "latency_ms_avg": 0.9,
+      "tokens_in": 7,
+      "tokens_out": 7,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "MiniMax-M2.7": {
+      "calls": 88,
+      "latency_ms_avg": 9591.7,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    }
+  },
+  "paths": {
+    "stream": 1338,
+    "complete": 45
+  },
+  "signals": {
+    "t0:edit_verify:nudge": 11,
+    "t0:tool_repetition:pass": 11,
+    "degradation:tool_repeat": 11
+  },
+  "t0_nudges": 11,
+  "t0_blocks": 0,
+  "l5_rounds": 11,
+  "l5_consistency_avg": 0.95
+}

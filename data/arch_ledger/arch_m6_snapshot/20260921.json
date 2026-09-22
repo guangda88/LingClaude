@@ -1,0 +1,115 @@
+{
+  "day": "2026-09-21",
+  "generated_at": "2026-09-22T19:23:47",
+  "total_events": 1646,
+  "bad_lines": 0,
+  "all_events": {
+    "model.call": 1629,
+    "l5.audit.round": 11,
+    "t0.behavior.check": 3,
+    "tool.degradation.alert": 3
+  },
+  "models": {
+    "glm-5.3-flash": {
+      "calls": 1487,
+      "latency_ms_avg": 29787.2,
+      "tokens_in": 27001369,
+      "tokens_out": 497718,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "Kimi-K2.8-Preview": {
+      "calls": 43,
+      "latency_ms_avg": 12819.8,
+      "tokens_in": 28090,
+      "tokens_out": 215,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "Kimi-K3": {
+      "calls": 42,
+      "latency_ms_avg": 17880.4,
+      "tokens_in": 634504,
+      "tokens_out": 5197,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5-3-flash": {
+      "calls": 4,
+      "latency_ms_avg": 6408.6,
+      "tokens_in": 103301,
+      "tokens_out": 561,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "kimi-k2-8-preview": {
+      "calls": 11,
+      "latency_ms_avg": 11119.0,
+      "tokens_in": 257410,
+      "tokens_out": 4775,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o-2024-08-06": {
+      "calls": 5,
+      "latency_ms_avg": 0.0,
+      "tokens_in": 75,
+      "tokens_out": 40,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "waterfall": {
+      "calls": 5,
+      "latency_ms_avg": 0.3,
+      "tokens_in": 5,
+      "tokens_out": 5,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o": {
+      "calls": 10,
+      "latency_ms_avg": 0.2,
+      "tokens_in": 50,
+      "tokens_out": 30,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5.1": {
+      "calls": 10,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 50,
+      "tokens_out": 30,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5-turbo": {
+      "calls": 5,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 25,
+      "tokens_out": 15,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "DeepSeek-V4-Flash": {
+      "calls": 7,
+      "latency_ms_avg": 21613.4,
+      "tokens_in": 268489,
+      "tokens_out": 7594,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    }
+  },
+  "paths": {
+    "stream": 1579,
+    "complete": 50
+  },
+  "signals": {
+    "t0:edit_verify:nudge": 3,
+    "t0:tool_repetition:pass": 3,
+    "degradation:tool_repeat": 3
+  },
+  "t0_nudges": 3,
+  "t0_blocks": 0,
+  "l5_rounds": 11,
+  "l5_consistency_avg": 0.95
+}

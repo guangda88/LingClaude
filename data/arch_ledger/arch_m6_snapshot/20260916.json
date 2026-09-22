@@ -1,0 +1,50 @@
+{
+  "day": "2026-09-16",
+  "generated_at": "2026-09-22T19:23:47",
+  "total_events": 17,
+  "bad_lines": 0,
+  "all_events": {
+    "l5.audit.round": 4,
+    "t0.behavior.check": 4,
+    "tool.degradation.alert": 4,
+    "model.call": 5
+  },
+  "models": {
+    "gpt-4o": {
+      "calls": 2,
+      "latency_ms_avg": 0.4,
+      "tokens_in": 10,
+      "tokens_out": 6,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5.1": {
+      "calls": 2,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 10,
+      "tokens_out": 6,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5-turbo": {
+      "calls": 1,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 5,
+      "tokens_out": 3,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    }
+  },
+  "paths": {
+    "complete": 5
+  },
+  "signals": {
+    "t0:edit_verify:nudge": 4,
+    "t0:tool_repetition:pass": 4,
+    "degradation:tool_repeat": 4
+  },
+  "t0_nudges": 4,
+  "t0_blocks": 0,
+  "l5_rounds": 4,
+  "l5_consistency_avg": 0.95
+}

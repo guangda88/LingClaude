@@ -1,0 +1,91 @@
+{
+  "day": "2026-09-17",
+  "generated_at": "2026-09-22T19:23:47",
+  "total_events": 1265,
+  "bad_lines": 0,
+  "all_events": {
+    "model.call": 1226,
+    "l5.audit.round": 13,
+    "t0.behavior.check": 13,
+    "tool.degradation.alert": 13
+  },
+  "models": {
+    "MiniMax-M2.7": {
+      "calls": 63,
+      "latency_ms_avg": 7191.1,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    },
+    "glm-5.3-flash": {
+      "calls": 1116,
+      "latency_ms_avg": 18675.8,
+      "tokens_in": 57141253,
+      "tokens_out": 563919,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o-2024-08-06": {
+      "calls": 6,
+      "latency_ms_avg": 0.0,
+      "tokens_in": 90,
+      "tokens_out": 48,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "waterfall": {
+      "calls": 6,
+      "latency_ms_avg": 0.5,
+      "tokens_in": 6,
+      "tokens_out": 6,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o": {
+      "calls": 11,
+      "latency_ms_avg": 0.2,
+      "tokens_in": 55,
+      "tokens_out": 33,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5.1": {
+      "calls": 10,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 50,
+      "tokens_out": 30,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5-turbo": {
+      "calls": 5,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 25,
+      "tokens_out": 15,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "deepseek-flash": {
+      "calls": 9,
+      "latency_ms_avg": 20448.4,
+      "tokens_in": 304099,
+      "tokens_out": 9311,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    }
+  },
+  "paths": {
+    "stream": 1188,
+    "complete": 38
+  },
+  "signals": {
+    "t0:edit_verify:nudge": 13,
+    "t0:tool_repetition:pass": 13,
+    "degradation:tool_repeat": 13
+  },
+  "t0_nudges": 13,
+  "t0_blocks": 0,
+  "l5_rounds": 13,
+  "l5_consistency_avg": 0.95
+}

@@ -1,5 +1,5 @@
 {
-  "head": "3aa4cd0",
+  "head": "1db1387",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "262d9e28230f",
     "tests/test_iron_law_guards.py": "5c177c8cdfb5",
@@ -17,6 +17,7 @@
     "arch_debt:candzone-j5-efficiency-arbitration": "b0e8fac0171f",
     "arch_debt:cap-crew-lingflow-deferred": "9c9854936dc2",
     "arch_debt:core-l7-classifier-circular-import": "34f965757e66",
+    "arch_debt:fastlane-dead-plugin-review": "2525848127e4",
     "arch_debt:governance-export-view-j4-migration": "accd07c3e3be",
     "arch_debt:governance-v2-proposals-j4-migration": "7a7c33a8e775",
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
@@ -79,13 +80,13 @@
     "arch_exemption:lm_quick.py": "447bf40094aa",
     "arch_exemption:loop_seam.py": "796318bd54da",
     "arch_exemption:manifest_lock.py": "026b4e1c1bfe",
-    "arch_exemption:mcp_tools.py": "8abaca4b1895",
+    "arch_exemption:mcp_tools.py": "142d0a29ee80",
     "arch_exemption:memory_engine.py": "41ca0b81ef1b",
     "arch_exemption:message_builder.py": "cd311fb000c5",
     "arch_exemption:meta_cognition.py": "2d68240c54eb",
     "arch_exemption:metrics.py": "3117e93fbaec",
     "arch_exemption:model_adapter.py": "22bac192392c",
-    "arch_exemption:model_call.py": "960e6d30dec7",
+    "arch_exemption:model_call.py": "ac32bd4da215",
     "arch_exemption:model_request_log.py": "fd431aa6cc99",
     "arch_exemption:model_types.py": "e2d78b6a3de4",
     "arch_exemption:models.py": "10a5a9bae009",
@@ -131,7 +132,14 @@
     "arch_exemption:types.py": "c76021cb409c",
     "arch_exemption:wakeup_channel.py": "edf4f812a90c",
     "arch_exemption:wiring.py": "e1e39bf6cc32",
-    "arch_exemption:worktree.py": "9f48db0097d5"
+    "arch_exemption:worktree.py": "9f48db0097d5",
+    "arch_m6_snapshot:20260916": "2cba3fff542d",
+    "arch_m6_snapshot:20260917": "decee6ca7066",
+    "arch_m6_snapshot:20260918": "d54148873bb0",
+    "arch_m6_snapshot:20260919": "83131152a475",
+    "arch_m6_snapshot:20260920": "100c210a04b6",
+    "arch_m6_snapshot:20260921": "5084006e784c",
+    "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-22T02:55:47+00:00"
+  "checked": "2026-09-22T11:51:58+00:00"
 }

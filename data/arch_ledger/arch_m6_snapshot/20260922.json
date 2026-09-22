@@ -1,0 +1,107 @@
+{
+  "day": "2026-09-22",
+  "generated_at": "2026-09-22T19:24:28",
+  "total_events": 1669,
+  "bad_lines": 0,
+  "all_events": {
+    "model.call": 1648,
+    "l5.audit.round": 7,
+    "t0.behavior.check": 7,
+    "tool.degradation.alert": 7
+  },
+  "models": {
+    "glm-5.3-flash": {
+      "calls": 1313,
+      "latency_ms_avg": 22682.0,
+      "tokens_in": 43091099,
+      "tokens_out": 1017389,
+      "tokens_cached": 7297856,
+      "cached_pct": 0.1448
+    },
+    "gpt-4o-2024-08-06": {
+      "calls": 11,
+      "latency_ms_avg": 0.0,
+      "tokens_in": 165,
+      "tokens_out": 88,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "waterfall": {
+      "calls": 11,
+      "latency_ms_avg": 0.3,
+      "tokens_in": 11,
+      "tokens_out": 11,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "gpt-4o": {
+      "calls": 19,
+      "latency_ms_avg": 0.2,
+      "tokens_in": 95,
+      "tokens_out": 57,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5.1": {
+      "calls": 17,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 85,
+      "tokens_out": 51,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5-turbo": {
+      "calls": 9,
+      "latency_ms_avg": 0.6,
+      "tokens_in": 45,
+      "tokens_out": 27,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "DeepSeek-V4-Flash": {
+      "calls": 50,
+      "latency_ms_avg": 5942.5,
+      "tokens_in": 1183339,
+      "tokens_out": 16273,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "Kimi-K2.8-Preview": {
+      "calls": 177,
+      "latency_ms_avg": 6740.7,
+      "tokens_in": 6107867,
+      "tokens_out": 38883,
+      "tokens_cached": 477696,
+      "cached_pct": 0.0725
+    },
+    "Kimi-K3": {
+      "calls": 22,
+      "latency_ms_avg": 16647.8,
+      "tokens_in": 310568,
+      "tokens_out": 9355,
+      "tokens_cached": 68096,
+      "cached_pct": 0.1798
+    },
+    "glm5.3-flash": {
+      "calls": 19,
+      "latency_ms_avg": 22.0,
+      "tokens_in": 7300,
+      "tokens_out": 290,
+      "tokens_cached": 4400,
+      "cached_pct": 0.3761
+    }
+  },
+  "paths": {
+    "stream": 1577,
+    "complete": 71
+  },
+  "signals": {
+    "t0:edit_verify:nudge": 7,
+    "t0:tool_repetition:pass": 7,
+    "degradation:tool_repeat": 7
+  },
+  "t0_nudges": 7,
+  "t0_blocks": 0,
+  "l5_rounds": 7,
+  "l5_consistency_avg": 0.95
+}

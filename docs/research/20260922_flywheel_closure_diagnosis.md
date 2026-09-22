@@ -364,3 +364,104 @@ codex **全部认可**，且同意"均为纯数据流、不依赖循环纯化、
 - 灵克 M3（verify_ledger 证据挂钩 conf 上限 0.9/0.6）→ **codex 未覆盖的增量，
   保留为 F5 候选**（与灵克验证台账纪律同构）
 - 执行序：F0 → 原 P0#1/#2（并行）→ F1 → F3 → F2 → F4（→F5 候选）
+
+---
+
+## M. 最终修订版（综合汇总，2026-09-22）
+
+> 本节为**最终执行依据**，综合 §A–§L 全部结论 + 灵克审计报告
+> `docs/audit/20260922_self_optimize_loop_audit.md` + opencode 方案增量文档
+> `docs/research/20260922_flywheel_opencode_proposal_delta.md`。
+> 与前面各节冲突处，**以本节为准**；§A–§L 保留为论证过程与证据溯源。
+
+### M.1 诊断终论（一句话）
+
+飞轮**不是没装，是三条齿轮各自空转、互不咬合、无质量闸**：
+
+| 齿轮 | 状态 | 核心病灶 |
+|---|---|---|
+| 写路径（学习） | ✅ 在转但失禁 | 同名规则无限新增（「工具错误记录」占位名重复 20392 次/占 76%）；datalog 每天 ~300 KB 无人读 |
+| 读路径（注入） | ✅ 在转但失效 | 拿「末条消息前 50 字符」当关键词检索，召回基本是占位噪声 |
+| 优化路径（daemon） | ✅ 在转但空转 | `_build_search_space` 里**没有一项是被控对象**——Goodhart 内建，产出报告不闭环 |
+| 提炼层 | ❌ 死代码 | `RuleExtractor` 全仓无运行期消费方 |
+
+净效果 ≈ 0。证据分级沿用：✅实测 / 🟡推测 / 🔴幻觉（§H）。
+
+### M.2 执行序（最终）
+
+```
+F0 可观测（纯加法零风险，先行）
+   ↓
+原 P0#1 ∥ 原 P0#2（并行，各 1 天）
+   ↓
+F1 换目标函数（核心根因修复）
+   ↓
+F3 学习回路固化（可与 F1 并行；灵克 M0/M1 并入）
+   ↓
+F2 接归因链（experiment_id 贯穿 → accept/rollback 结算，依赖 F1）
+   ↓
+F4 daemon 值守与批准队列（纪律动作）
+   ↓
+F5 候选（verify_ledger 证据挂钩 conf 上限 0.9/0.6，灵克 M3 增量）
+```
+
+### M.3 各步定义（最终版）
+
+| 步骤 | 内容 | 量 | 出处 |
+|---|---|---|---|
+| **F0** | `self_optimizer/flywheel_health.py`，四指标：规则召回命中率 / 规则有效率 / 参数应用率 / rollback 率。无 F0 四指标，后续改动无法 H17 闭环申报 | 纯加法零风险 | §J-F0 |
+| **P0#1** | `scripts/datalog_aggregator.py` → 产 `m6_snapshot` → 接 `self_audit_trigger.py:47`。**堵住最大隐藏 sink**（每天 300 KB 沉没） | 1 天 | §D-P0#1 |
+| **P0#2** | `scripts/flywheel_aggregator.py`：DataFlywheel top-N patterns → KB 跨会话规则（`flywheel_pattern_` 前缀）。**接通 RuleExtractor / `get_recurring_errors` 两个零调用点** | 1 天 | §D-P0#2 |
+| **F1** | optimizer 搜索空间从「审计阈值」→「`core/policies/*.yaml` 行为参数」；结构题降级为参考信号。修回写治不了，必须换尺子 | 根因 | §J-F1 / §I.1 |
+| **F3** | RuleExtractor 接线 + 召回改造 + 报告出口 + `/optimize approve` 批准队列。**前置：灵克 M0 存量清洗 + M1 注入限额并入淘汰通道** | — | §J-F3 + 灵克 M0/M1 |
+| **F2** | experiment_id 贯穿 benchmark→optimizer→apply→verify，accept/rollback 结算 | 依赖 F1 | §J-F2 |
+| **F4** | audit_task 入 daemon + 分级节流 + 报告强制出口 | 半天 | §J-F4 / §D-P1#3 |
+| **F5** | verify_ledger 证据挂钩 conf 上限 0.9 / 0.6（候选，非阻塞） | — | 灵克 M3 |
+
+### M.4 F3 召回源裁定（解决 §L.2 分歧）
+
+采用 **Laya fast_route verdict**（P1-1 已接、conf≥0.3 门控、~150ms 前置），
+不挂 `core/behavior.py` Intent。理由：意图源更早、已带质量闸，不另建判定层。
+
+### M.5 真依赖（前置必读）
+
+`docs/research/20260921_harness_test_workflow_design.md` §3.1 —— harness 沙箱 + 回归校验是 F1/F3 的安全网。
+
+### M.6 DB 合并策略（**已裁定：B 修正版**，2026-09-22）
+
+| 选项 | 做法 | 取舍 |
+|---|---|---|
+| **A** | `arch_ledger / datalog / data_flywheel` 全收编进 `knowledge.db` | 单库事务 + 统一查询；迁移风险中 |
+| **B** | 新建虚拟视图层，逻辑合一、物理不动 | 零迁移；跨库事务受限 |
+| **C** | 维持多 DB + 映射表 | 改动最小；长期债 |
+
+**裁定记录（v4.1，灵克复核后用户拍板）**：
+
+- **结论：选 B 修正版**——虚拟视图层（SQLite `ATTACH` + `VIEW`），逻辑合一、物理不动。
+- **修正 1：合并对象 4→3**。实测 `arch_ledger`（`data/arch_ledger/arch_audit_state/*.json`）是 git 指纹审计状态，非飞轮数据，**移出合并名单**。实际统一对象：`data_flywheel.db` + `datalog/*.jsonl`（经 P0#1 聚合为 snapshot 入 KB）+ `knowledge.db`（主库）。
+- **修正 2：实测前提**。`data_flywheel.db` 的 `corrections` 表 0 行，"单库跨表事务"收益当前无真实需求场景；knowledge.db 每轮写 + data_flywheel 5 个 core 模块读写（含延迟敏感查询热路径），单库写锁竞争是真实风险 → 支持 B。
+- **落地面**：`lingclaude/self_optimizer/state_store_ext.py` 为统一读 facade（FlywheelRecordType 枚举 + ATTACH 视图 + 跨库查询收敛）；写路径不动（各写各的物理库）。
+- **升级为 A 的触发条件**（满足其一再议）：① correction 流真实跑起来后出现跨库原子事务需求；② F0 指标显示 ATTACH 视图查询成为性能瓶颈；③ 单库运维诉求（备份/监控数量）。届时只改 facade 连接串，A 的成本已由 B 降至"低"。
+- **前置共识**：P0#2 的聚合管道（DataFlywheel top-N → `flywheel_pattern_` 前缀入 KB）即 B 的制度先例；P0#1 的 `m6_snapshot` 同理入 KB 进视图。
+- **阻塞关系更新**：opencode Phase 0-4 的 M.6 前置条件**已解除**（待 3 切片完成即可启动）。
+
+### M.7 opencode 增量映射（delta 文档结论）
+
+opencode 四件套（skills/prompts/rules/Hooks）**无需移植**，真正缺口仅 hooks 通道 →
+已映射为本仓 P1-1（Laya fast_route verdict 前置）。**阶段 0 = M.2 执行序前 3 切片（F0 + P0#1/P0#2）**；其后的 Phase 0–4（假说生成器/沙箱/影子评估/固化器，39 天）须待 3 切片完成 + M.6 裁定后才能启动。
+
+### M.8 立即可执行的 3 个动作（按 ROI）
+
+1. **A（半天）**：P0#1 datalog aggregator 雏形 —— 第一份真实 `m6_snapshot` + LEDGER_TYPES 接线
+2. **C（1 小时）**：`state_store_ext.py` 雏形（FlywheelRecordType 枚举先就位）
+3. **B（1 小时）**：M.6 DB 合并策略 3 选 1 挂决策记录（需用户裁定）
+
+### M.9 修订记录
+
+| 版本 | 修订人 | 内容 |
+|---|---|---|
+| v1 | 灵克 | §A–§H 飞轮三断点定位 + 三条最小改造路径（P0#1/P0#2/P1#3） |
+| v2 | codex | §I 根因层增补（Goodhart 空转 / RuleExtractor 死代码 / 两条断头）+ §J F0–F4 方案 + §K 修订记录 |
+| v3 | 灵克 | §L 独立复核（6 项论断全成立）+ 归并（M0–M3 → F0–F5） |
+| **v4（终版）** | 灵克 | **§M 综合汇总为最终执行依据**，吸收 delta 文档 opencode 增量映射 + DB 合并策略 3 选 1 + F3 召回源裁定 |
+| **v4.1** | 灵克 | **§M.6 裁定落定：B 修正版**（虚拟视图层；合并对象 4→3，arch_ledger 移出名单）；M.8-B 完成。落地面 `lingclaude/self_optimizer/state_store_ext.py` 已就位并实测（ATTACH+TEMP VIEW+query_only+order_by 白名单，health_counts 真实取数 26745/35347/0/0） |

@@ -1,0 +1,67 @@
+{
+  "day": "2026-09-19",
+  "generated_at": "2026-09-22T19:23:47",
+  "total_events": 1504,
+  "bad_lines": 0,
+  "all_events": {
+    "model.call": 1504
+  },
+  "models": {
+    "agnes-3.0-flash": {
+      "calls": 62,
+      "latency_ms_avg": 6378.2,
+      "tokens_in": 1300936,
+      "tokens_out": 15110,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "glm-5.3-flash": {
+      "calls": 1145,
+      "latency_ms_avg": 30440.9,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    },
+    "free/auto": {
+      "calls": 26,
+      "latency_ms_avg": 9486.2,
+      "tokens_in": 469623,
+      "tokens_out": 9279,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "DeepSeek-V4-Flash": {
+      "calls": 131,
+      "latency_ms_avg": 7370.7,
+      "tokens_in": 2775360,
+      "tokens_out": 66173,
+      "tokens_cached": 0,
+      "cached_pct": 0.0
+    },
+    "k3": {
+      "calls": 38,
+      "latency_ms_avg": 12682.2,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    },
+    "k3-256k": {
+      "calls": 102,
+      "latency_ms_avg": 11142.5,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "tokens_cached": 0,
+      "cached_pct": null
+    }
+  },
+  "paths": {
+    "stream": 1504
+  },
+  "signals": {},
+  "t0_nudges": 0,
+  "t0_blocks": 0,
+  "l5_rounds": 0,
+  "l5_consistency_avg": null
+}
