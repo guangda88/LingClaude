@@ -121,15 +121,66 @@ class FanOutScheduler:
         prompt 高度重复（token 集 Jaccard >= fan_out_reuse_threshold，策略文件
         热更，默认 0.8 保守）→ 返回 False 提前终止（投机已命中还空跑无收益）。
         阈值 0.0 / 读失败 / 未投机 / 无历史计划 → 恒 True（原保守语义兜底）。
+
+        NanoJev 契约消费层（2026-09-22，lingmate 重构）：策略文件
+        spec_decision_enabled=true 时，终止判定从 Jaccard 启发式升级为
+        SpecDecisionEngine 三原语概率判定——boolean 头 P(投机价值) + 重复度
+        信号，p_true < spec_decision_value_threshold → 投机无价值则终止。
+        未启用（默认 false）→ 保持原 Jaccard 路径，零行为分叉。
         """
         last = self._latest_plan()
         if last is None:
             return True
         prev_prompt, plan = last
+
+        # NanoJev 契约消费层（启用时优先）：三原语概率判定替代 Jaccard
+        if self._spec_decision_enabled():
+            return self._spec_decide_continue(prompt, prev_prompt)
+
         threshold = self._load_reuse_threshold()
         if threshold <= 0.0:
             return True  # 策略关闭重复度终止（保持原恒 True）
         return self._reuse_ratio(prompt, prev_prompt) < threshold
+
+    # ── NanoJev 契约消费层（spec_decision 三原语，策略热更）──
+
+    def _spec_decision_enabled(self) -> bool:
+        """策略文件 defaults.spec_decision_enabled（热更；读失败→False 保持原路径）。"""
+        try:
+            from lingclaude.core.policy_loader import get as policy_get
+            v = (policy_get("fan_out_questions") or {}).get("defaults", {}).get(
+                "spec_decision_enabled")
+            return bool(v)
+        except Exception:
+            return False
+
+    def _spec_decide_continue(self, prompt: str, prev_prompt: str) -> bool:
+        """spec_decision 启用时的终止判定：boolean 头 P(投机价值) + 重复度信号。
+
+        把「本轮 prompt 与上次投机 prompt 的重复度」+ 本轮难度作为可观测
+        信号喂给 SpecDecisionEngine.boolean（投机价值命题）。P(yes) < 阈值
+        （投机价值不足，多因重复度高/难度低）→ 返回 False 提前终止；
+        否则 True 继续。引擎故障 → 回退原 Jaccard 路径（fail-soft，不崩）。
+        """
+        try:
+            from lingclaude.model.spec_decision import get_engine
+            from lingclaude.core.policy_loader import get as policy_get
+            defaults = (policy_get("fan_out_questions") or {}).get("defaults", {})
+            thr = defaults.get("spec_decision_value_threshold", 0.5)
+            if not isinstance(thr, (int, float)):
+                thr = 0.5
+            # 可观测信号拼接：重复度 + 本轮 prompt（难度信号由内核 difficulty 先验提取）
+            reuse = self._reuse_ratio(prompt, prev_prompt)
+            state = f"复用度={reuse:.2f} 本轮={prompt[:80]}"
+            verdict = get_engine().boolean(state, "本轮是否值得投机扇出（高难度多步且非重复话题）")
+            p_true = float(verdict.get("p_true", 0.0))
+            # 投机价值不足（P(yes) 低）→ 提前终止；价值足够 → 继续
+            return p_true >= thr
+        except Exception:  # noqa: BLE001 — 引擎/策略故障回退 Jaccard 路径（不崩）
+            threshold = self._load_reuse_threshold()
+            if threshold <= 0.0:
+                return True
+            return self._reuse_ratio(prompt, prev_prompt) < threshold
 
     # ── 内部 ──
 
