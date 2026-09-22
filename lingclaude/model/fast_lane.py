@@ -29,6 +29,15 @@ _LAYA_SUBFOLDER = "multilingual"
 # Laya 是部门路由/分类器，长文理解/代码语义/创意生成不在其训练分布内。
 NOT_GOOD_AT_PATTERNS = ("```", "def ", "class ", "diff --git")
 
+# B2（2026-09-22 质量验证裁定）：confidence 门控 + 薄弱域回退。
+# 依据 benchmarks/laya_fastlane_quality.py 逐条明细：
+# - confidence < 0.3 的 2 条判定（factual_lookup→code、data_analysis）全部误判，
+#   故低置信判定一律回退 LLM（gate 0.3 对齐质量验证结论，不写 SLA）。
+# - factual_lookup 域是 Laya 最薄弱域（3 条里 2 条偏到别处），无论 confidence
+#   多高，判定结果为 factual_lookup 时直接回退——该类查询本就应走 LLM 事实检索。
+_MIN_CONFIDENCE = 0.3
+_WEAK_DOMAINS = ("factual_lookup",)
+
 _laya_agent: Any = None  # 进程内单例
 _laya_failed: bool = False  # 探测失败后不再重试（fail-soft 收敛）
 
@@ -75,13 +84,43 @@ def _load_questions() -> dict[str, dict[str, Any]] | None:
         return None
 
 
+def _gate_verdict(result: dict[str, Any]) -> dict[str, Any] | None:
+    """B2：对 Laya 判定结果做 confidence 门控 + 薄弱域回退。
+
+    规则（质量验证裁定，不写 SLA）：
+    - answers 缺失/非 dict → 无法门控，回退（返回 None）
+    - domain 判定 confidence < _MIN_CONFIDENCE → 回退（低置信不可采信）
+    - domain 判定结果命中 _WEAK_DOMAINS（factual_lookup）→ 回退（薄弱域）
+    - 通过 → 返回原 result（调用方直接采信）
+    """
+    if not isinstance(result, dict):
+        return None
+    answers = result.get("answers")
+    if not isinstance(answers, dict):
+        return None
+    dom_ans = answers.get("domain")
+    if not isinstance(dom_ans, dict):
+        return None
+    confidence = dom_ans.get("confidence")
+    if not isinstance(confidence, (int, float)):
+        # confidence 缺失（异常输出形态）→ 保守回退，不冒险采信
+        return None
+    if confidence < _MIN_CONFIDENCE:
+        return None
+    got_domain = str(dom_ans.get("choice", "")).lower()
+    if got_domain in _WEAK_DOMAINS:
+        return None
+    return result
+
+
 def fast_route(state: str, questions: dict[str, dict[str, Any]] | None = None) -> dict[str, Any] | None:
-    """Laya 快速路由判定（System-1）。
+    """Laya 快速路由判定（System-1，B2 门控版）。
 
     state: 用户输入/会话状态文本。
     questions: triage 问题集（None 时读 policies/fan_out_questions.yaml，
     读失败回退内置 preset）。
-    返回 system_one 结果 dict；不可用/不擅长 → None（调用方回退 LLM 路由）。
+    返回经 confidence 门控 + 薄弱域回退后的 system_one 结果 dict；
+    不可用 / NOT_GOOD_AT 命中 / 低置信 / factual_lookup 域 → None（调用方回退 LLM 路由）。
     """
     agent = _get_agent()
     if agent is None:
@@ -94,7 +133,8 @@ def fast_route(state: str, questions: dict[str, dict[str, Any]] | None = None) -
             questions = _load_questions()
             if not questions:
                 return None
-        return agent.system_one(state[:2000], questions)  # 截断防长文拖累
+        result = agent.system_one(state[:2000], questions)  # 截断防长文拖累
+        return _gate_verdict(result)
     except Exception:
         logger.debug("Laya fast_route failed (non-blocking)", exc_info=True)
         return None
