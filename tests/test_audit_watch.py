@@ -18,10 +18,16 @@ from lingclaude.self_optimizer.audit_watch import AuditWatch, AuditWatchState
 
 @pytest.fixture()
 def watch(tmp_path, monkeypatch):
-    """标准被测对象：触发器深跑打桩，KB 指向 tmp。"""
+    """标准被测对象：触发器深跑打桩，KB 指向 tmp。
+
+    F5 hooks 关闭（enable_f5_hooks=False）：钩子是 subprocess 真实脚本
+    （回填 ~27s）且直连生产 DB——单元测试层禁用，F5 行为在
+    TestF5Hooks 里用打桩执行器单测。
+    """
     w = AuditWatch(
         state_dir=tmp_path / "state",
         kb_path=tmp_path / "kb" / "knowledge.db",
+        enable_f5_hooks=False,
     )
     monkeypatch.setattr(w.trigger, "run_audit", lambda: 0)
     monkeypatch.setattr(w.trigger, "sweep_debts", lambda: [])
@@ -110,3 +116,64 @@ class TestAuditWatchState:
 
     def test_load_missing_returns_default(self, tmp_path):
         assert AuditWatchState.load(tmp_path / "nope.json").last_full_sweep is None
+
+
+class TestF5Hooks:
+    """F5 挂钩：回填+治理入值守（执行器打桩，不碰生产 DB）。"""
+
+    def _mk_watch(self, tmp_path, monkeypatch, runner):
+        w = AuditWatch(
+            state_dir=tmp_path / "state",
+            kb_path=tmp_path / "kb" / "knowledge.db",
+            enable_f5_hooks=True,
+        )
+        monkeypatch.setattr(w.trigger, "run_audit", lambda: 0)
+        monkeypatch.setattr(w.trigger, "sweep_debts", lambda: [])
+        monkeypatch.setattr(w, "_run_subprocess", runner)
+        return w
+
+    def test_f5_runs_on_sweep_and_verifies(self, tmp_path, monkeypatch):
+        """sweep_due 时跑钩子，双脚本成功 → diag.f5.verified=True。"""
+        calls = []
+
+        def fake_runner(script, timeout):
+            calls.append(script)
+            return type("R", (), {"returncode": 0, "stdout": "[OK] fake", "stderr": ""})()
+
+        w = self._mk_watch(tmp_path, monkeypatch, fake_runner)
+        monkeypatch.setattr(
+            "lingclaude.core.verify_ledger.record_verify",
+            lambda **kw: calls.append("verify"),
+        )
+        diag = w.run_once()
+        assert len([c for c in calls if c.endswith(".py")]) == 2
+        assert diag["f5"]["verified"] is True
+        assert diag["f5"]["backfill"] == "ok"
+        assert diag["f5"]["governor"] == "ok"
+        assert "verify" in calls
+
+    def test_f5_failure_no_verify(self, tmp_path, monkeypatch):
+        """脚本失败 → 不落证据账（verified=False），不阻塞值守。"""
+        def fake_runner(script, timeout):
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": "boom"})()
+
+        w = self._mk_watch(tmp_path, monkeypatch, fake_runner)
+        diag = w.run_once()
+        assert diag["f5"]["verified"] is False
+        assert diag["f5"]["governor"].startswith("exit=")
+        assert diag["kb_rule"] is not None  # 值守出口不受影响
+
+    def test_f5_disabled_skips(self, tmp_path, monkeypatch):
+        """enable_f5_hooks=False 时 sweep 也不触发钩子（测试隔离）。"""
+        calls = []
+        w = AuditWatch(
+            state_dir=tmp_path / "state",
+            kb_path=tmp_path / "kb" / "knowledge.db",
+            enable_f5_hooks=False,
+        )
+        monkeypatch.setattr(w.trigger, "run_audit", lambda: 0)
+        monkeypatch.setattr(w.trigger, "sweep_debts", lambda: calls.append(1) or [])
+        monkeypatch.setattr(w, "_run_subprocess", lambda *a, **k: calls.append("SUB"))
+        diag = w.run_once()
+        assert "SUB" not in calls
+        assert "f5" not in diag
