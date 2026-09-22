@@ -100,11 +100,18 @@ class PluginManifest:
             else:
                 if not isinstance(sl.get("kernel"), str) or not sl.get("kernel"):
                     errors.append("stop_layer.kernel 缺失（本插片的内核是什么）")
-                seams = sl.get("seams")
+                # 2026-09-23 兼容两种停层形态：扁平 {kernel,seams,implementations}
+                # 或嵌套 {kernel, sub_seams:{seams,implementations,...}}（38c894e 关单形态）
+                sub = sl.get("sub_seams")
+                if isinstance(sub, dict):
+                    seams = sub.get("seams")
+                    impl = sub.get("implementations")
+                else:
+                    seams = sl.get("seams")
+                    impl = sl.get("implementations")
                 if not isinstance(seams, list) or not seams:
                     errors.append("stop_layer.seams 缺失（子插片接缝在哪）")
-                impl = sl.get("implementations")
-                if not isinstance(impl, int) or impl < 1:
+                if not isinstance(impl, int) or isinstance(impl, bool) or impl < 1:
                     errors.append("stop_layer.implementations 缺失（当前几个实现，≥1）")
         return errors
 
@@ -229,10 +236,16 @@ def validate_manifest_dict(data: dict[str, Any]) -> list[str]:
         else:
             if not isinstance(sl.get("kernel"), str) or not sl.get("kernel"):
                 errors.append("stop_layer.kernel 缺失（本插片的内核是什么）")
-            seams = sl.get("seams")
+            # 2026-09-23 兼容两种停层形态（同 PluginManifest.validate）
+            sub = sl.get("sub_seams")
+            if isinstance(sub, dict):
+                seams = sub.get("seams")
+                impl = sub.get("implementations")
+            else:
+                seams = sl.get("seams")
+                impl = sl.get("implementations")
             if not isinstance(seams, list) or not seams or not all(isinstance(s, str) for s in seams):
                 errors.append("stop_layer.seams 缺失（子插片接缝在哪，非空字符串数组）")
-            impl = sl.get("implementations")
             if not isinstance(impl, int) or isinstance(impl, bool) or impl < 1:
                 errors.append("stop_layer.implementations 缺失（当前几个实现，≥1）")
 

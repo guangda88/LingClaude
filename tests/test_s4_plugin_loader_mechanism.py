@@ -151,3 +151,48 @@ def test_j3_stop_layer_required_by_validation(tmp_path: Path):
     )
     res = loader.load_plugins_from_dir(tmp_path)
     assert res["echo_good"].is_ok
+
+
+def test_j3_stop_layer_nested_form_accepted(tmp_path: Path):
+    """复盘 2026-09-23：38c894e 将 6 份 manifest 迁为嵌套形态（stop_layer.sub_seams）
+    但校验器只认扁平形态 → file_ops/ast 等插件整组加载失败（test_tool_plugins ERROR）。
+    契约：扁平与嵌套两种停层形态均合法；盘上生产 manifest 必须全部通过校验。
+    """
+    import json as _json
+
+    from lingclaude.core.plugin_loader import PluginLoader
+    from lingclaude.core.plugin_manifest import validate_manifest_dict
+
+    # 1) 嵌套形态（生产关单形态）合法且可加载
+    plugin_file = tmp_path / "echo_plugin.py"
+    plugin_file.write_text(PLUGIN_BODY, encoding="utf-8")
+    nested = {
+        "name": "echo_nested",
+        "version": "1.0.0",
+        "type": "tool",
+        "entry": f"{plugin_file}:EchoTool",
+        "stop_layer": {
+            "kernel": "execute 分派薄壳",
+            "sub_seams": {"seams": ["x.Seam"], "implementations": 1, "note": "单实现"},
+        },
+    }
+    assert validate_manifest_dict(nested) == []
+
+    mf_path = tmp_path / "echo_nested.plugin.json"
+    mf_path.write_text(_json.dumps(nested), encoding="utf-8")
+
+    res = PluginLoader().load_plugins_from_dir(tmp_path)
+    assert res["echo_nested"].is_ok
+
+    # 2) 扁平形态（5234c2a 原始约定）仍合法 —— 存量兼容
+    flat = dict(nested, name="echo_flat", stop_layer={"kernel": "k", "seams": ["s"], "implementations": 1})
+    assert validate_manifest_dict(flat) == []
+
+    # 3) 盘上 6 份生产 manifest 全部通过校验（防数据/门禁再脱节）
+    tools_dir = Path(__file__).resolve().parent.parent / "lingclaude" / "plugins" / "tools"
+    manifests = sorted(tools_dir.glob("*/manifest.plugin.json"))
+    assert len(manifests) == 6
+    for mf in manifests:
+        data = _json.loads(mf.read_text(encoding="utf-8"))
+        errs = validate_manifest_dict(data)
+        assert errs == [], f"{mf.name}: {errs}"
