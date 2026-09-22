@@ -435,7 +435,7 @@ class ModelCallMixin:
                 })
                 messages.append(ModelMessage(
                     role=MessageRole.TOOL,
-                    content=_slim_tool_output(tc.name, tool_output),
+                    content=_slim_tool_output(tc.name, tool_output, task_hint=prompt),
                     name=tc.name,
                     tool_call_id=tc.id,
                 ))

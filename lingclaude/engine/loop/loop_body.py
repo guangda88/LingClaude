@@ -51,17 +51,33 @@ _TOOL_RESULT_SLIM_THRESHOLD = 1600   # 超过此字符数的工具结果进历�
 _TOOL_RESULT_SLIM_KEEP = 800         # 截断后保留的前缀字符数
 
 
-def _slim_tool_output(tool_name: str, output: str) -> str:
-    """P1-5: 大工具结果瘦身——超过阈值只进历史存「前缀 + 截断说明 + 总长引用」。
+def _slim_tool_output(tool_name: str, output: str, task_hint: str = "") -> str:
+    """P1-5 + NanoJev 消费点③：大工具结果瘦身（相关性剪枝 > 固定截断兜底）。
 
-    小结果原样返回（零开销）；大结果截断为前 800 字符 + 显式标记，
-    标记里带总长与工具名，模型需要更多时可重新调用同一工具取全量。
-    这是「进历史前截断」（§3.2），不改工具执行层——工具本身仍拿到全量。
+    小结果原样返回（零开销）；大结果（> _TOOL_RESULT_SLIM_THRESHOLD）走两级：
+    1. 相关性剪枝（engine/context_pruning.prune_by_relevance）：超长输出按段落
+       判「是否含当前任务所需信息」（本地先验 0 模型调用 + 首尾保底 + 相关段），
+       保留高相关段，治长会话 token 膨胀——比固定前缀截断更准（不会把中段
+       关键报错剪掉）。
+    2. 剪枝无收益 / 故障 → 回退原固定截断（前 800 字符 + 总长引用），fail-open。
+    task_hint：当前任务/prompt 文本（相关性判定信号源；空则退化为段落显著性）。
+    这是「进历史前剪枝」（§3.2），不改工具执行层——工具本身仍拿到全量。
     """
     if output is None:
         return ""
     if len(output) <= _TOOL_RESULT_SLIM_THRESHOLD:
         return output
+    # 消费点③：相关性剪枝优先（0 模型调用主路径；无收益/故障回退固定截断）
+    try:
+        from lingclaude.engine.context_pruning import prune_by_relevance
+        pruned = prune_by_relevance(
+            output, task_hint or "",
+            max_chars=_TOOL_RESULT_SLIM_THRESHOLD,
+        )
+        if pruned is not None and len(pruned) < len(output):
+            return pruned
+    except Exception:  # noqa: BLE001 — 剪枝故障 fail-open，回退固定截断
+        pass
     kept = output[:_TOOL_RESULT_SLIM_KEEP]
     return (
         f"{kept}\n"
@@ -470,7 +486,7 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
             }
             messages.append(ModelMessage(
                 role=MessageRole.TOOL,
-                content=_slim_tool_output(tc.name, tool_output),
+                content=_slim_tool_output(tc.name, tool_output, task_hint=prompt),
                 name=tc.name,
                 tool_call_id=tc.id,
             ))
