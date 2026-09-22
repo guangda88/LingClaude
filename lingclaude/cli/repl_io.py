@@ -295,18 +295,28 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         content = event.get("content", "")
         # 乱码第四路径守卫：全屏 TUI 下输出窗已有流式全文，rich 重渲染经
         # stderr 直达终端（绕开 stdout 全部清洗）→ 跳过，只补空行收尾。
+        # 2026-09-22 双输出修复：纯文本模式（默认）下流式 delta 已把全文
+        # 写屏，「正式版」与裸文本内容完全相同（无色无结构差），重渲染
+        # 零增益、内容输出两遍 → 一并跳过，只补空行收尾；彩色 opt-in
+        # （LINGCLAUDE_COLOR=1）时保留「底部追加正式版」路径。
         if content and sys.stdout.isatty() and not _full_tui_managed:
-            # ANSI 光标下移一行(到达 stream 输出末尾之下),再向上滚回渲染
-            # ——比上移 N 行覆盖安全(N 不必精确)
-            _stream_write("\x1b[1B\n")
-            try:
-                # TUI 插片优先（render_facade 内部: provider→cli.display 回退）
-                from lingclaude.cli.render_facade import print_markdown
+            from lingclaude.cli.display import _plain_no_color
 
-                print_markdown(content)
-            except Exception:  # noqa: BLE001 — 渲染失败时保底输出纯文本
-                _stream_write("\n" + content + "\n\n")
-            globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
+            if _plain_no_color():
+                _stream_write("\n\n")
+                globals()["_stream_lines_emitted"] = 0  # 复位：本轮已收尾
+            else:
+                # ANSI 光标下移一行(到达 stream 输出末尾之下),再向上滚回渲染
+                # ——比上移 N 行覆盖安全(N 不必精确)
+                _stream_write("\x1b[1B\n")
+                try:
+                    # TUI 插片优先（render_facade 内部: provider→cli.display 回退）
+                    from lingclaude.cli.render_facade import print_markdown
+
+                    print_markdown(content)
+                except Exception:  # noqa: BLE001 — 渲染失败时保底输出纯文本
+                    _stream_write("\n" + content + "\n\n")
+                globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
         else:
             _stream_write("\n\n")
     elif etype == "error":

@@ -1031,12 +1031,48 @@ class TestAnsiStripFourthPath:
 
         fake = _SpyTty()
         monkeypatch.setattr(sys, "stdout", fake)
+        # 彩色 opt-in 模式：保留「底部追加正式版」路径（2026-09-22 双输出修复）
+        monkeypatch.setenv("LINGCLAUDE_COLOR", "1")
         monkeypatch.setattr(
             "lingclaude.cli.render_facade.print_markdown",
             lambda text: calls.append(text),
         )
         repl_io._handle_stream_event({"type": "done", "content": "# 标题"})
-        assert calls == ["# 标题"]  # plain 模式：正版渲染保留
+        assert calls == ["# 标题"]  # 彩色 opt-in：正版渲染保留
+
+    def test_done_plain_mode_skips_rerender(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """2026-09-22 双输出修复：纯文本模式下 done 不再重渲染正式版。
+
+        背景：纯文本化后流式 delta 已写全文，「正式版」与裸文本内容完全
+        相同，重渲染 = 内容输出两遍（用户实测确认）。纯文本模式下 done
+        只补空行收尾；渲染函数零调用。
+        """
+
+        import io as _io
+
+        from lingclaude.cli import repl_io
+
+        repl_io.set_full_tui_managed(False)
+        repl_io.set_stream_bridged(False)
+        calls: list[str] = []
+
+        class _SpyTty(_io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        fake = _SpyTty()
+        monkeypatch.setattr(sys, "stdout", fake)
+        monkeypatch.delenv("LINGCLAUDE_COLOR", raising=False)
+        monkeypatch.setattr(
+            "lingclaude.cli.render_facade.print_markdown",
+            lambda text: calls.append(text),
+        )
+        repl_io._handle_stream_event({"type": "done", "content": "# 标题"})
+        assert calls == []  # 纯文本：重渲染跳过
+        assert "# 标题" not in fake.getvalue()  # content 不再二次输出
+        assert fake.getvalue() == "\n\n"  # 只补空行收尾
 
 
 class TestAtomcodeP123:
@@ -1282,15 +1318,21 @@ class TestPlainNoColor:
         finally:
             repl_io.set_full_tui_managed(False)
 
-    def test_plain_console_colorful_without_env(
+    def test_plain_console_plain_by_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """无环境变量时 plain Console 走原彩色分支（force_terminal 未显式禁）。"""
+        """2026-09-22 终裁：默认纯文本（零 ESC 源头），彩色改 LINGCLAUDE_COLOR opt-in。
+
+        旧语义（无环境变量→彩色）随「声明彩色却不消费 SGR」终端的长期乱码
+        一起废弃；禁色 Console 显式 force_terminal=False + color_system=None。
+        """
         from lingclaude.cli import display, repl_io
 
         monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.delenv("LINGCLAUDE_COLOR", raising=False)
         monkeypatch.delenv("LINGCLAUDE_PLAIN_NO_COLOR", raising=False)
         repl_io.set_full_tui_managed(False)
         console = display._get_console()
-        # 默认分支不传 force_terminal（None）；禁色分支才是显式 False
-        assert console._force_terminal is None
+        # 禁色分支显式 force_terminal=False；color_system=None 物理归零
+        assert console._force_terminal is False
+        assert console._color_system is None

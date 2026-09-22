@@ -45,21 +45,35 @@ class QualityReport:
 
 
 def _plain_no_color() -> bool:
-    """plain 模式禁色判定：标准 NO_COLOR 或 LINGCLAUDE_PLAIN_NO_COLOR 任一命中。
+    """plain 模式禁色判定（2026-09-22 终裁：默认纯文本，彩色 opt-in）。
 
     背景（2026-09-21 乱码战役收尾）：plain 模式 rich 经 stderr 直通渲染
     「彩色正式版」，前提假设是终端真实消费 SGR。实测启动终端声明
     TERM=xterm-256color 却把 ESC 显示为字面 '?'（声明能力≠真实能力）
-    → 彩色直通 = 乱码。本开关提供 plain 模式降级口：force_terminal=False
-    让 rich 判定非终端 → 零 SGR 输出，第四路径在 plain 模式下物理消灭。
+    → 彩色直通 = 乱码。且环境变量从外层 shell 向主进程传导不可靠
+    （会话内 export 只影响子进程），故语义反转为：
+
+    - 默认禁色（返回 True）：color_system=None 物理归零，源头零 ESC
+    - LINGCLAUDE_COLOR=1/true/yes/on 显式 opt-in 彩色（优先级最高）
+    - 标准 NO_COLOR 仍然尊重
+    - LINGCLAUDE_PLAIN_NO_COLOR 已废弃为无害死开关（默认恒禁色，
+      保留仅为旧测试兼容，不再单独判定）
     """
     import os
 
+    # 2026-09-22 终裁：默认纯文本，彩色改为显式 opt-in（LINGCLAUDE_COLOR=1）。
+    # 理由：终端「声明 TERM=xterm-256color 却把 ESC 显示为字面 '?'」的环境
+    # 实测长期存在（声明能力≠真实能力），且环境变量从外层 shell 向
+    # lingclaude 主进程传导不可靠（会话内 export 只影响子进程）。
+    # opt-in 彩色：LINGCLAUDE_COLOR=1/true/yes/on
+    if os.environ.get("LINGCLAUDE_COLOR", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }:
+        return False
+    # 标准 NO_COLOR 仍然尊重
     if os.environ.get("NO_COLOR", "") != "":
         return True
-    return os.environ.get("LINGCLAUDE_PLAIN_NO_COLOR", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+    return True
 
 
 def _get_console() -> Any:
@@ -79,11 +93,15 @@ def _get_console() -> Any:
         if is_full_tui_managed():
             return Console(theme=_THEME, file=sys.stdout, force_terminal=False)
         if _plain_no_color():
+            # 2026-09-22 终裁补充：no_color=True 只禁颜色 SGR，粗体/下划线
+            # 仍会出码（实测 ESC[1m/[4m 残留）。color_system=None 才是物理
+            # 归零：rich 判定终端零能力，从源头不生成任何 ESC 序列。
             return Console(
                 theme=_THEME,
                 stderr=True,
                 force_terminal=False,
                 no_color=True,
+                color_system=None,
             )
         return Console(theme=_THEME, stderr=True)
     return None
