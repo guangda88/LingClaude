@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 # 模型调用最大工具轮次（query_engine 模块级常量迁移至此，避免循环导入）
 # 注意：这只是"未配置时的兜底值"。运行时上限由 _resolve_max_tool_rounds()
 # 从实例 config.max_turns（config.yaml → agent.max_turns）读取。
+# P0-A L0 批次 5：单源已迁 engine/loop/loop_body，本模块级回 import 保持
+# 既有引用面（test_config_hot_reload 等消费 mc.AGENT_MAX_TOOL_ROUNDS）。
+from lingclaude.engine.loop.loop_body import AGENT_MAX_TOOL_ROUNDS  # noqa: E402  # M3 台账豁免边
 # P0-A L0 批次 5（2026-09-22）：循环纯函数助手单源迁 engine/loop/loop_body.py，
 # 本模块回 import re-export 保持既有引用面（submission/query_engine/tests 消费）。
 # 注意：这只是"未配置时的兜底值"。运行时上限由 _resolve_max_tool_rounds()
