@@ -114,21 +114,27 @@ def log_model_call(
     finish_reason: str,
     latency_ms: float,
     path: str = "stream",
+    cached_tokens: int = 0,
 ) -> None:
     """记录一次模型调用（stream/complete 统一埋点）。
 
     atomcode#1 (P0): datalog cost 字段此前从未被填充，Token 开销
     无法量化。usage 由 openai 协议 response.usage 现成返回，本函数
     只做纯接缝写入：事件落 JSONL，异常静默（不干扰主链路）。
+    2026-09-22: cached_tokens 可选入参（0=未回传），>0 时事件携带
+    cost.cached —— 历史数据自此可回溯缓存命中。
     """
+    cost: dict[str, int] = {
+        "in": int(input_tokens),
+        "out": int(output_tokens),
+    }
+    if cached_tokens > 0:
+        cost["cached"] = int(cached_tokens)
     event = {
         "event_type": "model.call",
         "member": "lingclaude",
         "model": model,
-        "cost": {
-            "in": int(input_tokens),
-            "out": int(output_tokens),
-        },
+        "cost": cost,
         "finish_reason": finish_reason,
         "latency_ms": round(latency_ms, 1),
         "path": path,

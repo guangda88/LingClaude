@@ -111,6 +111,27 @@ def _messages_contain_secrets(body: dict[str, Any]) -> bool:
     return False
 
 
+
+def _extract_usage(usage_raw: dict[str, Any] | None) -> ModelUsage | None:
+    """统一 usage 解析（2026-09-22 cache 0% 修复）。
+
+    prompt_tokens_details.cached_tokens 是缓存命中唯一来源，此前只有
+    流式尾帧（choices=[] 终结 chunk）解析点读取它，带 choices 的 chunk
+    与非流式 complete() 两处都会把带 cached 的 ModelUsage 覆盖/丢失，
+    表现为 toolbar 恒显 cache 0%。「缓存信息」与「真 0 命中」无法区分，
+    本函数解析到什么就带什么，缺失语义交给显示层（0=未知不显示）。
+    """
+    if not usage_raw or not isinstance(usage_raw, dict):
+        return None
+    ptd = usage_raw.get("prompt_tokens_details")
+    cached = ptd.get("cached_tokens", 0) if isinstance(ptd, dict) else 0
+    return ModelUsage(
+        input_tokens=usage_raw.get("prompt_tokens", 0),
+        output_tokens=usage_raw.get("completion_tokens", 0),
+        cached_tokens=int(cached or 0),
+    )
+
+
 class OpenAIProvider(ModelProvider):
     def __init__(self, config: ModelConfig | None = None) -> None:
         self._config = config or ModelConfig()
@@ -299,13 +320,10 @@ class OpenAIProvider(ModelProvider):
                 # 把它直接跳过 → usage 恒 0、缓存命中不可观测。解析必须在
                 # choices 守卫之前。
                 usage_raw = data.get("usage")
-                if usage_raw:
-                    ptd = usage_raw.get("prompt_tokens_details") or {}
-                    usage = ModelUsage(
-                        input_tokens=usage_raw.get("prompt_tokens", 0),
-                        output_tokens=usage_raw.get("completion_tokens", 0),
-                        cached_tokens=ptd.get("cached_tokens", 0) if isinstance(ptd, dict) else 0,
-                    )
+                # 2026-09-22: 统一走 _extract_usage（缓存命中可观测）
+                _u = _extract_usage(usage_raw)
+                if _u is not None:
+                    usage = _u
 
                 if not choices:
                     continue
@@ -338,11 +356,11 @@ class OpenAIProvider(ModelProvider):
                             acc["arguments"] += fn["arguments"]
 
                 usage_raw = data.get("usage")
-                if usage_raw:
-                    usage = ModelUsage(
-                        input_tokens=usage_raw.get("prompt_tokens", 0),
-                        output_tokens=usage_raw.get("completion_tokens", 0),
-                    )
+                # 2026-09-22: 此前此处只读 prompt/completion 并覆盖上一解析点
+                # 的 ModelUsage → 尾帧带 cached 也被丢弃（cache 0% 根因之一）
+                _u = _extract_usage(usage_raw)
+                if _u is not None:
+                    usage = _u
 
             conn.close()
 
@@ -370,6 +388,7 @@ class OpenAIProvider(ModelProvider):
                 finish_reason=finish_reason,
                 latency_ms=(time.monotonic() - _t0) * 1000,
                 path="stream",
+                cached_tokens=usage.cached_tokens,
             )
         except http.client.HTTPException as e:
             yield {"type": "error", "error": f"HTTP 错误: {e}"}
@@ -550,10 +569,8 @@ class OpenAIProvider(ModelProvider):
                 content = ""
 
         usage_raw = data.get("usage", {})
-        usage = ModelUsage(
-            input_tokens=usage_raw.get("prompt_tokens", 0),
-            output_tokens=usage_raw.get("completion_tokens", 0),
-        )
+        # 2026-09-22: 此前非流式路径彻底不读 prompt_tokens_details（cache 0% 根因之二）
+        usage = _extract_usage(usage_raw) or ModelUsage()
 
         model_used = data.get("model", model)
         # atomcode#1 (P0): 非流式路径 cost 埋点（sync/async 共用本出口）
@@ -564,6 +581,7 @@ class OpenAIProvider(ModelProvider):
             finish_reason=finish_reason,
             latency_ms=latency_ms,
             path="complete",
+            cached_tokens=usage.cached_tokens,
         )
 
         return Result.ok(
