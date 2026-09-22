@@ -2,9 +2,9 @@
 
 覆盖：
 - is_decomposition_candidate 判据（长度 200 + 动词 2）
-- build_adaptive_system_prompt 的 current_query 注入路径
+- build_dynamic_system_suffix 的 current_query 注入路径
 - R8/R9 正交性（阈值内 R8 不出、R9 出）
-- 时序约束：_build_adaptive_system_prompt 由 _build_messages(prompt) 显式传当前 query
+- 时序约束：_build_dynamic_system_suffix 由 _build_messages(prompt) 显式传当前 query
 """
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class TestIsDecompositionCandidate:
 
 
 class TestR9PromptInjection:
-    """build_adaptive_system_prompt(current_query=...) 的注入行为。"""
+    """build_dynamic_system_suffix(current_query=...) 的注入行为。"""
 
     def _behavior(self, **kw):
         from lingclaude.core.behavior import BehaviorMetrics
@@ -69,7 +69,7 @@ class TestR9PromptInjection:
         return BehaviorMetrics(**defaults)
 
     def _build(self, **kw):
-        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
         from lingclaude.core.meta_cognition import MetaCognition
         from lingclaude.core.dementia_detector import DementiaDetector
 
@@ -83,7 +83,7 @@ class TestR9PromptInjection:
             project_index=kw.pop("project_index", None),
         )
         args.update(kw)
-        return build_adaptive_system_prompt(**args)
+        return build_dynamic_system_suffix(**args)
 
     def test_r9_injected_first_turn(self):
         """首 turn（tool_call_count=0）长任务 → R9 提示出现。"""
@@ -130,7 +130,7 @@ def test_mixin_passes_prompt_through():
     from lingclaude.core import query_engine_turn_mixin as tm
 
     src = inspect.getsource(tm)
-    assert "_build_adaptive_system_prompt(current_query=prompt)" in src
+    assert "_build_dynamic_suffix(current_query=prompt)" in src
 
 
 if __name__ == "__main__":

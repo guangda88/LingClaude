@@ -468,11 +468,13 @@ class TestQueryEngineIntelligence:
         assert engine.layered_memory is not None
 
     def test_system_prompt_includes_common_knowledge(self):
+        # P0-3 拆分后：身份规则在冻结前缀，SESSION_CONTEXT（含 git 摘要的仓库名）在动态尾随块
         from lingclaude.core.query_engine import QueryEngine
         engine = QueryEngine()
         prompt = engine._build_adaptive_system_prompt()
         assert "灵克" in prompt
-        assert "lingclaude" in prompt
+        suffix = engine._build_dynamic_suffix(current_query="")
+        assert "lingclaude" in suffix  # git 摘要仓库名随动态段
 
     def test_reset_clears_working_memory(self):
         from lingclaude.core.query_engine import QueryEngine

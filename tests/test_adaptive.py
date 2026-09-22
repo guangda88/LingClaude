@@ -54,7 +54,8 @@ class TestAdaptiveSystemPrompt:
         engine.submit("你好")
         msgs = provider.last_messages
         system_msgs = [m for m in msgs if m.role.value == "system"]
-        assert len(system_msgs) == 1
+        # P0-3 前缀缓存拆分：冻结前缀 + 动态尾随块 = 2 条 system 消息（正确形态）
+        assert len(system_msgs) == 2
         assert "灵克" in system_msgs[0].content
         assert "自我进化" in system_msgs[0].content
 
@@ -111,7 +112,8 @@ class TestAdaptiveSystemPrompt:
         engine.submit("你好")
         msgs = provider.last_messages
         system_msgs = [m for m in msgs if m.role.value == "system"]
-        assert len(system_msgs) == 1
+        # P0-3 拆分：2 条 system；警告类动态注入进尾随块，前缀恒净
+        assert len(system_msgs) == 2
         assert "⚠" not in system_msgs[0].content
         assert "💡" not in system_msgs[0].content
 

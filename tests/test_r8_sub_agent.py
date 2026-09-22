@@ -77,27 +77,27 @@ class TestSubAgentPromptInjection:
         return defaults
 
     def test_no_injection_below_threshold(self):
-        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
         args = self._make_args(tool_call_count=4)
-        prompt = build_adaptive_system_prompt(**args)
+        prompt = build_dynamic_system_suffix(**args)
         assert "R8" not in prompt, "tool_call_count < threshold 不应注入"
 
     def test_injection_at_threshold(self):
-        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
         args = self._make_args(tool_call_count=5)
-        prompt = build_adaptive_system_prompt(**args)
+        prompt = build_dynamic_system_suffix(**args)
         assert "R8 提示" in prompt
         assert "5 次工具调用" in prompt
         assert "sub_agent" in prompt  # 推荐使用 sub_agent 工具
 
     def test_injection_far_above_threshold(self):
         """大量工具调用后,提示仍然显示（不是一次性的"提议"）。"""
-        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
         args = self._make_args(tool_call_count=50)
-        prompt = build_adaptive_system_prompt(**args)
+        prompt = build_dynamic_system_suffix(**args)
         assert "50 次" in prompt
 
     def _behavior_with_threshold(self, threshold: int):
@@ -118,38 +118,38 @@ class TestSubAgentPromptInjection:
         )
 
     def test_custom_threshold_respected(self):
-        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
         args = self._make_args(
             tool_call_count=12,
             behavior=self._behavior_with_threshold(10),
         )
-        prompt = build_adaptive_system_prompt(**args)
+        prompt = build_dynamic_system_suffix(**args)
         assert "R8" in prompt, "12 >= 10 必须触发"
         assert "阈值 10" in prompt
 
     def test_zero_threshold_disables(self):
         """auto_sub_agent_threshold=0 = 不触发推荐语句。"""
-        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
         args = self._make_args(
             tool_call_count=100,
             behavior=self._behavior_with_threshold(0),
         )
-        prompt = build_adaptive_system_prompt(**args)
+        prompt = build_dynamic_system_suffix(**args)
         # 不查 "R8"（提示模板里始终含 "R8 提示" 字样）——查具体推荐关键字
         assert "建议拆给 sub_agent" not in prompt, "threshold=0 必须禁用推荐语句"
         assert "100 次" not in prompt
 
     def test_default_threshold_fallback(self):
         """behavior 缺 auto_sub_agent_threshold 字段时回落到 5。"""
-        from lingclaude.core.system_prompt_builder import build_adaptive_system_prompt
+        from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
         args = self._make_args(
             tool_call_count=5,
             behavior=self._behavior(),  # 不传 auto_sub_agent_threshold
         )
-        prompt = build_adaptive_system_prompt(**args)
+        prompt = build_dynamic_system_suffix(**args)
         assert "R8" in prompt
 
 

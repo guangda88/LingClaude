@@ -14,6 +14,7 @@ from lingclaude.core.system_prompt_builder import (
     _BASE_PROMPT,
     _build_session_context,
     build_adaptive_system_prompt,
+    build_dynamic_system_suffix,
 )
 
 
@@ -147,11 +148,22 @@ def test_session_context_dirty_files_capped(tmp_path: Path):
 
 
 def test_build_prompt_smoke_with_context():
+    # P0-3 拆分后：基础规则在冻结前缀（_BASE_PROMPT），SESSION_CONTEXT 在动态尾随块
     prompt = _build()
     assert prompt.startswith("你是灵克")
-    assert "# SESSION_CONTEXT" in prompt
-    # 顺序: 基础规则 → SESSION_CONTEXT → 动态 extras
-    assert prompt.index("工作纪律") < prompt.index("# SESSION_CONTEXT")
+    assert "__DYNAMIC_BOUNDARY__" in prompt  # 前缀/动态分界行
+    suffix = build_dynamic_system_suffix(
+        behavior=_DummyBehavior(),
+        layered_memory=_DummyMemory(),
+        meta_cognition=_DummyMeta(),
+        messages=["测试问题"],
+        session_cache_hits=0,
+        dementia_detector=_DummyDementia(),
+        project_index=None,
+    )
+    assert "# SESSION_CONTEXT" in suffix
+    # 动态段不渗入前缀：前缀体不含 SESSION_CONTEXT（缓存边界语义）
+    assert "# SESSION_CONTEXT" not in prompt
 
 
 def test_build_prompt_r8_not_triggered_at_zero():
@@ -165,7 +177,8 @@ def test_build_prompt_r8_triggered():
     class _B(_DummyBehavior):
         auto_sub_agent_threshold = 3
 
-    prompt = spb.build_adaptive_system_prompt(
+    # P0-3 拆分后 R8 推荐语随动态 extras 走 build_dynamic_system_suffix
+    prompt = spb.build_dynamic_system_suffix(
         behavior=_B(),
         layered_memory=_DummyMemory(),
         meta_cognition=_DummyMeta(),
