@@ -16,6 +16,24 @@ from lingclaude.core.types import ToolResult
 _PATH_TOKEN_RE = r'(?:~|(?<![\w])/|\.\.?/)[\w./~-]+'
 
 
+def _bash_triage(result: Any) -> dict[str, Any]:
+    """NanoJev 契约消费层（消费点②）：bash 非零退出码的 0 LLM token 分诊。
+
+    把 stderr+stdout 喂 failure_triage.triage_and_dispose（纯正则主分类，
+    未分类走 spec_decision 兜底门控），返回判定 dict 挂到工具结果上——
+    模型据此直接执行确定性处置（安装/重试/停止循环），不烧推理 token。
+    分诊内核故障 → 返回最小骨架（不反噬 bash 结果本身）。
+    """
+    try:
+        from lingclaude.engine.failure_triage import triage_and_dispose
+        err_text = f"{getattr(result, 'stderr', '')}\n{getattr(result, 'stdout', '')}"
+        return triage_and_dispose(err_text).to_dict()
+    except Exception:  # noqa: BLE001 — 分诊故障不影响 bash 结果返回（fail-soft）
+        return {"triage_class": "error", "action": "none",
+                "escalate_to_llm": True, "confidence": 0.0,
+                "detail": "分诊内核不可用，交 LLM 判断"}
+
+
 def _check_sensitive_in_command(command: str) -> tuple[str | None, str | None]:
     """扫路径 token → gate 判定。返回 (blocked_path, reason)；无拦截返回 (None, None)。
 
@@ -46,14 +64,18 @@ class BashToolsMixin:
                 tool_name="bash",
             )
         result = self.bash.run(command)
-        return ToolResult.ok(
-            {
-                "exit_code": result.exit_code,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "duration": result.duration,
-            }
-        )
+        payload: dict[str, Any] = {
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "duration": result.duration,
+        }
+        # NanoJev 契约消费层（消费点② 测试失败分诊，2026-09-22）：
+        # 非零退出码时 0 LLM token 分诊（依赖缺失/瞬时/死循环/语法），
+        # 处置指令挂到结果上（模型可见，直接执行确定性动作而非烧推理）。
+        if result.exit_code not in (0, 126, 127):
+            payload["triage"] = _bash_triage(result)
+        return ToolResult.ok(payload)
 
     def _bash_lingxi_handler(self, command: str, **_kwargs: Any) -> ToolResult[dict[str, Any]]:
         # P0 安全对齐(2026-09-11): 此前 bash_lingxi handler 无 sensitive_path_gate

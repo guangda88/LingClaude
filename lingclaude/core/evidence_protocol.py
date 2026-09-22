@@ -194,6 +194,7 @@ class VerifiedClaim:
     interrupt_user: bool       # 仅 blocker 打扰用户（progress/gap 不打扰）
     cited_obs_ids: list[str]
     unknown_obs: list[str]     # 引用了不存在的 obs_id（伪造，fail-closed）
+    escalate: bool = False     # NanoJev 契约消费层：完成声明置信度门控命中（fail-closed 反转，升级人工）
     reason: str = ""
 
 
@@ -251,6 +252,22 @@ class ClaimVerifier:
             reason_parts.append(f"引用了 {len(unknown)} 个不存在的 obs_id（伪造证据）")
         if has_success_marker and not has_evidence:
             reason_parts.append("成功宣称无成功观测支撑（H17 fail-closed）")
+
+        # NanoJev 契约消费层（2026-09-22）：完成声明置信度门控（fail-closed 反转）。
+        # jev_gate 语义：成功宣称 + spec_decision 启用时，boolean 头判 P(声明真正达成)
+        # ——把声明文本 + 证据完整度作为可观测信号喂给内核。P < 阈值（策略文件
+        # claim_gate_threshold，默认 0.5）→ 强制 escalate（升级人工，fail-closed 反转：
+        # 含糊/证据不足/被反驳一律不静默放行）。未启用（默认）或内核故障 → 跳过，
+        # 原语义零行为分叉（fail-soft，门控不反噬既有判定链）。
+        escalate = False
+        if has_success_marker:
+            escalate = self._claim_gate(claim_text, cited, has_evidence)
+            if escalate:
+                reason_parts.append("完成声明置信度门控命中（P(达成) 低于阈值，fail-closed 升级人工）")
+
+        # escalate 命中时升级为打扰用户（与 blocker 同级——无证据完成宣称不得静默渲染成功）
+        if escalate:
+            interrupt = True
         return VerifiedClaim(
             text=claim_text,
             verifiable=verifiable,
@@ -258,5 +275,36 @@ class ClaimVerifier:
             interrupt_user=interrupt,
             cited_obs_ids=cited,
             unknown_obs=unknown,
+            escalate=escalate,
             reason="；".join(reason_parts),
         )
+
+    def _claim_gate(self, claim_text: str, cited: list[str], has_evidence: bool) -> bool:
+        """完成声明置信度门控（spec_decision boolean 头，策略文件键热更）。
+
+        - spec_decision_enabled 未开（默认）→ 返回 False（原语义零分叉）
+        - 开 → 把「证据完整度 + 声明文本难度信号」拼为 state 喂 boolean 头，
+          P(达成) < claim_gate_threshold → True（escalate）
+        - 内核/策略故障 → 返回 False（fail-soft，门控失败不反噬，保守放行交后续
+          人工；只有 spec_decision 明确判低置信才 escalate）
+        """
+        try:
+            from lingclaude.core.policy_loader import get as policy_get
+            defaults = (policy_get("fan_out_questions") or {}).get("defaults", {})
+            if not defaults.get("spec_decision_enabled"):
+                return False  # 未启用 → 原语义
+            thr = defaults.get("claim_gate_threshold", 0.5)
+            if not isinstance(thr, (int, float)):
+                thr = 0.5
+            # 证据完整度作为可观测信号：有成功证据且无伪造引用 → 信号高
+            from lingclaude.model.spec_decision import get_engine
+            evidence_sig = 0.9 if (has_evidence and not self._ledger.unknown(cited)) else 0.1
+            state = f"证据完整度={evidence_sig:.1f} 本轮完成声明={claim_text[:80]}"
+            # 完成声明核验走证据完整度单信号专用头（非投机价值三信号联合头——
+            # 场景实证：短文本成功宣称难度先验≈0，三信号联合 P 被拖到阈值下误 escalate）
+            verdict = get_engine().boolean_evidence_backed(state, "该完成声明是否已被证据真正支撑？")
+            p_true = float(verdict.get("p_true", 0.0))
+            # 证据完整但 P 仍低（声明含糊/被证据反驳的灰区）→ escalate
+            return p_true < thr
+        except Exception:  # noqa: BLE001 — 门控故障 fail-soft（不反噬，交后续人工）
+            return False

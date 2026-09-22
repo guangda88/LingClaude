@@ -111,13 +111,29 @@ class HeuristicBackend:
         return {"distribution": dist, "chosen": chosen, "confidence": dist[chosen]}
 
     def boolean(self, state: str, question: str) -> dict[str, Any]:
-        """Boolean(Noul)：P(命题为真) —— lc 侧「本轮投机是否有价值」。
+        """Boolean(Noul)：P(命题为真) —— 消费方「本轮投机是否有价值」（投机价值判定）。
 
-        消费方 = FanOut should_continue 的投机价值判定（替代 Jaccard 启发式）。
-        命题由 question 传（如 "本轮是否值得投机扇出"），state 带可观测信号。
+        state 拼接「复用度=X 本轮=<prompt>」，本方法解析复用度/难度信号联合判定。
+        消费方 = FanOut should_continue。
         """
         p = self._speculative_value(state)
         return {"p_true": p, "yes": p >= 0.5}
+
+    def boolean_evidence_backed(self, state: str, question: str) -> dict[str, Any]:
+        """Boolean(Noul) 专用头：P(完成声明被证据真正支撑) —— 证据完整度单信号主导。
+
+        与 boolean()（投机价值，难度+证据−复用三信号联合）区分：完成声明核验
+        场景（evidence_protocol.ClaimVerifier._claim_gate）的 P 应由证据完整度
+        本身决定——证据越扎实 P 越高，与任务难度无关（"测试全部通过"是短文本
+        低难度，但证据扎实就应判支撑）。state 拼接「证据完整度=X」，P=该值
+        （sigmoid 语义直通，阈值化交给消费方按 claim_gate_threshold 判）。
+        """
+        import re
+        ev = 0.0
+        m = re.search(r"证据完整度=([01]\.\d+)", state)
+        if m:
+            ev = float(m.group(1))
+        return {"p_true": ev, "yes": ev >= 0.5}
 
     def score(self, state: str, question: str, levels: list[str]) -> dict[str, Any]:
         """Score：有序层级分布 + 期望值。消费方 = difficulty 分桶升级。
@@ -177,21 +193,30 @@ class HeuristicBackend:
     @staticmethod
     def _speculative_value(state: str) -> float:
         """投机价值 P(yes)：难度高 → 投机可并行拆子目标 → 高；
-        复用度高（同话题刚投机过）→ 投机价值被压低 → 低。
+        复用度高（同话题刚投机过）→ 投机价值被压低 → 低；
+        证据完整度高（完成声明核验场景）→ 声明被支撑 → 抬升 P(yes)。
 
-        state 约定：消费方（FanOut should_continue）拼接「复用度=X 本轮=<prompt>」，
-        本方法解析两个信号做联合判定——难度抬升投机价值、复用度压降投机价值
-        （同话题重复投机收益递减）。纯难度先验（旧语义）作为复用度缺失时的兜底。
+        state 约定（消费方拼接信号前缀）：
+        - FanOut should_continue：「复用度=X 本轮=<prompt>」
+        - 完成声明核验（_claim_gate）：「证据完整度=X 本轮完成声明=<文本>」
+        本方法解析三个信号做联合判定——难度抬升投机价值、复用度压降投机价值
+        （同话题重复投机收益递减）、证据完整度抬升 P(达成)（证据扎实则声明可信）。
+        信号缺失时按 0 兜底（保守）。
         """
         import re
         reuse = 0.0
         m = re.search(r"复用度=([01]\.\d+)", state)
         if m:
             reuse = float(m.group(1))
+        evidence = 0.0
+        me = re.search(r"证据完整度=([01]\.\d+)", state)
+        if me:
+            evidence = float(me.group(1))
         diff = HeuristicBackend._difficulty_signal(state)
-        # 联合：难度抬升 − 复用度压降，线性归一到 [0,1]
+        # 联合：难度抬升 + 证据抬升 − 复用度压降，线性归一到 [0,1]
         # 复用度 1.0（完全重复）时即便难度高也压到 ~0.15（投机无新收益）
-        value = diff - reuse * (0.5 + 0.4 * diff)
+        # 证据完整度 0.9 时抬升 ~0.5（证据扎实，声明可信）
+        value = diff + evidence * 0.5 - reuse * (0.5 + 0.4 * diff)
         return min(max(value, 0.0), 1.0)
 
 
@@ -215,6 +240,11 @@ class SpecDecisionEngine:
     def boolean(self, state: str, question: str) -> dict[str, Any]:
         """Boolean(Noul) 原语 → {p_true, yes}。"""
         return self._backend.boolean(state, question)
+
+    def boolean_evidence_backed(self, state: str, question: str) -> dict[str, Any]:
+        """Boolean(Noul) 专用头（完成声明核验消费方）→ {p_true, yes}，
+        证据完整度单信号主导（与 boolean() 三信号联立的投机价值判定区分）。"""
+        return self._backend.boolean_evidence_backed(state, question)
 
     def score(self, state: str, question: str, levels: list[str]) -> dict[str, Any]:
         """Score 原语 → {distribution, score, level}。"""

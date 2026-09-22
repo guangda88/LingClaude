@@ -33,3 +33,4 @@ defaults:
   spec_decision_enabled: false
   spec_decision_value_threshold: 0.5
   spec_decision_score_threshold: 0.6
+  claim_gate_threshold: 0.5
