@@ -141,6 +141,22 @@ def file_task(slug: str, severity: str, finding: str, source: str) -> None:
     print(f"  [任务入册] {slug} ({severity}): {finding}")
 
 
+def sweep_debts() -> list[str]:
+    """债务到期核账（2026-09-23 F4 抽出：供 daemon 值守层级2 复用）。
+
+    到期不是指纹事件，触发器指纹守卫覆盖不到——值守按 24h 例行调用。
+    """
+    from arch_ledger import expired_debts
+
+    expired = expired_debts()
+    if expired:
+        file_task(
+            "audit-debts-expired", "P1",
+            f"到期未清债务: {'; '.join(expired)}", "self_audit_trigger",
+        )
+    return expired
+
+
 def run_audit() -> int:
     pol = _policy()
     last = _last_state()
@@ -179,11 +195,8 @@ def run_audit() -> int:
                   f"返审时守卫自检失败（触发源: {self_changed or head_now}），详见 pytest 输出",
                   "self_audit_trigger")
 
-    # 审外界：债务到期核账
-    from arch_ledger import expired_debts
-    expired = expired_debts()
-    if expired:
-        file_task("audit-debts-expired", "P1", f"到期未清债务: {'; '.join(expired)}", "self_audit_trigger")
+    # 审外界：债务到期核账（2026-09-23 F4 抽出为 sweep_debts，值守层级2 复用）
+    sweep_debts()
 
     # 台账完整性：豁免/债务 record 可解析且 state 合法
     s = _store()

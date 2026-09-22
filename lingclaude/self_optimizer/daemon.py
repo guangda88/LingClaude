@@ -11,6 +11,7 @@ from typing import Any
 from lingclaude.core.types import Result
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.self_optimizer.advisor import OptimizationAdvisor
+from lingclaude.self_optimizer.audit_watch import AuditWatch  # F4 值守
 from lingclaude.self_optimizer.evaluator import StructureEvaluator
 from lingclaude.self_optimizer.experiments import ExperimentLedger
 from lingclaude.self_optimizer.optimizer import (
@@ -127,6 +128,10 @@ class OptimizationDaemon:
         self.experiments = ExperimentLedger(
             db_path=str(self.state_dir / "experiments.db")
         )
+        # F4 值守（2026-09-23）：返审触发器入 daemon 值守循环。
+        # 三级节流 + 报告强制出口（category=audit → F0 取数面），
+        # 审计权限边界不变：发现 → 入册 → 等待，值守不自动改码。
+        self.audit_watch = AuditWatch(state_dir=self.state_dir)
         self.state = DaemonState.load(self.state_path)
         # 遗留项1（2026-09-17）：基线跨进程恢复——重启后从归档态取回
         # 上次通过的基准分，避免"重启即丢基线、门禁首轮失效"。
@@ -436,6 +441,17 @@ class OptimizationDaemon:
                         f"violations={cycle.violations_before}→{cycle.violations_after} "
                         f"({cycle.duration_seconds}s)"
                     )
+                # F4 值守：返审触发器随循环巡检（内部三级节流：
+                # 指纹守卫近似零开销；24h 例行核账；报告出口 KB）
+                try:
+                    diag = self.audit_watch.run_once()
+                    logger.info(
+                        "[F4值守] exit=%s open_tasks=%s sweep_expired=%s report=%s",
+                        diag["exit"], diag["open_tasks"],
+                        diag["sweep_expired"], diag.get("kb_rule"),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("[F4值守] 本轮值守异常（不阻塞优化循环）")
                 time.sleep(interval_seconds)
         except KeyboardInterrupt:
             logger.info("自由化框架已停止")

@@ -26,6 +26,10 @@ class FeedbackCategory(str, Enum):
     # rule_extractor.py:239，非穷举依赖，加成员安全。
     TELEMETRY = "telemetry"
 
+    # 2026-09-23 F4：返审值守报告专用类别（同 TELEMETRY 理由：
+    # 非行为规则，与 best_practice 等行为知识隔离，检索不互扰）。
+    AUDIT = "audit"
+
 
 class ToolType(str, Enum):
     STATIC_ANALYZER = "static_analyzer"

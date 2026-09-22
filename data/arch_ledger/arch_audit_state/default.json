@@ -1,5 +1,5 @@
 {
-  "head": "1db1387",
+  "head": "9790999",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "262d9e28230f",
     "tests/test_iron_law_guards.py": "5c177c8cdfb5",
@@ -17,7 +17,7 @@
     "arch_debt:candzone-j5-efficiency-arbitration": "b0e8fac0171f",
     "arch_debt:cap-crew-lingflow-deferred": "9c9854936dc2",
     "arch_debt:core-l7-classifier-circular-import": "34f965757e66",
-    "arch_debt:fastlane-dead-plugin-review": "2525848127e4",
+    "arch_debt:fastlane-dead-plugin-review": "e86bd700cc9f",
     "arch_debt:governance-export-view-j4-migration": "accd07c3e3be",
     "arch_debt:governance-v2-proposals-j4-migration": "7a7c33a8e775",
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
@@ -26,9 +26,11 @@
     "arch_debt:lingcreate-mcp-coldstart": "10766af23488",
     "arch_debt:meta-cognition-export-view-j4-migration": "a0d20e7ce718",
     "arch_debt:reasoning-chain-export-view-j4-migration": "8ec6819215de",
-    "arch_debt:regression-preexisting-failures-20260921": "0413e98d15ff",
+    "arch_debt:regression-preexisting-failures-20260921": "2be6aa943798",
     "arch_debt:seamtype-specialcase-plugin-loader": "691918e5f7e6",
     "arch_debt:session-export-view-j4-migration": "692d826693f9",
+    "arch_debt:spec-decision-evals-guardrails": "8598d4c7c11e",
+    "arch_debt:spec-decision-tool-routing-choice": "5dcb850397b1",
     "arch_debt:topic-stack-export-view-j4-migration": "bd90a94f8d64",
     "arch_debt:xdist-state-write-race": "a62d4a81dfc9",
     "arch_debt:zhibridge-mcp-unbuilt": "3a01b8358e40",
@@ -37,6 +39,7 @@
     "arch_exemption:audit_collector.py": "98429efef8e9",
     "arch_exemption:behavior.py": "e8b60cb05758",
     "arch_exemption:behavior_check.py": "432b4c0fb4b4",
+    "arch_exemption:bounded_compaction.py": "e6fdfd0cff48",
     "arch_exemption:cognitive_rhythm.py": "f8ac6a861440",
     "arch_exemption:comfort_zone.py": "e5694d23182c",
     "arch_exemption:config.py": "5a2ab930ebd0",
@@ -118,6 +121,7 @@
     "arch_exemption:sqlite_store_base.py": "e90b4e211e99",
     "arch_exemption:state_store.py": "a49145218046",
     "arch_exemption:submission.py": "abb6ec590298",
+    "arch_exemption:success_gate.py": "4236b73d2547",
     "arch_exemption:system_prompt_builder.py": "a5950b017387",
     "arch_exemption:task_aggregation.py": "182cf7871ee7",
     "arch_exemption:task_manager.py": "61d6f516e862",
@@ -125,7 +129,7 @@
     "arch_exemption:token_monitor.py": "ead17e7ad364",
     "arch_exemption:token_reports.py": "89df3bf81f49",
     "arch_exemption:tool_call_executor.py": "6814786b2487",
-    "arch_exemption:tool_executor.py": "ed15edd326f6",
+    "arch_exemption:tool_executor.py": "086efdbff3b1",
     "arch_exemption:topic_drift_detector.py": "d715b7266c87",
     "arch_exemption:topic_stack.py": "59c87c084ac7",
     "arch_exemption:turn_learner.py": "131b91db014d",
@@ -141,5 +145,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-22T11:51:58+00:00"
+  "checked": "2026-09-22T16:34:00+00:00"
 }

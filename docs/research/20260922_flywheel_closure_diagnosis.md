@@ -465,3 +465,4 @@ opencode 四件套（skills/prompts/rules/Hooks）**无需移植**，真正缺�
 | v3 | 灵克 | §L 独立复核（6 项论断全成立）+ 归并（M0–M3 → F0–F5） |
 | **v4（终版）** | 灵克 | **§M 综合汇总为最终执行依据**，吸收 delta 文档 opencode 增量映射 + DB 合并策略 3 选 1 + F3 召回源裁定 |
 | **v4.1** | 灵克 | **§M.6 裁定落定：B 修正版**（虚拟视图层；合并对象 4→3，arch_ledger 移出名单）；M.8-B 完成。落地面 `lingclaude/self_optimizer/state_store_ext.py` 已就位并实测（ATTACH+TEMP VIEW+query_only+order_by 白名单，health_counts 真实取数 26745/35347/0/0） |
+| **v4.2** | 灵克 | **F4 值守收官（执行序主体完成）**：`self_optimizer/audit_watch.py` 三级节流（触发器指纹守卫 / 24h 例行核账 sweep_debts / 报告强制出口 KB category=audit）+ `daemon.run_watch` 挂载 + facade 补 `audit_reports` 计数；顺修 `_QUERY_MAP` 潜伏死路径（DATALOG_SNAPSHOT 过滤旧值）。测试 21+8 绿，真跑 diag exit=0、报告落 F0 取数面。**F5 正式挂候选，触发条件：① corrections ≥ 20（现 1）② verify_ledger 自动落账全链路确认 ③ F0 基线积累 ≥ 1 周** |

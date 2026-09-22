@@ -280,6 +280,30 @@ class TestOptimizationDaemon:
         assert result.is_ok
         assert result.data is None
 
+    # ---- F4 值守（2026-09-23）----
+
+    def test_audit_watch_mounted(self, tmp_path):
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        assert daemon.audit_watch is not None
+        assert daemon.audit_watch.state_path.parent == tmp_path
+
+    def test_run_watch_calls_audit_watch(self, tmp_path):
+        """run_watch 循环每轮调用值守（sleep 抛中断收一轮）。"""
+        from lingclaude.core.types import Result
+
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        with patch.object(daemon, "run_cycle", return_value=Result.ok(None)):
+            with patch.object(
+                daemon.audit_watch, "run_once",
+                return_value={"exit": 0, "open_tasks": 0, "sweep_expired": []},
+            ) as m:
+                with patch(
+                    "lingclaude.self_optimizer.daemon.time.sleep",
+                    side_effect=KeyboardInterrupt,
+                ):
+                    daemon.run_watch(interval_seconds=1)  # 内部捕获中断优雅停止
+        m.assert_called_once()
+
     def test_report_generated(self, tmp_path):
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
 

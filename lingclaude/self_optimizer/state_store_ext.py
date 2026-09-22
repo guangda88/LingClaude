@@ -36,6 +36,9 @@ FLYWHEEL_PATTERN_PREFIX = "flywheel_pattern_"
 # 2026-09-22 从 "datalog_snapshot" 改齐枚举成员，见 learner/models.py TELEMETRY 注释）
 DATALOG_SNAPSHOT_CATEGORY = "telemetry"
 
+# F4（2026-09-23）：返审值守报告的 KB category 值（= FeedbackCategory.AUDIT.value）
+AUDIT_CATEGORY = "audit"
+
 
 class FlywheelRecordType(str, Enum):
     """飞轮记录类型 —— 跨存储统一取数面的逻辑类型。"""
@@ -43,7 +46,8 @@ class FlywheelRecordType(str, Enum):
     KNOWLEDGE_RULE = "knowledge_rule"        # knowledge.db rules
     FLYWHEEL_ERROR = "flywheel_error"        # data_flywheel.db error_log
     FLYWHEEL_CORRECTION = "flywheel_correction"  # data_flywheel.db corrections
-    DATALOG_SNAPSHOT = "datalog_snapshot"    # KB 内 category=datalog_snapshot 的规则行
+    DATALOG_SNAPSHOT = "datalog_snapshot"    # KB 内 category=TELEMETRY("telemetry") 的规则行
+    AUDIT_REPORT = "audit_report"            # KB 内 category=audit 的值守报告行（F4）
     EXPERIMENT = "experiment"                # experiments.db experiments（F2 归因链）
 
 
@@ -66,7 +70,16 @@ _QUERY_MAP: dict[FlywheelRecordType, tuple[str, str, str]] = {
     ),
     FlywheelRecordType.DATALOG_SNAPSHOT: (
         "v_knowledge_rules",
-        "category = 'datalog_snapshot'",
+        # 2026-09-23 F4 修正：原硬编码 'datalog_snapshot' 与写入侧
+        # TELEMETRY("telemetry") 不一致（health_counts 用常量正确、
+        # 本过滤为潜伏死路径，query 恒空）——统一引用常量。
+        f"category = '{DATALOG_SNAPSHOT_CATEGORY}'",
+        "updated_at",
+    ),
+    FlywheelRecordType.AUDIT_REPORT: (
+        "v_knowledge_rules",
+        # F4：值守报告行（category=audit），同 telemetry 用常量引用
+        f"category = '{AUDIT_CATEGORY}'",
         "updated_at",
     ),
     FlywheelRecordType.EXPERIMENT: (
@@ -246,6 +259,11 @@ class FlywheelStateStore:
             "SELECT count(*) FROM v_knowledge_rules "
             "WHERE category = ?",
             (DATALOG_SNAPSHOT_CATEGORY,),
+        ).fetchone()[0]
+        # F4：值守报告行计数（2026-09-23 起，历史行不存在时自然为 0）
+        counts["audit_reports"] = conn.execute(
+            "SELECT count(*) FROM v_knowledge_rules WHERE category = ?",
+            (AUDIT_CATEGORY,),
         ).fetchone()[0]
         if self._flywheel_attached:
             counts["flywheel_errors"] = conn.execute(
