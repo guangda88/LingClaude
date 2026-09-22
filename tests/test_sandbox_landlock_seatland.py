@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import contextmanager
 from unittest.mock import patch, MagicMock
 
 import pytest
 
+import lingclaude.engine.sandbox_provider as _sp
 from lingclaude.engine.sandbox_provider import (
     BwrapSandboxProvider,
     LandlockSandboxProvider,
@@ -87,17 +89,40 @@ def test_landlock_wrap_generates_helper_call_when_available():
     assert "echo hello" in out
 
 
+from contextlib import contextmanager
+
+import lingclaude.engine.sandbox_provider as _sp
+
+
+@contextmanager
+def _probe_isolated():
+    """探针缓存隔离：置空 → 调用方探测 → 恢复原值（防跨文件缓存污染）。"""
+    saved = _sp._landlock_probe_cache
+    try:
+        _sp._landlock_probe_cache = None
+        yield
+    finally:
+        _sp._landlock_probe_cache = saved
+
+
 def test_landlock_probe_non_linux_unavailable():
-    """非 Linux 平台 Landlock 探测恒 False（Linux-only）。"""
-    with patch("sys.platform", "darwin"):
+    """非 Linux 平台 Landlock 探测恒 False（Linux-only）。
+
+    2026-09-22 加缓存隔离：原实现未清缓存，任何先跑过的探针测试会让本测试
+    直接返回缓存值而假绿/假红（顺序敏感缺陷）。
+    """
+    with patch("sys.platform", "darwin"), _probe_isolated():
         ok, reason = _landlock_probe()
         assert ok is False
         assert reason
 
 
 def test_landlock_probe_linux_cache_consistency():
-    """Linux 平台探测结果缓存一致（两次调用同值）。"""
-    with patch("sys.platform", "linux"):
+    """Linux 平台探测结果缓存一致（两次调用同值）。
+
+    2026-09-22 加缓存隔离：先清缓存再连调两次，杜绝「缓存非空时同义反复」。
+    """
+    with patch("sys.platform", "linux"), _probe_isolated():
         a = _landlock_probe()
         b = _landlock_probe()
         assert a == b

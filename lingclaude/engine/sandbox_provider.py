@@ -229,57 +229,54 @@ class NoopSandboxProvider:
 
 
 def _landlock_probe() -> tuple[bool, str]:
-    """探测 Landlock ABI 是否可用（Linux 内核 5.8+，无需 root）。
+    """探测 Landlock 是否可用（Linux 内核 5.13+，无需 root，无副作用）。
 
-    方式：ctypes 直接尝试 prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0) +
-    syscall(436=landlock_create_ruleset) 空规则集，成功即可用。
+    uapi 标准版本探测：create_ruleset(attr=NULL, size=0, flags=VERSION(1<<0))
+    → 返回内核支持的最高 ABI（>=1 即可用）；errno 经 use_errno 取回。
+    不可用 empty-attr 探测：handled_access_fs=0 会返回 ENOMSG（uapi 文档化行为，
+    2026-09-22 本机实证踩坑——此前版本以 flags 位误作 abi 传入或空规则集探测，
+    导致 6.8 内核上恒 False 假不可用）。号依据见 tests/test_landlock_syscalls.py。
     """
     global _landlock_probe_cache
     if _landlock_probe_cache is not None:
         return _landlock_probe_cache
     if os.name != "posix" or sys.platform != "linux":
-        _landlock_probe_cache = (False, "Landlock 仅 Linux 内核 5.8+ 支持")
+        _landlock_probe_cache = (False, "Landlock 仅 Linux 支持")
         return _landlock_probe_cache
     import ctypes
     import ctypes.util
 
     libc_name = ctypes.util.find_library("c") or "libc.so.6"
     try:
-        libc = ctypes.CDLL(libc_name)
+        libc = ctypes.CDLL(libc_name, use_errno=True)
     except OSError as e:
         _landlock_probe_cache = (False, f"libc 加载失败: {e}")
         return _landlock_probe_cache
 
-    PR_SET_NO_NEW_PRIVS = 38
-    SYS_landlock_create_ruleset = 459  # x86_64
-    SYS_landlock_restrict_self = 460
-
-    # 尝试设置 NO_NEW_PRIVS（Landlock 前置条件）
-    try:
-        r = libc.prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)
-        if r != 0:
-            _landlock_probe_cache = (False, f"prctl(PR_SET_NO_NEW_PRIVS) 失败 r={r}")
-            return _landlock_probe_cache
-    except Exception as e:
-        _landlock_probe_cache = (False, f"prctl 异常: {e}")
-        return _landlock_probe_cache
-
-    # 尝试空规则集
+    SYS_landlock_create_ruleset = 444  # x86_64 / aarch64 同号（uapi 头文件实证）
+    _LANDLOCK_CREATE_RULESET_VERSION = 1 << 0
     try:
         libc.syscall.restype = ctypes.c_long
-        libc.syscall.argtypes = [ctypes.c_long, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_uint]
-        r = libc.syscall(SYS_landlock_create_ruleset, ctypes.c_void_p(0), ctypes.c_ulong(0), ctypes.c_uint(0))
-        if r >= 0:
+        libc.syscall.argtypes = [ctypes.c_long, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint]
+        import errno as _errno
+        r = libc.syscall(SYS_landlock_create_ruleset, ctypes.c_void_p(0),
+                         ctypes.c_size_t(0), ctypes.c_uint(_LANDLOCK_CREATE_RULESET_VERSION))
+        if r >= 1:
             _landlock_probe_cache = (True, None)
-            return _landlock_probe_cache
-        _landlock_probe_cache = (False, f"landlock_create_ruleset 失败 r={r}（负 errno）")
+        else:
+            e = ctypes.get_errno()
+            _landlock_probe_cache = (
+                False,
+                f"landlock_create_ruleset(VERSION) 失败 r={r} errno={e}"
+                f"({_errno.errorcode.get(e, '?')})；需 Linux 5.13+ 且 LSM 启用",
+            )
     except Exception as e:
         _landlock_probe_cache = (False, f"Landlock syscall 异常: {e}")
     return _landlock_probe_cache
 
 
 class LandlockSandboxProvider:
-    """P0-B 轻量后端：Linux Landlock LSM（无 user namespace 依赖，内核 5.8+）。
+    """P0-B 轻量后端：Linux Landlock LSM（无 user namespace 依赖，内核 5.13+）。
 
     wrap 返回 bash 命令前缀脚本：fork 后子进程 self-restrict 到
     （wd + /tmp + extra_writable_dirs）可写、其余只读，再 exec 原命令。

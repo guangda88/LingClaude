@@ -76,6 +76,8 @@ select = ["T20"]  # 只拦 print/printf；其余规则族按需逐个启用
 "lingclaude/engine/coding_wiring.py" = ["T201"]
 "lingclaude/engine/coding.py" = ["T201"]
 "lingclaude/engine/sensitive_path_gate.py" = ["T201"]
+# landlock helper：独立进程脚本，stderr 告警是 fail-open 的显式接口（非主干代码）
+"lingclaude/engine/_landlock_helper.py" = ["T201"]
 # lacp 17 处：市场/沙箱策略 CLI 面向输出
 "lingclaude/lacp/marketplace.py" = ["T201"]
 "lingclaude/lacp/sandbox_policy.py" = ["T201"]
