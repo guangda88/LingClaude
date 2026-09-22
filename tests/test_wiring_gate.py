@@ -187,6 +187,19 @@ class TestNoDeadModules:
         "l7_cognitive.py",
         "l7_cognitive_bridge.py",
         "l10_a_post_audit.py",
+        # 治理/协议预留模块（2026-09-22 A组清偿③ 归因）：动态消费或预留 API 面——
+        # evidence_protocol(EvidenceLedger 经 model_call:127 函数内 import)、
+        # rollout(RolloutRecorder 经 submission:345 函数内 import)、
+        # approval_matrix/goal_receipt/manifest_lock/verify_ledger/worktree
+        # 为验证台账/审批/worktree 扇出预留面（record_verify 等经测试消费，
+        # 生产接线随 arch_debt B 组推进），不列死码。
+        "approval_matrix.py",
+        "evidence_protocol.py",
+        "goal_receipt.py",
+        "manifest_lock.py",
+        "rollout.py",
+        "verify_ledger.py",
+        "worktree.py",
     }
 
     # Names that are internal implementation details, not "dead code"

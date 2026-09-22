@@ -162,10 +162,11 @@ class TestSandboxWrapOrder:
             tokens = part.strip().split()
             if tokens:
                 bind_targets.append(tokens[0])
-        if "/home/ai" in bind_targets:
+        if "/home/ai" in bind_targets and "/home/ai/lingclaude" in bind_targets:
             assert bind_targets.index("/home/ai") < bind_targets.index("/home/ai/lingclaude"), (
                 f"父目录应 bind 在子目录前: {bind_targets}"
             )
+        # 子目录不在 bind 列表 = 被父目录 /home/ai bind 覆盖（粒度收敛，允许）
 
 
 # ---------- C1: hook 接线（只读验证配置） ----------

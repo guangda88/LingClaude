@@ -178,39 +178,9 @@ async def _dispatch(provider, cmd: str, file_path: str, line: int, character: in
     raise ValueError(f"unknown LSP command: {cmd}")
 
 
-def _format_locations(result: Any) -> list[dict[str, Any]]:
-    if isinstance(result, list):
-        out: list[dict[str, Any]] = []
-        for loc in result:
-            if isinstance(loc, dict):
-                # P2-12：outline/search/diagnostics 已在 provider 侧解析为 dict，直传
-                out.append(loc)
-            else:
-                out.append(
-                    {"uri": loc.uri, "line": loc.range.start.line,
-                     "col": loc.range.start.character}
-                )
-        return out
-    # hover: 返回 Hover / None — 统一成 list 结构便于调用方判空
-    if result is None:
-        return []
-    contents = getattr(result, "contents", None)
-    if contents is not None:
-        return [{"contents": contents, "range": getattr(result, "range", None)}]
-    return []
-
-
-def _detect_workspace_root(file_path: str) -> Path:
-    """Auto-detect workspace root: find pyproject.toml / Cargo.toml / .git。"""
-    if file_path:
-        cwd = Path(file_path).resolve().parent
-    else:
-        cwd = Path.cwd()
-    for parent in [cwd, *cwd.parents]:
-        if (parent / "pyproject.toml").exists():
-            return parent
-        if (parent / "Cargo.toml").exists():
-            return parent
-        if (parent / ".git").exists():
-            return parent
-    return cwd
+# A组清偿③（2026-09-22）：_format_locations/_detect_workspace_root 为无状态纯函数，
+# 拆出 lsp_helpers.py（本文件 216→170 行回 200 行契约内），回 import 保持消费面。
+from lingclaude.engine.tool_handlers.lsp_helpers import (  # noqa: E402,F401
+    _detect_workspace_root,
+    _format_locations,
+)

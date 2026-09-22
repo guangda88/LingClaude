@@ -167,8 +167,8 @@ class TestStepCAcceptance:
         """全库 cli.display 渲染函数直接 import 应清零（数据类除外）。"""
         import subprocess
 
-        # 数据类 + 内部自引用白名单
-        whitelist = {"SessionSummary", "QualityReport"}
+        # 数据类 + 内部自引用白名单；_plain_no_color 是 bool 模式判定（非 print_*/format_* 渲染函数）
+        whitelist = {"SessionSummary", "QualityReport", "_plain_no_color"}
 
         out = subprocess.run(
             ["grep", "-rn", "from lingclaude.cli.display import", "lingclaude/", "--include=*.py"],

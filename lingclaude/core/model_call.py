@@ -18,9 +18,8 @@ logger = logging.getLogger(__name__)
 # 模型调用最大工具轮次（query_engine 模块级常量迁移至此，避免循环导入）
 # 注意：这只是"未配置时的兜底值"。运行时上限由 _resolve_max_tool_rounds()
 # 从实例 config.max_turns（config.yaml → agent.max_turns）读取。
-# P0-A L0 批次 5：单源已迁 engine/loop/loop_body，本模块级回 import 保持
-# 既有引用面（test_config_hot_reload 等消费 mc.AGENT_MAX_TOOL_ROUNDS）。
-from lingclaude.engine.loop.loop_body import AGENT_MAX_TOOL_ROUNDS  # noqa: E402  # M3 台账豁免边
+# P0-A L0 批次 5：单源已迁 engine/loop/loop_body。S3 守卫禁止 core 模块级
+# import engine，故用 PEP 562 模块级 __getattr__ 懒导出（保持 mc.X 消费面）。
 # P0-A L0 批次 5（2026-09-22）：循环纯函数助手单源迁 engine/loop/loop_body.py，
 # 本模块回 import re-export 保持既有引用面（submission/query_engine/tests 消费）。
 # 注意：这只是"未配置时的兜底值"。运行时上限由 _resolve_max_tool_rounds()
@@ -447,3 +446,13 @@ class ModelCallMixin:
             return None
 
         return response.content if response.content else None
+
+
+# PEP 562 模块级懒导出（S3 合规）：AGENT_MAX_TOOL_ROUNDS 单源在
+# engine/loop/loop_body.py，此处仅保 re-export 消费面（mc.AGENT_MAX_TOOL_ROUNDS），
+# 不落模块级 import（S3 守卫：core 模块级倒装=0）。
+def __getattr__(name: str) -> Any:
+    if name == "AGENT_MAX_TOOL_ROUNDS":
+        from lingclaude.engine.loop.loop_body import AGENT_MAX_TOOL_ROUNDS as _v
+        return _v
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

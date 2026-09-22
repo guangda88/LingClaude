@@ -11,6 +11,7 @@
     "mode": "stdio",
     "command": [
       "node",
+      "--use-openssl-ca",
       "dist/cli.js",
       "stdio"
     ],
