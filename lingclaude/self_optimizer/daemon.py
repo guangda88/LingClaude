@@ -429,6 +429,11 @@ class OptimizationDaemon:
 
         if not params:
             return
+        # F1 (2026-09-22): goal=behavior 时被控对象是 behavior_policy.yaml，
+        # 走专用写入器（同一套护栏），不复用下方 config.yaml 写入段。
+        if getattr(self.config.optimizer, "goal", "") == "behavior":
+            self._apply_behavior_params(params)
+            return
         if os.environ.get("LINGCLAUDE_DAEMON_APPLY") != "1":
             logger.info(
                 "[report-only] 建议参数（未应用；设 LINGCLAUDE_DAEMON_APPLY=1 开启）: %s",
@@ -569,6 +574,108 @@ class OptimizationDaemon:
             if lock_cm is not None:
                 lock_cm.__exit__(None, None, None)
 
+    def _apply_behavior_params(self, params: dict[str, Any]) -> None:
+        """F1 (2026-09-22): 把行为阈值参数写入 behavior_policy.yaml。
+
+        与 _apply_params 同一套护栏（report-only / 审批闸门 / 编辑锁 /
+        审计留痕），但被控对象从 config.yaml 换成 core/policies/
+        behavior_policy.yaml —— PolicyLoader mtime watch 热加载，
+        行为检查器立即生效，无需重启。
+
+        纪律（沿用 _apply_params 语义）：
+        1. 默认 report-only（LINGCLAUDE_DAEMON_APPLY=1 才真正落盘）。
+        2. 单参数限幅：每周期最多写 1 个键（归因窗口）。
+        3. 合法键白名单 + int 强制，防搜索空间外的值写进策略文件。
+        """
+        import os
+
+        if not params:
+            return
+        if os.environ.get("LINGCLAUDE_DAEMON_APPLY") != "1":
+            logger.info(
+                "[report-only] 行为参数建议（未应用；设 LINGCLAUDE_DAEMON_APPLY=1 开启）: %s",
+                params,
+            )
+            return
+
+        allowed = {"consecutive_fail_limit", "tool_repeat_limit"}
+        picked = None
+        for key in sorted(params):  # sorted → 归因窗口确定论
+            if key in allowed:
+                picked = (key, max(1, int(params[key])))
+                break
+        if picked is None:
+            logger.warning("[behavior] 无合法键可应用: %s", list(params))
+            return
+        key, value = picked
+
+        from lingclaude.core.policy_loader import policies_dir
+
+        policy_path = policies_dir() / "behavior_policy.yaml"
+        lock_cm = None
+        try:
+            from lingclaude.core.permissions import (
+                PermissionContext,
+                load_approval_mode,
+                log_pending_action,
+            )
+            from lingclaude.core.file_lock import file_edit_lock
+
+            guard_mode = load_approval_mode(Path("config.yaml"))
+            guard = PermissionContext(mode=guard_mode)
+            allowed, reason = guard.check_action(
+                "optimize_write",
+                params={"proposed": {key: value}, "policy": "behavior_policy.yaml"},
+            )
+            if not allowed:
+                if guard_mode == "strict":
+                    raise PermissionError(
+                        f"ApprovalGuard(strict): 写策略被拒绝（{reason}）— 动作 optimize_write"
+                    )
+                logger.warning(
+                    "[guard] 行为参数待审批（mode=%s, reason=%s），未应用: %s=%s",
+                    guard.mode, reason, key, value,
+                )
+                return
+
+            lock_cm = file_edit_lock(policy_path, owner="self_optimizer")
+            lock_cm.__enter__()
+            import yaml
+
+            raw = (
+                yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+                if policy_path.exists()
+                else {}
+            )
+            if raw is None:
+                raw = {}
+            old = raw.get(key)
+            raw[key] = value
+            policy_path.write_text(
+                yaml.dump(raw, default_flow_style=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            record_change(policy_path, source="self_optimizer")
+            log_pending_action(
+                "optimize_write",
+                params={
+                    "applied_key": key,
+                    "applied_value": value,
+                    "policy_file": str(policy_path),
+                    "previous": old,
+                },
+                mode=guard_mode,
+                state="approved_by_daemon",
+            )
+            logger.info(
+                "[behavior] 已应用行为参数 %s=%s → %s（PolicyLoader 热加载即时生效）",
+                key, value, policy_path,
+            )
+        except Exception:
+            logger.warning("[behavior] 应用行为参数失败", exc_info=True)
+        finally:
+            if lock_cm is not None:
+                lock_cm.__exit__(None, None, None)
     def should_run_cycle(self, min_interval_hours: float = 24.0) -> bool:
         """节流判断：距上次优化循环是否超过 min_interval_hours。
 

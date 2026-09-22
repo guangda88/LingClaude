@@ -96,7 +96,9 @@ class TestOptimizationDaemon:
         assert ctx["last_optimization_time"] == "2026-01-01T00:00:00"
 
     def test_run_cycle_no_trigger(self, tmp_path):
-        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        # 2026-09-22 F1 修正: target 封闭到 tmp 空目录。原 target="." 会随
+        # 真实仓库增长偶发越过结构阈值（当天即复发），空目录 0 违规 → 稳定无触发。
+        daemon = OptimizationDaemon(target=str(tmp_path), state_dir=tmp_path)
         result = daemon.run_cycle()
         assert result.is_ok
         assert result.data is None
@@ -154,6 +156,11 @@ class TestOptimizationDaemon:
         config_path = tmp_path / "config.yaml"
         config_path.write_text("model:\n  provider: openai\n")
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        # F1: OptimizerConfig 冻结，用 replace 重建；本用例测 legacy config.yaml 写路径，钉 goal=structure
+        from dataclasses import replace as _dc_replace
+        from lingclaude.core.config import load_config as _load_cfg
+        _cfg = _load_cfg()
+        daemon.config = _dc_replace(_cfg, optimizer=_dc_replace(_cfg.optimizer, goal="structure"))
         original_cwd = Path.cwd()
         try:
             import os
@@ -205,6 +212,11 @@ class TestOptimizationDaemon:
         config_path = tmp_path / "config.yaml"
         config_path.write_text("model:\n  provider: openai\n")
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        # F1: OptimizerConfig 冻结，用 replace 重建；本用例测 legacy config.yaml 写路径，钉 goal=structure
+        from dataclasses import replace as _dc_replace
+        from lingclaude.core.config import load_config as _load_cfg
+        _cfg = _load_cfg()
+        daemon.config = _dc_replace(_cfg, optimizer=_dc_replace(_cfg.optimizer, goal="structure"))
         original_cwd = Path.cwd()
         try:
             import os

@@ -40,7 +40,11 @@ permissions:
   deny_tools: []
 self_optimizer:
   optimization:
-    goal: structure
+    # F1 (2026-09-22): goal=behavior —— 搜索空间换成被控对象
+    # behavior_policy.yaml 的真实行为阈值，目标函数改为 error_log
+    # 离线回放（replay_objective.py）。首启为影子观察：默认
+    # report-only（LINGCLAUDE_DAEMON_APPLY=1 才真正写策略文件）。
+    goal: behavior
     max_trials: 50
     timeout_seconds: 120
   report:
