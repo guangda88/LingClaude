@@ -15,13 +15,25 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 from lingclaude.cli.repl_turn import _record_long_task_metrics
+
+
+def _next_fork_tag() -> str:
+    """缺省 fork tag：fork-<HHMMSS>（冲突加 pid 后缀）。"""
+    tag = f"fork-{time.strftime('%H%M%S')}"
+    rodir = Path(".lingclaude/rollouts")
+    if rodir.exists() and any(rodir.glob(f"{tag}*.jsonl")):
+        tag += f"-{os.getpid() % 10000}"
+    return tag
 
 # Step 3: Tab 补全清单（F2 修复:删 /undo — handler 缺失不得留在补全里误导用户）
 SLASH_COMPLETER_WORDS = [
     "/help", "/clear", "/compact", "/model", "/schedule", "/lsp",
     "/resume", "/continue", "/session", "/checkpoint", "/recover", "/rewind", "/quit",
+    # 2026-09-23: C 路线统一——/fork（rollout 不可变分叉）/ /share（自包含导出）
+    "/fork", "/share",
     # 2026-09-17: 任务面板（对标 AtomCode todowrite）—— /tasks /todo /plan 同义
     "/tasks",
     # 2026-09-20: 会话历史查看（TUI 优化方案 P2-1，cc 建议）—— 退出后回看入口
@@ -99,6 +111,12 @@ class SlashCommandProcessor:
             return True
         if name == "/rewind":
             self._cmd_rewind(arg)
+            return True
+        if name == "/fork":
+            self._cmd_fork(arg)
+            return True
+        if name == "/share":
+            self._cmd_share(arg)
             return True
         if name in ("/resume", "/continue"):
             self._cmd_resume(name, arg)
@@ -665,6 +683,69 @@ class SlashCommandProcessor:
             print(f"[已回滚] {result.data}")
         else:
             print(f"[回滚失败] {result.error}")
+
+    def _cmd_fork(self, arg: str) -> None:
+        """C 路线统一（2026-09-23）：/fork = rollout 不可变分叉（codex 对齐）。
+
+        当前会话历史截断复制到新 rollout 文件（forked_from_id 链），
+        源文件不删不改。engine 侧仅记 fork 事件并挂新 recorder；
+        消息上下文原地保留（fork 出的是「可独立回放的平行史」，
+        不切走当前对话——切换语义归 /resume）。
+        """
+        engine = self.engine
+        tag = arg.strip() or _next_fork_tag()
+        try:
+            from lingclaude.core.rollout import get_engine_rollout
+            rr = get_engine_rollout(engine, session_id=engine.session_id)
+            if rr is None:
+                print("[fork] rollout 不可用（存储层故障），分叉未创建")
+                return
+            # 触发一次 checkpoint：让当前完整上下文先落到快照 + 事件流，
+            # 再从当前 ordinal 分叉（保证分叉文件首段是完整历史）
+            engine._save_checkpoint(
+                messages=engine._messages, round_idx=0,
+                prompt=engine._messages[-1].content if engine._messages else "",
+                used_tools=False, total_input=0, total_output=0,
+            )
+            path = rr.fork(tag)
+            print(f"[fork] 已分叉: {path.name}")
+            print(f"       forked_from={rr.session_id} tag={tag}（源文件保留，可 /resume 回溯）")
+        except Exception as e:  # noqa: BLE001
+            print(f"[fork] 分叉失败: {e}")
+
+    def _cmd_share(self, arg: str) -> None:
+        """C 路线统一（2026-09-23）：/share = 自包含导出当前会话副本。
+
+        只读导出（JSONL，含 meta+消息），不动原会话；敏感字段走 redact。
+        可选参数：目标文件路径（默认 .lingclaude/shares/share-<ts>.jsonl）。
+        """
+        engine = self.engine
+        if not engine._messages:
+            print("[share] 当前会话无消息，无可导出")
+            return
+        try:
+            from lingclaude.core.redact import redact as _redact
+            from lingclaude.core.rollout import ROLLOUT_DIR, _ts_slug
+            out = Path(arg.strip()) if arg.strip() else (
+                ROLLOUT_DIR.parent / "shares" / f"share-{_ts_slug()}.jsonl")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            meta = {
+                "event": "session_meta", "session_id": engine.session_id,
+                "exported_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                "branch": getattr(engine, "git_branch", None) or "",
+                "message_count": len(engine._messages),
+            }
+            lines = [json.dumps(meta, ensure_ascii=False)]
+            for i, m in enumerate(engine._messages):
+                d = m.to_dict() if hasattr(m, "to_dict") else {
+                    "role": getattr(m, "role", ""), "content": getattr(m, "content", "")}
+                d["content"] = _redact(str(d.get("content", "")))
+                d["ordinal"] = i + 1
+                lines.append(json.dumps(d, ensure_ascii=False, default=str))
+            out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            print(f"[share] 已导出 {len(engine._messages)} 条消息（redact 已过）→ {out}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[share] 导出失败: {e}")
 
     def _cmd_resume(self, name: str, arg: str) -> None:
         engine = self.engine

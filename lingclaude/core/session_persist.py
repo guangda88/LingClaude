@@ -94,6 +94,21 @@ class SessionPersister:
         )
         if cp is not None:
             engine._active_checkpoint = cp
+            # C 路线统一（2026-09-23）：快照动作同步记入共享 rollout 事件流
+            # （单一真理之源一期）。best-effort：失败不影响 checkpoint 主路径。
+            try:
+                from lingclaude.core.rollout import record_engine_rollout
+                record_engine_rollout(engine, "checkpoint", {
+                    "source": "session_persist",
+                    "tag": tag,
+                    "round_idx": round_idx,
+                    "used_tools": used_tools,
+                    "message_count": len(messages),
+                    "total_input": total_input,
+                    "total_output": total_output,
+                })
+            except Exception:  # noqa: BLE001
+                logger.debug("rollout checkpoint record failed", exc_info=True)
 
     def list_checkpoints(self) -> list[dict[str, Any]]:
         engine = self._engine
@@ -148,6 +163,18 @@ class SessionPersister:
         except Exception:
             pass
         logger.info("Session rewound to tag=%s (round=%d, msgs=%d)", tag, cd.round_idx, len(messages))
+        # C 路线统一（2026-09-23）：rewind 也是快照动作，同一事件流记录
+        # （best-effort）——rollout replay 时可见回滚点。
+        try:
+            from lingclaude.core.rollout import record_engine_rollout
+            record_engine_rollout(engine, "rewind", {
+                "source": "session_persist",
+                "tag": tag,
+                "round_idx": cd.round_idx,
+                "message_count": len(messages),
+            })
+        except Exception:  # noqa: BLE001
+            logger.debug("rollout rewind record failed", exc_info=True)
         return True
 
     def load_checkpoint(self) -> dict[str, Any] | None:

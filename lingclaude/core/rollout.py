@@ -61,6 +61,44 @@ class RolloutEvent:
         return json.dumps(payload, ensure_ascii=False)
 
 
+# ── engine 级单例 accessor（C 路线统一，2026-09-23）──
+# 依据：9-23 五家 harness 评审收敛的「rollout 单一真理之源」一期。
+# 此前 submission._save_checkpoint 自持 recorder 实例，session_persist.rewind_to
+# 无法触达同一实例 → fork/rewind 事件各写各文件，无法 replay。现在所有快照
+# 动作经此 accessor 取同一 recorder（session_id 变更时惰性重建），事件流完整。
+_ENGINE_ROLLOUT_KEY = "_engine_rollout_recorder"
+
+
+def get_engine_rollout(engine: Any, session_id: str | None = None) -> "RolloutRecorder | None":
+    """取 engine 挂载的共享 RolloutRecorder（无则惰性创建并 open_meta）。
+
+    best-effort 契约：任何失败返回 None，调用方必须容忍（不阻塞快照主路径）。
+    """
+    try:
+        rr = getattr(engine, _ENGINE_ROLLOUT_KEY, None)
+        sid = session_id or getattr(engine, "session_id", "") or ""
+        if rr is not None and getattr(rr, "session_id", None) == sid:
+            return rr
+        rr = RolloutRecorder(session_id=sid)
+        rr.open_meta(branch=getattr(engine, "git_branch", None) or "")
+        setattr(engine, _ENGINE_ROLLOUT_KEY, rr)
+        return rr
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).debug("get_engine_rollout failed", exc_info=True)
+        return None
+
+
+def record_engine_rollout(engine: Any, event: str, data: dict[str, Any] | None = None) -> None:
+    """向 engine 共享 rollout 流追加事件（best-effort，静默失败）。"""
+    rr = get_engine_rollout(engine)
+    if rr is None:
+        return
+    try:
+        rr.record(event, data or {})
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).debug("rollout record %s failed", event, exc_info=True)
+
+
 class RolloutRecorder:
     """append-only rollout 日志记录器（codex RolloutRecorder 的 Python 对位）。
 
@@ -91,7 +129,9 @@ class RolloutRecorder:
         self.thread_id = thread_id or uuid.uuid4().hex[:16]
         self._dir = rollout_dir or ROLLOUT_DIR
         self._ordinal = 0
-        self._lock = threading.Lock()
+        # RLock 而非 Lock（2026-09-23 修复）：record() 持锁内调 open_meta()
+        # 会二次抢锁 → 非重入 Lock 直接死锁（fork 首个真实调用方才暴露）。
+        self._lock = threading.RLock()
         # 当前写入目标（fork 后切换；源文件路径保留在 _all_paths 不删）
         self._active: Path | None = None
         self._all_paths: list[Path] = []
