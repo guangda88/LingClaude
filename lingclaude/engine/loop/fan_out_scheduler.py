@@ -115,13 +115,67 @@ class FanOutScheduler:
         """轮次边界：plan 为 None（未投机）恒 True（原行为）；已投机时——
         后续轮次继续（投机结果在轮次间被消费），终止时机留给外层调度，
         本策略保守不主动终止（避免误杀正常多轮工具链）。
+
+        B1 扩展（2026-09-22）：重复度终止判定——state 为 fan_plan（LoopHooks
+        的 fan_out 计划 dict）且最近计划已投机时，若本轮 prompt 与投机分支
+        prompt 高度重复（token 集 Jaccard >= fan_out_reuse_threshold，策略文件
+        热更，默认 0.8 保守）→ 返回 False 提前终止（投机已命中还空跑无收益）。
+        阈值 0.0 / 读失败 / 未投机 / 无历史计划 → 恒 True（原保守语义兜底）。
         """
-        # 当前策略：投机不改变轮次推进语义（保守），恒 True。
-        # P1-4 扩展位：命中投机结果后的重复度终止判定在此实现。
-        _ = state  # state 为 fan_plan（保留参数对齐 LoopHooks.decide_continue 签名）
-        return True
+        last = self._latest_plan()
+        if last is None:
+            return True
+        prev_prompt, plan = last
+        threshold = self._load_reuse_threshold()
+        if threshold <= 0.0:
+            return True  # 策略关闭重复度终止（保持原恒 True）
+        return self._reuse_ratio(prompt, prev_prompt) < threshold
 
     # ── 内部 ──
+
+    def _latest_plan(self) -> tuple[str, dict] | None:
+        """最近一次投机计划（plan 非 None 的登记项），连同其 prompt 一并返回；
+        无投机 → None。"""
+        for prompt, plan in reversed(self._plans):
+            if plan is not None:
+                return prompt, plan.to_dict()
+        return None
+
+    def _load_reuse_threshold(self) -> float:
+        """P1-4/B1 扩展：defaults.fan_out_reuse_threshold（热更；读失败→0.0 关闭）。"""
+        try:
+            from lingclaude.core.policy_loader import get as policy_get
+            data = policy_get("fan_out_questions")
+            v = (data or {}).get("defaults", {}).get("fan_out_reuse_threshold")
+            if isinstance(v, (int, float)):
+                return float(v)
+        except Exception:
+            logger.debug("fan_out_reuse_threshold 读取失败（关闭终止判定）", exc_info=True)
+        return 0.0
+
+    def _reuse_ratio(self, current_prompt: str, prev_prompt: str) -> float:
+        """本轮 prompt 与上一次已投机 prompt 的话题相似度（Jaccard）。
+
+        语义修正（2026-09-22）：终止判定的基准是「上一次投机的 prompt」而非
+        分支模板词——分支 prompt 是固定模板（就 (本轮上下文) 回答子目标「X」），
+        与用户 prompt 本体零交叠，拿来比永远≈0，终止判形同虚设。
+        正确基准：本轮 prompt 与上一次投机 prompt 高度同话题（投机刚问过同类，
+        再空跑一轮无新收益）才终止。分词：CJK 逐字 + 拉丁按词（纯 split 对
+        中文无空格文本失准，「就 本轮上下文 回答子目标」切不出词）。
+        """
+        import re
+
+        def _tokens(text: str) -> set[str]:
+            t = (text or "").lower()
+            cjk = re.findall(r"[\u4e00-\u9fff]", t)
+            latin = [w for w in re.findall(r"[a-z0-9]+", t) if len(w) > 1]
+            return set(cjk) | set(latin)
+
+        a = _tokens(current_prompt)
+        b = _tokens(prev_prompt)
+        if not a or not b:
+            return 0.0
+        return len(a & b) / len(a | b)
 
     def _load_fan_out_tags(self) -> list[str]:
         """P1-4：fan_out_questions.yaml 的 defaults.fan_out_tags（data-driven）。"""
@@ -157,9 +211,26 @@ class FanOutScheduler:
         return score >= self._SPECULATIVE_MIN_DIFFICULTY
 
     def _make_branch_prompt(self, tag: str) -> str:
-        """分支 prompt：模板可配（P1-4 策略扩展），默认最小 echo 模板。"""
-        tpl = self.branch_prompt or "就 {state} 回答子目标「{question_tag}」"
+        """分支 prompt：模板可配（P1-4/B1 策略扩展），默认最小 echo 模板。
+
+        模板优先级：构造参数 branch_prompt > 策略文件 defaults.branch_prompt_template
+        > 内置 echo 模板（读失败/键缺失回退，不崩）。
+        """
+        tpl = self.branch_prompt or self._load_branch_template()
         return tpl.replace("{question_tag}", tag).replace("{state}", "(本轮上下文)")
+
+    def _load_branch_template(self) -> str:
+        """B1 扩展：defaults.branch_prompt_template（热更；读失败回退内置 echo 模板）。"""
+        _BUILTIN = "就 {state} 回答子目标「{question_tag}」"
+        try:
+            from lingclaude.core.policy_loader import get as policy_get
+            data = policy_get("fan_out_questions")
+            tpl = (data or {}).get("defaults", {}).get("branch_prompt_template")
+            if isinstance(tpl, str) and tpl:
+                return tpl
+        except Exception:
+            logger.debug("branch_prompt_template 读取失败（回退内置模板）", exc_info=True)
+        return _BUILTIN
 
 
 def default_scheduler() -> FanOutScheduler:
