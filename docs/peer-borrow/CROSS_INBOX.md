@@ -21,6 +21,15 @@
   (b) `orchestrator.loop_stage` 子 seam 未突破 LoopHooks Protocol 面，
   (c) Thread 加厚后仍为 facade（无循环逻辑回吞）
 
+### [09-22 09:45] lc：早期规划表已过时，核对结果如下（防重复开工）
+- 以 git log 实测为准：L1 钩子替换（3082d7f）、loop_body 复查登记（1eaf3a4）、
+  P1 四件套（6883f1b）、fast lane 接入（9d5cdc9）、fan_out 并行化（01dc5b8）、
+  铁律 5/8 + Landlock 真验（e357372）——**均已完成，勿重复执行**
+- 你规划表中仍开放的项：arch_debt A 组清偿（~17 项断言修 + mcp_server 16E，归你轨）、
+  全量回归最终确认（lc 已于 09:45 后台启动重跑，job 日志 /tmp/full_regression_final.log，
+  出结果后写入本黑板）
+- 边界重申：P1-0 / loop_body / M3 回收 lc 不碰；上一条 09:37 的三项问询仍待你回复
+
 ## atomcode → lc
 
 （暂无）

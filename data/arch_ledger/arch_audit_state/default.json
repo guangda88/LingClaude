@@ -1,5 +1,5 @@
 {
-  "head": "31d092f",
+  "head": "2a32942",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "262d9e28230f",
     "tests/test_iron_law_guards.py": "5c177c8cdfb5",
@@ -62,7 +62,7 @@
     "arch_exemption:image_content.py": "7aad968feaf0",
     "arch_exemption:intel.py": "6a8bfac5c162",
     "arch_exemption:l10_a_post_audit.py": "37ae68c820b4",
-    "arch_exemption:l5_audit.py": "9ad92f9fa5ff",
+    "arch_exemption:l5_audit.py": "de2d9bd11cff",
     "arch_exemption:l5_conversation_loop.py": "5b07a1178ba3",
     "arch_exemption:l7_classifier.py": "b94173c846b2",
     "arch_exemption:l7_cognitive.py": "4dda9117e66b",
@@ -85,7 +85,7 @@
     "arch_exemption:meta_cognition.py": "2d68240c54eb",
     "arch_exemption:metrics.py": "3117e93fbaec",
     "arch_exemption:model_adapter.py": "22bac192392c",
-    "arch_exemption:model_call.py": "c488e61ff960",
+    "arch_exemption:model_call.py": "960e6d30dec7",
     "arch_exemption:model_request_log.py": "fd431aa6cc99",
     "arch_exemption:model_types.py": "e2d78b6a3de4",
     "arch_exemption:models.py": "10a5a9bae009",
@@ -94,10 +94,10 @@
     "arch_exemption:plugin_manifest.py": "7d5eebd2adf4",
     "arch_exemption:policy_loader.py": "60a435a8d448",
     "arch_exemption:prior_verifier.py": "f8c05e4aab7f",
-    "arch_exemption:query_engine.py": "6d958627f04a",
+    "arch_exemption:query_engine.py": "a5e1153131d8",
     "arch_exemption:query_engine_lifecycle_mixin.py": "ad39e9f3d0f2",
     "arch_exemption:query_engine_model_mixin.py": "0643bebed050",
-    "arch_exemption:query_engine_turn_mixin.py": "4a660af49989",
+    "arch_exemption:query_engine_turn_mixin.py": "c20c9bcb4963",
     "arch_exemption:rate_limiter.py": "b407c63d8add",
     "arch_exemption:reasoning_chain.py": "9aa5c6b576f3",
     "arch_exemption:redact.py": "2d4d3175075a",
@@ -130,8 +130,8 @@
     "arch_exemption:turn_learner.py": "131b91db014d",
     "arch_exemption:types.py": "c76021cb409c",
     "arch_exemption:wakeup_channel.py": "edf4f812a90c",
-    "arch_exemption:wiring.py": "02031fb97732",
+    "arch_exemption:wiring.py": "e1e39bf6cc32",
     "arch_exemption:worktree.py": "9f48db0097d5"
   },
-  "checked": "2026-09-21T22:51:40+00:00"
+  "checked": "2026-09-22T01:42:32+00:00"
 }
