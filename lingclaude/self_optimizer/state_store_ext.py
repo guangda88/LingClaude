@@ -44,6 +44,7 @@ class FlywheelRecordType(str, Enum):
     FLYWHEEL_ERROR = "flywheel_error"        # data_flywheel.db error_log
     FLYWHEEL_CORRECTION = "flywheel_correction"  # data_flywheel.db corrections
     DATALOG_SNAPSHOT = "datalog_snapshot"    # KB 内 category=datalog_snapshot 的规则行
+    EXPERIMENT = "experiment"                # experiments.db experiments（F2 归因链）
 
 
 # 各逻辑类型 → (TEMP VIEW, 过滤条件, 默认排序列)。排序列须在视图列内（防注入）。
@@ -68,6 +69,11 @@ _QUERY_MAP: dict[FlywheelRecordType, tuple[str, str, str]] = {
         "category = 'datalog_snapshot'",
         "updated_at",
     ),
+    FlywheelRecordType.EXPERIMENT: (
+        "v_experiments",
+        "",
+        "created_at",
+    ),
 }
 
 _TEMP_VIEWS: dict[str, str] = {
@@ -79,10 +85,13 @@ _TEMP_VIEWS: dict[str, str] = {
         "SELECT id, pattern_type, file_path, error_message, tool_name, "
         "context, session_id, occurred_at FROM flywheel.error_log"
     ),
-    "v_flywheel_corrections": (
-        "SELECT id, original_error, correction, source "
-        "FROM flywheel.corrections"
+    "v_experiments": (
+        "SELECT experiment_id, cycle_id, params_json, score_before, "
+        "score_after, verdict, reason, created_at, decided_at "
+        "FROM experiments.experiments"
     ),
+    # v_flywheel_corrections 在 _connection 里动态建——列集随存量库
+    # 是否已做 F2 迁移（experiment_id 列）而不同，见 _create_correction_view。
 }
 
 
@@ -103,8 +112,11 @@ class FlywheelStateStore:
         root = project_root or Path(__file__).resolve().parent.parent.parent
         self._main_path = root / ".lingclaude" / "knowledge.db"
         self._flywheel_path = root / ".lingclaude" / "data_flywheel.db"
+        # F2 (2026-09-22): experiments.db —— daemon 实验台账（见 experiments.py）
+        self._experiments_path = root / ".lingclaude" / "experiments.db"
         self._conn: sqlite3.Connection | None = None
         self._flywheel_attached = False
+        self._experiments_attached = False
 
     # ------------------------------------------------------------------
     # 连接管理
@@ -128,9 +140,25 @@ class FlywheelStateStore:
                     "data_flywheel.db 不存在（%s），flywheel 相关查询将返回空",
                     self._flywheel_path,
                 )
+            if self._flywheel_attached:
+                # F2: corrections 列集随存量库迁移状态而不同 → 动态建视图
+                self._create_correction_view(conn)
+            if self._experiments_path.exists():
+                conn.execute(
+                    "ATTACH DATABASE ? AS experiments",
+                    (str(self._experiments_path),),
+                )
+                self._experiments_attached = True
+            else:
+                logger.warning(
+                    "experiments.db 不存在（%s），实验视图查询将返回空",
+                    self._experiments_path,
+                )
             for name, select_sql in _TEMP_VIEWS.items():
                 if not self._flywheel_attached and name.startswith("v_flywheel"):
                     continue  # 未挂载时不建 flywheel 视图，避免查询报 no such table
+                if not self._experiments_attached and name.startswith("v_experiments"):
+                    continue  # 同上（F2 台账库缺失时优雅降级）
                 conn.execute(
                     f"CREATE TEMP VIEW {name} AS {select_sql}"  # noqa: S608 - 常量拼接
                 )
@@ -144,6 +172,7 @@ class FlywheelStateStore:
             self._conn.close()
             self._conn = None
             self._flywheel_attached = False
+            self._experiments_attached = False
 
     def __enter__(self) -> "FlywheelStateStore":
         return self
@@ -163,6 +192,13 @@ class FlywheelStateStore:
     ) -> list[dict[str, Any]]:
         """按逻辑类型取数，返回 dict 列表（列名 → 值）。"""
         view, where, default_order = _QUERY_MAP[record_type]
+        conn = self._connection()  # 先建连接：attached 标志在懒初始化内置位
+        # 降级短路：对应库未挂载时视图未建 → 返回空而非报错
+        # （F2 之前 flywheel 视图同样存在此缺口，一并补齐）
+        if view.startswith("v_flywheel") and not self._flywheel_attached:
+            return []
+        if view.startswith("v_experiments") and not self._experiments_attached:
+            return []
         order_col = order_by or default_order
         valid_cols = self._view_columns(view)
         if order_col not in valid_cols:
@@ -218,11 +254,70 @@ class FlywheelStateStore:
             counts["flywheel_corrections"] = conn.execute(
                 "SELECT count(*) FROM v_flywheel_corrections"
             ).fetchone()[0]
+        if self._experiments_attached:
+            counts["experiments_total"] = conn.execute(
+                "SELECT count(*) FROM v_experiments"
+            ).fetchone()[0]
+            counts["experiments_pending"] = conn.execute(
+                "SELECT count(*) FROM v_experiments WHERE verdict = 'pending'"
+            ).fetchone()[0]
         return counts
+
+    def optimization_outcomes(self) -> dict[str, float | int]:
+        """F0 指标（F2 结算数据源）：参数应用率 / rollback率。
+
+        - applied = verdict='accepted' 的实验数
+        - rolled_back = 'rolled_back'（含超时清扫——结果未知的保守归档）
+        - rejected = P0 门禁拒绝
+        - apply_rate / rollback_rate 以已结算实验为分母
+        """
+        out: dict[str, float | int] = {
+            "experiments_settled": 0,
+            "applied": 0,
+            "rolled_back": 0,
+            "rejected": 0,
+            "apply_rate": 0.0,
+            "rollback_rate": 0.0,
+        }
+        self._connection()  # 先建连接：attached 标志在懒初始化内置位
+        if not self._experiments_attached:
+            return out
+        conn = self._connection()
+        rows = conn.execute(
+            "SELECT verdict, count(*) AS n FROM v_experiments "
+            "WHERE verdict != 'pending' GROUP BY verdict"
+        ).fetchall()
+        # safe_connect 不设 row_factory → 行是 tuple，按下标取
+        tally = {r[0]: int(r[1]) for r in rows}
+        settled = sum(tally.values())
+        out["experiments_settled"] = settled
+        out["applied"] = tally.get("accepted", 0)
+        out["rolled_back"] = tally.get("rolled_back", 0)
+        out["rejected"] = tally.get("rejected", 0)
+        if settled:
+            out["apply_rate"] = round(out["applied"] / settled, 4)
+            out["rollback_rate"] = round(out["rolled_back"] / settled, 4)
+        return out
 
     # ------------------------------------------------------------------
     # 内部工具
     # ------------------------------------------------------------------
+    def _create_correction_view(self, conn: sqlite3.Connection) -> None:
+        """F2: 按存量库实际列集建 corrections 视图。
+
+        未迁移库（无 experiment_id 列）置 NULL 占位，保持视图列集稳定，
+        消费方无需感知迁移进度。
+        """
+        cols = {
+            r[1] for r in conn.execute("PRAGMA flywheel.table_info(corrections)")
+        }
+        exp_expr = "experiment_id" if "experiment_id" in cols else "NULL"
+        conn.execute(
+            "CREATE TEMP VIEW v_flywheel_corrections AS "
+            "SELECT id, original_error, correction, source, confidence, "
+            f"applied_at, {exp_expr} AS experiment_id FROM flywheel.corrections"
+        )
+
     def _view_columns(self, view: str) -> list[str]:
         cursor = self._connection().execute(
             f"SELECT * FROM {view} LIMIT 0"  # noqa: S608 - view 来自常量表

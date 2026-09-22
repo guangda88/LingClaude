@@ -12,6 +12,7 @@ from lingclaude.core.types import Result
 from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.self_optimizer.advisor import OptimizationAdvisor
 from lingclaude.self_optimizer.evaluator import StructureEvaluator
+from lingclaude.self_optimizer.experiments import ExperimentLedger
 from lingclaude.self_optimizer.optimizer import (
     OptimizationRequest,
     SynchronousOptimizer,
@@ -121,6 +122,11 @@ class OptimizationDaemon:
 
         self.benchmark = BenchmarkEvaluator(target)
         self._last_benchmark_score: float | None = None
+        # F2 归因链（2026-09-22）：实验台账——experiment_id 贯穿 +
+        # accept/rollback 结算。库随 state_dir（测试天然隔离）。
+        self.experiments = ExperimentLedger(
+            db_path=str(self.state_dir / "experiments.db")
+        )
         self.state = DaemonState.load(self.state_path)
         # 遗留项1（2026-09-17）：基线跨进程恢复——重启后从归档态取回
         # 上次通过的基准分，避免"重启即丢基线、门禁首轮失效"。
@@ -297,6 +303,8 @@ class OptimizationDaemon:
         # 复测——分数与参数耦合（原实现阈值硬编码 + 基准在 _apply_params 之前
         # 测，恒等分 → 门禁死门，atomcode B2 / opencode #9）。
         # after.score < before.score → 参数会拉低行为分 → 拒绝应用本轮参数。
+        # F2 归因链：清扫超时 pending（崩溃残留 → rolled_back），随后开本轮实验单。
+        self.experiments.expire_stale_pending()
         bench_before = self.benchmark.run()
         self.state.benchmark_baseline = bench_before.score
         self.state.save(self.state_path)
@@ -307,10 +315,21 @@ class OptimizationDaemon:
         self.benchmark.adopt_params(result.best_params)
         bench_after = self.benchmark.run()
         if bench_after.score < bench_before.score:
+            # F2 归因链：本轮 best_params 被门禁拒绝 → 结算 rejected。
+            # score_before 取行为基准分（门禁语义，与 score_after 可比）。
+            exp_id = self.experiments.start(
+                self.state.total_cycles + 1, result.best_params, bench_before.score
+            )
             logger.warning(
                 "[P0门禁] 参数联动复测回退 %.1f → %.1f，本轮 best_params 拒绝应用"
                 "（violations=%s 仅作参考）",
                 bench_before.score, bench_after.score, result.best_score,
+            )
+            self.experiments.settle(
+                exp_id,
+                "rejected",
+                score_after=bench_after.score,
+                reason="p0_gate_regression",
             )
             return Result.ok(None)
         if bench_after.score > bench_before.score:
@@ -337,6 +356,11 @@ class OptimizationDaemon:
         # ---- P1 择优回滚（2026-09-17）：以归档历史最优为 baseline ----
         # best_score（violations，越低越好）劣于归档历史最优 → 不应用本轮
         # 参数，回滚应用 best_ever_params（若历史最优存在）——防止优化漂移。
+        # F2 归因链：本轮实验单在此开立（观察窗起点），accept/rollback 于
+        # 三个分支即时结算；score_before 取 violations（代理目标，跨轮可比）。
+        exp_id = self.experiments.start(
+            self.state.total_cycles + 1, result.best_params, violations_before
+        )
         best_ever = self.state.best_ever_score
         if best_ever is not None and result.best_score > best_ever:
             logger.warning(
@@ -346,8 +370,17 @@ class OptimizationDaemon:
             )
             if self.state.best_ever_params:
                 self._apply_params(dict(self.state.best_ever_params))
+            self.experiments.settle(
+                exp_id,
+                "rolled_back",
+                score_after=result.best_score,
+                reason="p1_worse_than_best_ever",
+            )
         else:
             self._apply_params(result.best_params)
+            self.experiments.settle(
+                exp_id, "accepted", score_after=result.best_score, reason="applied"
+            )
             # 更新归档最优（violations 越低越好）
             if best_ever is None or result.best_score < best_ever:
                 self.state.best_ever_score = float(result.best_score)

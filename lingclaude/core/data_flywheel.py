@@ -33,6 +33,10 @@ class CorrectionEntry:
     source: str
     confidence: float
     applied_at: str
+    # F2 (2026-09-22): 证据上下文——correction 发生时的优化实验单 id。
+    # 非空 ⇒ 该纠正发生在某次参数应用的观察窗内，是 F5「证据挂钩」
+    # 的挂钩点（conf 上限 0.9/0.6 分级）。None = 无实验上下文。
+    experiment_id: str | None = None
 
 
 @dataclass
@@ -78,12 +82,17 @@ class DataFlywheel:
                 correction TEXT NOT NULL,
                 source TEXT NOT NULL,
                 confidence REAL NOT NULL,
-                applied_at TEXT NOT NULL
+                applied_at TEXT NOT NULL,
+                experiment_id TEXT
             )
         """)
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_errors_type ON error_log(pattern_type)"
         )
+        # F2 (2026-09-22): 存量库补 experiment_id 证据列（幂等迁移）。
+        cols = {r[1] for r in c.execute("PRAGMA table_info(corrections)").fetchall()}
+        if "experiment_id" not in cols:
+            c.execute("ALTER TABLE corrections ADD COLUMN experiment_id TEXT")
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_errors_file ON error_log(file_path)"
         )
@@ -136,14 +145,16 @@ class DataFlywheel:
             c = conn.cursor()
             c.execute(
                 """INSERT INTO corrections
-                   (original_error, correction, source, confidence, applied_at)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   (original_error, correction, source, confidence, applied_at,
+                    experiment_id)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (
                     correction.original_error,
                     correction.correction,
                     correction.source,
                     correction.confidence,
                     correction.applied_at,
+                    correction.experiment_id,
                 ),
             )
             safe_commit(conn)
