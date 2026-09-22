@@ -10,6 +10,11 @@
 fast_lane_questions:
   "$ref": "router_questions"
 
+# fast lane 门禁（2026-09-22）：策略文件热开关，每次 resolve 实时读（mtime watch）。
+# 默认 false（保守）；实机会话验证冷启动开销后可翻 true。
+# env LINGCLAUDE_LAYA_FAST_LANE=1 仍可无条件强制（优先级高于本键）。
+fast_lane_enabled: false
+
 # P1-0 Speculative Fan Out 投机分支的问题集（Thread.set_fan_out_scheduler 消费）：
 # 每个扇出分支对应一个 tag + 问题定义，调度器 plan() 据此生成 branches
 fan_out_questions:

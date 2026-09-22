@@ -442,12 +442,24 @@ class TaskRouter:
         if task_type is None:
             task_type = TaskType.from_query(prompt)
 
-        # P1-1（2026-09-22）：Laya fast lane 接入 resolve 链（env 门禁，默认关）。
+        # P1-1（2026-09-22）：Laya fast lane 接入 resolve 链。
+        # 门禁双通道：env LINGCLAUDE_LAYA_FAST_LANE=1 强制开（最高优先级）；
+        # 策略文件 fan_out_questions.yaml fast_lane_enabled 热开关（每次 resolve
+        # 实时读，mtime watch + 30s 节流，读失败视为关——fail-closed）。
         # 语义：fast_route 先行做 System-1 分类判定（本地 ~150ms vs LLM 路由 1-5s）；
         # 返回 None（插片不可用 / NOT_GOOD_AT 命中代码长文类 / 判定失败）→ 无缝回退
-        # 原关键词分类路径（fail-soft，resolve 契约不变）。env 开关沿用
-        # _FLASH_GATE_DISABLE_ENV 反向模式：显式 LAYA_FAST_LANE=1 才启用。
-        if os.environ.get("LINGCLAUDE_LAYA_FAST_LANE", "") in ("1", "true", "TRUE"):
+        # 原关键词分类路径（fail-soft，resolve 契约不变）。
+        _env_force = os.environ.get("LINGCLAUDE_LAYA_FAST_LANE", "") in ("1", "true", "TRUE")
+        if _env_force:
+            _gate_open = True
+        else:
+            try:
+                from lingclaude.core.policy_loader import get as _policy_get
+
+                _gate_open = bool((_policy_get("fan_out_questions") or {}).get("fast_lane_enabled"))
+            except Exception:  # noqa: BLE001 — 门禁读取失败视为关
+                _gate_open = False
+        if _gate_open:
             try:
                 from lingclaude.model.fast_lane import fast_route
                 from laya.presets import router_questions
