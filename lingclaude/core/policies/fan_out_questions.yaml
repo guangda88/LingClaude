@@ -1,0 +1,37 @@
+# P1-4（2026-09-22）：Speculative Fan Out / Laya fast lane 问题集策略（data-driven）
+# 模式沿用 router_keywords.yaml：策略是 data 不是结构，改此文件不动代码。
+# 生效时机：fast_lane/fast_route 与 Thread 扇出调度器每次调用实时读
+# （PolicyLoader mtime watch + 30s 节流），读失败回退内置默认（graceful degrade）。
+#
+# 语义对齐 laya.presets 三类型：choice（多选一）/ noul（布尔）/ score（打分）。
+# criteria 支持内联 dict/list（就地定义）或 "$ref:router_questions"（复用 preset）。
+
+# Laya fast lane（fast_lane.fast_route）使用的 triage 问题集
+fast_lane_questions:
+  "$ref": "router_questions"
+
+# P1-0 Speculative Fan Out 投机分支的问题集（Thread.set_fan_out_scheduler 消费）：
+# 每个扇出分支对应一个 tag + 问题定义，调度器 plan() 据此生成 branches
+fan_out_questions:
+  difficulty:
+    type: score
+    instructions: "How hard is `request` for a language model?"
+    criteria:
+      - "trivial: a lookup or one-liner"
+      - "easy: short answer, no reasoning"
+      - "moderate: several steps"
+      - "hard: long multi-step reasoning or specialist knowledge"
+  domain:
+    type: choice
+    instructions: "What domain does `request` belong to?"
+    criteria:
+      code: "software engineering, programming, refactoring, architecture, debugging"
+      math_or_logic: "mathematics, logic puzzles, proofs, complex calculation"
+      writing: "creative writing, essays, emails, blog posts, copywriting"
+      factual_lookup: "facts, definitions, trivia, history"
+      data_analysis: "statistics, SQL, data manipulation, metrics"
+      other: "none of the above fits"
+
+# 内置默认（yaml 读失败/键缺失时的回退源；与上节保持同步）
+defaults:
+  fan_out_tags: [difficulty, domain]

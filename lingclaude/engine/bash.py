@@ -331,6 +331,16 @@ class BashExecutor:
                 provider = BwrapSandboxProvider()
             self._sandbox_provider = provider
 
+        # P1-3（2026-09-22）：NOT_GOOD_AT 实接——只读诊断类命令直通不进沙箱。
+        # 语义（sandbox_provider.NOT_GOOD_AT["readonly_diag"]）：grep/rg/cat/ls/systemctl
+        # status 等纯读命令无写面，沙箱探测+wrap 开销 > 安全收益，直通（黑名单
+        # 三重兜底仍然生效——此处只是免沙箱包裹，不是免审查）。
+        from lingclaude.engine.sandbox_provider import NOT_GOOD_AT
+        if "readonly_diag" in NOT_GOOD_AT and self._is_readonly_diag_command(
+            command.split()
+        ):
+            return command
+
         bwrap_ok = provider.available()
         # P0-B: 非 bwrap 后端（landlock/seatland）的 fail-closed 语义等价——
         # 严格模式下任何沙箱后端不可用都不得静默降级 noop。

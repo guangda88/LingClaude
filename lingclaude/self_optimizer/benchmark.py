@@ -44,6 +44,51 @@ _BUILTIN_CHECKS: list[dict[str, str]] = [
 ]
 
 
+# ── P1-2（2026-09-22）：概率校准指标（Jev 8 项评估矩阵"校准"维度）──
+# 数据源说明（codex 修订 2026-09-21 沿用）：内置 12 题是 0/1 结构判定无概率输出，
+# 本函数面向 Laya provider 输出（归一化熵 1 - H(p)/log(K)）+ 可选人工标注子集，
+# **不覆盖 lc 全链路**。与 daemon P0 实证门禁联动：校准误差不回退才允许应用。
+
+
+def eval_calibration(predictions: list[float], actuals: list[bool], n_bins: int = 10) -> float:
+    """Expected Calibration Error = sum_b (|b|/N) * |acc(b) - conf(b)|。
+
+    **修订 2026-09-21（响应审查）**：原版本 bin_preds 同时当 predictions 和
+    actuals 用，导致 ECE 恒等于 0。正确做法：分桶分别存 predictions 和
+    actuals，计算桶内均值时从两个独立列表取。
+
+    Args:
+        predictions: 模型输出的预测置信度（0.0-1.0），如 Laya 归一化熵 1 - H(p)/log(K)
+        actuals: 真实结果（bool），True = 预测正确
+        n_bins: 分桶数（默认 10）
+
+    桶号约定（交接文档 P1-2 修订）：pred=0.1 → 桶 1（即 idx=1 的语义修正——
+    0.0 归桶 0，非零下界归后桶；等宽桶 int(pred*n_bins) 截断到 n_bins-1）。
+    """
+    if not predictions or len(predictions) != len(actuals):
+        return 0.0
+    # 关键：分别追踪 predictions 和 actuals（两个独立列表）
+    bins: list[tuple[list[float], list[float]]] = [
+        ([], []) for _ in range(n_bins)
+    ]  # 每个 bin 存 (predictions 列表, actuals 列表)
+
+    for pred, act in zip(predictions, actuals):
+        pred = min(max(pred, 0.0), 1.0)  # 越界截断（防御 provider 异常输出）
+        idx = min(int(pred * n_bins), n_bins - 1)
+        bins[idx][0].append(pred)                 # 预测概率入 predictions 列
+        bins[idx][1].append(1.0 if act else 0.0)  # 真实结果入 actuals 列
+
+    ece = 0.0
+    total = len(predictions)
+    for pred_list, act_list in bins:
+        if not pred_list:  # 空桶跳过
+            continue
+        bin_acc = sum(act_list) / len(act_list)     # 真实准确率（actuals 列）
+        bin_conf = sum(pred_list) / len(pred_list)  # 平均预测概率（predictions 列）
+        ece += (len(pred_list) / total) * abs(bin_acc - bin_conf)
+    return ece
+
+
 @dataclass(frozen=True)
 class BenchmarkResult:
     score: float          # 0-100
