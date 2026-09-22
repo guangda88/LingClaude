@@ -19,6 +19,40 @@ warnings.filterwarnings("ignore", category=DeprecationWarning,
 
 
 @pytest.fixture(autouse=True)
+def _isolate_persistence_files(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """permissions/approval_matrix 持久化写点隔离到 tmp（2026-09-23 事故修复）。
+
+    事故：test_gray_zone / test_t0_wiring 裸调 set_permission_mode()（无
+    自带 monkeypatch），每次全量回归都把生产 lingclaude/data/approvals.json
+    的 mode 覆写一遍（auto/ask 交替），叠加跨进程热更（_maybe_reload_mode
+    按 mtime 采纳盘上值）后表现为「TUI 权限模式自动跳变」。
+
+    本 fixture 一处修复：两个生产写点全部重定向 tmp_path——
+      - permissions._PERSIST_PATH（mode + always_allow 落盘点）
+      - approval_matrix.RULES_PATH（always_allow 资产化读写点，原为
+        cwd 相对路径，依赖 pytest 从仓库根启动才碰巧指向生产文件）
+    并复位内存态（_GLOBAL_MODE/_PERSISTED_TOOLS/_LAST_PERSIST_MTIME），
+    隔离从干净基线开始、跨测试不泄漏。
+
+    个别测试自带再-patch（test_mode_cycle / test_t1_wiring）会覆盖本次
+    setattr——monkeypatch 栈式恢复，测试结束后回到本 fixture 的隔离态，
+    生产文件全程免疫。
+    """
+    import lingclaude.core.approval_matrix as _approval_matrix
+    import lingclaude.core.permissions as _perms
+
+    monkeypatch.setattr(_perms, "_PERSIST_PATH", tmp_path / "approvals.json")
+    monkeypatch.setattr(
+        _approval_matrix, "RULES_PATH", tmp_path / "approval_rules.json"
+    )
+    monkeypatch.setattr(_perms, "_GLOBAL_MODE", "ask")
+    # 给新 set 而非复用模块原对象：测试内 .add() 污染 fixture 提供的新集合，
+    # teardown 恢复原引用，模块原 set 全程不被触碰
+    monkeypatch.setattr(_perms, "_PERSISTED_TOOLS", set())
+    monkeypatch.setattr(_perms, "_LAST_PERSIST_MTIME", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_git_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
     """测试仓库不继承用户全局 core.hooksPath（~/.git-hooks 的 post-commit
     会撤销无审计记录的提交，干扰测试夹具仓库）。通过 GIT_CONFIG_* 环境变量

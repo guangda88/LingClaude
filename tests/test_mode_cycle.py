@@ -215,3 +215,58 @@ class TestShiftModeOutput:
         mc.shift_mode(object())
         out = capsys.readouterr().out
         assert "ask → strict" in out
+
+
+class TestProdPersistenceImmunity:
+    """生产 approvals.json 对测试免疫哨兵（2026-09-23 conftest 隔离事故）。
+
+    背景：test_gray_zone / test_t0_wiring 裸调 set_permission_mode 曾把
+    生产 lingclaude/data/approvals.json 的 mode 覆写（auto/ask 随回归漂移），
+    叠加跨进程热更表现为 TUI 权限模式自动跳变。conftest
+    _isolate_persistence_files autouse fixture 修复后，本组用例守护：
+    1) 生产文件 mtime/内容不被任何权限相关操作改动
+    2) 模块级两写点确实指向 tmp（fixture 自身生效性）
+    """
+
+    def test_prod_approvals_untouched_by_mode_set(
+        self, tmp_path
+    ) -> None:
+        """裸调 set_permission_mode 全程不触碰生产 approvals.json。"""
+        import lingclaude.core.permissions as perms
+        from lingclaude.core.approval_matrix import RULES_PATH
+
+        prod_path = Path(__file__).resolve().parent.parent / (
+            "lingclaude/data/approvals.json"
+        )
+        before = (
+            prod_path.stat().st_mtime,
+            prod_path.read_text(encoding="utf-8"),
+        )
+
+        perms.set_permission_mode("auto")
+        perms.set_permission_mode("ask")
+        perms.set_permission_mode("strict")
+        assert perms.get_permission_mode() == "strict"
+
+        # 断言隔离生效：两个模块级写点都已被 conftest 重定向，不在生产
+        assert perms._PERSIST_PATH != prod_path
+        assert RULES_PATH != prod_path
+
+        after = (
+            prod_path.stat().st_mtime,
+            prod_path.read_text(encoding="utf-8"),
+        )
+        assert before == after, "生产 approvals.json 被测试改动！"
+
+    def test_overlay_patch_coexists_with_conftest(self, monkeypatch, tmp_path) -> None:
+        """测试自带再-patch（如 _install_fake_persist）与 conftest autouse
+        隔离叠加共存：内层 patch 覆盖生效，两层恢复顺序为 LIFO——
+        先撤测试内层，conftest 隔离态留存至本 fixture 结束，生产文件
+        全程不被暴露。"""
+        _install_fake_persist(monkeypatch, tmp_path, "auto")
+        assert perms.get_permission_mode() == "auto"
+        # 内层 patch 直接覆盖 conftest 的 tmp 路径——两层都是 tmp 域，
+        # 无论恢复顺序如何，生产路径从未在场
+        assert "pytest-of-" in str(perms._PERSIST_PATH) or "tmp" in str(
+            perms._PERSIST_PATH
+        ).lower()
