@@ -1,0 +1,11 @@
+{
+  "kind": "arch_debt",
+  "key": "fastlane-dead-plugin-review",
+  "state": "open",
+  "severity": "P2",
+  "location": "lingclaude/model/fast_lane.py + lingclaude/model/task_router.py:445-480（resolve 门禁消费段）",
+  "reason": "fast lane 实机验证（2026-09-22，docs/handover/20260922_b_group_review_fastlane_gate.md §四）判定为『默认死路径』插片：默认关，且 env 强制开时 20+4 条对照 0 决策修正（B2 门控 confidence≥0.3/factual_lookup 回退/NOT_GOOD_AT 把 verdict 普遍滤成 None），稳态 +19ms/次纯付无收。接线/测试均绿非死代码，但无独立存在价值——唯一有意义的消费场景是作为 FanOutScheduler（enable=True 后）的 pre_classifier，届时判定直接决定投机分支。",
+  "due": "2026-11-21",
+  "resolve_hint": "到期二选一：(a) FanOutScheduler enable 上线且 fast lane 接为其 pre_classifier（有真实消费方，另测投机命中收益）；(b) 无消费方则从 resolve 链摘除 fast_route 消费段，降级为 benchmarks/laya_fastlane_quality.py 独立验证工具（豁免不得永续，同铁律挂账逻辑）。复评触发条件：B2 门控有新质量数据支持放宽，或问题集换精调版本提升 verdict 存活率。",
+  "created": "2026-09-22T19:45:00+00:00"
+}
