@@ -97,6 +97,29 @@ flywheel / 幻觉闭环——迁移即接线，无遗留 `self._*` 钩子形态�
 按 §七"随 L1 完成回收"——L1 确认本节即触发回收条件；`core/mcp_tools.py`
 mcp_proxy 4 条边**不在循环体上，维持台账豁免**（mcp 工具面独立轨）。
 
+### P1-0 执行记录（2026-09-22）：Speculative Fan Out 挂 LoopHooks 子 seam
+
+**命名空间**：`SeamType.ORCHESTRATOR` 子级 `orchestrator.loop_stage`
+（交接文档 §5 P1-0 原案；不堆 submission.py）。落点三件：
+
+1. `engine/loop/hooks.py`：LoopHooks 协议扩展三钩子（可选语义，hasattr 探测）——
+   `pre_decide(prompt, messages) -> dict|None`（轮前询问扇出计划）/
+   `post_check(tag, result) -> bool`（投机结果校验，fail-soft 丢弃）/
+   `decide_continue(prompt, round_idx, state) -> bool`（轮次边界继续判定）。
+   DefaultLoopHooks 默认直通（None/False/True = 原路径零变化）。
+2. `engine/loop/loop_body.py`：双路径（call/stream）各接 2 挂点——
+   循环前 `pre_decide`、轮次边界 `decide_continue`（break 语义）；
+   循环体侧 getattr 防御（fake hooks 未实现三钩子时直通，golden master 无需改）。
+3. `engine/loop/thread.py`：facade 兑现加厚——`set_fan_out_scheduler()`
+   （调度器三方法 plan/verify/should_continue 接通三钩子，幂等可注销）+
+   `run_speculative(branches)`（投机分支执行，fail-soft 逐分支捕获）。
+   Thread 仍不碰循环体逻辑（契约 §四边界保持）。
+
+验证：定向回归 90 passed（golden master 9 + loop_detection + r5_denial +
+iron_law_guards 8 + sandbox + sub_agent + usage + n5_done）；
+调度器接通/注销生命周期探针 OK。投机分支并行化（现串行降级版）留待
+policies/fan_out_questions.yaml（P1-4）数据驱动后评估。
+
 `_call_model` 与 `stream_call_model` 的 `self.*` 槽位各 17 个，**交集 11**（双路径
 共同 seam 参数面）：`_build_messages` `_build_openai_tools` `_clear_checkpoint`
 `_finalize_turn` `_hard_interrupt_message` `_provider` `_resolve_model_config`

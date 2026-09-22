@@ -164,6 +164,9 @@ def run_call_model_loop(engine: Any, prompt: str) -> str:
     consecutive_failures = 0
 
     loop_detector = _ToolLoopDetector()
+    # P1-0: 轮次循环开始前询问投机扇出调度器（默认直通 None = 原路径零变化）。
+    _pre_decide = getattr(engine.hooks, "pre_decide", None)
+    fan_plan = _pre_decide(prompt, messages) if _pre_decide else None
     for round_idx in range(_resolve_max_tool_rounds(engine)):
         result = engine._provider.complete(
             tuple(messages), config=resolved_config, tools=tools,
@@ -243,6 +246,12 @@ def run_call_model_loop(engine: Any, prompt: str) -> str:
         else:
             consecutive_failures = 0
 
+        # P1-0: 轮次边界决定是否继续（默认直通 True = 原行为零变化；
+        # fan out 调度器可据此提前终止已投机命中的后续轮次）。
+        _decide_continue = getattr(engine.hooks, "decide_continue", None)
+        if _decide_continue and not _decide_continue(prompt, round_idx, fan_plan):
+            break
+
     content = response.content if response and response.content else "[达到最大工具调用轮次]"
     return engine._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
 
@@ -276,6 +285,9 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
     finalized = False
 
     loop_detector = _ToolLoopDetector()
+    # P1-0: 轮次循环开始前询问投机扇出调度器（默认直通 None = 原路径零变化）。
+    _pre_decide = getattr(engine.hooks, "pre_decide", None)
+    fan_plan = _pre_decide(prompt, messages) if _pre_decide else None
     for round_idx in range(_resolve_max_tool_rounds(engine)):
         round_text_parts: list[str] = []
         round_tool_calls: list[ToolCall] = []
@@ -530,6 +542,17 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
                 round_content if not response_content
                 else response_content + "\n" + round_content
             )
+        # P1-0: 轮次边界决定是否继续（默认直通 True = 原行为零变化；
+        # fan out 调度器可据此提前终止已投机命中的后续轮次）。
+        _decide_continue = getattr(engine.hooks, "decide_continue", None)
+        if _decide_continue and not _decide_continue(prompt, round_idx, fan_plan):
+            yield {
+                "type": "round_end",
+                "round_idx": round_idx,
+                "has_tool_calls": bool(round_tool_calls),
+                "error_count": round_error_count,
+            }
+            break
         yield {
             "type": "round_end",
             "round_idx": round_idx,

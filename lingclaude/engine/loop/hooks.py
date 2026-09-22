@@ -79,6 +79,23 @@ class LoopHooks(Protocol):
         ...
 
 
+# ── P1-0（2026-09-22）：Speculative Fan Out 子 seam（orchestrator.loop_stage）──
+# 契约登记：docs/CORE_SURFACE_CONTRACT.md §四.1 A 类扩展（铁律 §三 变化走接缝；
+# 命名空间挂 SeamType.ORCHESTRATOR 子级，不堆 submission.py —— 交接文档 §5 P1-0 原案）。
+# 三钩子语义（投机扇出 = 提前并行猜下一步，主路径事后校验）：
+# - pre_decide(prompt, messages) -> dict | None
+#     轮次开始前询问扇出调度器：返回 {"fan_out": [...], "token_budget": int} 或 None。
+#     None = 本轮不投机（默认直通）。fan_out 列表元素为 {"prompt": str, "tag": str}。
+# - post_check(tag, result) -> bool
+#     投机分支结果回来后的校验钩子：True = 采纳（计入主路径），False = 丢弃。
+#     fail-soft：实现方异常视为 False（投机分支永不拖垮主路径）。
+# - decide_continue(prompt, round_idx, state) -> bool
+#     轮次边界决定是否继续循环（默认 True 保持现行为；fan out 调度器可据此
+#     提前终止已投机命中的后续轮次）。
+# 三钩子全部可选：LoopHooks Protocol 不强制实现（hasattr 探测），
+# DefaultLoopHooks 提供直通默认（见下方三个方法）。
+
+
 class DefaultLoopHooks:
     """默认实现：绑定 QueryEngine（self），逐项转发到现有方法，行为零变化。
 
@@ -136,6 +153,43 @@ class DefaultLoopHooks:
             self._engine._log_to_flywheel(**kwargs)
         except Exception:
             logger.debug("LoopHooks.log_flywheel failed (non-blocking)", exc_info=True)
+
+    # ── P1-0：Speculative Fan Out 三钩子默认直通（orchestrator.loop_stage）──
+    # 调度器函数由 LingClaudeThread.set_fan_out_scheduler 挂到 hooks 实例自身
+    # （_fan_out_* 属性），此处从 self 读取——engine 上挂会与 hooks 位置错位。
+
+    def pre_decide(self, prompt: str, messages: list) -> dict | None:
+        """默认直通：本轮不投机（返回 None，循环体走原路径零变化）。"""
+        try:
+            fn = getattr(self, "_fan_out_pre_decide", None)
+            if fn is None:
+                return None
+            return fn(prompt, messages)
+        except Exception:
+            logger.debug("LoopHooks.pre_decide failed (non-blocking)", exc_info=True)
+            return None
+
+    def post_check(self, tag: str, result: Any) -> bool:
+        """默认直通：投机结果全部丢弃（无调度器注册时 fan out 不采纳）。"""
+        try:
+            fn = getattr(self, "_fan_out_post_check", None)
+            if fn is None:
+                return False
+            return bool(fn(tag, result))
+        except Exception:
+            logger.debug("LoopHooks.post_check failed (fail-soft → 丢弃)", exc_info=True)
+            return False
+
+    def decide_continue(self, prompt: str, round_idx: int, state: Any) -> bool:
+        """默认直通：恒 True（保持现有轮次行为，不提前终止）。"""
+        try:
+            fn = getattr(self, "_fan_out_decide_continue", None)
+            if fn is None:
+                return True
+            return bool(fn(prompt, round_idx, state))
+        except Exception:
+            logger.debug("LoopHooks.decide_continue failed (non-blocking → 继续)", exc_info=True)
+            return True
 
 
 def default_hooks_for(engine: Any) -> "DefaultLoopHooks":
