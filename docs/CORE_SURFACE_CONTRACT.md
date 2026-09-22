@@ -81,6 +81,22 @@ lingclaude/engine/loop/
   该文件 mcp_proxy 消费边是否随 L1 回收待定，mcp_proxy 本身不在循环体上，
   初判**不列入 L1 回收**、维持台账豁免至 mcp 工具面独立轨）。
 
+### L1 执行记录（2026-09-22）
+
+盘点实测：`loop_body.py` 内治理钩子调用 15 处**在 L0 迁移时已同步走
+`engine.hooks.*`**（LoopHooks 5 类：journal / provider outcome / health switch /
+flywheel / 幻觉闭环——迁移即接线，无遗留 `self._*` 钩子形态调用）。
+其余 23 处 `engine._*` 调用点逐类核对，全部落在契约 §四.1 B 类白名单
+（引擎自有方法 `_finalize_turn`×7 / `_save_checkpoint`×4 / `_hard_interrupt_message`×4 /
+`_behavior`×4 / 配置解析与 provider 能力依赖），按 §四.1 判定**不过 seam**——
+"L1 逐类替换"的实际工作量因此为：核对确认（本节）+ M3 消费边回收（见下），
+无代码级 `self._*`→`hooks.*` 替换需求（L0 迁移已隐式完成）。
+
+**M3 消费边回收**：`core/model_call.py` 对 `engine/loop` 的 import 边
+（tool_loop_detector / loop_body / hooks 三处）随循环体宿主文件迁移性质，
+按 §七"随 L1 完成回收"——L1 确认本节即触发回收条件；`core/mcp_tools.py`
+mcp_proxy 4 条边**不在循环体上，维持台账豁免**（mcp 工具面独立轨）。
+
 `_call_model` 与 `stream_call_model` 的 `self.*` 槽位各 17 个，**交集 11**（双路径
 共同 seam 参数面）：`_build_messages` `_build_openai_tools` `_clear_checkpoint`
 `_finalize_turn` `_hard_interrupt_message` `_provider` `_resolve_model_config`
