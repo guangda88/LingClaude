@@ -341,18 +341,29 @@ class SubmissionMixin:
         # P0-1（2026-09-21，全 15 家精读 §3.2）：checkpoint 旁路追加一条
         # rollout 事件（append-only JSONL，不覆盖、不删旧）——不可变会话的
         # 事件溯源层。best-effort：rollout 写失败不阻塞主流程（与 checkpoint 同语义）。
+        #
+        # C 路线二期（2026-09-23）：仅 tag is None（inflight 主文件分支）内嵌
+        # 序列化消息 + prompt/conversation——主文件 JSON 是崩溃恢复缓存，
+        # 事件流才是真理之源；JSON 损坏时可由 rebuild_checkpoint_from_events
+        # 重建。带 tag 的历史版本不内嵌（控制 JSONL 体积，rewind 不走此介质）。
         try:
             from lingclaude.core.rollout import get_engine_rollout
+            from lingclaude.core.session_store import serialize_checkpoint_messages
             rr = get_engine_rollout(self, session_id=self.session_id)
             if rr is not None:
-                rr.record("checkpoint", {
-                "round_idx": round_idx,
-                "used_tools": used_tools,
-                "total_input": total_input,
-                "total_output": total_output,
-                "message_count": len(messages),
-                "tag": tag,
-            })
+                ev_data: dict[str, Any] = {
+                    "round_idx": round_idx,
+                    "used_tools": used_tools,
+                    "total_input": total_input,
+                    "total_output": total_output,
+                    "message_count": len(messages),
+                    "tag": tag,
+                }
+                if tag is None:
+                    ev_data["messages"] = serialize_checkpoint_messages(messages)
+                    ev_data["snapshot_prompt"] = prompt
+                    ev_data["snapshot_conversation"] = list(self._conversation)
+                rr.record("checkpoint", ev_data)
         except Exception:
             logger.debug("rollout checkpoint 旁路记录失败（best-effort）", exc_info=True)
 

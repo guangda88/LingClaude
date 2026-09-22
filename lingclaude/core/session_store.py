@@ -31,6 +31,28 @@ logger = logging.getLogger(__name__)
 CHECKPOINT_DIR = Path(".lingclaude/checkpoints")
 
 
+def serialize_checkpoint_messages(messages: list[Any]) -> list[dict[str, Any]]:
+    """checkpoint 消息序列化（含 A1 脱敏）——唯一实现点。
+
+    2026-09-23 C 路线二期抽取：save_checkpoint 与 rollout 事件内嵌共用，
+    保证两条介质脱敏语义永不漂移（同一函数同一 redact）。
+    """
+    serialized = []
+    for msg in messages:
+        d = msg.to_dict()
+        # A1: checkpoint 落盘脱敏 —— 历史漏洞：to_dict() 原样序列化，
+        # key 一旦进入对话即明文落盘。此处对 content / tool arguments 统一 scrub。
+        if isinstance(d.get("content"), str):
+            d["content"] = _redact_text(d["content"])
+        if d.get("tool_calls") and isinstance(d["tool_calls"], list):
+            for tc in d["tool_calls"]:
+                fn = tc.get("function")
+                if isinstance(fn, dict) and isinstance(fn.get("arguments"), str):
+                    fn["arguments"] = _redact_text(fn["arguments"])
+        serialized.append(d)
+    return serialized
+
+
 @dataclass
 class CheckpointData:
     """反序列化后的 checkpoint 快照。"""
@@ -128,6 +150,11 @@ class SessionStore:
             except OSError:
                 pass
         self._active_checkpoint = None
+        # C 路线二期（2026-09-23）：clear 同步记入 rollout 事件流——
+        # rebuild_checkpoint_from_events 遇 checkpoint_clear 作废此前快照，
+        # 防止正常收尾的会话被事件流误「复活」出可恢复假象。best-effort：
+        # 无 session_store 侧 recorder，借 SessionManager 不可行，改由
+        # persist 层（session_persist.clear_checkpoint）携带 engine 记录。
         # P1 (2026-09-20, atomcode inflight 借鉴): turn_start 的 round=-1 快照写
         # 主文件 `{session_id}.json`（无 tag，round<0 不打 round 标签）——崩溃恢复
         # 的介质正是主文件。done 正常完成时必须连带清掉它，否则残留到下一轮，
@@ -164,19 +191,9 @@ class SessionStore:
                 cp_path = self._checkpoint_dir / f"{self.session_id}@{safe_tag}.json"
             else:
                 cp_path = self._checkpoint_dir / f"{self.session_id}.json"
-            serialized = []
-            for msg in messages:
-                d = msg.to_dict()
-                # A1: checkpoint 落盘脱敏 —— 历史漏洞：to_dict() 原样序列化，
-                # key 一旦进入对话即明文落盘。此处对 content / tool arguments 统一 scrub。
-                if isinstance(d.get("content"), str):
-                    d["content"] = _redact_text(d["content"])
-                if d.get("tool_calls") and isinstance(d["tool_calls"], list):
-                    for tc in d["tool_calls"]:
-                        fn = tc.get("function")
-                        if isinstance(fn, dict) and isinstance(fn.get("arguments"), str):
-                            fn["arguments"] = _redact_text(fn["arguments"])
-                serialized.append(d)
+            # C 路线二期（2026-09-23）：序列化+脱敏抽至 serialize_checkpoint_messages，
+            # 与 rollout 事件内嵌共用同一实现，防止两介质脱敏漂移。
+            serialized = serialize_checkpoint_messages(messages)
             data = {
                 "session_id": self.session_id,
                 "prompt": _redact_text(prompt),
@@ -273,4 +290,59 @@ class SessionStore:
             )
         except Exception as e:
             logger.warning("Checkpoint load failed: %s", e)
+            return None
+    def rebuild_checkpoint_from_events(self) -> CheckpointData | None:
+        """C 路线二期（2026-09-23）：从 rollout 事件流重建 checkpoint。
+
+        崩溃恢复 fallback：主文件 JSON 损坏/缺失时，从共享 rollout 流
+        （.lingclaude/rollouts/）内嵌消息的最后一条 inflight checkpoint
+        事件（tag is None 分支写入，session_store 同源序列化+脱敏）重建。
+
+        派生定位：rollout 事件流是真理之源，快照 JSON 是缓存——
+        缓存可丢，真理不丢。找不到可重建的事件时返回 None（调用方
+        维持原「无 checkpoint」语义，不抬高失败等级）。
+        """
+        try:
+            from lingclaude.core.rollout import ROLLOUT_DIR, RolloutRecorder
+
+            ro_dir = ROLLOUT_DIR
+            if not ro_dir.exists():
+                return None
+            # 取本 session 的候选文件：meta 行 session_id 匹配，按 mtime 新到旧
+            candidates: list[Path] = []
+            for p in sorted(ro_dir.glob("rollout-*.jsonl"), key=lambda x: x.stat().st_mtime, reverse=True):
+                try:
+                    first = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
+                    if first.get("event") == "session_meta" and first.get("session_id") == self.session_id:
+                        candidates.append(p)
+                except Exception:
+                    continue
+            # 新到旧扫描候选文件；文件内按 ordinal 正序重放——
+            # 内嵌快照事件累积为候选，checkpoint_clear 作废此前全部候选
+            # （正常收尾 clear 后不得误复活旧快照，2026-09-23 评审修正）。
+            for p in candidates:
+                last: dict[str, Any] | None = None
+                for ev in RolloutRecorder.read_all(p):
+                    if ev.get("event") == "checkpoint_clear":
+                        last = None
+                        continue
+                    if ev.get("event") != "checkpoint" or "messages" not in ev:
+                        continue
+                    if ev.get("tag") is not None:
+                        continue  # 带版本 tag 的事件不作为恢复介质（对齐 inflight 主文件语义）
+                    last = ev
+                if last is not None:
+                    return CheckpointData(
+                        session_id=self.session_id,
+                        prompt=str(last.get("snapshot_prompt", "")),
+                        round_idx=int(last.get("round_idx", 0)),
+                        used_tools=bool(last.get("used_tools", False)),
+                        total_input=int(last.get("total_input", 0)),
+                        total_output=int(last.get("total_output", 0)),
+                        raw_messages=list(last["messages"]),
+                        saved_conversation=list(last.get("snapshot_conversation", [])),
+                    )
+            return None
+        except Exception as e:
+            logger.warning("rebuild_checkpoint_from_events failed: %s", e)
             return None

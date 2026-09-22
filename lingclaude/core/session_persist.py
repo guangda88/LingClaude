@@ -69,6 +69,13 @@ class SessionPersister:
         engine._sync_session_store()
         engine.session_store.clear_checkpoint()
         engine._active_checkpoint = None
+        # C 路线二期（2026-09-23）：clear 事件入流——rebuild 侧以此作废
+        # 此前内嵌快照，防止正常收尾会话被事件流误复活（best-effort）。
+        try:
+            from lingclaude.core.rollout import record_engine_rollout
+            record_engine_rollout(engine, "checkpoint_clear", {})
+        except Exception:  # noqa: BLE001
+            logger.debug("rollout checkpoint_clear record failed", exc_info=True)
 
     def save_checkpoint(
         self,
@@ -183,7 +190,16 @@ class SessionPersister:
         cp_path = Path(engine.session_store._checkpoint_dir) / f"{engine.session_id}.json"
         cd = engine.session_store.load_checkpoint()
         if cd is None:
-            return None
+            # C 路线二期（2026-09-23）：JSON 缓存缺失/损坏 → 从 rollout 事件流
+            # 重建（派生 fallback）。事件流 append-only，崩溃时通常是完整的——
+            # 缓存可丢，真理不丢。
+            cd = engine.session_store.rebuild_checkpoint_from_events()
+            if cd is None:
+                return None
+            logger.warning(
+                "Checkpoint JSON 不可用，已从 rollout 事件流重建（session=%s round=%s）",
+                engine.session_id, cd.round_idx,
+            )
         engine._active_checkpoint = cp_path
         return {
             "session_id": cd.session_id,
