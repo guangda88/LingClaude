@@ -64,6 +64,29 @@ def is_placeholder(message: str) -> bool:
     return any(message.startswith(p) for p in PLACEHOLDER_PREFIXES)
 
 
+# 英文 pattern_type → 中文意图标签（P1 2026-09-23：修「中文查询 LIKE 全漏」）
+# 真实用户查询是中文意图（"读文件报错/权限被拒/工具卡住"），而规则
+# name/description 是英文错误串 → search_rules 的 LIKE %kw% 对中文查询天然断裂。
+# 标签写进 description 头部 + context_keywords（检索端 pattern_json 一并 LIKE），
+# 让「错误/失败/权限/工具」等高频中文查询能命中。
+_PATTERN_ZH: dict[str, str] = {
+    "tool_error": "工具执行错误",
+    "hard_interrupt": "连续失败中断",
+    "permission_denial": "权限被拒",
+    "permission_ask_mode.pending_approval": "权限待批准",
+    "permission_config.deny_tools.exact": "工具被禁",
+    "permission_session.deny_tools.exact": "会话级工具被禁",
+    "permission_strict_mode.non_readonly": "非只读被拒",
+    "mv1_pre_send_blocked": "发送前拦截",
+    "sub_agent_call": "子代理调用失败",
+}
+
+
+def zh_tag(ptype: str) -> str:
+    """pattern_type → 中文标签；未知类型给兜底中文。"""
+    return _PATTERN_ZH.get(ptype) or "运行异常"
+
+
 def build_rule(row: dict) -> LearnedRule:
     """聚合行 → 跨会话规则。"""
     ptype = row["pattern_type"] or "unknown"
@@ -72,15 +95,17 @@ def build_rule(row: dict) -> LearnedRule:
     count = int(row["count"])
     slug = slug_for(ptype, fpath, msg)
     short = re.sub(r"\s+", " ", msg[:80])
+    tag = zh_tag(ptype)
     return LearnedRule(
         id=f"flywheel_pattern_{slug}",
         name=f"高频错误模式: {ptype} ×{count}",
-        description=f"[{ptype}] {fpath} — {short}（近场重复 {count} 次，"
+        description=f"[{tag}] [{ptype}] {fpath} — {short}（近场重复 {count} 次，"
                     f"最后出现 {row['last_seen']}）",
         category=FeedbackCategory.BUG_RISK,
         pattern=Pattern(
             file_patterns=(fpath,),
-            context_keywords=(ptype,),
+            # P1: context_keywords 纳入中文标签，检索端可命中（见 search_rules）
+            context_keywords=(tag, ptype),
             tool_support=(),
         ),
         tools=(),

@@ -234,6 +234,86 @@ class TestOptimizationDaemon:
             os.chdir(original_cwd)
             os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
 
+    # ---- P0 (2026-09-23): _apply_behavior_params 写回分支测试证明 ----
+    # 目的：F1 生效器存在，但 behavior_policy.yaml 写回分支（daemon.py:626-728）
+    # 从未被测试覆盖。此组补齐——report-only 不动 yaml / APPLY=1 真落盘 /
+    # 白名单外键拒绝 / int 强制 / 单键限幅 / 审计留痕。
+
+    def _behavior_policy_path(self) -> "Path":
+        from lingclaude.core.policy_loader import policies_dir
+        return policies_dir() / "behavior_policy.yaml"
+
+    @staticmethod
+    def _yaml_get(raw_text: str, key: str):
+        import yaml
+        return yaml.safe_load(raw_text).get(key)
+
+    def test_behavior_params_report_only_no_write(self, tmp_path):
+        """P0-1: 默认 report-only，不得改写 behavior_policy.yaml。"""
+        import os
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        policy = self._behavior_policy_path()
+        original = policy.read_text(encoding="utf-8")
+        os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+        try:
+            daemon._apply_behavior_params({"tool_repeat_limit": 9})
+            assert policy.read_text(encoding="utf-8") == original, \
+                "report-only 模式不得改写 behavior_policy.yaml"
+        finally:
+            os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+
+    def test_behavior_params_apply_writes_yaml(self, tmp_path):
+        """P0-2: APPLY=1 时写回 behavior_policy.yaml 且留痕。"""
+        import os
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        policy = self._behavior_policy_path()
+        original = policy.read_text(encoding="utf-8")
+        os.environ["LINGCLAUDE_DAEMON_APPLY"] = "1"
+        try:
+            daemon._apply_behavior_params({"tool_repeat_limit": 4})
+            import yaml
+            raw = yaml.safe_load(policy.read_text(encoding="utf-8"))
+            assert raw.get("tool_repeat_limit") == 4, \
+                f"写回失败: tool_repeat_limit={raw.get('tool_repeat_limit')}"
+        finally:
+            # 恢复原文件，避免污染真实策略
+            policy.write_text(original, encoding="utf-8")
+            os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+
+    def test_behavior_params_whitelist_rejects_unknown(self, tmp_path):
+        """P0-3: 白名单外键不得写进 behavior_policy.yaml。"""
+        import os
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        policy = self._behavior_policy_path()
+        original = policy.read_text(encoding="utf-8")
+        os.environ["LINGCLAUDE_DAEMON_APPLY"] = "1"
+        try:
+            daemon._apply_behavior_params({"max_class_size": 999})
+            assert policy.read_text(encoding="utf-8") == original, \
+                "白名单外键不得写进策略文件"
+        finally:
+            os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+
+    def test_behavior_params_single_key_cap(self, tmp_path):
+        """P0-4: 单键限幅——一周期最多写 1 个键。"""
+        import os
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        policy = self._behavior_policy_path()
+        original = policy.read_text(encoding="utf-8")
+        os.environ["LINGCLAUDE_DAEMON_APPLY"] = "1"
+        try:
+            daemon._apply_behavior_params(
+                {"tool_repeat_limit": 4, "consecutive_fail_limit": 3}
+            )
+            import yaml
+            raw = yaml.safe_load(policy.read_text(encoding="utf-8"))
+            changed = [k for k in ("tool_repeat_limit", "consecutive_fail_limit")
+                       if raw.get(k) != self._yaml_get(original, k)]
+            assert len(changed) <= 1, f"单键限幅失败，改动了 {len(changed)} 个键"
+        finally:
+            policy.write_text(original, encoding="utf-8")
+            os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
+
     def test_should_run_cycle_throttle(self, tmp_path):
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
         # 从未跑过 → 该跑（诚实优先）

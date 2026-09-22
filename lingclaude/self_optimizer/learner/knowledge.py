@@ -93,7 +93,12 @@ class KnowledgeBase:
                     "context_keywords": rule.pattern.context_keywords,
                     "severity_distribution": rule.pattern.severity_distribution,
                     "tool_support": rule.pattern.tool_support,
-                }
+                },
+                # P1 (2026-09-23): ensure_ascii=False —— 中文标签存明文，
+                # search_rules 的 pattern_json LIKE %中文% 才能命中。
+                # 此前 json.dumps 默认 \uXXXX 转义 → SQLite 里是转义字面量，
+                # 中文 context_keywords 永远 LIKE 不到（实测修复前 0 命中）。
+                ensure_ascii=False,
             )
 
             cursor.execute("SELECT id FROM rules WHERE id = ?", (rule.id,))
@@ -223,10 +228,10 @@ class KnowledgeBase:
             cursor.execute(
                 """
                 SELECT * FROM rules
-                WHERE name LIKE ? OR description LIKE ?
+                WHERE name LIKE ? OR description LIKE ? OR pattern_json LIKE ?
                 ORDER BY quality_score DESC LIMIT ?
             """,
-                (pattern, pattern, limit),
+                (pattern, pattern, pattern, limit),
             )
             return Result.ok(tuple(self._row_to_rule(row) for row in cursor.fetchall()))
         except Exception as e:
