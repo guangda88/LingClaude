@@ -31,6 +31,11 @@ from lingclaude.engine.loop.loop_body import (
     run_stream_call_model_loop,
 )
 from lingclaude.engine.loop.thread import LingClaudeThread
+from lingclaude.engine.loop.fan_out_scheduler import (
+    FanOutPlan,
+    FanOutScheduler,
+    default_scheduler,
+)
 
 __all__ = [
     "LoopHooks",
@@ -49,4 +54,7 @@ __all__ = [
     "run_call_model_loop",
     "run_stream_call_model_loop",
     "LingClaudeThread",
+    "FanOutScheduler",
+    "FanOutPlan",
+    "default_scheduler",
 ]
