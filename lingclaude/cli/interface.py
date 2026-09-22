@@ -23,10 +23,36 @@ try:
     from prompt_toolkit import PromptSession as _PTSession
     from prompt_toolkit.history import FileHistory, InMemoryHistory
     from prompt_toolkit.shortcuts import prompt as _pt_prompt
+    from prompt_toolkit.styles import Style as _PTStyle
 
     _HAS_PROMPT_TOOLKIT = True
 except ImportError:
     _HAS_PROMPT_TOOLKIT = False
+
+
+# ---------------------------------------------------------------------------
+# 状态栏样式表（2026-09-22）：toolbar_fragments / full_tui 全部用
+# class:X fragment 选择器着色（状态球 绿/黄/红、待办 ⚙、模型名 accent、
+# 上下文分色），但 PT 从未注册过对应样式规则 —— fragment 的 class:
+# 前缀是「选择器语法」，规则字典的 key 必须是裸类名（PT3 的
+# CLASS_NAMES_RE ^[a-z0-9.\s_-]*$ 不允许冒号，'class:X' 当 key 会
+# AssertionError）。此表用裸类名 key 定义颜色，由两代 TUI 构造点统一
+# 传入 style=；未 import PT 时为 None（调用方需判空回退）。
+# ---------------------------------------------------------------------------
+PT_TUI_STYLE = (
+    _PTStyle.from_dict({
+        "green": "ansigreen",
+        "yellow": "ansiyellow",
+        "red": "ansired bold",
+        "accent": "ansicyan bold",
+        "status": "noinherit",
+        "sep": "ansibrightblack",
+        "output": "",
+        "input": "",
+    })
+    if _HAS_PROMPT_TOOLKIT
+    else None
+)
 
 
 # 2026-09-15（会话问题重构 P1-2）: 命令历史从全局移到项目内 —— 此前
@@ -350,6 +376,9 @@ class PromptToolkitSession:
         history_path = Path(history_file).expanduser()
         history_path.parent.mkdir(parents=True, exist_ok=True)
         self._history = FileHistory(str(history_path))
+        # 2026-09-22: Shift+Tab 模式环回调（repl 装配时经 install_mode_toggler
+        # 注入；键位按下时才读取，构造后再注入同样生效）
+        self._mode_toggler = None
         # 2026-09-16（长文截断修复）:multiline=True — 单行模式粘贴长文/多行文本
         # 时 prompt_toolkit 只保留第一行、其余行被当作 Enter 提交丢弃（「长文字
         # 被截断吞没」）。多行模式下 Enter 重绑为提交、Shift+Enter 换行（见下方
@@ -362,6 +391,10 @@ class PromptToolkitSession:
             completer=completer,
             multiline=True,
             key_bindings=self._build_key_bindings(),
+            # 2026-09-22: 注册状态栏样式表 —— toolbar_fragments 的
+            # class:green/yellow/red/accent fragment 此前无规则可匹配，
+            # 状态球/上下文分色/Todo 标记全部渲染为默认色（不可见）。
+            style=PT_TUI_STYLE,
         )
         self._interrupt = threading.Event()
         # 2026-09-16（TUI 输入泵问题修复）: streaming 标志。streaming 期间
@@ -369,8 +402,7 @@ class PromptToolkitSession:
         # 防止 session.prompt() 和 pump 线程双阻塞导致假死。
         self._streaming = False
 
-    @staticmethod
-    def _build_key_bindings() -> Any:
+    def _build_key_bindings(self) -> Any:
         """多行模式键位：Enter（无修饰）提交、Esc+Enter 换行。
 
         2026-09-16（长文截断修复）:multiline=True 后 prompt_toolkit 默认
@@ -382,6 +414,7 @@ class PromptToolkitSession:
         """
         try:
             from prompt_toolkit.key_binding import KeyBindings
+            from prompt_toolkit.keys import Keys
         except Exception:  # noqa: BLE001 — PT 版本差异时静默回退默认键位
             return None
 
@@ -400,7 +433,20 @@ class PromptToolkitSession:
         def _newline(event: Any) -> None:
             event.app.current_buffer.insert_text("\n")
 
+        # 2026-09-22: Shift+Tab 循环切换工作模式（auto→ask→strict→plan，同全屏
+        # TUI；回调按下时才读取，未注入时静默空转）。键名用 Keys.BackTab 枚举
+        # （PT 别名表无 "backtab" 字符串；\x1b[Z → Keys.BackTab，实测确认）。
+        @kb.add(Keys.BackTab)
+        def _cycle_work_mode(event: Any) -> None:
+            toggler = getattr(self, "_mode_toggler", None)
+            if callable(toggler):
+                toggler()
+
         return kb
+
+    def install_mode_toggler(self, toggler: Any) -> None:
+        """2026-09-22: 注入 Shift+Tab 模式环回调（提示行直接打 stdout）。"""
+        self._mode_toggler = toggler
 
     def set_streaming(self, streaming: bool) -> None:
         """标记当前是否在流式输出期间。

@@ -225,11 +225,42 @@ _PERSIST_PATH = Path(__file__).resolve().parent.parent / "data" / "approvals.jso
 _PERSISTED_TOOLS: set[str] = set()
 # T1-2: 全局 permission mode — auto/ask/strict（webUI 可读可设，落同一 JSON）
 _GLOBAL_MODE: str = "ask"
+# 2026-09-22: 跨进程热更 —— 盘上 approvals.json 被外部进程（API server / 手改）
+# 写入后，本进程经 _maybe_reload_mode 在下一次 get_permission_mode 时自动捡起。
+# mtime 节流：每秒 toolbar 快照调用也只 stat 一次，值变才解析 JSON（µs 级开销）。
+_LAST_PERSIST_MTIME: float = 0.0
 
 
 def get_permission_mode() -> str:
-    """T1-2 深化: 读取当前全局 permission mode。"""
+    """T1-2 深化: 读取当前全局 permission mode（含跨进程热更探测）。"""
+    _maybe_reload_mode()
     return _GLOBAL_MODE
+
+
+def _maybe_reload_mode() -> None:
+    """跨进程热更：盘上 approvals.json 的 mode 变化则重载进 _GLOBAL_MODE。
+
+    与 _load_persisted 同一解析语义（非法值忽略，fail-closed 不提权）；
+    set_permission_mode 落盘后同步 _LAST_PERSIST_MTIME 基线，不把自己的
+    写入误判为外部变更。stat/解析失败静默保留内存值——热更是增强路径，
+    不反噬权限门控。
+    """
+    global _LAST_PERSIST_MTIME, _GLOBAL_MODE
+    try:
+        mtime = _PERSIST_PATH.stat().st_mtime
+    except OSError:
+        return
+    if mtime == _LAST_PERSIST_MTIME:
+        return
+    _LAST_PERSIST_MTIME = mtime
+    try:
+        data = json.loads(_PERSIST_PATH.read_text(encoding="utf-8"))
+        mode = data.get("mode")
+        if mode in VALID_MODES and mode != _GLOBAL_MODE:
+            _GLOBAL_MODE = mode
+            logger.info("permission mode 跨进程热更: %s", mode)
+    except Exception:  # noqa: BLE001 — 解析损坏时保留内存值
+        pass
 
 
 def set_permission_mode(mode: str) -> bool:
@@ -246,6 +277,11 @@ def set_permission_mode(mode: str) -> bool:
     with _STORES_LOCK:
         _GLOBAL_MODE = normalized
         _save_persisted()
+        # 同步 mtime 基线：本次落盘是本进程所为，非外部变更（免得多解析一次）
+        try:
+            _LAST_PERSIST_MTIME = _PERSIST_PATH.stat().st_mtime
+        except OSError:
+            pass
     logger.info("permission mode 已切换: %s", normalized)
     return True
 

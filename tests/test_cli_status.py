@@ -277,3 +277,53 @@ class TestTodoPanel:
         s.set_todo_items([("pending", "a")])
         s.set_todo_items(None)
         assert s.snapshot().todo_items == ()
+
+
+class TestStateBall:
+    """状态球（对标 atomcode 绿/黄/红小球）——三态渲染 + 优先级 + 透传。"""
+
+    def test_idle_renders_green_ball(self) -> None:
+        s = StatusModel()
+        s.set_state_level("idle")
+        frag = toolbar_fragments(s.snapshot())
+        # 首片段即状态球：idle → class:green 的 ●
+        assert frag[0][0] == "class:green"
+        assert frag[0][1] == "●"
+
+    def test_busy_renders_yellow_ball(self) -> None:
+        s = StatusModel()
+        s.set_state_level("busy")
+        frag = toolbar_fragments(s.snapshot())
+        assert frag[0][0] == "class:yellow"
+        assert frag[0][1] == "●"
+
+    def test_blocked_renders_red_ball(self) -> None:
+        s = StatusModel()
+        s.set_state_level("blocked")
+        frag = toolbar_fragments(s.snapshot())
+        assert frag[0][0] == "class:red"
+        assert frag[0][1] == "●"
+
+    def test_unknown_level_falls_back_idle_green(self) -> None:
+        # set_state_level 对未知值兜 idle（绿）——状态球永不缺色/错挂
+        s = StatusModel()
+        s.set_state_level("garbage")
+        assert s.snapshot().state_level == "idle"
+        frag = toolbar_fragments(s.snapshot())
+        assert frag[0][0] == "class:green"
+
+    def test_default_state_is_idle(self) -> None:
+        # 未喂入时默认 idle（绿），状态球始终有确定性颜色
+        s = StatusModel()
+        assert s.snapshot().state_level == "idle"
+        frag = toolbar_fragments(s.snapshot())
+        assert frag[0][0] == "class:green"
+
+    def test_state_level_survives_snapshot(self) -> None:
+        # 快照透传回归：blocked 经 snapshot() 后不丢（浅拷贝 str 安全）
+        s = StatusModel()
+        s.set_state_level("blocked")
+        snap = s.snapshot()
+        assert snap.state_level == "blocked"
+        frag = toolbar_fragments(snap)
+        assert frag[0][0] == "class:red"

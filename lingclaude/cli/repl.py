@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from lingclaude.cli.commands import SLASH_COMPLETER_WORDS, SlashCommandProcessor
 from lingclaude.cli.display import SessionSummary
+from lingclaude.cli.mode_cycle import set_plan_runtime_provider, shift_mode
 from lingclaude.cli.input_queue import EOF_SENTINEL, InputQueue
 from lingclaude.cli.interface import (
     _patch_pt_modifier_enter,
@@ -227,6 +228,35 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
                     [(i.status.value, i.content) for i in _items if i.status.value in ("in_progress", "pending")]
                 )
         except Exception:  # noqa: BLE001 — 面板刷新失败不阻塞渲染
+            pass
+        # 2026-09-22: plan 叠加态喂入（⏸ plan 段）——读 runtime.plan_mode.is_active，
+        # 与 todo 面板同一 1s 节流块；失败静默保留原值，不反噬渲染。
+        try:
+            _pm = getattr(
+                getattr(ctx.engine, "_runtime", None), "plan_mode", None
+            )
+            status.set_plan_active(bool(getattr(_pm, "is_active", False)))
+        except Exception:  # noqa: BLE001 — plan 指示失败不阻塞渲染
+            pass
+        # 2026-09-22: 状态球判定（对标 atomcode）——纯只读探测运行时信号，
+        # 零新增状态机：blocked（interrupt 置位）> busy（streaming 或活跃任务）
+        # > idle。会话对象可能无对应属性（fallback/测试桩），逐一 getattr 兜 None，
+        # 判定失败静默留 idle（绿）——状态球是装饰性常驻，不反噬主循环。
+        try:
+            _interrupt_set = bool(
+                getattr(ctx.session, "interrupt_event", lambda: None)()
+                and ctx.session.interrupt_event().is_set()
+            )
+            _streaming = bool(getattr(ctx.session, "_streaming", False))
+            _task_active = bool(getattr(status, "task_active", ""))
+            if _interrupt_set:
+                _level = "blocked"
+            elif _streaming or _task_active:
+                _level = "busy"
+            else:
+                _level = "idle"
+            status.set_state_level(_level)
+        except Exception:  # noqa: BLE001 — 状态球判定失败不阻塞渲染
             pass
         pending = ctx.input_queue.pending() if ctx.input_queue is not None else 0
         full_tui = getattr(ctx.session, "pending_submissions", None)
@@ -943,7 +973,10 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
             _usage_now = engine.get_stats().get("usage") or {}
             _in_all = int(_usage_now.get("input_tokens", 0) or 0)
             _cached_all = int(_usage_now.get("cached_tokens", 0) or 0)
-            _cpct = int(_cached_all * 100 / _in_all) if _in_all > 0 else -1
+            # 2026-09-22 cache 0% 修复: cached==0 = provider 未回传缓存信息（未知），
+            # 不得算成 0% 显示误导（此前「未知」与「真 0 命中」无法区分）。
+            # -1 = 未知不显示，与 status.py 渲染端约定一致；首个非 0 值出现即正常显示。
+            _cpct = int(_cached_all * 100 / _in_all) if (_in_all > 0 and _cached_all > 0) else -1
             _in_delta = max(0, _in_all - int(usage_t0.get("input_tokens", 0) or 0))
             _segs = [f"✓ Wrapped · {observed_rounds} 轮"]
             if observed_tool_calls:
@@ -1180,6 +1213,19 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             ctx.status_bar_active = not isinstance(session, FallbackSession)
         except Exception:  # noqa: BLE001 — 状态栏安装失败不阻塞交互
             ctx.status_bar_active = False
+
+        # 2026-09-22: Shift+Tab 模式环 — plan provider（engine._runtime.plan_mode；
+        # headless/无 runtime 时 provider 返回 None → plan 档静默空转）+ 会话键位注入
+        # （FallbackSession 无此方法，AttributeError 连同异常一并吞掉，不阻塞交互）。
+        try:
+            set_plan_runtime_provider(
+                lambda: getattr(
+                    getattr(ctx.engine, "_runtime", None), "plan_mode", None
+                )
+            )
+            session.install_mode_toggler(lambda: shift_mode(session))
+        except Exception:  # noqa: BLE001 — 模式键安装失败不阻塞交互
+            pass
 
         # H17-TUI: pump 会话级启动 — PT 形态下唯一 stdin 读者（H17 架构：PT
         # Application 并发运行 → AssertionError，2026-09-08 事故）。

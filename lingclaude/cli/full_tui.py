@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 from lingclaude.cli.input_queue import EOF_SENTINEL
 from lingclaude.cli.interface import (
+    PT_TUI_STYLE,
     _fallback_strip_ansi,
     _patch_pt_modifier_enter,
     _strip_ansi_text,
@@ -219,6 +220,9 @@ class FullTuiSession:
         self._completer = completer
         self._output_source = output_source or (lambda: [])
         self._status_cb: Callable[[], list[tuple[str, str]]] | None = None
+        # 2026-09-22: Shift+Tab 模式环回调（repl 装配时经 install_mode_toggler
+        # 注入；键位按下时才读取，注入时序无关）
+        self._mode_toggler: Callable[[], None] | None = None
         self._interrupt = threading.Event()
         # 2026-09-18 多行输入增强:构造 UI 前改写 PT 输入序列表，让
         # Ctrl+Enter / Shift+Enter 复用下方 Esc+Enter 换行 chord
@@ -332,6 +336,18 @@ class FullTuiSession:
             self._out_buffer.cursor_position = len(self._out_buffer.text)
             self._invalidate()
 
+        # 2026-09-22: Shift+Tab 循环切换工作模式（auto → ask → strict → plan，
+        # 单键管所有模式，对标 cc）。回调由 repl 注入（install_mode_toggler），
+        # 未注入时静默空转——TUI 层不 import engine/permissions，保持解耦。
+        # 键名用 Keys.BackTab 枚举（实测 PT 别名表无 "backtab" 字符串，会
+        # ValueError 炸构造；物理 Shift+Tab 的 \x1b[Z 经 ANSI_SEQUENCES
+        # 解析正是 Keys.BackTab）。
+        @self._kb.add(Keys.BackTab)
+        def _cycle_work_mode(event: Any) -> None:
+            toggler = self._mode_toggler
+            if toggler is not None:
+                toggler()
+
         # 长文本粘贴折叠：接管 BracketedPaste（app 级绑定优先于 PT 默认的
         # 「直接整段插入」绑定——application.py:_create_key_bindings 反转
         # 绑定列表后 key_processor._process 只调 matches[-1]，唯一赢家，
@@ -390,6 +406,11 @@ class FullTuiSession:
                 self._input_area,
             ])),
             key_bindings=self._kb,
+            # 2026-09-22: 状态栏样式注册 —— class:green/yellow/red/accent
+            # fragment（状态球、上下文分色、todo ⚙/·）此前无规则匹配，
+            # 全部默认色。规则表见 interface.PT_TUI_STYLE（裸类名 key，
+            # PT3 规则字典禁带 class: 前缀）。PT 缺席时 None 走 PT 默认。
+            style=PT_TUI_STYLE,
             full_screen=True,
             mouse_support=True,
             refresh_interval=0.2,
@@ -716,6 +737,10 @@ class FullTuiSession:
     def install_bottom_toolbar(self, get_fragments: Any) -> None:
         """保存状态栏片段回调（全屏期间每帧渲染调用）。"""
         self._status_cb = get_fragments
+
+    def install_mode_toggler(self, toggler: Callable[[], None]) -> None:
+        """2026-09-22: 注入 Shift+Tab 模式环回调（模式切换提示经 stdout 代理进输出窗）。"""
+        self._mode_toggler = toggler
 
     def interrupt_event(self) -> threading.Event:
         return self._interrupt

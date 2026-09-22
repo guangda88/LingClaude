@@ -1336,3 +1336,42 @@ class TestPlainNoColor:
         # 禁色分支显式 force_terminal=False；color_system=None 物理归零
         assert console._force_terminal is False
         assert console._color_system is None
+
+
+class TestToolbarStyle:
+    """2026-09-22: 状态栏样式注册修复——状态球/上下文分色/todo 标记可见性。
+
+    根因：toolbar_fragments 与 full_tui 用 class:X fragment 选择器着色，
+    但 PT 从未收到任何样式规则（Application/PromptSession 均未传 style=），
+    全部 fragment 渲染为默认色。且 PT3 规则字典 key 禁带 class: 前缀
+    （CLASS_NAMES_RE ^[a-z0-9.\\s_-]*$，'class:green' 当 key 直接
+    AssertionError）——规则 key 必须是裸类名。
+    """
+
+    def test_style_table_registered_bare_class_names(self) -> None:
+        """样式表构造成功且 fragment 查询真正着色（实证的着色路径）。"""
+        from lingclaude.cli.interface import PT_TUI_STYLE
+
+        assert PT_TUI_STYLE is not None
+        green = PT_TUI_STYLE.get_attrs_for_style_str("class:green")
+        assert green.color == "ansigreen"
+        red = PT_TUI_STYLE.get_attrs_for_style_str("class:red")
+        assert red.color == "ansired" and red.bold is True
+        accent = PT_TUI_STYLE.get_attrs_for_style_str("class:accent")
+        assert accent.color == "ansicyan" and accent.bold is True
+
+    def test_full_tui_application_carries_style(self) -> None:
+        """全屏 Application 构造必须携带样式表（修复点直证）。"""
+        from lingclaude.cli.interface import PT_TUI_STYLE
+        from lingclaude.cli.full_tui import PT_TUI_STYLE as FT_STYLE
+
+        assert FT_STYLE is PT_TUI_STYLE
+        app = FullTuiSession(history_file="/tmp/_t_style_h")._build_application(None)
+        assert app.style is FT_STYLE
+
+    def test_pt_session_carries_style(self) -> None:
+        """PromptSession 构造必须携带样式表（bottom_toolbar 路径修复点）。"""
+        s = interface.PromptToolkitSession(history_file="/tmp/_t_style_h2")
+        # PT 包进 DynamicStyle 代理，但查询结果必须等于我们的规则
+        got = s._session.app.style.get_attrs_for_style_str("class:green")
+        assert got.color == "ansigreen"

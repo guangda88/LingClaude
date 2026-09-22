@@ -1,8 +1,10 @@
 """P1: 状态栏数据模型 — 单一数据源，主循环写，bottom_toolbar 读。
 
-上下文占比口径（与 /compact 审计#9 修复同源）：
-分母 = engine.config.context_window_tokens or max_budget_tokens；
-分子 = _estimate_message_tokens(engine._messages)。
+上下文占比口径（2026-09-22 ctx 口径修复后）：
+分母 = config.context_window_tokens，缺省回退 128_000（repl.py 代码级回退）；
+max_budget_tokens 是会话累计预算，不再充当窗口分母。
+分子 = turn 内最后成功请求轮的真实 prompt_tokens（provider 未回传 usage
+时为负哨兵 → 消费方走字符估算）。
 """
 from __future__ import annotations
 
@@ -35,6 +37,17 @@ class StatusModel:
     # 每秒由 _toolbar_snapshot 从 TodoStore 聚合喂入（(status_value, content) 元组），
     # 渲染层 toolbar_fragments 在状态行上方展开为多行清单。空元组 = 不占版面。
     todo_items: tuple[tuple[str, str], ...] = ()
+    # 2026-09-22: 状态球（对标 atomcode）——运行状态三色，渲染层映射绿/黄/红：
+    #   "busy"   生成中（streaming 或活跃任务）→ 黄
+    #   "blocked" 阻塞/中断（interrupt_event 置位）→ 红（优先级最高）
+    #   "idle"   空闲（以上皆否）→ 绿
+    # 由 _toolbar_snapshot 每秒从 session/task_active 判定喂入；判定纯只读、
+    # 失败静默留 idle（绿）——状态球是装饰性常驻，不反噬主循环。
+    state_level: str = "idle"
+    # 2026-09-22: plan 模式叠加态指示（⏸ plan）——plan 是 runtime 内存叠加态
+    # （不落盘、不覆盖权限模式），由 _toolbar_snapshot 每秒从
+    # engine._runtime.plan_mode.is_active 读入；true 时状态行追加 ⏸ plan 段。
+    plan_active: bool = False
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> "StatusModel":
@@ -56,6 +69,10 @@ class StatusModel:
                 perm_mode=self.perm_mode,
                 # 2026-09-22: todo panel 明细随快照透传（元组不可变，浅拷贝安全）
                 todo_items=self.todo_items,
+                # 2026-09-22: 状态球三色透传（str 不可变，浅拷贝安全）
+                state_level=self.state_level,
+                # 2026-09-22: plan 叠加态透传（bool 不可变，浅拷贝安全）
+                plan_active=self.plan_active,
             )
 
     # ---- 更新方法（主循环调用） ----
@@ -100,6 +117,12 @@ class StatusModel:
         with self._lock:
             self.todo_items = norm
 
+    # 2026-09-22: 状态球喂入（对标 atomcode）——_toolbar_snapshot 每秒判定后调用。
+    # level ∈ {"idle","busy","blocked"}；未知值按 idle 处理（渲染层兜绿）。
+    def set_state_level(self, level: str) -> None:
+        with self._lock:
+            self.state_level = level if level in ("idle", "busy", "blocked") else "idle"
+
     # 2026-09-21: 借鉴 atomcode toolbar —— 缓存命中率 + 权限模式喂入
     def set_cache_pct(self, pct: int) -> None:
         with self._lock:
@@ -108,6 +131,12 @@ class StatusModel:
     def set_perm_mode(self, mode: str) -> None:
         with self._lock:
             self.perm_mode = mode
+
+    # 2026-09-22: plan 叠加态喂入（_toolbar_snapshot 每秒读
+    # runtime.plan_mode.is_active 同步）；无 runtime/查询失败静默保留原值。
+    def set_plan_active(self, active: bool) -> None:
+        with self._lock:
+            self.plan_active = bool(active)
 
     def refresh_cwd(self) -> None:
         try:
@@ -141,10 +170,20 @@ def toolbar_fragments(s: StatusModel):
         _ms, _mark = _TODO_MARK.get(_st, ("", "·"))
         _show = _content if len(_content) <= 46 else _content[:45] + "…"
         frag.append((_ms, f"{_mark} {_show}\n"))
+    # 2026-09-22: 状态球（对标 atomcode）——状态行最前一粒绿/黄/红圆点，
+    # 一眼标定运行状态：idle=绿 / busy=黄 / blocked=红。优先级 blocked > busy > idle，
+    # 由 _toolbar_snapshot 每秒判定 state_level 喂入；未知值兜绿。
+    _STATE_STYLE = {"idle": "class:green", "busy": "class:yellow", "blocked": "class:red"}
+    _sl = getattr(s, "state_level", "idle")
+    frag.append((_STATE_STYLE.get(_sl, "class:green"), "●"))
     # 权限模式前缀（atomcode 的 ⏵⏵ auto 语义）——读运行时实际模式，未知则不显示
     perm = getattr(s, "perm_mode", "")
     if perm:
         frag.append(("class:accent", f" ⏵⏵ {perm} │"))
+    # 2026-09-22: plan 叠加指示（对标 cc 的 plan mode on）——叠加态独立于
+    # 权限模式段，两段可同时点亮；快照无字段时静默跳过（向后兼容）。
+    if getattr(s, "plan_active", False):
+        frag.append(("class:accent", " ⏸ plan │"))
     cwd_display = s.cwd
     if len(cwd_display) > 28:
         cwd_display = "…" + cwd_display[-27:]
