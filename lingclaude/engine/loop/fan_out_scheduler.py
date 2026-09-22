@@ -90,6 +90,9 @@ class FanOutScheduler:
             if verdict is None:
                 # 预分类器回退（Laya 门控 None）= 不可投机（质量验证：低置信不冒进）
                 return None
+            # B1-T：difficulty 分桶门控——低难度任务投机无收益，直接走单轮路径
+            if not self._difficulty_gate(verdict):
+                return None
         plan = FanOutPlan(
             fan_out=[{"prompt": self._make_branch_prompt(t), "tag": t} for t in tags[: self.max_branches]],
             reason=f"fan_out_tags={tags[: self.max_branches]}",
@@ -131,6 +134,27 @@ class FanOutScheduler:
         except Exception:
             logger.debug("fan_out_questions.yaml fan_out_tags 读取失败（不投机）", exc_info=True)
         return []
+
+    # difficulty 分桶（0-3 数值，legend: 0=trivial/1=easy/2=moderate/3=hard）：
+    # 低难度（<1.5，trivial/easy）投机无收益——单轮直接回答更快；
+    # 高难度（>=1.5，moderate/hard）多步推理投机收益最大（可并行拆子目标）。
+    _SPECULATIVE_MIN_DIFFICULTY = 1.5
+
+    def _difficulty_gate(self, verdict: dict | None) -> bool:
+        """B1-T：difficulty 分桶门控——verdict 带 difficulty score 且 >= 阈值才允许投机。
+
+        verdict 无 difficulty 答案（triage 问题集）或 score 缺失 → 保守放行（None 语义=
+        无法判难度时按原 plan 逻辑走，由 verify 兜底）。
+        """
+        if not isinstance(verdict, dict):
+            return True
+        diff = (verdict.get("answers") or {}).get("difficulty")
+        if not isinstance(diff, dict):
+            return True
+        score = diff.get("score")
+        if not isinstance(score, (int, float)):
+            return True
+        return score >= self._SPECULATIVE_MIN_DIFFICULTY
 
     def _make_branch_prompt(self, tag: str) -> str:
         """分支 prompt：模板可配（P1-4 策略扩展），默认最小 echo 模板。"""
