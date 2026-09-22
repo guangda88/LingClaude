@@ -1,0 +1,11 @@
+{
+  "kind": "arch_debt",
+  "key": "spec-decision-evals-guardrails",
+  "state": "open",
+  "severity": "P3",
+  "location": "lingclaude/model/spec_decision.py（三原语内核已就位，评测护栏消费面无落点）",
+  "reason": "评测护栏（Jev/Laya 8 维并行检查：ToolChoice/UsedToolResult/Grounded/StayedInScope/AnswerRelevancy/Completeness/IndirectInjection/PHI）暂未铺开：依赖『逐 trace 采集 + 循环内 eval』的消费面（需先建 trace 采集层），lc 当前无逐 trace evals 消费点。spec_decision 内核的 Noul/Choice 能力足以支撑 8 维检查，但缺 trace 数据源 + eval 调度落点。IndirectInjection 维度已有部分能力（injection_screen.py 消费点④ 已铺开，可作 8 维中 1 维的现成实现）。",
+  "due": "2026-12-31",
+  "resolve_hint": "复评触发条件：(a) lc 建立 trace 采集层（循环内逐步记录决策事件，供 8 维并行检查消费）；(b) 出现『需要 LLM-as-judge 但成本过高』的评测场景（替代夜间 1% 抽样跑批）。任一命中即铺开 8 维 evals 消费方（spec_decision 三原语内核已就位，接 trace 采集层即可；IndirectInjection 维复用 injection_screen.py）。未命中维持挂账。",
+  "created": "2026-09-22T23:58:00+00:00"
+}

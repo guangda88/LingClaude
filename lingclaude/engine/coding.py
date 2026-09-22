@@ -149,6 +149,11 @@ class CodingRuntime(
         self.plan_mode = PlanMode()
         # T0-2: 敏感路径门接入 pipeline — 覆盖全部带路径参数的工具（write/edit/ast_replace 等）
         self.tool_pipeline.add_guard(self._sensitive_path_guard)
+        # NanoJev 契约消费层（消费点⑩ 工具调用风险门控，2026-09-22）：
+        # PreToolUse 三原语风险分级（只读/修改/破坏性/网络/生产敏感），叠加在
+        # 敏感路径门之后——只读放行零打扰、破坏性/生产敏感按权限模式询问/拒绝。
+        # fail-open：门控故障 → abstain（交既有 sensitive_path_guard/权限链处理）。
+        self.tool_pipeline.add_guard(self._risk_guard)
 
     def _stt_handler(
         self,
@@ -342,6 +347,62 @@ class CodingRuntime(
         if err:
             return GuardDecision(decision="deny", reason=err)
         return GuardDecision(decision="abstain")
+
+    def _risk_guard(self, tool_def: Any, ctx: Any) -> Any:
+        """NanoJev 契约消费层（消费点⑩ 工具调用风险门控，2026-09-22）：
+        PreToolUse 三原语风险分级（只读/修改/破坏性/网络/生产敏感）。
+
+        叠加在敏感路径门之后——对 bash 类命令做 0 LLM token 风险分级：
+        只读（等级 1）→ 放行零打扰；破坏性/生产敏感（等级 3/4/5）→
+        按权限模式 ask/deny。只问/拦写执行域，读域工具 abstain（交读域
+        既有权限链）。fail-open：分级故障 → abstain（不反噬工具执行）。
+        """
+        from lingclaude.engine.tool_pipeline import GuardDecision
+
+        try:
+            # 读域工具无命令语义，风险分级不适用（交读域权限链/敏感路径门）
+            if not self._tool_blocked_readonly_exempt(tool_def.name):
+                return GuardDecision(decision="abstain")
+            command = ctx.args.get("command")
+            if not isinstance(command, str) or not command:
+                return GuardDecision(decision="abstain")
+            from lingclaude.engine.risk_gate import classify_command_risk
+            from lingclaude.core.permissions import get_permission_mode
+            mode = get_permission_mode()
+            verdict = classify_command_risk(
+                command, permission_mode=mode, tool_name=tool_def.name)
+        except Exception:  # noqa: BLE001 — 分级故障 fail-open，abstain 交既有权限链
+            # fail-closed 契约下守卫异常=deny 全部调用；本门控是「提醒/询问」
+            # 非拦截类（拦截交给 sensitive_path_guard/permissions），故障必须
+            # abstain 放行，不能因风险分级内核故障拦住所有 bash 调用。
+            return GuardDecision(decision="abstain")
+        # 处置映射：allow→放行；ask→ask 模式下询问（strict 由门控已判 deny）；
+        # deny→拒绝。只读/放行一律 abstain（不打扰）；破坏性/生产敏感触发处置。
+        if verdict.action == "allow":
+            return GuardDecision(decision="abstain")
+        if verdict.action == "deny":
+            return GuardDecision(
+                decision="deny",
+                reason=(
+                    f"[风险门控] 命令风险等级 {verdict.risk_level}（{verdict.risk_label}）"
+                    f"：{verdict.reason}。strict 模式拒绝高风险操作，请人工确认。"),
+            )
+        # ask：高风险（等级≥3）在 auto/ask 模式触发询问信号
+        if verdict.risk_level >= 3:
+            return GuardDecision(
+                decision="abstain",  # 询问走既有权限 ask 通道，门控只挂提醒
+                reason=(f"[风险门控提醒] 命令风险等级 {verdict.risk_level}"
+                        f"（{verdict.risk_label}）：{verdict.reason}"),
+            )
+        return GuardDecision(decision="abstain")
+
+    def _tool_blocked_readonly_exempt(self, tool_name: str) -> bool:
+        """风险门控是否适用于该工具（bash/执行域才做命令分级）。
+
+        仅对 bash 类命令语义工具做风险分级；其他工具 abstain（读域交
+        敏感路径门/权限链，写域交写后验证门）。返回 True=可分级。
+        """
+        return tool_name in ("bash", "bash_lingxi", "execute")
 
     def _tool_blocked(self, tool_name: str, store: Any, active_mode: str, kwargs: dict[str, Any] | None = None) -> bool:
         """权限判定（P0 主链统一 2026-09-12 提取，供 execute_tool 与 ToolExecutor 快路径共用）。

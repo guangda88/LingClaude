@@ -1,0 +1,11 @@
+{
+  "kind": "arch_debt",
+  "key": "spec-decision-tool-routing-choice",
+  "state": "open",
+  "severity": "P3",
+  "location": "lingclaude/model/spec_decision.py（Choice 原语内核已就位，无消费方）",
+  "reason": "工具调用/技能目录路由（Choice Top-K）暂未铺开：lc 当前工具面仅 ~10 个内置工具，Choice 路由的『从 N 候选选 Top-K』收益边际（NanoJev/Jev 的高收益场景是 199 工具目录，lc 规模未到）。lc 现路由走 keyword 匹配 + 路由表，足够。等 MCP 工具/技能目录规模化（≥50 工具）后 Choice 路由才有独立价值。",
+  "due": "2026-12-31",
+  "resolve_hint": "复评触发条件：(a) lc 工具/技能目录规模 ≥50（MCP 接入批量工具）；(b) 出现『相似工具混淆』实际事故（模型选错工具）。任一命中即铺开 Choice 路由消费方（spec_decision.choice 内核已就位，接 model_call 工具选择点即可）。未命中维持挂账。",
+  "created": "2026-09-22T23:55:00+00:00"
+}
