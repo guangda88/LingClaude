@@ -31,6 +31,10 @@ class StatusModel:
     # 2026-09-21: 借鉴 atomcode —— 缓存命中率（0-100，-1=未知不显示）与权限模式
     cache_pct: int = -1
     perm_mode: str = ""
+    # 2026-09-22: 任务清单面板（对标 atomcode todo panel 常驻 toolbar 上方）——
+    # 每秒由 _toolbar_snapshot 从 TodoStore 聚合喂入（(status_value, content) 元组），
+    # 渲染层 toolbar_fragments 在状态行上方展开为多行清单。空元组 = 不占版面。
+    todo_items: tuple[tuple[str, str], ...] = ()
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> "StatusModel":
@@ -50,6 +54,8 @@ class StatusModel:
                 task_active=self.task_active,
                 cache_pct=self.cache_pct,
                 perm_mode=self.perm_mode,
+                # 2026-09-22: todo panel 明细随快照透传（元组不可变，浅拷贝安全）
+                todo_items=self.todo_items,
             )
 
     # ---- 更新方法（主循环调用） ----
@@ -86,6 +92,14 @@ class StatusModel:
             self.task_pending = pending
             self.task_active = active
 
+    # 2026-09-22: 任务清单明细喂入（todo panel 常驻 toolbar 上方，对标 atomcode）。
+    # items: (status_value, content) 元组序列，只收未完成项（面板语义），
+    # 空/None 清空面板。渲染放 toolbar_fragments，喂入走 1s 节流的快照路径。
+    def set_todo_items(self, items: "list[tuple[str, str]] | tuple | None") -> None:
+        norm = tuple(tuple(x) for x in items) if items else ()
+        with self._lock:
+            self.todo_items = norm
+
     # 2026-09-21: 借鉴 atomcode toolbar —— 缓存命中率 + 权限模式喂入
     def set_cache_pct(self, pct: int) -> None:
         with self._lock:
@@ -113,6 +127,20 @@ def toolbar_fragments(s: StatusModel):
     钉住模型显示 [PINNED] 标识。
     """
     frag = []
+    # 2026-09-22: 任务清单面板（todo panel，常驻状态栏上方，对标 atomcode）——
+    # 每项一行：⚙ in_progress / · pending / ✓ completed / ✗ cancelled。
+    # 有未完成项时先渲染清单行再渲染状态行（bottom_toolbar 多行片段 PT 原生支持，
+    # 全屏 TUI _status_win 高度自适应配套）；无任务时零行，不占版面。
+    _TODO_MARK = {
+        "in_progress": ("class:accent", "⚙"),
+        "pending": ("class:yellow", "·"),
+        "completed": ("class:green", "✓"),
+        "cancelled": ("class:red", "✗"),
+    }
+    for _st, _content in getattr(s, "todo_items", ()):
+        _ms, _mark = _TODO_MARK.get(_st, ("", "·"))
+        _show = _content if len(_content) <= 46 else _content[:45] + "…"
+        frag.append((_ms, f"{_mark} {_show}\n"))
     # 权限模式前缀（atomcode 的 ⏵⏵ auto 语义）——读运行时实际模式，未知则不显示
     perm = getattr(s, "perm_mode", "")
     if perm:

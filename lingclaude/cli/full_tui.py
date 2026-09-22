@@ -58,6 +58,7 @@ try:
     from prompt_toolkit.history import FileHistory, InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import HSplit, Layout, Window
+    from prompt_toolkit.layout.dimension import Dimension
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.layout.margins import ScrollbarMargin
     from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
@@ -285,7 +286,10 @@ class FullTuiSession:
             style="class:input",
         )
         self._status_win = Window(
-            height=1,
+            # 2026-09-22: todo panel 常驻状态栏上方——toolbar_fragments 现返回
+            # 多行片段（清单行 + 状态行），高度必须跟随内容行数自适应，
+            # 写死 1 会把清单截进状态行造成错位。
+            height=Dimension(min=1, max=8),
             content=FormattedTextControl(self._status_fragments),
             style="class:status",
         )

@@ -213,6 +213,21 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
             except Exception:  # noqa: BLE001
                 pass
             status.refresh_cwd()
+        # 2026-09-22: todo panel 明细喂入（常驻 toolbar 上方，对标 atomcode）。
+        # TodoStore 用 threading.local 连接（engine/todo.py Bug B 修复），
+        # PT 渲染线程查询安全；1s 节流与 token 估算同块，零额外 I/O 顾虑。
+        # 无 runtime/查询失败静默留空——面板是装饰性常驻，不反噬主循环。
+        try:
+            _todo_store = getattr(
+                getattr(ctx.engine, "_runtime", None), "_todo_store", None
+            )
+            if _todo_store is not None:
+                _items = _todo_store.list()
+                status.set_todo_items(
+                    [(i.status.value, i.content) for i in _items if i.status.value in ("in_progress", "pending")]
+                )
+        except Exception:  # noqa: BLE001 — 面板刷新失败不阻塞渲染
+            pass
         pending = ctx.input_queue.pending() if ctx.input_queue is not None else 0
         full_tui = getattr(ctx.session, "pending_submissions", None)
         if callable(full_tui):

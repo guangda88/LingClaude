@@ -1,5 +1,5 @@
 {
-  "head": "367dd18",
+  "head": "3aa4cd0",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "262d9e28230f",
     "tests/test_iron_law_guards.py": "5c177c8cdfb5",
@@ -79,7 +79,7 @@
     "arch_exemption:lm_quick.py": "447bf40094aa",
     "arch_exemption:loop_seam.py": "796318bd54da",
     "arch_exemption:manifest_lock.py": "026b4e1c1bfe",
-    "arch_exemption:mcp_tools.py": "fd1f1b7797a5",
+    "arch_exemption:mcp_tools.py": "8abaca4b1895",
     "arch_exemption:memory_engine.py": "41ca0b81ef1b",
     "arch_exemption:message_builder.py": "cd311fb000c5",
     "arch_exemption:meta_cognition.py": "2d68240c54eb",
@@ -133,5 +133,5 @@
     "arch_exemption:wiring.py": "e1e39bf6cc32",
     "arch_exemption:worktree.py": "9f48db0097d5"
   },
-  "checked": "2026-09-22T02:01:19+00:00"
+  "checked": "2026-09-22T02:55:47+00:00"
 }

@@ -198,3 +198,82 @@ class TestPinFailureClearsStaleStatus:
         status.set_model.assert_called_with("MiniMax-M3")
         # 回归: pinned 仍要设 True
         status.set_pinned.assert_called_with(True)
+
+
+class TestTodoPanel:
+    """2026-09-22: todo panel 常驻 toolbar 上方（对标 atomcode）。
+
+    渲染契约：toolbar_fragments 在状态行之前展开清单行（每行以 \\n 结尾），
+    状态行保持原有单行形态；空清单 = 输出与旧版逐字符一致（零版面侵占）。
+    """
+
+    def test_empty_panel_zero_footprint(self) -> None:
+        """无任务时输出与历史形态完全一致——面板不占版面。"""
+        s = StatusModel()
+        s.set_model("m1")
+        s.cwd = "/tmp"
+        frag = toolbar_fragments(s.snapshot())
+        text = "".join(x[1] for x in frag)
+        assert "\n" not in text  # 单行形态，无清单行
+
+    def test_in_progress_and_pending_rows(self) -> None:
+        s = StatusModel()
+        s.set_model("m1")
+        s.cwd = "/tmp"
+        s.set_todo_items(
+            [("in_progress", "迁移钩子替换"), ("pending", "跑全量回归")]
+        )
+        frag = toolbar_fragments(s.snapshot())
+        text = "".join(x[1] for x in frag)
+        assert "⚙ 迁移钩子替换\n" in text
+        assert "· 跑全量回归\n" in text
+        # 清单行必须先于状态行（面板在 toolbar 上方）
+        assert text.index("⚙") < text.index("m1")
+
+    def test_completed_row_and_unknown_status(self) -> None:
+        s = StatusModel()
+        s.set_todo_items(
+            [("completed", "已交付项"), ("weird_status", "未知态项")]
+        )
+        frag = toolbar_fragments(s.snapshot())
+        text = "".join(x[1] for x in frag)
+        assert "✓ 已交付项\n" in text
+        assert "· 未知态项\n" in text  # 未知状态兜底为 pending 形态
+
+    def test_long_content_truncated(self) -> None:
+        s = StatusModel()
+        s.set_todo_items([("pending", "x" * 80)])
+        frag = toolbar_fragments(s.snapshot())
+        text = "".join(x[1] for x in frag)
+        assert "…" in text
+        # 面板 1 行 + 状态行 1 行 = 2；长内容必须折叠进单行清单，不得换行溢出
+        lines = [ln for ln in text.split("\n") if ln.strip()]
+        assert len(lines) == 2
+
+    def test_snapshot_thread_safe(self) -> None:
+        import threading as _t
+
+        s = StatusModel()
+        s.set_todo_items([("pending", "a"), ("in_progress", "b")])
+        snap = s.snapshot()
+        assert snap.todo_items == (("pending", "a"), ("in_progress", "b"))
+        # 并发写不崩（锁面回归）
+        errs: list[Exception] = []
+
+        def _w() -> None:
+            try:
+                for i in range(100):
+                    s.set_todo_items([("pending", f"t{i}")])
+            except Exception as e:  # noqa: BLE001
+                errs.append(e)
+
+        ths = [_t.Thread(target=_w) for _ in range(4)]
+        [t.start() for t in ths]
+        [t.join() for t in ths]
+        assert not errs
+
+    def test_set_none_clears(self) -> None:
+        s = StatusModel()
+        s.set_todo_items([("pending", "a")])
+        s.set_todo_items(None)
+        assert s.snapshot().todo_items == ()
