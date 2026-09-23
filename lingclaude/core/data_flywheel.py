@@ -67,9 +67,33 @@ class DataFlywheel:
             db_path = str(project_root / ".lingclaude" / FLYWHEEL_DB_NAME)
 
         self.db_path = Path(db_path)
+        self._warn_if_repo_data_decoy_form()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
         self._initialize_db()
+
+    def _warn_if_repo_data_decoy_form(self) -> None:
+        """C3 护栏：告警「仓库 data/ 诱饵库」路径形态（fail-soft，不阻断构造）。
+
+        事故（2026-09-23 20:33）：某次测试/脚本以相对路径 db_path="data/data_flywheel.db"
+        构造（具体调用方未定位），借 __init__ 的 mkdir+connect 静默生成 0 字节诱饵库。
+        生产 6 处调用全空参、命中真库 <repo>/.lingclaude/，无分流实害；
+        但该形态一旦被后续代码复用，数据将静默写入空库（「验证全绿、生产未动」温床）。
+        """
+        try:
+            repo_data_db = (
+                Path(__file__).parent.parent.parent / "data" / FLYWHEEL_DB_NAME
+            ).resolve()
+            if self.db_path.resolve() == repo_data_db:
+                logger.warning(
+                    "[C3] Flywheel 库路径命中仓库 data/ 诱饵形态: %s；"
+                    "真库应位于 <repo>/.lingclaude/%s。"
+                    "该相对路径形态曾静默分流到 0 字节空库，请改用默认路径",
+                    self.db_path,
+                    FLYWHEEL_DB_NAME,
+                )
+        except OSError:  # resolve 失败不阻断构造
+            pass
 
     def _initialize_db(self) -> None:
         conn = self._get_connection()

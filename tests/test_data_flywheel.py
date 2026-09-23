@@ -1,6 +1,8 @@
 """Tests for DataFlywheel — M1数据飞轮"""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from datetime import datetime
@@ -193,3 +195,36 @@ class TestGetRecentCorrections:
         got = flywheel.get_recent_corrections()
         assert got.is_ok
         assert got.data == []
+
+
+class TestRepoDataDecoyGuard:
+    """C3 护栏：仓库 data/ 诱饵库路径形态告警"""
+
+    def test_decoy_form_triggers_warning(self, tmp_path, caplog):
+        """db_path 指向仓库 data/data_flywheel.db 形态时告警（直测告警方法，不真实构造——否则测试自己会重建诱饵库）"""
+        import logging
+        from lingclaude.core import data_flywheel as df_mod
+
+        fw = DataFlywheel(db_path=str(tmp_path / "normal.db"))
+        fw.db_path = (
+            Path(df_mod.__file__).parent.parent.parent / "data" / df_mod.FLYWHEEL_DB_NAME
+        )
+        with caplog.at_level(logging.WARNING, logger="lingclaude.core.data_flywheel"):
+            fw._warn_if_repo_data_decoy_form()
+        assert any("[C3]" in r.message for r in caplog.records)
+
+    def test_normal_paths_no_warning(self, tmp_path, caplog):
+        """默认路径与 tmp 路径均不误报"""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="lingclaude.core.data_flywheel"):
+            DataFlywheel()  # 默认真库路径
+            DataFlywheel(db_path=str(tmp_path / "normal.db"))
+        assert not any("[C3]" in r.message for r in caplog.records)
+
+    def test_no_repo_data_decoy_db(self):
+        """仓库哨兵：data/ 下不得再现 flywheel 诱饵库（事故工件，再现即 fail）"""
+        from lingclaude.core import data_flywheel as df_mod
+
+        decoy = Path(df_mod.__file__).parent.parent.parent / "data" / df_mod.FLYWHEEL_DB_NAME
+        assert not decoy.exists(), f"诱饵库再现（0字节分流温床）: {decoy}"
