@@ -237,7 +237,7 @@ holder/check_paths 五原语）+ `scripts/worktree_node.py`（代码层 worktree
 
 | 铁律 | 已达标 | 欠账 |
 |------|--------|------|
-| 铁律 1 | SeamRegistry 10 类 SeamType；wiring 58 处 spec 装配（M6 快照实测，两周零增长）；tools 全插件化（运行时 TOOL 槽位 26 实现） | 15 个存量状态模块仍私连存储（J4 未清） |
+| 铁律 1 | SeamRegistry 10 类 SeamType；wiring 58 处 spec 装配（M6 快照实测，两周零增长）；tools 全插件化（运行时 TOOL 槽位 26 实现） | J4 真实违例清零（2026-09-23：governance_v2 + memory_engine 迁 StateStore；13 处迁移期导出视图豁免挂账 due 2026-11-30；G10c 运行时口径守卫上岗） |
 | 铁律 2 | state_store / sandbox_provider / plugins/* 已具分形结构；守卫件套已声明停层（2026-09-17 入册） | 部分插片未声明停层与子插片接缝（细则 5 待补） |
 | 铁律 3 | 近期 commit 均插片入册；**台账已入库**（data/arch_ledger 115 record，commit df48731）；M1-M5 守卫已建并入 CI（arch-guards job）；返审触发器常态化（SDT-lc-006）；**ToolResult 协议已全链路强制**（commit 6291b53：12 handler 全量迁移 + G4 守卫换代只缩不放，2026-09-17 基线更正）；**SeamType 拔插等级已声明**（PLUG_LEVELS 10/10 入册 core/seam.py，M5 升格真实插片逐级拔，2026-09-17 整改） | ~~ToolResult 协议未全链路强制~~（已清偿，见达标列）；~~SeamType 拔插等级未声明~~（已清偿，见达标列）；M6 静态口径盲区（P2）；list_keys 原语无独立测试（P3）；旧 G 守卫已入 CI（2026-09-17 整改，G1-G10b 必过）；M4 守卫强度为原语级（套件级换域待升格，失败模式已入档 M4 docstring） |
 | 铁律 4 | 修剪语法升格落地：debt record 机制实证（plugin_loader 特判在押，due 2026-10-31）；**首例接缝回收审查已结案**（见五之 J4 追加） | 接缝回收仅一例（留任结案），修剪行为尚未真实发生过一次 |
@@ -266,7 +266,7 @@ holder/check_paths 五原语）+ `scripts/worktree_node.py`（代码层 worktree
 **J4 状态归原语**
 - ✅ `session_state` 读写已走 StateStore（`866a43e` I1 上岗）
 - ✅ **守卫体系账目已归原语（2026-09-17 返审清偿）**：豁免/债务/快照/修订史全走 StateStore（arch_debt / arch_exemption / arch_m6_snapshot / arch_law_revision），守卫经 `StateStore.list_keys/load` API 读账，不再私连 .py 注释与 jsonl
-- ✗ 其余 14 个状态模块（governance/task_aggregation/memory_engine 等）仍私连存储，J4 欠账最大项
+- ✅ **J4 真实违例清零（2026-09-23 第三批整改）**：governance_v2 提案存储迁 StateStore（record_type=governance_proposal）；memory_engine 六写点迁 StateStore 主通道、SQLite 降为查询导出视图；J4_KNOWN_DIRECT 清零。剩余 13 处为迁移期导出视图豁免（挂账 due 2026-11-30）；新发现 proposal_lifecycle 直写点在守卫清单外，已挂账 proposal-lifecycle-j4-migration（due 2026-11-30）
 
 **铁律 4 首例司法实践（2026-09-17，接缝回收审查闭环）**
 - ✅ **first-seam-recycling-review 结案**：M6 标记 TOOL 接缝为回收候选（静态单实现、注册点龄期 5 月+）→ 立案取证 → 运行时实测 **26 实现**（6 插件载体 + 20 工具代理经 PluginLoader 动态注册）→ 裁定**留任**（扩展意图充分，不满足回收条件）。结案入册 `arch_review/first-seam-recycling-review`，修订史 `20260917-07`

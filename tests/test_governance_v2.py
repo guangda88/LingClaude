@@ -73,10 +73,16 @@ class TestCreateProposal:
         assert p.deadline_hours == 0.01
 
     def test_persisted(self, engine):
+        # 2026-09-23 J4 迁移：提案状态主通道走 StateStore
+        # （record_type=governance_proposal，root=state_file 所在目录），
+        # 旧单文件 write_text 直连已撤，契约断言同换代。
         engine.create_proposal("PRO-104", "a", "t", "body text")
-        assert engine._file.exists()
-        data = json.loads(engine._file.read_text())
-        assert "PRO-104" in data["proposals"]
+        rec = engine._state_store.load(
+            engine.RECORD_TYPE, "PRO-104", root=engine._state_root
+        )
+        assert rec is not None
+        assert rec["proposal_id"] == "PRO-104"
+        assert rec["title"] == "t"
 
 
 class TestBlastAnalysis:

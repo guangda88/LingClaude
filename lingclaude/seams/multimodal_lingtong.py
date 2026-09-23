@@ -195,10 +195,12 @@ class LingTongMultimodalTask:
         return res.data
 
 
-def register_lingtong_multimodal(name: str = "lingtong_multimodal") -> bool:
+def register_lingtong_multimodal(name: str = "cap/lingtong_multimodal") -> bool:
     """把灵通问道多模态插片注册进 SeamRegistry（SeamType.MULTIMODAL）。
 
     返回注册是否成功（失败=fail-closed，不抛异常）。
+    name 默认带域前缀（铁律 7 / N3：跨物理层缝 key 必为 {ns}/{seam}，
+    2026-09-23 守卫上岗后由裸 key 'lingtong_multimodal' 迁移）。
     """
     try:
         task = LingTongMultimodalTask()

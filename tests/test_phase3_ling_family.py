@@ -32,8 +32,8 @@ class TestLingTongMultimodalTask:
         ok = register_lingtong_multimodal()
         assert ok is True
 
-        t = SeamRegistry.get(SeamType.MULTIMODAL, "lingtong_multimodal")
-        assert t.name == "lingtong_multimodal"
+        t = SeamRegistry.get(SeamType.MULTIMODAL, "cap/lingtong_multimodal")
+        assert t.name == "lingtong_multimodal"  # 实例 name 与缝 key 解耦，N3 只约束 key
         assert t.task_type() == "multimodal"
 
         schema = t.input_schema()
@@ -46,7 +46,9 @@ class TestLingTongMultimodalTask:
         from lingclaude.seams.multimodal_lingtong import register_lingtong_multimodal
 
         # 正常路径即可（模块不可用时也应返回 True 且注册保留）
-        assert register_lingtong_multimodal("test_multimodal_2") is True
+        # N3：跨物理层缝 key 必带域前缀，裸 key 应被 fail-closed 拒绝
+        assert register_lingtong_multimodal("test_multimodal_2") is False
+        assert register_lingtong_multimodal("cap/test_multimodal_2") is True
 
     def test_analyze_emotion(self):
         """analyze_emotion 真实调用（若 src 可用）。"""
@@ -55,7 +57,7 @@ class TestLingTongMultimodalTask:
 
         from lingclaude.core.seam import SeamRegistry, SeamType
 
-        t = SeamRegistry.get(SeamType.MULTIMODAL, "lingtong_multimodal")
+        t = SeamRegistry.get(SeamType.MULTIMODAL, "cap/lingtong_multimodal")
         if t.input_schema().get("transport") != "in-process":
             pytest.skip("lingtongask src 不可用，跳过真实调用")
 
@@ -152,9 +154,11 @@ class TestResearchCrew:
         from lingclaude.core.seam import SeamRegistry, SeamType
         from lingclaude.seams.research_crew import register_research_crew
 
-        assert register_research_crew("test_research_crew") is True
-        got = SeamRegistry.get(SeamType.ORCHESTRATOR, "test_research_crew")
-        assert got.name == "research_crew"
+        assert register_research_crew("cap/test_research_crew") is True
+        # N3 fail-closed：裸 key 拒绝
+        assert register_research_crew("test_research_crew") is False
+        got = SeamRegistry.get(SeamType.ORCHESTRATOR, "cap/test_research_crew")
+        assert got.name == "research_crew"  # 实例 name 与缝 key 解耦，N3 只约束 key
 
 
 # ────────────────────────────────────────────────────────────────

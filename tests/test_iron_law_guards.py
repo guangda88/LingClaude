@@ -476,10 +476,11 @@ def test_m4_domain_portability():
     """M4（法）：主干原语在从未见过的业务域上原样跑通。
 
     2026-09-17 失败模式声明（audit-lingke-report-verified P1，如实入档）：
-    条文原文「主干测试套件级换域」，本实现验证 StateStore 原语级换域
-    （人造域 order/ticket 跑通三原语）。守卫强度低于条文处已如实声明：
-    测试套件级换域（整套测试跑在陌生域 fixture 上）待 CI 侧改造后升格，
-    当前以原语级换域 + M4 快照纪律（单口径结论不背书新行为）过渡。
+    本用例为原语级换域冒烟（人造域 order/ticket 跑通三原语）。
+    2026-09-23 套件级换域已升格落地：test_m4_suite_level_domain_swap 经
+    tests/fixtures/synthetic_registry.py 在子进程内把 StateStore 全量
+    对外口径（三原语/原子写/目录布局/域隔离/幂等 close）跑在合成域上，
+    CI arch-guards job 同步接入——条文口径自此达成，本用例保留为快速冒烟。
     """
     import shutil
 
@@ -503,6 +504,26 @@ def test_m4_domain_portability():
         finally:
             store.close()
             shutil.rmtree(synth_root, ignore_errors=True)
+
+
+def test_m4_suite_level_domain_swap():
+    """M4（法）套件级换域：整个状态原语测试集跑在合成域（order/ticket）上。
+
+    2026-09-23 P3 整改（audit P3：M4 仅原语级非套件级）：强度升格落地。
+    执行模型：子进程内 pytest.main 收集 tests/fixtures/m4_synthetic_suite.py，
+    合成域 root 经 M4_DOMAIN_ROOT 环境变量注入（换域换到底，不碰真实业务域
+    ~/.lingclaude/state）。失败模式：合成域上任一口径红 → 本守卫红。
+    """
+    import sys
+
+    sys.path.insert(0, str(ROOT))
+    from tests.fixtures.synthetic_registry import run_synthetic_suite
+
+    failures = run_synthetic_suite()
+    assert failures == 0, (
+        f"M4 套件级换域失败（{failures} 项）：StateStore 口径在合成域 "
+        "order/ticket 上不成立，见上方子进程输出"
+    )
 
 
 # ── M5 截肢测试 ────────────────────────────────────────────────────────────

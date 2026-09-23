@@ -175,9 +175,43 @@ CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 class MemoryStore(SqliteStoreBase):
     _SCHEMA = _SCHEMA
 
+    #: J4 状态归原语：五类记忆事实的 StateStore record_type 前缀
+    #: （key 规约与灵忆镜像一致：entity/episode 等用 id，edge 用 "src->dst:type"）
+    RT_EPISODE = "memory_episode"
+    RT_FACET = "memory_facet"
+    RT_FACET_POINT = "memory_facet_point"
+    RT_ENTITY = "memory_entity"
+    RT_EDGE = "memory_edge"
+
     def __init__(self, db_path: str | Path | None = None,
-                 legacy_sink: object | None = None) -> None:
+                 legacy_sink: object | None = None,
+                 state_store: object | None = None) -> None:
         super().__init__(db_path=db_path, legacy_sink=legacy_sink, db_name="memory.db")
+        # J4 状态归原语：优先注入 StateStore（记忆事实主通道），缺省自建。
+        # SQLite memory.db 降为查询导出视图（tag/图检索介质，非状态私连）——
+        # 与 task_aggregation 同款范式（主通道接缝 + 查询视图共存）。
+        if state_store is None:
+            try:
+                from lingclaude.core.state_store import StateStore
+
+                state_store = StateStore()
+            except Exception:
+                state_store = None
+        self._state_store = state_store
+
+    def _state_put(self, record_type: str, key: str, payload: dict) -> None:
+        """J4 主通道写（旁路语义：失败只告警不炸记忆链路，与 _emit 同纪律）。"""
+        if self._state_store is None:
+            return
+        try:
+            self._state_store.save(record_type, key, payload)
+        except Exception as e:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "StateStore 写入 %s/%s 失败: %s", record_type, key, e
+            )
+
 
     # ── Episode CRUD ──
 
@@ -192,6 +226,13 @@ class MemoryStore(SqliteStoreBase):
              ep.created_at, ep.weight, ep.recall_count),
         )
         conn.commit()
+        # J4 状态归原语：记忆事实主通道走 StateStore
+        self._state_put(self.RT_EPISODE, ep.id, {
+            "id": ep.id, "title": ep.title, "body": ep.body,
+            "episode_type": ep.episode_type.value, "tags": list(ep.tags),
+            "source": ep.source, "created_at": ep.created_at,
+            "weight": float(ep.weight), "recall_count": int(ep.recall_count),
+        })
         # P3.3 双写：episode → 灵忆镜像（旁路，永不抛异常）
         self._emit(
             "on_put", "episodes", ep.id,
@@ -226,6 +267,11 @@ class MemoryStore(SqliteStoreBase):
             (facet.id, facet.episode_id, facet.name, facet.body),
         )
         conn.commit()
+        # J4 状态归原语：记忆事实主通道走 StateStore
+        self._state_put(self.RT_FACET, facet.id, {
+            "id": facet.id, "episode_id": facet.episode_id,
+            "name": facet.name, "body": facet.body,
+        })
         self._emit(
             "on_put", "facets", facet.id,
             {"episode_id": facet.episode_id,
@@ -250,6 +296,11 @@ class MemoryStore(SqliteStoreBase):
             (fp.id, fp.facet_id, fp.claim, json.dumps(fp.tags, ensure_ascii=False)),
         )
         conn.commit()
+        # J4 状态归原语：记忆事实主通道走 StateStore
+        self._state_put(self.RT_FACET_POINT, fp.id, {
+            "id": fp.id, "facet_id": fp.facet_id,
+            "claim": fp.claim, "tags": list(fp.tags),
+        })
         self._emit(
             "on_put", "facet_points", fp.id,
             {"facet_id": fp.facet_id, "claim": fp.claim,
@@ -276,6 +327,13 @@ class MemoryStore(SqliteStoreBase):
              entity.entity_type.value, entity.description),
         )
         conn.commit()
+        # J4 状态归原语：记忆事实主通道走 StateStore
+        self._state_put(self.RT_ENTITY, entity.id, {
+            "id": entity.id, "name": entity.name,
+            "aliases": list(entity.aliases),
+            "entity_type": entity.entity_type.value,
+            "description": entity.description,
+        })
         self._emit(
             "on_put", "entities", entity.id,
             {"name": entity.name, "aliases": list(entity.aliases),
@@ -325,6 +383,11 @@ class MemoryStore(SqliteStoreBase):
             (edge.source_id, edge.target_id, edge.edge_type.value, edge.context),
         )
         conn.commit()
+        # J4 状态归原语：记忆事实主通道走 StateStore
+        self._state_put(self.RT_EDGE,
+                        f"{edge.source_id}->{edge.target_id}:{edge.edge_type.value}",
+                        {"source_id": edge.source_id, "target_id": edge.target_id,
+                         "edge_type": edge.edge_type.value, "context": edge.context})
         self._emit(
             "on_put", "edges",
             f"{edge.source_id}->{edge.target_id}:{edge.edge_type.value}",
@@ -412,6 +475,18 @@ class MemoryStore(SqliteStoreBase):
             (ep_id,),
         )
         conn.commit()
+        # J4 状态归原语：recall 事实同步回 StateStore 主通道
+        row = conn.execute(
+            "SELECT * FROM episodes WHERE id = ?", (ep_id,)
+        ).fetchone()
+        if row is not None:
+            self._state_put(self.RT_EPISODE, ep_id, {
+                "id": row["id"], "title": row["title"], "body": row["body"],
+                "episode_type": row["episode_type"],
+                "tags": json.loads(row["tags"]), "source": row["source"],
+                "created_at": row["created_at"], "weight": float(row["weight"]),
+                "recall_count": int(row["recall_count"]),
+            })
 
     # ── 统计 ──
 

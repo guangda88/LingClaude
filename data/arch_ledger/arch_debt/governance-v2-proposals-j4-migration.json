@@ -4,6 +4,8 @@
   "reason": "J4 违例存量：治理提案状态（proposals）私连文件介质 _save() 直写。2026-09-17 审计对账收编——清单内 12 处核实全为豁免导出物，真实盲区仅此一处。清除条件：提案存储迁 StateStore（record_type=governance_proposal）后 debt resolve + 删 J4_KNOWN_DIRECT 登记。",
   "due": "2026-11-30",
   "resolve_hint": "迁 StateStore 后 resolve，守卫清单同撤（只缩不放）",
-  "state": "open",
-  "created": "2026-09-17T15:35:32+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T15:35:32+00:00",
+  "resolved": "2026-09-23T14:25:07+00:00",
+  "resolution": "J4 迁移完成：governance_v2.GovernanceEngine 提案状态主通道迁 StateStore(record_type=governance_proposal, root=state_file 目录)，旧 write_text 直连撤除；J4_KNOWN_DIRECT 登记清零（只缩不放）；test_persisted 契约断言同换代；迁移期旧文件读回退保留（补缺语义）。"
 }

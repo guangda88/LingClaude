@@ -1,0 +1,40 @@
+{
+ "type": "arch_review",
+ "key": "review-20260923-batch3-j4-m4",
+ "title": "第三批整改落地：J4 私连存储清账（真实违例 2→0）+ M4 套件级换域升格（audit P1 #6 + P3）",
+ "as_of": "2026-09-23",
+ "head": "ef3fbc0",
+ "created": "2026-09-23T14:47:18+00:00",
+ "changes": {
+  "P1#6_J4_governance_v2": [
+   "GovernanceEngine 提案状态主通道迁 StateStore(record_type=governance_proposal, root=state_file 目录)——debt governance-v2-proposals-j4-migration 清偿",
+   "旧 write_text 直连撤除；_load 保留旧文件读回退（StateStore 优先 + 旧文件补缺，同 pid 冲突 StateStore 赢）——迁移期双介质并存语义验证 4 场景全绿",
+   "J4_KNOWN_DIRECT 登记清零（只缩不放，dict 留空结构）；test_governance_v2::test_persisted 契约断言换代（旧单文件→StateStore record）"
+  ],
+  "P1#6_J4_memory_engine": [
+   "MemoryStore 六写点（episode/facet/facet_point/entity/edge/record_recall）挂 _state_put 主通道（旁路语义：失败告警不炸链路，与 _emit 同纪律）",
+   "SQLite memory.db 降为查询导出视图（tag/图检索介质）——与 task_aggregation 同款范式；record_type=memory_* 五类，key 规约与灵忆镜像一致（edge=src->dst:type）",
+   "守卫盲区根治：新增 G10c（sqlite3 直连运行时口径，基线冻结 layered_memory/memory_engine 两名，只缩不放）——G10 正则只盯文件介质，SQLite 直连月余未被抓即此盲区",
+   "行为验证：五类 record 落 StateStore + record_recall 回写 + 缺省自建路径 + 注入隔离，全绿"
+  ],
+  "P3_M4": [
+   "新建 tests/fixtures/synthetic_registry.py + m4_synthetic_suite.py：合成域 order/ticket 上跑 StateStore 全量对外口径（三原语/原子写无残留/目录布局/域隔离/幂等 close），13 用例",
+   "套件级执行模型：子进程 pytest.main + M4_DOMAIN_ROOT 环境变量注入（换域换到底）；每测试独立子域防套件内污染",
+   "test_m4_suite_level_domain_swap 入 test_iron_law_guards + CI arch-guards 注释锚点；旧 test_m4_domain_portability 降为冒烟并更新失败模式声明（欠账清偿）"
+  ],
+  "N3_既有红清偿": [
+   "第一批 N3 守卫上岗后抓到的 4 个真实违例清偿：register_research_crew / register_lingtong_multimodal 默认缝 key 带域前缀（cap/...），phase3 测试同步 + 新增 fail-closed 断言（裸 key 拒绝）"
+  ]
+ },
+ "new_debts": [
+  "proposal-lifecycle-j4-migration（due 2026-11-30）：第三批新发现——proposal_lifecycle.py _save:652/history:569 直写文件且在 J4_STATE_MODULES 清单外（清单盲区），按只缩不放先挂账不擅自扩清单"
+ ],
+ "verification": [
+  "tests/test_governance_v2.py 31 passed",
+  "tests/test_phase3_ling_family.py 13 passed（含 2 项新 N3 fail-closed 断言）",
+  "tests/test_memory_engine.py + test_lingmemory_memstore_bridge.py 48 passed",
+  "tests/test_p04_arch_guards.py 15 passed（含新 G10c）",
+  "m4_synthetic_suite 13 passed（经 synthetic_registry 子进程）",
+  "test_iron_law_guards M4 双用例（原语级冒烟 + 套件级）passed"
+ ]
+}

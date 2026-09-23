@@ -155,8 +155,22 @@ class ProposalV2:
 class GovernanceEngine:
     """L3-Aware Objection-Based Governance Engine"""
 
+    #: J4 状态归原语：提案状态主通道 record_type（debt governance-v2-proposals-j4-migration 清偿）
+    RECORD_TYPE = "governance_proposal"
+
     def __init__(self, state_file: Optional[Path] = None):
         self._file = state_file or STATE_FILE
+        # J4：StateStore root 跟随 state_file 目录——state_file 参数仍控制状态位置
+        # （生产 ~/.lingclaude/governance_state，测试注入 tmp_path 即隔离），
+        # 介质经原语原子写，不再 write_text 直连（旧文件读保留为迁移期兼容回退）。
+        self._state_root = self._file.parent
+        self._state_store = None
+        try:
+            from lingclaude.core.state_store import StateStore
+
+            self._state_store = StateStore(root=self._state_root)
+        except Exception as e:  # pragma: no cover - json 后端缺省必成
+            logger.warning("StateStore 初始化失败，治理提案状态将不可持久化: %s", e)
         self._detector = CognitiveStateDetector()
         self._bus: Optional[Any] = None
         self._nudge_sent: set[str] = set()
@@ -587,54 +601,81 @@ class GovernanceEngine:
             rollback_plan="git revert" if reversible else "需手动检查并恢复",
         )
 
+    @staticmethod
+    def _proposal_from_dict(pd: dict) -> ProposalV2:
+        """pd → ProposalV2（StateStore 主通道与旧文件回退共用解析，防双口径）。"""
+        p = ProposalV2(
+            proposal_id=pd["proposal_id"],
+            proposer=pd["proposer"],
+            title=pd["title"],
+            body=pd.get("body", ""),
+            status=ProposalStatus(pd["status"]),
+            deadline_hours=pd.get("deadline_hours", 1.0),
+            created_at=pd.get("created_at", 0),
+            decided_at=pd.get("decided_at", 0),
+            decision_note=pd.get("decision_note", ""),
+            cognitive_audit=pd.get("cognitive_audit", {}),
+        )
+        if pd.get("blast_analysis"):
+            ba = pd["blast_analysis"]
+            p.blast_analysis = BlastAnalysis(
+                affected_agents=ba.get("affected_agents", []),
+                affected_files=ba.get("affected_files", []),
+                affected_services=ba.get("affected_services", []),
+                risk_level=ba.get("risk_level", "low"),
+                reversible=ba.get("reversible", True),
+                rollback_plan=ba.get("rollback_plan", ""),
+            )
+        for od in pd.get("objections", []):
+            obj = Objection(
+                objector=od["objector"],
+                evidence=od["evidence"],
+                severity=ObjectionSeverity(od["severity"]),
+                category=od.get("category", ""),
+                created_at=od.get("created_at", 0),
+            )
+            cs = od.get("cognitive_state")
+            if cs:
+                obj.cognitive_assessment = CognitiveAssessment(
+                    state=CognitiveState(cs),
+                    confidence=0.5,
+                )
+            p.objections.append(obj)
+        return p
+
     def _load(self) -> None:
+        # J4 状态归原语：提案状态主通道走 StateStore（record_type=governance_proposal，
+        # key=proposal_id，root 跟随 state_file 目录）。
+        if self._state_store is not None:
+            try:
+                for pid in self._state_store.list_keys(self.RECORD_TYPE, root=self._state_root):
+                    pd = self._state_store.load(self.RECORD_TYPE, pid, root=self._state_root)
+                    if pd:
+                        self.proposals[pid] = self._proposal_from_dict(pd)
+            except Exception as e:
+                logger.warning("StateStore 加载治理提案失败，回落旧文件: %s", e)
+        # 迁移期兼容回退：StateStore 优先（迁移后新事实），旧单文件只补缺
+        # （同 pid 冲突时 StateStore 赢；J4 只盯写直连，读回退合法）。
         if not self._file.exists():
             return
         try:
             data = json.loads(self._file.read_text(encoding="utf-8"))
             for pid, pd in data.get("proposals", {}).items():
-                p = ProposalV2(
-                    proposal_id=pd["proposal_id"],
-                    proposer=pd["proposer"],
-                    title=pd["title"],
-                    body=pd.get("body", ""),
-                    status=ProposalStatus(pd["status"]),
-                    deadline_hours=pd.get("deadline_hours", 1.0),
-                    created_at=pd.get("created_at", 0),
-                    decided_at=pd.get("decided_at", 0),
-                    decision_note=pd.get("decision_note", ""),
-                    cognitive_audit=pd.get("cognitive_audit", {}),
-                )
-                if pd.get("blast_analysis"):
-                    ba = pd["blast_analysis"]
-                    p.blast_analysis = BlastAnalysis(
-                        affected_agents=ba.get("affected_agents", []),
-                        affected_files=ba.get("affected_files", []),
-                        affected_services=ba.get("affected_services", []),
-                        risk_level=ba.get("risk_level", "low"),
-                        reversible=ba.get("reversible", True),
-                        rollback_plan=ba.get("rollback_plan", ""),
-                    )
-                for od in pd.get("objections", []):
-                    obj = Objection(
-                        objector=od["objector"],
-                        evidence=od["evidence"],
-                        severity=ObjectionSeverity(od["severity"]),
-                        category=od.get("category", ""),
-                        created_at=od.get("created_at", 0),
-                    )
-                    cs = od.get("cognitive_state")
-                    if cs:
-                        obj.cognitive_assessment = CognitiveAssessment(
-                            state=CognitiveState(cs),
-                            confidence=0.5,
-                        )
-                    p.objections.append(obj)
-                self.proposals[pid] = p
+                if pid not in self.proposals:
+                    self.proposals[pid] = self._proposal_from_dict(pd)
         except Exception as e:
             logger.warning("加载治理状态失败: %s", e)
 
     def _save(self) -> None:
-        self._file.parent.mkdir(parents=True, exist_ok=True)
-        data = {"proposals": {pid: p.to_dict() for pid, p in self.proposals.items()}}
-        self._file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # J4 状态归原语：主通道 StateStore.save（原子写，每提案一条 record）。
+        # 旧 write_text 直连已撤（debt governance-v2-proposals-j4-migration 清偿，
+        # J4_KNOWN_DIRECT 登记同撤，只缩不放）。
+        if self._state_store is None:
+            return
+        for pid, p in self.proposals.items():
+            try:
+                self._state_store.save(
+                    self.RECORD_TYPE, pid, p.to_dict(), root=self._state_root
+                )
+            except Exception as e:
+                logger.warning("StateStore 写入治理提案 %s 失败: %s", pid, e)

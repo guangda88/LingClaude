@@ -1,0 +1,9 @@
+{
+  "kind": "export_view_j4",
+  "location": "lingclaude/governance/proposal_lifecycle.py:652 _save() + :569 history jsonl append",
+  "reason": "第三批 J4 整改中发现：LifecycleManager 生命周期状态/history jsonl 仍直写文件介质，且不在 J4_STATE_MODULES 审计清单内（清单盲区）。按只缩不放纪律先挂账登记，不擅自扩守卫清单；迁移方案与 governance_v2 同款（StateStore 主通道 + 旧文件读回退）。",
+  "due": "2026-11-30",
+  "resolve_hint": "迁 StateStore(record_type=governance_lifecycle) 后 resolve + 评估是否收编进 J4_STATE_MODULES（收编须连 debt+豁免一并登记）",
+  "state": "open",
+  "created": "2026-09-23T14:46:49+00:00"
+}

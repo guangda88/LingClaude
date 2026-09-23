@@ -283,11 +283,13 @@ class ResearchCrew:
         ]
 
 
-def register_research_crew(name: str = "research_crew") -> bool:
+def register_research_crew(name: str = "cap/research_crew") -> bool:
     """把 ResearchCrew 注册进 SeamRegistry（SeamType.ORCHESTRATOR）。
 
     注册前做 CrewOrchestrator 协议结构校验（fail-closed）：
     缺成员即拒绝注册，杜绝残缺实例进入注册表。
+    name 默认带域前缀（铁律 7 / N3：跨物理层缝 key 必为 {ns}/{seam}，
+    2026-09-23 守卫上岗后由裸 key 'research_crew' 迁移）。
     """
     try:
         crew = ResearchCrew()

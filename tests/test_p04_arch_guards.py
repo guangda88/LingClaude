@@ -333,11 +333,10 @@ J4_STATE_MODULES = [
 
 # 存量直连登记（审计 J4 痕迹表 + 2026-09-16 实扫；迁移后逐条删除）
 # 只缩不放：收编一条删一条，全部清零即 J4 达标。
-# governance_v2 提案存储：2026-09-17 审计对账收编，对应债务
-# governance-v2-proposals-j4-migration（due 2026-11-30，迁 StateStore 后同撤）。
-J4_KNOWN_DIRECT = {
-    "governance/governance_v2.py": [640],
-}
+# governance_v2 提案存储：2026-09-23 J4 迁移 StateStore（record_type=governance_proposal）
+# 完成，debt governance-v2-proposals-j4-migration 同日 resolve。直连点 640 已撤，
+# J4_KNOWN_DIRECT 清零——本 dict 保留为空结构（后续若有新直连须先挂账再登记，只缩不放）。
+J4_KNOWN_DIRECT: dict[str, list[int]] = {}
 
 # 导出视图豁免（J4 合规判定：状态主通道已走 StateStore，以下为导出物/兼容兜底，非状态私连）：
 #   - handover 三件套（yaml/json/md）为导出视图（l5_audit / topic_drift_detector 消费 md）
@@ -412,6 +411,45 @@ def test_g10_no_private_media_access():
     assert not violations, (
         "J4 违规：状态模块私连文件存储介质（应走 StateStore 消费点，"
         f"见 lingclaude/core/state_store.py）:\n  " + "\n  ".join(violations)
+    )
+
+
+def test_g10c_no_new_sqlite_direct_states():
+    """G10c（2026-09-23 运行时口径升格）：J4 状态模块禁止新增 sqlite3 私连。
+
+    动机（audit 20260923 真实违例 #1 的守卫盲区根因）：G10 正则只盯文件介质写
+    （write_text/open(w)），SQLite 直连（import sqlite3 + CREATE TABLE）完全在
+    扫描盲区——memory_engine 直连 memory.db 多月未被抓。DB 也是存储介质，
+    J4 条文口径是「状态读写走 StateStore」，介质无关。
+
+    口径（只缩不放）：
+      - J4_STATE_MODULES 内出现「新的」import sqlite3 模块 = 红灯
+      - 存量白名单 J4_SQLITE_EXISTING 冻结在 2026-09-23 快照，迁移一个删一个
+        （memory_engine 2026-09-23 迁 StateStore 后 SQLite 降为查询导出视图，
+        白名单保留其名，因 import sqlite3 仍存在——视图介质合法，新增模块不可）
+    """
+    existing = {
+        rel
+        for rel in J4_STATE_MODULES
+        if (SRC / rel).exists()
+        and re.search(
+            r"^import sqlite3|^from sqlite3|^\s+import sqlite3",
+            (SRC / rel).read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )
+    }
+    # 基线冻结：当前存量（2026-09-23 实测：layered_memory / memory_engine）。
+    # memory_engine 同日迁 StateStore，import sqlite3 保留为查询导出视图介质；
+    # 迁移彻底后从名单删除，只缩不放。
+    baseline = {
+        "core/layered_memory.py",
+        "core/memory_engine.py",
+    }
+    new_hits = existing - baseline
+    assert not new_hits, (
+        "G10c 违规：J4 状态模块新增 sqlite3 私连（状态读写应走 StateStore，"
+        "见 lingclaude/core/state_store.py；存量模块迁移后从 baseline 冻结名单删除，"
+        "只缩不放）:\n  " + "\n  ".join(sorted(new_hits))
     )
 
 
