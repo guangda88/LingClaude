@@ -4,6 +4,7 @@
   "title": "工具结果瘦身三层分工立档（含 read 瘦身读落地）",
   "date": "2026-09-23",
   "status": "resolved",
+  "state": "resolved",
   "priority": "P2",
   "context": "全库瘦身机制分散在三处且阈值语义重叠（loop 1600字符 / pipeline 16KB / executor 8KB），read 无 limit 时全量返回是唯一无减脂入口，大文件会撑爆上下文后被 loop 层截断只剩头部（会话实测：read 2660 字符只留 800）。",
   "decision": [
