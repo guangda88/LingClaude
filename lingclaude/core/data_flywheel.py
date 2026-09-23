@@ -308,12 +308,16 @@ class DataFlywheel:
         """R10-1 (2026-09-23): 幻觉复发埋点——写入 error_log + 命中计数。
 
         时序关联近似（无跨轮注入清单传递的诚实方案）：
-        - 「复发」判据 = 同 session_id 在 window_minutes 内有注入记录
-          （meta.feedback），此时守卫再触发 ⇒ 近似视为「注入未抑制住」。
-        - 命中的注入记录 recurrence_count +1。
+        - 「复发」判据 = window_minutes 内存在 corrections 行（即 R9 注入面
+          可能覆盖的纠正），此时守卫再触发 ⇒ 近似视为「注入未抑制住」。
+        - 命中的纠正行 recurrence_count +1。
+        - R10b (2026-09-23) 事故修正：原判据 source='meta.feedback' 是幽灵
+          桥墩——全代码库无任何写入方产该 source 行（生产 0 行），窗口永不
+          命中，recurrence 恒 0。现对齐 get_recent_corrections 注入面
+          （24h 热读无 source 过滤 + 冷唤醒全表随机），记账口径 = 注入口径。
 
         三重已知局限（都是低召回方向，不产生误报性乐观）：
-        1. 窗口内注入未被 LLM 实际读到（prompt 构建时机差异）⇒ 误标
+        1. 窗口内纠正未被 LLM 实际读到（prompt 构建时机差异）⇒ 误标
         2. 注入有效但错误类型不同 ⇒ 只体现在 fact_type 聚类里
         3. 非 strict 模式下守卫只对部分回合生效 ⇒ 漏计
         """
@@ -355,8 +359,7 @@ class DataFlywheel:
                        last_recurred_at = ?
                    WHERE id IN (
                        SELECT id FROM corrections
-                       WHERE source = 'meta.feedback'
-                         AND (julianday(?) - julianday(applied_at)) * 86400.0 >= 0
+                       WHERE (julianday(?) - julianday(applied_at)) * 86400.0 >= 0
                          AND (julianday(?) - julianday(applied_at)) * 86400.0 <= ?
                        ORDER BY id DESC LIMIT 5
                    )""",

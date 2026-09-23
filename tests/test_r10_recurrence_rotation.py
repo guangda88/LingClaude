@@ -78,13 +78,15 @@ class TestRecurrenceTracking:
         assert "hallucination:unsupported" in types
 
     def test_recurrence_counts_injection_window(self, flywheel):
-        """30min 窗口内的 meta.feedback 注入记录 → recurrence_count+1"""
+        """30min 窗口内的生产纠正行（turn_learner）→ recurrence_count+1。
+        R10b: 种子改生产 source——原 meta.feedback 全代码库无写入方，测试
+        自证绿而生产恒 0（幽灵桥墩事故）。"""
         now = datetime.now()
         # 注入发生在 10min 前（窗口内）
         corr = CorrectionEntry(
             original_error="编造了数字",
             correction="先查再写",
-            source="meta.feedback",
+            source="turn_learner",
             confidence=0.8,
             applied_at=(now - timedelta(minutes=10)).isoformat(timespec="seconds"),
         )
@@ -110,7 +112,7 @@ class TestRecurrenceTracking:
         corr = CorrectionEntry(
             original_error="旧错误",
             correction="旧教训",
-            source="meta.feedback",
+            source="turn_learner",
             confidence=0.8,
             applied_at=(now - timedelta(minutes=40)).isoformat(timespec="seconds"),
         )
@@ -124,6 +126,15 @@ class TestRecurrenceTracking:
         enriched = flywheel.get_recent_corrections_with_recurrence(limit=5)
         hit = [c for c in enriched.data if c["correction"] == "旧教训"]
         assert hit and hit[0]["recurrence_count"] == 0
+
+    def test_meta_feedback_ghost_predicate_never_returns(self, flywheel):
+        """R10b 守卫：'WHERE source = meta.feedback' 幽灵谓词不得回流 SQL。
+        该 source 无生产写入方（生产 0 行），曾致 recurrence 恒 0 而测试
+        自证绿。若此测试变红说明幻影判据又回来了。"""
+        import inspect
+        from lingclaude.core import data_flywheel as df
+        src = inspect.getsource(df)
+        assert "WHERE source = 'meta.feedback'" not in src
 
     def test_enrich_fallback_on_old_schema(self, flywheel):
         """enrich 失败时降级为 0 计数，绝不抛错（fail-soft）"""
