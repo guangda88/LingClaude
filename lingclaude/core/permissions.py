@@ -463,12 +463,61 @@ def get_permission_store(session_id: str = "default") -> PermissionStore:
         return store
 
 
-def record_permission_decision(session_id: str, tool_name: str, decision: str) -> None:
-    """审批决策入口 — api.py /permission 调用，实时回灌后续工具执行。"""
+# ── P0 通电第三支（2026-09-23）：审批前缀沉淀（资产化接线）────────────────
+_SEDIMENT_MATRIX: Any = None  # 沉淀专用矩阵实例（与裁决面单例分离，避免档位耦合）
+
+
+def _sediment_matrix() -> Any:
+    """沉淀专用 ApprovalMatrix（惰性构建，不依赖裁决面 env 门禁）。
+
+    资产化（写 approvals.json）与裁决（decide）解耦：裁决门禁关着也可沉淀；
+    盘上资产等裁决面下次启用 / 新进程 load_assets 时生效。
+    """
+    global _SEDIMENT_MATRIX
+    if _SEDIMENT_MATRIX is None:
+        try:
+            from lingclaude.core.approval_matrix import ApprovalMatrix  # 惰性导入，与裁决面同风格
+            _SEDIMENT_MATRIX = ApprovalMatrix(always_allow=ApprovalMatrix.load_assets())
+        except Exception:  # noqa: BLE001 — 沉淀失败不影响审批主流程
+            logger.debug("sediment matrix 构建失败，本次跳过沉淀", exc_info=True)
+    return _SEDIMENT_MATRIX
+
+
+def sediment_approval_prefix(command: str, *, persist: bool = True) -> bool:
+    """P0 通电（2026-09-23）：把一次人工批准的命令沉淀为可复用前缀资产。
+
+    只在调用方明确给出 command 时沉淀；禁止以 tool_name 充当前缀
+    （"allow bash" 会全量放行该工具，越权面不可接受）。
+    返回是否实际沉淀。
+    """
+    prefix = (command or "").strip()
+    if not prefix:
+        return False
+    m = _sediment_matrix()
+    if m is None:
+        return False
+    try:
+        m.record_approval(prefix, persist=persist)
+        return True
+    except Exception:  # noqa: BLE001 — best-effort，不阻塞审批主流程
+        logger.debug("审批前缀沉淀失败", exc_info=True)
+        return False
+
+
+def record_permission_decision(session_id: str, tool_name: str, decision: str,
+                               command: str = "") -> None:
+    """审批决策入口 — api.py /permission 调用，实时回灌后续工具执行。
+
+    P0 通电（2026-09-23）：decision ∈ {always_allow, allow_persist} 且带
+    command 时，同步沉淀命令前缀资产（approval_matrix.record_approval →
+    approvals.json，跨会话热更）。无 command 不沉淀（防 tool_name 全量放行）。
+    """
     if not tool_name:
         return
     store = get_permission_store(session_id or "default")
     store.record_approval(tool_name, decision)
+    if decision in ("always_allow", "allow_persist"):
+        sediment_approval_prefix(command)
     if decision == "allow_persist":
         with _STORES_LOCK:
             if tool_name.lower() not in _PERSISTED_TOOLS:

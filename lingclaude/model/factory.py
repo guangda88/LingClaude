@@ -58,11 +58,25 @@ def _detect_provider(cfg: ModelConfig) -> str:
     return "openai"
 
 
+def _credential_pool_enabled() -> bool:
+    """P1-7 通电（2026-09-23）：凭据池默认启用（评审共识 P0「改默认值+补钩子」）。
+
+    安全性论证：池未配置（env 未设 LINGCLAUDE_CREDENTIAL_POOL_KEYS）时
+    from_env 返回空池 → next_key 返回 None → 完整落回原 env/key_store 链，
+    行为零分叉。故默认开只影响「配置了多账号」的环境（LRU 轮转+熔断）。
+    env LINGCLAUDE_CREDENTIAL_POOL=0/false/no/off 显式关闭。
+    """
+    raw = os.environ.get("LINGCLAUDE_CREDENTIAL_POOL", "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
 def _get_env_key(provider: str) -> str:
-    # P1-7 接线（2026-09-22）：credential_pool 优先（env 门禁，默认关）。
-    # env LINGCLAUDE_CREDENTIAL_POOL=1 时先从池取 key（LRU 轮转，跳过熔断账号）；
-    # 池空/未配置该 provider → 落回原 env/key_store 链（行为零分叉）。
-    if os.environ.get("LINGCLAUDE_CREDENTIAL_POOL", "") in ("1", "true", "TRUE"):
+    # P1-7 接线（2026-09-22）→ 通电（2026-09-23）：credential_pool 优先，默认开。
+    # 池未配置时 next_key 返回 None，完整落回原 env/key_store 链（行为零分叉）；
+    # env LINGCLAUDE_CREDENTIAL_POOL=0 显式关闭。
+    if _credential_pool_enabled():
         pool_key = _pool_get_key(provider)
         if pool_key:
             return pool_key

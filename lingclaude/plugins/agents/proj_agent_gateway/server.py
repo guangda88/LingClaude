@@ -55,6 +55,19 @@ DEFAULT_TIMEOUT_S = 120
 MAX_OUTPUT = 6000
 
 
+def _worktree_enabled() -> bool:
+    """P1-6 通电（2026-09-23）：默认启用 worktree 扇出。
+
+    语义：默认开；env LINGCLAUDE_AGENT_WORKTREE 显式为 0/false/no/off 时关闭；
+    =1/true/TRUE 等旧开法兼容。非 git 仓库等不可用场景由调用方降级 scratch，
+    不在此处理。
+    """
+    raw = os.environ.get("LINGCLAUDE_AGENT_WORKTREE", "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return True
+
+
 # ── agent 调用形态表（数据，非结构：改 agent 入口只改这里）─────────────────────
 # 每个 agent：探测命令（可达性）+ 调用构建（agent, prompt, mode → argv）
 # + model/provider 透传拼接形态（quota_args：(argv, model, provider) → 追加的 argv 片段）。
@@ -420,13 +433,14 @@ def agent_batch(agents: list[str], prompt: str,
     dispatch = _new_dispatch_dir()
     t0 = time.monotonic()
 
-    # P1-6 接线（2026-09-22）：worktree 扇出（env 门禁，默认关）。
-    # env LINGCLAUDE_AGENT_WORKTREE=1 且本目录是 git 仓库时，每个 agent 的
-    # cwd 从 scratch 子目录升级为独立 git worktree（真实分支，产物可 diff/
-    # merge 择优）；非 git 仓库 / 建树失败 → 降级 scratch（原行为，不崩）。
+    # P1-6 通电（2026-09-23）：worktree 扇出默认开——评审共识 P0「改默认值+补钩子」。
+    # 默认启用：本目录是 git 仓库时每个 agent 的 cwd 从 scratch 子目录升级为
+    # 独立 git worktree（真实分支，产物可 diff/merge 择优）；非 git 仓库 /
+    # 建树失败 → 降级 scratch（原行为，不崩）。env LINGCLAUDE_AGENT_WORKTREE=0
+    # 显式退回关闭（=1/true 旧开法继续兼容）。
     worktree_root: dict[str, object] = {}
     ws = None
-    if os.environ.get("LINGCLAUDE_AGENT_WORKTREE", "") in ("1", "true", "TRUE"):
+    if _worktree_enabled():
         try:
             from lingclaude.core.worktree import WorktreeSession
             ws = WorktreeSession(repo=str(Path.cwd()))

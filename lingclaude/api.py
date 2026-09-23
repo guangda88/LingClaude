@@ -177,6 +177,7 @@ class PermissionRequest(BaseModel):
     decision: str  # allow / deny / always_allow / allow_persist
     tool_name: str = ""
     reason: str = ""
+    command: str = ""  # P0 通电（2026-09-23）：被批命令原文，用于前缀沉淀资产化
 
 
 class PermissionResponse(BaseModel):
@@ -485,8 +486,11 @@ async def permission(req: PermissionRequest, api_key: str = Security(verify_api_
         logger.warning("GovernanceRouter 不可用，仅记录审批日志: %s", e)
 
     # T0-3: 回灌 PermissionStore（审批回路 — 会话级，与 execute_tool 同一注册表）
-    record_permission_decision(req.session_id or "default", req.tool_name or "unknown", req.decision)
-    logger.info(f"T0-3: permission recorded session={req.session_id} tool={req.tool_name} decision={req.decision}")
+    # P0 通电（2026-09-23）：command 字段透传 → always_allow/allow_persist 时沉淀前缀资产
+    record_permission_decision(req.session_id or "default", req.tool_name or "unknown",
+                               req.decision, command=req.command)
+    logger.info(f"T0-3: permission recorded session={req.session_id} tool={req.tool_name} "
+                f"decision={req.decision} command={'<redacted-len>' if req.command else 'none'}")
 
     return PermissionResponse(success=True, decision=req.decision)
 
