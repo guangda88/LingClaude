@@ -147,3 +147,40 @@ def test_state_store_integration_with_session_runtime(monkeypatch, tmp_path):
 
     assert engine2._total_messages_sent == 5
     assert engine2._l1_last_triggered_at == 10
+
+
+def test_state_store_list_keys_roundtrip():
+    """list_keys：保存后可枚举，嵌套 key 以 '/' 分隔，结果有序（直测补齐，台账 list-keys-no-direct-test）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = StateStore(backend="json")
+        store.save("bus_route", "r1", {"state": "open"}, root)
+        store.save("bus_route", "grp/r2", {"state": "closed"}, root)
+        store.save("bus_route", "a/b/c", {}, root)
+        assert store.list_keys("bus_route", root) == ["a/b/c", "grp/r2", "r1"]
+        # load 与 list_keys 互证：嵌套 key 可按枚举结果原样读回
+        assert store.load("bus_route", "grp/r2", root) == {"state": "closed"}
+
+
+def test_state_store_list_keys_empty_and_filtering():
+    """list_keys：record_type 目录不存在返回 []；非 .json 文件不入枚举。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        store = StateStore(backend="json")
+        assert store.list_keys("no_such_type", root) == []
+        d = root / "mixed"
+        d.mkdir()
+        (d / "real.json").write_text("{}", encoding="utf-8")
+        (d / "note.txt").write_text("x", encoding="utf-8")
+        assert store.list_keys("mixed", root) == ["real"]
+
+
+def test_state_store_list_keys_root_param_overrides_backend_default():
+    """list_keys：root 参数优先于后端默认根（显式 root 全程不触碰 ~/.lingclaude）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        explicit = Path(tmp) / "explicit"
+        store = StateStore(backend="json")
+        store.save("t", "k", {"v": 1}, explicit)
+        assert store.list_keys("t", explicit) == ["k"]
+        # 无 root 时走后端默认根分支：只断言返回类型安全（只读枚举，不落盘）
+        assert isinstance(store.list_keys("t"), list)

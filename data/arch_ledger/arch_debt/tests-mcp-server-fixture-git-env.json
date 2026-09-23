@@ -4,6 +4,8 @@
   "reason": "20260923 全量回归 16 errors 同一根因：fixture 内 git commit 以 exit 128 失败（容器 git 身份未配置/环境差异），16 个用例全部在 fixture 阶段炸出 subprocess.CalledProcessError。属环境性 debt 非代码缺陷",
   "due": "2026-09-30",
   "resolve_hint": "fixture 内显式配置 -c user.name/user.email 或复用仓库内既有测试 git 环境工厂；修后 16E 应全消",
-  "state": "open",
-  "created": "2026-09-23T16:20:00+00:00"
+  "state": "resolved",
+  "created": "2026-09-23T16:20:00+00:00",
+  "resolution": "2026-09-23 修复：fixture git commit 显式内联 -c user.name/user.email/commit.gpgsign=false（tests/test_mcp_server.py），宿主 git 配置依赖变显式。验证链：复现（GIT_CONFIG_GLOBAL=/dev/null → fixture exit 128，与 16 errors 同根）→ 修复 → 同环境 34 passed 全绿。",
+  "resolved_at": "2026-09-23T18:10:00+08:00"
 }

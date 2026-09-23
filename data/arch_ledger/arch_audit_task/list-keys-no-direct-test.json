@@ -2,6 +2,8 @@
   "severity": "P3",
   "finding": "StateStore.list_keys新原语无独立测试（仅守卫间接消费）——原语未经测试即非法插片（E7同款标准）。补tests/test_state_store.py用例",
   "source": "返审2026-09-17c",
-  "state": "open",
-  "created": "2026-09-17T09:45:37+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T09:45:37+00:00",
+  "resolution": "2026-09-23 补齐直测：tests/test_state_store.py 新增 3 用例——往返+嵌套 '/'+排序有序、缺目录[]+非 .json 过滤、root 参数覆盖后端默认根。test_state_store 14 passed（11 存量+3 新）。",
+  "resolved_at": "2026-09-23T18:10:00+08:00"
 }

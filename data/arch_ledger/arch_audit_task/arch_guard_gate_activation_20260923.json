@@ -4,5 +4,5 @@
   "state": "resolved",
   "due": null,
   "source": "audit-20260923-guard24h",
-  "finding": "守卫门禁化落地（2026-09-23，审计报告建议#2 经用户拍板）：G1/G2/M3 红灯型守卫接入提交前门禁（scripts/arch_guard_gate.sh + lefthook.yml arch-guard-gate + .git/hooks/pre-commit 直连，双路按 staged 内容哈希去重）。触发背景：4787ec7 后 G1+M3 双红 6h、12 笔带病入库无人拦截。范围界定：G3 数字型守卫维持告警级不入门禁（J5 裁定慢性噪音）；旁路 LINGCLAUDE_SKIP_ARCH_GATE=1 显式留痕。四态实测：正常绿/去重/旁路/红灯拦截(rc=1) 全通过，探针 md5 字节级还原。遗留：.git/hooks/pre-commit 直连为本机修改（git 不管理），其他环境克隆后仅 lefthook 路生效，直连需按 docs/audit/LEFTHOOK_CRASH_SECRET_SCAN_FIX_20260913.md 步骤重放（C1 同款缺口）。"
+  "finding": "守卫门禁化落地（2026-09-23，审计报告建议#2 经用户拍板）：G1/G2/M3 红灯型守卫接入提交前门禁（scripts/arch_guard_gate.sh + lefthook.yml arch-guard-gate + .git/hooks/pre-commit 直连，双路按 staged 内容哈希去重）。触发背景：4787ec7 后 G1+M3 双红 6h、12 笔带病入库无人拦截。范围界定：G3 数字型守卫维持告警级不入门禁（J5 裁定慢性噪音）；旁路 LINGCLAUDE_SKIP_ARCH_GATE=1 显式留痕。四态实测：正常绿/去重/旁路/红灯拦截(rc=1) 全通过，探针 md5 字节级还原。遗留：.git/hooks/pre-commit 直连为本机修改（git 不管理），其他环境克隆后仅 lefthook 路生效，直连需按 docs/audit/LEFTHOOK_CRASH_SECRET_SCAN_FIX_20260913.md 步骤重放（C1 同款缺口）。 批注(2026-09-23 晚)：本机直连钩子已重放并实战消毒验证——复现宿主主机实验（GIT_CONFIG_GLOBAL=/dev/null 屏蔽 git 身份 → mcp fixture exit 128）→ 修复该 fixture → 注入 git commit 消毒探针 → 钩子拦截 rc=1 → 探针还原 → test_mcp_server 34 passed。消毒探针与复现实验为同根场景，一石二鸟。"
 }

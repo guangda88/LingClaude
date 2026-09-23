@@ -33,9 +33,13 @@ def sample_project(tmp_path):
         ["git", "add", "-A"], cwd=tmp_path,
         capture_output=True, check=True,
     )
+    # 身份与 gpgsign 显式内联注入（债单 tests-mcp-server-fixture-git-env：
+    # 宿主/容器无全局 git 身份时 commit exit 128，16 用例 fixture 阶段全炸）
     subprocess.run(
-        ["git", "commit", "-m", "init"], cwd=tmp_path,
-        capture_output=True, check=True,
+        ["git", "-c", "user.name=lingclaude-test",
+         "-c", "user.email=lingclaude-test@localhost",
+         "-c", "commit.gpgsign=false", "commit", "-m", "init"],
+        cwd=tmp_path, capture_output=True, check=True,
     )
     return tmp_path
 
