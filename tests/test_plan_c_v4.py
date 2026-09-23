@@ -73,7 +73,7 @@ class _Thing:
 def test_seam_subscribe_register_and_unregister_events():
     events = []
     SeamRegistry.subscribe_change(lambda a, t, n: events.append((a, t.value, n)))
-    SeamRegistry.register(SeamType.AGENT, "x1", _Thing())
+    SeamRegistry.register(SeamType.AGENT, "x1", _Thing(), validate_namespace=False)
     assert events == [("register", "agent", "x1")]
     SeamRegistry.unregister(SeamType.AGENT, "x1")
     assert events[-1] == ("unregister", "agent", "x1")

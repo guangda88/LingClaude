@@ -21,15 +21,17 @@ from typing import Any
 
 from lingclaude.core.seam import SeamType
 
-# 合法插件名：小写字母/数字/连字符/下划线（防路径注入）
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+# 合法插件名：小写字母/数字/连字符/下划线，允许域前缀分隔符 /（N3 域前缀）。
+# 首字符限字母数字 → 拒绝 /、..、~ 开头（防路径注入保持）。
+# 例：read（core 域裸 key 存量豁免）、agent/lingxi（跨物理层域前缀）。
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_/-]*$")
 
 # JSON schema（草案-07 子集）：声明式校验，非法清单在加载前拦截
 MANIFEST_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["name", "version", "type", "entry"],
     "properties": {
-        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$"},
+        "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_/-]*$"},
         "version": {"type": "string", "pattern": r"^\d+\.\d+\.\d+$"},
         "type": {
             "type": "string",

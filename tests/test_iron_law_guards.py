@@ -545,14 +545,14 @@ def test_m5_amputation():
 
     # ② 原语级：L3 缺席 + L1 替换 + 拔光可重建
     assert SeamRegistry.get_optional(SeamType.AGENT, "never-registered") is None
-    SeamRegistry.register(SeamType.AGENT, "probe", _Probe())
+    SeamRegistry.register(SeamType.AGENT, "probe", _Probe(), validate_namespace=False)
     assert SeamRegistry.get(SeamType.AGENT, "probe").run() == "ok"
     assert SeamRegistry.unregister(SeamType.AGENT, "probe") is True
-    SeamRegistry.register(SeamType.AGENT, "probe", _Probe2())
+    SeamRegistry.register(SeamType.AGENT, "probe", _Probe2(), validate_namespace=False)
     assert SeamRegistry.get(SeamType.AGENT, "probe").name == "probe2"
     SeamRegistry.unregister(SeamType.AGENT, "probe")
     assert SeamRegistry.get_optional(SeamType.AGENT, "probe") is None
-    SeamRegistry.register(SeamType.AGENT, "probe", _Probe())
+    SeamRegistry.register(SeamType.AGENT, "probe", _Probe(), validate_namespace=False)
     assert SeamRegistry.get(SeamType.AGENT, "probe") is not None
     SeamRegistry.unregister(SeamType.AGENT, "probe")  # 清场，不污染其他测试
 

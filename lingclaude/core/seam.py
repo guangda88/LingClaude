@@ -48,6 +48,39 @@ class SeamType(str, Enum):
     RESOURCE = "resource"          # 资源探针插片（GPU/CPU/内存/磁盘，第四层预研，铁律 8 隔离故障域+N4 缺席查硬件实例）
 
 
+# N3 命名空间互证（铁律 7）：跨物理层插片缝 key 必带域前缀 {ns}/{seam}。
+# 域 ∈ {core, agent, cap, os, hw}（四层宏图）。core 域类型保持原字面量（存量豁免）。
+DOMAIN_NAMESPACES = ("core", "agent", "cap", "os", "hw")
+# 跨物理层类型（N3 强制域前缀）；core 域类型（provider/tool/sandbox/transport/
+# memory/governance/self_opt）保持裸 key 存量豁免（铁律 7 §2）。
+CROSS_PHYSICAL_TYPES = frozenset({
+    SeamType.AGENT, SeamType.MULTIMODAL, SeamType.ORCHESTRATOR, SeamType.RESOURCE,
+})
+
+
+def validate_seam_namespace(seam_type: SeamType, name: str) -> str:
+    """N3 命名空间校验：跨物理层类型强制 name 带域前缀，域前缀 ∈ 五域。
+
+    返回规范化 name（strip 后原样）；非法抛 ValueError（fail fast，注册前拦截）。
+    core 域类型跳过（存量豁免：provider/tool/sandbox/... 保持裸 key）。
+    """
+    name = str(name).strip()
+    if not name:
+        raise ValueError("seam name must not be empty")
+    if seam_type in CROSS_PHYSICAL_TYPES:
+        if "/" not in name:
+            raise ValueError(
+                f"N3: 跨物理层插片 {seam_type.value} 缝 key 必带域前缀 "
+                f"{{ns}}/{{seam}}（ns ∈ {DOMAIN_NAMESPACES}），收到裸 key {name!r}"
+            )
+        ns = name.split("/", 1)[0]
+        if ns not in DOMAIN_NAMESPACES:
+            raise ValueError(
+                f"N3: 域前缀 {ns!r} 不在 {DOMAIN_NAMESPACES} 五域内（name={name!r}）"
+            )
+    return name
+
+
 # 拔插等级声明（M5 前置义务，铁律 §二「拔插等级声明义务」，2026-09-17 整改补齐）：
 #   L1 替换：A 拔下 B 插上，接口一致即不崩（J2 现行测的等级）；
 #   L2 缺席降级：拔掉后走降级路径——降级实现本身必须是插片（Noop 范式），禁止主干 if-else 降级；
@@ -200,12 +233,20 @@ class SeamRegistry:
         return cls._lock
 
     @classmethod
-    def register(cls, seam_type: SeamType, name: str, instance: Any) -> None:
-        """注册插片实例。同名覆盖（热更语义：新注册替换旧实例，已持引用不受影响）。"""
+    def register(cls, seam_type: SeamType, name: str, instance: Any,
+                 validate_namespace: bool = True) -> None:
+        """注册插片实例。同名覆盖（热更语义：新注册替换旧实例，已持引用不受影响）。
+
+        validate_namespace=False 用于测试 mock / 进程内探针（非跨物理层插片，
+        显式声明豁免 N3 域前缀校验——J5：逃逸必须显式，不静默）。
+        """
         seam_type = SeamType(seam_type)
-        name = str(name).strip()
-        if not name:
-            raise ValueError("seam name must not be empty")
+        if validate_namespace:
+            name = validate_seam_namespace(seam_type, name)
+        else:
+            name = str(name).strip()
+            if not name:
+                raise ValueError("seam name must not be empty")
         with cls._get_lock():
             cls._registry.setdefault(seam_type, {})[name] = instance
         logger.debug("SeamRegistry: register %s/%s -> %r", seam_type.value, name, instance)

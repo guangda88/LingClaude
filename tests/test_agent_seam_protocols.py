@@ -86,7 +86,7 @@ def test_seamtype_has_three_new_enum_members():
 def test_agent_seam_register_get_unregister():
     _reset()
     agent = FakeAgent()
-    SeamRegistry.register(SeamType.AGENT, "fake_research", agent)
+    SeamRegistry.register(SeamType.AGENT, "fake_research", agent, validate_namespace=False)
     assert SeamRegistry.has(SeamType.AGENT, "fake_research")
     assert SeamRegistry.get(SeamType.AGENT, "fake_research") is agent
     assert "fake_research" in SeamRegistry.list_names(SeamType.AGENT)
@@ -96,7 +96,7 @@ def test_agent_seam_register_get_unregister():
 
 def test_agent_seam_snapshot_shows_agent_type():
     _reset()
-    SeamRegistry.register(SeamType.AGENT, "lingresearch", FakeAgent())
+    SeamRegistry.register(SeamType.AGENT, "lingresearch", FakeAgent(), validate_namespace=False)
     snap = SeamRegistry.snapshot()
     assert "agent" in snap
     assert "lingresearch" in snap["agent"]
@@ -142,7 +142,7 @@ def test_check_protocol_orchestrator():
 def test_multimodal_register_and_execute():
     _reset()
     mm = FakeMultimodal()
-    SeamRegistry.register(SeamType.MULTIMODAL, "lingtong_emotion", mm)
+    SeamRegistry.register(SeamType.MULTIMODAL, "lingtong_emotion", mm, validate_namespace=False)
     got = SeamRegistry.get(SeamType.MULTIMODAL, "lingtong_emotion")
     assert got.task_type() == "emotion"
     assert got.execute(text="好棒")["emotion"] == "positive"
@@ -157,7 +157,7 @@ def test_multimodal_register_and_execute():
 def test_orchestrator_register_and_dispatch():
     _reset()
     crew = FakeCrew()
-    SeamRegistry.register(SeamType.ORCHESTRATOR, "research_crew", crew)
+    SeamRegistry.register(SeamType.ORCHESTRATOR, "research_crew", crew, validate_namespace=False)
     got = SeamRegistry.get(SeamType.ORCHESTRATOR, "research_crew")
     crew_id = got.create_crew(["lingresearch", "lingzhi"])
     assert crew_id == "crew-1"

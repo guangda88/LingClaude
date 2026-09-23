@@ -27,6 +27,20 @@ from lingclaude.plugins.agents.lc_mcp_guard.plugin import (
 )
 from lingclaude.plugins.agents.mcp_common import domain_of, health_key
 from lingclaude.plugins.agents.proj_agent_gateway.plugin import AgentGatewayMcpPlugin
+from lingclaude.plugins.agents.work_claim import WorkClaim
+
+
+def _load_sweeper():
+    """scripts/ 非包，用 importlib 按路径加载 work_claim_sweeper（N4 时效查测试用）。"""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "work_claim_sweeper.py"
+    spec = importlib.util.spec_from_file_location("wcsweep_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(mod)
+    return mod
 
 
 # ── 铁律 5：双向插片互认（lc-guard ↔ agent-gateway 对偶对称性） ────────
@@ -309,3 +323,94 @@ def test_main_loop_unaffected_by_subagent_failure():
     for _ in range(3):
         assert engine.step("t") is False
     assert engine.turns == 3  # 主循环节拍未被打断
+
+
+# ── N4 时效查专项（P0 #2 整改，2026-09-23）──────────────────────────
+# 覆盖：sweeper 强制释放过期 held 锁 / 归档过期 released 锁 / 守卫故障不静默（J5）。
+
+def _make_tmp_claim_store(tmp_path):
+    """临时台账 + 一条可操控 expires_at 的 work_claim record。"""
+    store = StateStore(backend="json", root=tmp_path)
+    claim = WorkClaim(store)
+    # 直接写一条过期 held 锁（绕开 bind 的 TTL 默认值，精确控制 expires_at）
+    import time as _t
+    key = claim._key("agent/expired-target")
+    store.save("work_claim", key, {
+        "member": "ghost-member", "path": "agent/expired-target",
+        "state": "held", "bound_at": _t.time() - 3600,
+        "expires_at": _t.time() - 1800,  # 已过期 30 分钟
+        "note": "N4 时效查测试",
+    })
+    return store, claim, key
+
+
+def test_sweeper_forces_expired_held_claim(tmp_path):
+    """过期 held 锁 → sweeper 强制释放（候选铁律 8：失联自动失效）。"""
+    sweep = _load_sweeper().sweep
+
+    store, claim, key = _make_tmp_claim_store(tmp_path)
+    rec = store.load("work_claim", key)
+    assert rec["state"] == "held"  # 前置：仍是 held
+
+    stats = sweep(store, dry_run=False)
+    assert stats["swept_expired_held"] == 1
+
+    rec_after = store.load("work_claim", key)
+    assert rec_after["state"] == "released"
+    assert rec_after["released_by"] == "sweeper"
+    assert rec_after.get("swept") is True
+
+
+def test_sweeper_archives_expired_released_claim(tmp_path):
+    """过期 released 锁 → sweeper 补审计事件（可回放，锁本体保留）。"""
+    sweep = _load_sweeper().sweep
+
+    store, claim, key = _make_tmp_claim_store(tmp_path)
+    rec = store.load("work_claim", key)
+    rec.update({"state": "released", "released_at": rec["bound_at"],
+                "released_by": "orig-member"})
+    store.save("work_claim", key, rec)
+
+    stats = sweep(store, dry_run=False)
+    assert stats["archived_released"] == 1
+    # 锁本体保留（可回放），state 仍是 released
+    rec_after = store.load("work_claim", key)
+    assert rec_after["state"] == "released"
+
+
+def test_sweeper_dry_run_does_not_modify(tmp_path):
+    """dry-run 只报告不修改（可预测性：先看后动）。"""
+    sweep = _load_sweeper().sweep
+
+    store, claim, key = _make_tmp_claim_store(tmp_path)
+    stats = sweep(store, dry_run=True)
+    assert stats["swept_expired_held"] == 1
+    rec_after = store.load("work_claim", key)
+    assert rec_after["state"] == "held"  # dry-run 未改
+
+
+def test_claim_query_fault_visible_not_silent(tmp_path):
+    """J5 反例修复：查锁故障入账 arch_audit_state，不静默吞掉。"""
+    import sys
+    from pathlib import Path
+
+    # 造一个必失败的查锁路径：root 指向不存在目录
+    bad_ledger = tmp_path / "no_such_ledger"
+    # 直接验证 conftest 的入账函数
+    from tests.agents import conftest
+
+    # 备份原 LEDGER 后用 tmp 覆盖，验证入账写入
+    orig = conftest.LEDGER
+    try:
+        conftest.LEDGER = tmp_path
+        conftest._log_guard_fault(RuntimeError("synthetic claim-query fault"))
+        state_file = tmp_path / "arch_audit_state" / "guard_faults.json"
+        assert state_file.exists()
+        import json as _j
+        faults = _j.loads(state_file.read_text(encoding="utf-8"))
+        assert isinstance(faults, dict) and len(faults) >= 1
+        entry = next(iter(faults.values()))
+        assert entry["kind"] == "claim_query_fault"
+        assert "synthetic" in entry["error"]
+    finally:
+        conftest.LEDGER = orig

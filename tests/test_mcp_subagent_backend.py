@@ -217,7 +217,7 @@ class TestMCPBackendManagerInterop:
         assert callable(getattr(backend, "abort", None))
         assert callable(getattr(backend, "status", None))
         # 注册为 AGENT 插片后协议检查通过
-        SeamRegistry.register(SeamType.AGENT, "mcp", backend)
+        SeamRegistry.register(SeamType.AGENT, "mcp", backend, validate_namespace=False)
         try:
             missing = SeamRegistry.check_protocol(SeamType.AGENT, backend)
             assert missing == []
