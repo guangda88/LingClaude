@@ -1,0 +1,9 @@
+{
+  "id": "permission_mode_session_scope_ruling_20260923",
+  "severity": "P2",
+  "due": "2026-09-30",
+  "finding": "档位隔离语义待拍板（due 2026-09-30）：e7d1dcd 之后 todo/permission 条目已按 session_id 隔离，但权限档位（auto/ask/strict/plan）仍跨会话全局共享——TUI A 设 strict，TUI B / daemon 即被跟随（跨进程热更是有意设计）。现状自洽：档位=策略全局、条目=按会话隔离。但若未来出现双 TUI 并行各自要独立档位，或 daemon 需要与会话档位不同的全局档，需决策：维持全局（现状）或档位也按 sid 隔离（波及 permissions._GLOBAL_MODE 与 approvals.json 热更语义，需独立推演）。当前无已知受害场景，仅挂账防遗忘。",
+  "source": "user-ruling-20260923",
+  "state": "open",
+  "created": "2026-09-23T10:12:53+08:00"
+}
