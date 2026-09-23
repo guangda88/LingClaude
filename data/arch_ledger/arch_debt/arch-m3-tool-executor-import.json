@@ -1,9 +1,9 @@
 {
   "kind": "arch_debt",
   "location": "lingclaude/core/tool_executor.py:161",
-  "reason": "M3 架构守卫失败：tool_executor.py:161 顶层 from lingclaude.engine import mcp_proxy 违反依赖方向（git show HEAD 实证存量，与本会话 F6 改的 tool_call_executor.py 是两个文件）。同轮 p04_arch_guards 另挂 G1/dead_modules 两案，其中 G1 已由 7588740（15:02，晚于全量快照 13:47）修复，dead_modules 待 G1 修复后复跑确认是否连带消失",
+  "reason": "M3 架构守卫失败：tool_executor.py:161 顶层 from lingclaude.engine import mcp_proxy 违反依赖方向（git show HEAD 实证存量，与本会话 F6 改的 tool_call_executor.py 是两个文件）。同轮 p04_arch_guards 另挂 G1/dead_modules 两案，其中 G1 已由 7588740（15:02，晚于全量快照 13:47）修复，dead_modules 待 G1 修复后复跑确认是否连带消失；20260923 15:36 12f44c5 起守卫侧已换代：M3 engine 静态侧与 G1 同读计数基线（tool_executor.py 基线 1 条，含 :161），红灯症状已基线化转绿——本债目标本体（import 消除）不受影响，继续 open。同轮 dead_modules 连带疑案已实测确认消失（p04 全套 14 passed，20260923）。",
   "due": "2026-10-15",
-  "resolve_hint": "理清 tool_executor 与 tool_call_executor 分工：mcp_proxy 依赖改延迟导入或下沉；修后复跑 p04_arch_guards 三守卫确认 G1/dead_modules 现状",
+  "resolve_hint": "理清 tool_executor 与 tool_call_executor 分工：mcp_proxy 依赖改延迟导入或下沉；修后复跑 p04_arch_guards 三守卫确认 G1/dead_modules 现状；修后 G1 基线 core/tool_executor.py 键应 1→0 并删键（棘轮单调收缩），M3/p04 复跑确认双绿",
   "state": "open",
   "created": "2026-09-23T16:20:00+00:00"
 }
