@@ -18,34 +18,28 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "lingclaude"
 
 # 基线（只缩不放；缩小时同步更新并删除白名单项）
-CORE_ENGINE_WHITELIST = [
-    # === 2026-09-22 (P0-A 修复批次): 由 AST 实测重建（G1 同款扫描），与 M3 行级台账同源。
-    # 收缩 4 条（wiring:148/216、tool_executor:13/168 已随代码消失）= 棘轮允许方向；
-    # 过渡态条目见 M3:core 台账（L1 收尾回收，review_due 2026-10-31）。===
-    "core/mcp_tools.py:77",
-    "core/mcp_tools.py:133",
-    "core/mcp_tools.py:158",
-    "core/mcp_tools.py:159",
-    "core/prior_verifier.py:128",
-    "core/tool_executor.py:187",
-    "core/wiring.py:218",
-    # --- P0-A 过渡态 ---
-    "core/l5_audit.py:88",
-    "core/model_call.py:81",
-    "core/model_call.py:100",
-    "core/model_call.py:102",
-    "core/model_call.py:198",
-    "core/model_call.py:200",
-    "core/model_call.py:300",
-    "core/model_call.py:302",
-    "core/model_call.py:364",
-    "core/model_call.py:366",
-    "core/model_call.py:456",
-    "core/model_call.py:79",
-    "core/query_engine_turn_mixin.py:164",
-    "core/wiring.py:199",
-    "core/query_engine_turn_mixin.py:303",
-]
+# === 2026-09-23 G1 匹配键换代：行号键 → 文件级计数上限 ===
+# 病灶（30 天内 3 次被动跟号 + 第 4 次失手致假红 6h+、12 笔提交带病入库）：
+#   c9d09b9 / 43e2676 / c3102e1 三次人工同步行号；4787ec7 删 32 行使
+#   tool_executor.py:187 漂到 :161，白名单匹配失效 → G1 假红。
+#   行号是最易变坐标（铁律 4 修剪必然动行号），守卫不得焊在无关变量上（J5 口径四条件）。
+# 换代映射（旧 22 键 → 实测 17 条，6 个失效键随换代退役，棘轮只紧不松）：
+#   model_call.py: 11 键 → 6（失效键 79/100/198/300/364 退役）
+#   tool_executor.py: 1 键 → 1（失效键 :187 退役，现存 :161）
+#   mcp_tools.py 4=4、query_engine_turn_mixin.py 2=2、wiring.py 2=2（键换计数，条数不变）
+#   l5_audit.py 1=1、prior_verifier.py 1=1
+# 新增 import → 计数超基线 → 红；清偿收缩 → 计数下降 → 基线同步下调（白名单单调收缩不变）。
+# 过渡态条目（M3:core 台账，review_due 2026-10-31）并入各文件计数，回收时同步降基线。
+# 诊断输出保留行号清单（帮人定位），但行号不再参与匹配判定。
+CORE_ENGINE_IMPORT_BASELINE = {
+    "core/l5_audit.py": 1,               # :88
+    "core/mcp_tools.py": 4,              # :77 :133 :158 :159
+    "core/model_call.py": 6,             # :81 :102 :200 :302 :366 :456（P0-A 过渡态集中地）
+    "core/prior_verifier.py": 1,         # :128
+    "core/query_engine_turn_mixin.py": 2,  # :164 :303
+    "core/tool_executor.py": 1,          # :161
+    "core/wiring.py": 2,                 # :199 :218
+}
 BASELINE_SYS_PATH = 14
 # 340 (2026-09-10): P2.a wiring.py 新增 22 个工厂函数内 import —— WIRING_MANIFEST
 # 工厂闭包自带依赖，按需 import 规避 core 内模块级循环；替换的是原 __init__ 内联装配。
@@ -210,8 +204,15 @@ def _count_dict_error_handlers() -> list[str]:
     return hits
 
 
-def test_g1_core_engine_imports_whitelist():
-    found = []
+def test_g1_core_engine_imports_count_baseline():
+    """G1 换代版（2026-09-23）：按文件计数上限匹配，替代易漂移的行号键。
+
+    旧行号键在 30 天内 3 次被动跟号（c9d09b9/43e2676/c3102e1）、第 4 次失手
+    （4787ec7 修剪使 tool_executor.py:187→:161）造成假红 + 带病入库。
+    新口径：core 文件内 lingclaude.engine import 总条数 <= 基线（棘轮只缩不放）；
+    行号清单仅作失败诊断输出，不参与判定。收缩清偿时同步下调基线并删注释行号。
+    """
+    found = {}
     for f in _py_files(SRC / "core"):
         tree = _parse(f)
         if tree is None:
@@ -222,12 +223,16 @@ def test_g1_core_engine_imports_whitelist():
                 mods = [node.module]
             elif isinstance(node, ast.Import):
                 mods = [a.name for a in node.names]
-            for m in mods:
-                if m.startswith("lingclaude.engine"):
-                    key = f"{_label(f)}:{node.lineno}"
-                    found.append(key)
-    extra = sorted(set(found) - set(CORE_ENGINE_WHITELIST))
-    assert not extra, f"core→engine 新增违规(白名单只缩不放): {extra}"
+            if any(m.startswith("lingclaude.engine") for m in mods):
+                found.setdefault(_label(f), []).append(node.lineno)
+    violations = []
+    for key, count in sorted(CORE_ENGINE_IMPORT_BASELINE.items()):
+        actual = found.pop(key, [])
+        if len(actual) > count:
+            violations.append(f"{key}: 实际 {len(actual)} 条 > 基线 {count}（行号 {sorted(actual)}）")
+    for key, lines in sorted(found.items()):
+        violations.append(f"{key}: 基线外新文件出现 {len(lines)} 条 core→engine import（行号 {sorted(lines)}）")
+    assert not violations, "core→engine 超基线(棘轮只缩不放，收缩需同步降基线): " + "; ".join(violations)
 
 
 def test_g2_no_new_sys_path_insert():
