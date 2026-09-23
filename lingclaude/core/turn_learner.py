@@ -19,6 +19,7 @@ def record_turn_learnings(
     behavior: Any,
     messages: list[Any],
     session_id: str,
+    response: str = "",
 ) -> None:
     """Record per-turn learning signals into KnowledgeBase.
 
@@ -95,12 +96,25 @@ def record_turn_learnings(
                 # （corrections.experiment_id 列，F5 证据挂钩的挂点）。
                 exp_id = ExperimentLedger().current_pending_id()
                 fw = DataFlywheel()
+                # G1 落库格式修正（2026-09-23）：correction 必须存真实纠正
+                # 内容（用户原话），original_error 存被纠正的 assistant 输出
+                # ——旧格式两者都是元数据壳（计数/prompt 截断），对避错零价值。
+                # messages 为纯字符串交替 [p1,a1,...,pN,aN]，learn 在双 append
+                # 之后调用 → [-2]=本轮 prompt，[-3]=被纠正的上轮输出。
+                corrected_output = (
+                    messages[-3] if len(messages) >= 3 else ""
+                ) or (response or "")
+                prev_output_preview = str(corrected_output)[:300]
+                user_correction = str(prompt)[:500]
                 fw.log_correction(
                     CorrectionEntry(
-                        original_error=f"turn_{turn_num}: {prompt[:60]}",
+                        original_error=(
+                            f"turn_{turn_num} output: {prev_output_preview}"
+                        ),
                         correction=(
-                            f"user correction x{bm.corrections_received} "
-                            f"(session {session_id[:8]})"
+                            f"{user_correction} "
+                            f"[user correction x{bm.corrections_received}, "
+                            f"session {session_id[:8]}]"
                         ),
                         source="turn_learner",
                         confidence=0.9,

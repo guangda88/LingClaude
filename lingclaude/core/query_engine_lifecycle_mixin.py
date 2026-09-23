@@ -78,6 +78,7 @@ class QueryEngineLifecycleMixin:
                 behavior=self._behavior,
                 messages=self._messages,
                 session_id=self.session_id,
+                response=response,
             )
 
         def _log_to_flywheel(
