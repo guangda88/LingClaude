@@ -4,6 +4,8 @@
   "reason": "智桥 MCP server 载体未构建：实锤 TS 源码（zhineng-bridge-mcp，@modelcontextprotocol/sdk）无 dist 产物；沙箱 tsx 直跑实测 OOM（ulimit -v）。插片 agent/zhibridge 按铁律 4 带债出生，探针 absent 属预期（不假活），manifest.transport.command 固化构建后入口 node dist/index.js",
   "due": "2026-09-25",
   "resolve_hint": "载体侧 tsc 构建产出 dist/index.js（或 package.json 声明 bin/替代入口）；构建后 lc 侧探针自动转 healthy（agent_family 基类 initialize 判活），测试全离线不受影响",
-  "state": "open",
-  "created": "2026-09-18T05:50:00+00:00"
+  "state": "resolved",
+  "created": "2026-09-18T05:50:00+00:00",
+  "resolved": "2026-09-24T09:40:00+08:00",
+  "resolution": "载体已在 2026-09-19 12:48 完成 tsc 构建（dist/index.js 2426B 实存，债立于是 9-18），债的客观状态消失。2026-09-24 实测：manifest command [node, dist/index.js] 入口直跑，McpAgentPluginBase 真实探针 initialize ok=True 0.38s（窗口 5s），tools/list 1 工具 0.33s。tsconfig outDir 无损产物，无需重建。探针按 initialize 判活（J5 行为级），非 tools/list 依赖。"
 }

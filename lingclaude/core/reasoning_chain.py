@@ -119,7 +119,8 @@ class ReasoningChainLogger:
         ts = int(time.time())
         filename = f"{chain.agent_id}_{chain.chain_id}_{ts}.json"
         path = self.log_dir / filename
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        from lingclaude.core.state_store import _atomic_write_json
+        _atomic_write_json(path, data)
         return path
 
     def load(self, path: Path) -> ReasoningChain | None:

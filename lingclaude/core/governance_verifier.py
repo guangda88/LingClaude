@@ -291,7 +291,8 @@ class GovernanceVerifier:
         }
 
         log_file = self.log_dir / f"audit_{int(time.time())}.json"
-        log_file.write_text(json.dumps(audit, ensure_ascii=False, indent=2))
+        from lingclaude.core.state_store import _atomic_write_json
+        _atomic_write_json(log_file, audit)
 
         summary_file = self.log_dir / "latest_audit_summary.json"
         summary = {
@@ -300,7 +301,7 @@ class GovernanceVerifier:
             "total_valid_votes": total_valid,
             "total_filtered_votes": total_filtered,
         }
-        summary_file.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+        _atomic_write_json(summary_file, summary)
 
         return audit
 

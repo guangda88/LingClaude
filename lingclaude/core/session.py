@@ -104,11 +104,8 @@ class SessionManager:
             # 导出视图：文件仓库（list_sessions / snapshot / rewind 的介质）
             # 原子写（tmp + replace）：2026-09-06 发现 7c643abc.json 被截断为
             # 0 字节——write_text 先 truncate 后写，进程恰在写入中被杀即丢档。
-            import os
-
-            tmp = path.with_suffix(path.suffix + ".tmp")
-            tmp.write_text(json.dumps(session.to_dict_redacted(), indent=2, ensure_ascii=False))
-            os.replace(tmp, path)
+            from lingclaude.core.state_store import _atomic_write_json
+            _atomic_write_json(path, session.to_dict_redacted())
             return Result.ok(path)
         except Exception as e:
             return Result.fail(f"Failed to save session: {e}", code="SAVE_ERROR")
@@ -183,7 +180,8 @@ class SessionManager:
         try:
             path = self._session_path(session)
             snap_path = path.parent / f"{self.SNAPSHOT_PREFIX}{session.session_id}_{int(time.time())}.json"
-            snap_path.write_text(json.dumps(session.to_dict_redacted(), indent=2, ensure_ascii=False))
+            from lingclaude.core.state_store import _atomic_write_json
+            _atomic_write_json(snap_path, session.to_dict_redacted())
             return Result.ok(snap_path)
         except Exception as e:
             return Result.fail(f"Snapshot failed: {e}", code="SNAPSHOT_ERROR")

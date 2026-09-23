@@ -38,6 +38,13 @@ include = ["lingclaude*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    # xdist-state-write-race 债（2026-09-18 立）：no_xdist 此前只有裸声明
+    # 无注册无执行机制，"单线程执行"保护不存在。现注册并由 conftest 的
+    # pytest_collection_modifyitems 落地为 xdist_group("no_xdist_serial")，
+    # xdist 下按 loadgroup 绑组串行；未装 xdist 时单进程本就串行，无操作。
+    "no_xdist: 本测试需单进程串行执行（xdist 下自动绑入专属 loadgroup）",
+]
 filterwarnings = [
     # T3 handler 解耦迁移期：存量测试直传 ToolDefinition(handler=...) 的
     # DeprecationWarning 在此静默（新代码一律 register_handler + handler_name）

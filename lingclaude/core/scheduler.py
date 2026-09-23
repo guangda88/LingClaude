@@ -93,9 +93,8 @@ class ScheduleManager:
             with self._lock:
                 tasks = {task_id: asdict(task) for task_id, task in self._tasks.items()}
             Path(_SCHEDULES_FILE).parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = Path(_SCHEDULES_FILE).with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding="utf-8")
-            tmp_path.replace(_SCHEDULES_FILE)
+            from lingclaude.core.state_store import _atomic_write_json
+            _atomic_write_json(Path(_SCHEDULES_FILE), tasks)
         except Exception as e:
             logger.warning("Schedule persist failed: %s", e)
 

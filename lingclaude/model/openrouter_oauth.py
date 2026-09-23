@@ -134,11 +134,17 @@ def exchange_code(code: str, verifier: str, timeout: float = 15.0) -> ExchangeRe
 def save_key(key: str) -> Path:
     """key 落盘（0600，仅本用户可读）。"""
     _CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
-    _KEY_FILE.write_text(json.dumps({"api_key": key}, ensure_ascii=False), encoding="utf-8")
+    # 原子写 + 权限先行：tmp 落盘即 0600，replace 单步生效。
+    # 旧写法先明文落盘再补 chmod，存在明文窗口；且 chmod 失败被吞，
+    # 凭据将以默认权限留存——现改为 fail-closed（清理 tmp 并上抛）。
+    tmp = _KEY_FILE.parent / f"{_KEY_FILE.name}.tmp{os.getpid()}"
+    tmp.write_text(json.dumps({"api_key": key}, ensure_ascii=False), encoding="utf-8")
     try:
-        os.chmod(_KEY_FILE, 0o600)
+        os.chmod(tmp, 0o600)
     except OSError:
-        pass
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, _KEY_FILE)
     return _KEY_FILE
 
 

@@ -1,5 +1,5 @@
 {
-  "head": "65f37ef",
+  "head": "442a4dc",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "04f0d46ddb0e",
     "tests/test_iron_law_guards.py": "970706c17bfa",
@@ -25,7 +25,7 @@
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
     "arch_debt:handover-export-view-j4": "fcd633fbd3f1",
     "arch_debt:layered-memory-export-view-j4-migration": "9815996cd9fb",
-    "arch_debt:lingcreate-mcp-coldstart": "10766af23488",
+    "arch_debt:lingcreate-mcp-coldstart": "98fda768e70c",
     "arch_debt:m6-family-carriers-register-hook-broken": "8042819e06ef",
     "arch_debt:meta-cognition-export-view-j4-migration": "a0d20e7ce718",
     "arch_debt:proposal-lifecycle-j4-migration": "5fe88ba71403",
@@ -39,7 +39,7 @@
     "arch_debt:tests-mcp-server-fixture-git-env": "5d60b857ebdf",
     "arch_debt:topic-stack-export-view-j4-migration": "bd90a94f8d64",
     "arch_debt:xdist-state-write-race": "a62d4a81dfc9",
-    "arch_debt:zhibridge-mcp-unbuilt": "3a01b8358e40",
+    "arch_debt:zhibridge-mcp-unbuilt": "90d265374d4b",
     "arch_exemption:__init__.py": "0e8898f347fd",
     "arch_exemption:approval_matrix.py": "9ca5a26dee90",
     "arch_exemption:audit_collector.py": "98429efef8e9",
@@ -151,5 +151,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-23T15:53:34+00:00"
+  "checked": "2026-09-23T17:43:14+00:00"
 }

@@ -18,6 +18,22 @@ warnings.filterwarnings("ignore", category=DeprecationWarning,
                         message=r"ToolDefinition\(handler=\.\.\.\) 已废弃.*")
 
 
+def pytest_collection_modifyitems(config, items):
+    """no_xdist 标记落地机制（xdist-state-write-race 债清偿，2026-09-24）。
+
+    历史：tests/test_l7_hook.py 曾用 pytest.mark.no_xdist 声明"单线程执行"，
+    但全仓无注册无调度实现——保护从未存在。现统一落地：
+      - 标 no_xdist 的用例自动绑定 xdist_group("no_xdist_serial")，
+        xdist 下同组用例由同 worker 串行执行（--dist=loadgroup）；
+      - 其他用例不受影响，仍按默认负载分配；
+      - 未安装 xdist 时无 xdist_group 语义，标记为纯声明（无害）。
+    新增需串行的测试：直接标 @pytest.mark.no_xdist 即可，无需手写 group。
+    """
+    for item in items:
+        if item.get_closest_marker("no_xdist") is not None:
+            item.add_marker(pytest.mark.xdist_group("no_xdist_serial"))
+
+
 @pytest.fixture(autouse=True)
 def _isolate_persistence_files(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """permissions/approval_matrix 持久化写点隔离到 tmp（2026-09-23 事故修复）。

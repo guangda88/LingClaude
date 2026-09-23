@@ -110,7 +110,8 @@ class SessionRuntime:
                 # 兜底：无 StateStore 时保持旧行为（手写 JSON）
                 path = self.session_state_path()
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+                from lingclaude.core.state_store import _atomic_write_json
+                _atomic_write_json(path, state)
         except Exception as e:
             logger.warning("会话状态保存失败: %s", e)
 

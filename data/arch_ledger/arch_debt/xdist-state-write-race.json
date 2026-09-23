@@ -4,6 +4,8 @@
   "reason": "xdist 并发污染账（941dde1『另行立账』兑现）。根因已修（2026-09-18）：core/state_store.py JsonFileBackend.save 与 core/meta_cognition.py fallback 写改原子写（tmp+os.replace，消除 open('w') 截断窗口），tests/conftest.py 污染判定加 1s 复查容错（过滤活体进程瞬态）。8worker 复现实证：test_absent_carriers_are_honest teardown 误报 meta_cognition.json 清零，实为本机活体灵克进程（daemon watch 等）非原子写窗口被快照对比撞见。遗留：① test_l7_hook.py 的 no_xdist 标记全仓无注册无执行机制，其自称的『单线程执行』保护不存在，须换 xdist_group + --dist=loadgroup；② 全仓其余 write_text 直写状态文件的模块未逐个排查（守卫侧已有 1s 复查兜底，不阻塞）",
   "due": "2026-09-25",
   "resolve_hint": "conftest 注册 no_xdist marker→dist=loadgroup 分组（或改 xdist_group 标记）；write_text(json.dumps) 残留 13 模块待批量换 _atomic_write_json：core/{role_separation,governance_verifier×2,reasoning_chain,session×2,session_runtime,wakeup_channel,governance}, self_optimizer/daemon, model/intelligent_router, coordination/bus_responder, governance/{governance_v2,proposal_lifecycle}",
-  "state": "open",
-  "created": "2026-09-18T04:55:00+00:00"
+  "state": "resolved",
+  "created": "2026-09-18T04:55:00+00:00",
+  "resolved": "2026-09-24T02:15:00+08:00",
+  "resolution": "两项遗留全部清偿（2026-09-24）：① no_xdist 标记落地——pyproject.toml 注册 marker + tests/conftest.py 新增 pytest_collection_modifyitems 自动绑定 xdist_group('no_xdist_serial')，test_l7_hook.py 换双标记；真 xdist 调度实证：-n 2 --dist=loadgroup 下 7 passed。② write_text 直写状态文件批量原子化——全仓实测 16 写点（债单口径 13 有漂移：+approval_matrix/openrouter_oauth/scheduler，-governance_v2 已迁 StateStore）收编 state_store._atomic_write_json（tmp+pid+os.replace）；其中 session.py×2/scheduler/bus_responder 4 处原为固定 tmp 名（无 pid，多进程同写互撞）一并升级；openrouter_oauth 凭据文件加固为 tmp 先 chmod 0600 再 replace（消除明文窗口，chmod 失败改 fail-closed 上抛）。验证：14 文件 COMPILE-OK；残留 write_text(json.dumps 仅剩原子写机制本体 2 处；受影响 12 套件 184 用例绿点（900s 截断前零失败）+ test_daemon/test_task_scheduler 57 passed；session persist 原子性专项测试过。"
 }

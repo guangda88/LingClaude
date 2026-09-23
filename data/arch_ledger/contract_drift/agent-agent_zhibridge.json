@@ -1,0 +1,27 @@
+{
+  "type": "contract_drift",
+  "target": "agent:agent_zhibridge",
+  "state": "clean",
+  "fingerprint": "d48a8df8f600afe3",
+  "surface": {
+    "name": "agent/zhibridge",
+    "version": "1.0.0",
+    "trust_level": "T1",
+    "plug_level": "L1",
+    "capabilities": [
+      "hello_world"
+    ],
+    "transport_kind": "mcp",
+    "transport_command": [
+      "node",
+      "dist/index.js"
+    ],
+    "cwd": "/home/ai/zhibridge/mcp-server",
+    "stop_layer_kernel": "MCP stdio（zhineng-bridge-mcp，TS 源码）→ 智桥网关工具（源码 hello_world 等）",
+    "stop_layer_seams": [
+      "family_agent"
+    ]
+  },
+  "recorded_at": "2026-09-23T17:50:22+00:00",
+  "git_head": "442a4dc"
+}

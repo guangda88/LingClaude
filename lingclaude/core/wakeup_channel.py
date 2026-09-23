@@ -76,6 +76,7 @@ class LocalFileWakeupChannel:
             now = datetime.now(timezone.utc).isoformat()
             path = self._dir / f"{task['task_id']}_{int(datetime.now(timezone.utc).timestamp())}.json"
             payload = {"received_at": now, **task}
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            from lingclaude.core.state_store import _atomic_write_json
+            _atomic_write_json(path, payload)
         except Exception as e:
             logger.warning("LocalFile wakeup failed for %s: %s", task.get("task_id"), e)

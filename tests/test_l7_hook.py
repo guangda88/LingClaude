@@ -17,7 +17,7 @@ HOOK = Path("/home/ai/lingclaude/.lingclaude/hooks/pre_tool_use.py")
 
 # 测试文件调起 subprocess 跑 hook，全局 audit_log 等共享资源
 # 在 xdist 并行下会出现 race condition，因此标记为单线程执行
-pytestmark = pytest.mark.no_xdist
+pytestmark = [pytest.mark.no_xdist, pytest.mark.xdist_group("no_xdist_serial")]
 
 
 def _run_hook(context: dict, audit_log: Path | None = None) -> dict:

@@ -459,7 +459,8 @@ def save_role_config(path: Path, checker: RoleConflictChecker | None = None) -> 
         }
         config["agents"].append(agent_config)
 
-    path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+    from lingclaude.core.state_store import _atomic_write_json
+    _atomic_write_json(path, config)
 
 
 def load_role_config(path: Path) -> RoleConflictChecker:

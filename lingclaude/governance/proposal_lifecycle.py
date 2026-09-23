@@ -649,4 +649,7 @@ class LifecycleManager:
     def _save(self) -> None:
         self._file.parent.mkdir(parents=True, exist_ok=True)
         data = {"lifecycles": {pid: lc.to_dict() for pid, lc in self.lifecycles.items()}}
-        self._file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 原子写加固（xdist 债，2026-09-24）；StateStore 迁移另账：
+        # debt proposal-lifecycle-j4-migration（due 2026-11-30）
+        from lingclaude.core.state_store import _atomic_write_json
+        _atomic_write_json(self._file, data)

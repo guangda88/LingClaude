@@ -441,6 +441,7 @@ class GovernanceGate:
         }
         log_file = self.log_dir / f"gate_{int(time.time())}.json"
         try:
-            log_file.write_text(json.dumps(record, ensure_ascii=False, indent=2))
+            from lingclaude.core.state_store import _atomic_write_json
+            _atomic_write_json(log_file, record)
         except OSError:
             pass

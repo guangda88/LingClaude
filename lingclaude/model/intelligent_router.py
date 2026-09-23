@@ -298,7 +298,8 @@ class IntelligentRouter:
             "complex_count": self._stats.complex_count,
         }
         try:
-            self.stats_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            from lingclaude.core.state_store import _atomic_write_json
+            _atomic_write_json(self.stats_path, data)
         except OSError as exc:
             logging.getLogger(__name__).warning("路由统计写入失败(忽略): %s -> %s", self.stats_path, exc)
 

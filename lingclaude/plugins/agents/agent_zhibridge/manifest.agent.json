@@ -36,5 +36,5 @@
   },
   "state_record": "agent_run:zhibridge",
   "org_member": "zhibridge",
-  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。载体实测：载体未构建（TS 源码无 dist，tsx 实测沙箱 OOM）→ 探针 absent 属预期，不假活。债务挂账：zhibridge-mcp-unbuilt（due 2026-09-25）——载体侧 tsc 构建产出 dist/index.js，或声明可执行替代入口。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
+  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。2026-09-24 复测：dist/index.js 已构建（9-19 12:48），真实探针 initialize 0.38s + tools/list 1 工具 0.33s 探针判活——债 zhibridge-mcp-unbuilt 已清偿（载体侧构建，lc 侧零改动）。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
 }

@@ -259,7 +259,8 @@ class ApprovalMatrix:
             allow.append(prefix)
         data["always_allow"] = allow
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        from lingclaude.core.state_store import _atomic_write_json
+        _atomic_write_json(path, data)
 
     @classmethod
     def load_assets(cls, path: Path | None = None) -> tuple[str, ...]:

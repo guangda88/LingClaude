@@ -4,6 +4,8 @@
   "reason": "灵创 MCP server 冷启动重 import >5s：initialize 实测回包正常但 tools/list 未在探针 5s 窗口内返回；server 本体实锤存在（源码 30 个 @mcp.tool：图/视频/3D/纹理生成），非载体缺席",
   "due": "2026-09-25",
   "resolve_hint": "server 侧重工具模块改惰性 import（冷启动降到 5s 内探针即 healthy），或 manifest 探针 timeout_s 上调并在 command_note 声明取舍",
-  "state": "open",
-  "created": "2026-09-18T05:50:00+00:00"
+  "state": "resolved",
+  "created": "2026-09-18T05:50:00+00:00",
+  "resolved": "2026-09-24T09:40:00+08:00",
+  "resolution": "未改一行 server 代码，实测判据达标即清偿（2026-09-24 复测）：McpAgentPluginBase 真实探针 initialize ok=True 耗时 1.01s（窗口 5s），_load_tools(tools/list) 28 工具 0.86s（装载口径 call_timeout 120s），全链路 1.87s。9-18 立账时 >5s 为当日本机 swap 高压（10Gi/15Gi）环境瞬态，环境恢复后不复现；importtime 实测 server import 仅 0.80s（mcp 包本身 639ms，server 无 torch/trimesh 重依赖，生成走 HTTP API）。漂移记录：债单写 '30 个 @mcp.tool'，server 自报实测 28 个（tools/list 口径）。resolve_hint 两选项（惰性 import / timeout 上调）前提均不再成立，故不引入无谓改动。manifest.notes 过期冷启动描述已同步更新。"
 }

@@ -41,5 +41,5 @@
   },
   "state_record": "agent_run:lingcreate",
   "org_member": "lingcreate",
-  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。载体实测：探针超时（冷启动重 import >5s，tools/list 未按时返回；server 本体实锤存在）。债务挂账：lingcreate-mcp-coldstart（due 2026-09-25）——tuning startup_timeout 或 server 侧惰性 import 重工具模块。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
+  "notes": "家族批量插片化批1（用户 2026-09-18 指令，12子+8对外工程=20实体）。2026-09-24 复测：真实探针 initialize 1.01s（窗口5s）+ tools/list 28 工具 0.86s，全链路 1.87s 达标——9-18 立账时 >5s 系当日本机 swap 高压环境瞬态，债 lingcreate-mcp-coldstart 已清偿（未改 server 代码）。铁律 7 域前缀 agent/；铁律 6 trust/plug 与 org_member 账本一致。"
 }

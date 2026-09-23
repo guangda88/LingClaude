@@ -105,9 +105,8 @@ class BusResponder:
                 "tasks_failed": self._stats.tasks_failed,
             },
         }
-        tmp = self._state_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(self._state_file)
+        from lingclaude.core.state_store import _atomic_write_json
+        _atomic_write_json(self._state_file, data)
 
     def _parse_task(self, message: Any) -> tuple[TaskParseResult, ParsedTask | None]:
         body = message.body or ""
