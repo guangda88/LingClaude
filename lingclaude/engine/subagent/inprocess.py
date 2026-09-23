@@ -59,7 +59,8 @@ class InProcessSubagentBackend(SubagentBackend):
             max_rounds=request.max_rounds,
             allowed_tools=ctx.allowed_tools,
         )
-        agent = SubAgent(config=config, runtime=ctx.runtime, provider=ctx.model_provider)
+        agent = SubAgent(config=config, runtime=ctx.runtime, provider=ctx.model_provider,
+                         hooks=getattr(ctx.runtime, "hooks", None) if ctx.runtime is not None else None)
         result = agent.run(request.task, request.context)
         subagent_result = SubagentResult(
             agent_id=result.agent_id,
@@ -90,7 +91,8 @@ class InProcessSubagentBackend(SubagentBackend):
         results: list[SubagentResult] = []
 
         def _run_one(i: int) -> SubagentResult:
-            agent = SubAgent(config=config, runtime=ctx.runtime, provider=ctx.model_provider)
+            agent = SubAgent(config=config, runtime=ctx.runtime, provider=ctx.model_provider,
+                         hooks=getattr(ctx.runtime, "hooks", None) if ctx.runtime is not None else None)
             task = f"{request.task} [parallel-{i+1}/{num_parallel}]"
             result = agent.run(task, request.context)
             return SubagentResult(

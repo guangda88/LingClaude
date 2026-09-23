@@ -39,15 +39,50 @@ class SubAgent:
         config: SubAgentConfig | None = None,
         runtime: Any | None = None,
         provider: Any | None = None,
+        hooks: Any | None = None,
+        session_id: str | None = None,
     ) -> None:
         self.config = config or SubAgentConfig()
         self._runtime = runtime
         self._provider = provider
+        # 卸重收口（2026-09-23）：子代理接治理 seam——任务级事件入共享事件流，
+        # 与 TUI/headless 主循环同轨。无 hooks 时零行为变化（老构造点不受影响）。
+        self._hooks = hooks
+        self._session_id = session_id or getattr(runtime, "session_id", None)
+
+    def _emit(self, event_type: str, data: dict[str, Any]) -> None:
+        """任务级治理事件入共享事件流（best-effort：异常静默，不阻断子代理）。"""
+        h = self._hooks
+        if h is None and self._runtime is not None:
+            h = getattr(self._runtime, "hooks", None)
+        if h is None:
+            return
+        try:
+            h.journal_append(event_type, data)
+        except Exception:  # noqa: BLE001 — 治理旁路不反噬主流程
+            logger.debug("subagent %s emit %s failed", data.get("agent_id"), event_type, exc_info=True)
 
     def run(self, task: str, context: str = "") -> SubAgentResult:
         agent_id = uuid4().hex[:8]
         logger.info("SubAgent[%s] starting task: %s", agent_id, task[:80])
+        self._emit("subagent_start", {
+            "agent_id": agent_id,
+            "task": task[:200],
+            "session_id": self._session_id,
+        })
+        result = self._run(agent_id, task, context)
+        self._emit("subagent_result", {
+            "agent_id": agent_id,
+            "task": task[:200],
+            "session_id": self._session_id,
+            "success": result.success,
+            "error": result.error,
+            "rounds": result.rounds,
+            "tools_used": list(result.tools_used),
+        })
+        return result
 
+    def _run(self, agent_id: str, task: str, context: str = "") -> SubAgentResult:
         if self._runtime is None:
             return SubAgentResult(
                 agent_id=agent_id, task=task,

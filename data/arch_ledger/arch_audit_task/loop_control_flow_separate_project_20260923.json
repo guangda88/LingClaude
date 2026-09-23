@@ -2,6 +2,8 @@
   "severity": "P2",
   "finding": "是否行动/是否安全决策点(循环控制流消费点)：上批已裁定单独立项防回归放大，不并入 spec_decision 主线。新会话需先查此任务再动循环控制流相关代码。",
   "source": "user-ruling-20260923-carried",
-  "state": "open",
+  "state": "resolved",
+  "resolution": "2026-09-23 卸重收口：codex 版验收标准实测达成——①fake seam 离线驱动（test_loop_seam 第0步 + test_golden_loop_master + test_loop_unification_acceptance_20260923 全离线）；②三运行时共享实例（TUI/headless 结构断言钉住 core→loop_body 唯一消费边；子代理经 SubAgent._emit 接 hooks seam，subagent_start/subagent_result 入共享事件流，inprocess 后端双构造点接线，70 测全绿）。实测澄清：loop_body 已是模块级函数，engine._* 仅 22 处且多为行为面（seam 已覆盖），面板『58 槽位迁 StateStore』的地基已大半自然完成；剩余深化（数据槽位 StateStore 化=循环纯化 P2-13）按 hooks.py 停层声明另案，不阻塞本单关单。",
+  "resolved_at": "2026-09-23T11:05:00+08:00",
   "created": "2026-09-22T16:41:59+00:00"
 }
