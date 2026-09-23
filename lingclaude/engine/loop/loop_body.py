@@ -49,41 +49,73 @@ def _estimate_tokens(text: str, per_char: float = 0.28) -> int:
 # 既省长会话 token 膨胀，又保留关键信息（头 800 字符通常含报错/结果核心）。
 _TOOL_RESULT_SLIM_THRESHOLD = 1600   # 超过此字符数的工具结果进历史前截断
 _TOOL_RESULT_SLIM_KEEP = 800         # 截断后保留的前缀字符数
+# B（2026-09-23）诊断分型：bash/read/grep/glob 的输出是诊断主线索（报错栈、
+# 源码片段、文件列表），800 字符截断逼着模型反复重调工具拼线索（本会话
+# 实测连续 5 次）。诊断类保留 2400 + 瘦身门槛放宽到 keep*2；其余工具
+# （web_fetch 等大文本抓取）维持原 1600/800 严格语义。
+_TOOL_RESULT_SLIM_KEEP_DIAG = 2400
+_DIAGNOSTIC_TOOLS = frozenset({"bash", "read", "grep", "glob"})
+
+# A（2026-09-23）max_tokens 截断自动续写：
+# 病灶——provider finish 事件的 reason（"length"=截断）在 loop_body 只取
+# usage、reason 被丢弃；截断时无检测、不续写、不打标，用户看到戛然而止。
+# N5 守卫只覆盖"空响应"（0 text_delta），"有内容但截断"是盲区。
+# 修复：length → 同 thread 追加 continue 提示续写（护栏 3 次，防无限
+# 循环烧预算）；护栏用尽仍截断、或异常 reason（content_filter 等）→
+# 尾部打 ⚠️ 标透传给用户，绝不静默丢弃截断事实。
+_MAX_CONTINUATIONS = 3
+_CONTINUATION_HINT = "你的上一段回复因输出长度上限被截断。请从中断处直接继续，不要重复已输出的内容。"
+_INCOMPLETE_TAG = "\n\n⚠️[输出不完整：模型回复因 max_tokens 截断或异常终止，可能缺少结尾。]"
+_TRUNCATION_REASONS = frozenset({"length", "max_tokens"})
+_BENIGN_FINISH_REASONS = frozenset(
+    {"", "stop", "end_turn", "tool_calls", "completed", "max_turns_reached"}
+)
 
 
 def _slim_tool_output(tool_name: str, output: str, task_hint: str = "") -> str:
     """P1-5 + NanoJev 消费点③：大工具结果瘦身（相关性剪枝 > 固定截断兜底）。
 
-    小结果原样返回（零开销）；大结果（> _TOOL_RESULT_SLIM_THRESHOLD）走两级：
+    小结果原样返回（零开销）；大结果（> 门槛）走两级：
     1. 相关性剪枝（engine/context_pruning.prune_by_relevance）：超长输出按段落
        判「是否含当前任务所需信息」（本地先验 0 模型调用 + 首尾保底 + 相关段），
        保留高相关段，治长会话 token 膨胀——比固定前缀截断更准（不会把中段
        关键报错剪掉）。
-    2. 剪枝无收益 / 故障 → 回退原固定截断（前 800 字符 + 总长引用），fail-open。
+    2. 剪枝无收益 / 故障 → 回退固定截断（前缀保留 + 总长引用），fail-open。
     task_hint：当前任务/prompt 文本（相关性判定信号源；空则退化为段落显著性）。
     这是「进历史前剪枝」（§3.2），不改工具执行层——工具本身仍拿到全量。
+
+    B（2026-09-23）诊断分型：bash/read/grep/glob 的输出是诊断主线索（报错栈/
+    源码/文件清单），门槛放宽为 keep*2、保留前缀用 _TOOL_RESULT_SLIM_KEEP_DIAG，
+    减少「反复重调工具拼线索」的净摩擦；其余工具维持 1600/800 严格语义。
+    截断标记统一带分段重调指引。
     """
     if output is None:
         return ""
-    if len(output) <= _TOOL_RESULT_SLIM_THRESHOLD:
+    keep = (
+        _TOOL_RESULT_SLIM_KEEP_DIAG
+        if tool_name in _DIAGNOSTIC_TOOLS
+        else _TOOL_RESULT_SLIM_KEEP
+    )
+    threshold = keep * 2
+    if len(output) <= threshold:
         return output
     # 消费点③：相关性剪枝优先（0 模型调用主路径；无收益/故障回退固定截断）
     try:
         from lingclaude.engine.context_pruning import prune_by_relevance
         pruned = prune_by_relevance(
             output, task_hint or "",
-            max_chars=_TOOL_RESULT_SLIM_THRESHOLD,
+            max_chars=threshold,
         )
         if pruned is not None and len(pruned) < len(output):
             return pruned
     except Exception:  # noqa: BLE001 — 剪枝故障 fail-open，回退固定截断
         pass
-    kept = output[:_TOOL_RESULT_SLIM_KEEP]
+    kept = output[:keep]
     return (
         f"{kept}\n"
         f"[工具结果瘦身: {tool_name} 输出共 {len(output)} 字符，"
-        f"历史仅保留前 {_TOOL_RESULT_SLIM_KEEP} 字符。"
-        f"如需完整内容请重新调用该工具。]"
+        f"历史仅保留前 {keep} 字符。"
+        f"如需完整内容请重新调用该工具（可配合 offset/limit 或 head -c 分段读取）。]"
     )
 
 
@@ -149,6 +181,9 @@ def _resolve_max_tool_rounds(engine: Any) -> int:
 
 def run_call_model_loop(engine: Any, prompt: str) -> str:
     """`ModelCallMixin._call_model` 循环体（L0 逐字迁移，self→engine）。"""
+    # A(2026-09-23): 续写状态初始化（与流式路径对称）
+    continuation_used = 0
+    continuation_buffer = ""
     # R9 清理(2026-09-16): 原此处有 decision = engine._router.route(prompt),
     # 结果在下一行就被 _resolve_model_config 的返回值覆盖, 纯死计算, 删除。
     messages = engine._build_messages(prompt)
@@ -210,14 +245,43 @@ def run_call_model_loop(engine: Any, prompt: str) -> str:
         if resolved_config:
             engine.hooks.record_provider_outcome(resolved_config, "success")
 
+        # A(2026-09-23) 非流式对称：ModelResponse.finish_reason（provider 透传
+        # "length"/"stop"）。截断 → 护栏内续写（messages 追加 assistant+continue
+        # 提示，前段文本入 continuation_buffer，终轮聚合）；
+        # 护栏用尽/异常 reason → 打标透传。默认 "stop" 在良性清单，正常路径零扰动。
+        finish_reason = getattr(response, "finish_reason", "") or ""
+        if finish_reason in _TRUNCATION_REASONS and not response.tool_calls:
+            continuation_buffer = (
+                continuation_buffer + "\n" + round_text
+                if continuation_buffer else round_text
+            )
+            if continuation_used < _MAX_CONTINUATIONS:
+                continuation_used += 1
+                messages.append(ModelMessage(
+                    role=MessageRole.ASSISTANT, content=round_text,
+                ))
+                messages.append(ModelMessage(
+                    role=MessageRole.USER, content=_CONTINUATION_HINT,
+                ))
+                continue
+            round_text = continuation_buffer + _INCOMPLETE_TAG
+            continuation_buffer = ""
+        elif finish_reason and finish_reason not in _BENIGN_FINISH_REASONS:
+            round_text += _INCOMPLETE_TAG
+
         if not response.tool_calls:
-            content = response.content
+            content = (
+                continuation_buffer + "\n" + round_text
+                if continuation_buffer else round_text
+            )
             if engine.hooks.should_hallucination_correct(prompt, used_tools, messages):
                 content = engine.hooks.hallucination_correction(messages, content, tools, resolved_config)
                 if content:
                     return engine._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
             engine._clear_checkpoint()
-            return engine._finalize_turn(prompt, response.content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
+            # A: content 可能含续写聚合/打标；但 correction falsy 时 content=None，
+            # 必须回落 response.content（原语义），故用 or 兜底。
+            return engine._finalize_turn(prompt, content or response.content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
 
         used_tools = True
         engine._tool_call_executor.process(response.tool_calls, messages, content=response.content)
@@ -287,6 +351,10 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
         logger.warning("turn_start checkpoint failed (non-blocking): %s", e)
     used_tools = False
     response_content = ""
+    # A(2026-09-23): 截断续写状态——reason 捕获 + 续写护栏计数
+    round_finish_reason = ""
+    continuation_used = 0
+    continuation_buffer = ""
     total_input = 0
     total_output = 0
     total_cached = 0
@@ -309,6 +377,7 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
         round_tool_calls: list[ToolCall] = []
         stream_error: str | None = None
         usage: Any = ModelUsage()
+        round_finish_reason = ""
 
         # F12f:同回合失败换候选 — 最多尝试 2 个 provider。
         # 首选失败且尚无任何文本输出时,重新 resolve(TaskRouter round-robin
@@ -339,6 +408,9 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
                         total_input, total_output, usage,
                         "".join(round_text_parts), total_cached,
                     )
+                    # A(2026-09-23): reason 此前被丢弃 → max_tokens 截断
+                    # 无感知。捕获供回合级收尾判定（"length"=截断）。
+                    round_finish_reason = event.get("reason") or ""
                 elif event["type"] == "error":
                     stream_error = event["error"]
 
@@ -418,8 +490,42 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
 
         round_content = "".join(round_text_parts)
 
+        # A(2026-09-23): 截断/异常终止处置（回合级，no-tool 与 tool 路径共用）。
+        # length/max_tokens → 护栏内续写（同 thread 追加 continue 提示，前段
+        # 文本暂存 continuation_buffer，终轮 no-tool 分支聚合，不动
+        # response_content 的既有聚合语义）；护栏用尽 → 全文聚合 + ⚠️ 打标
+        # 走正常 no-tool 收尾落库；未知 reason（content_filter 等）→ 打标透传，
+        # 绝不静默吞掉截断事实。
+        if round_finish_reason in _TRUNCATION_REASONS and not round_tool_calls:
+            continuation_buffer = (
+                continuation_buffer + "\n" + round_content
+                if continuation_buffer else round_content
+            )
+            if continuation_used < _MAX_CONTINUATIONS:
+                continuation_used += 1
+                messages.append(ModelMessage(
+                    role=MessageRole.ASSISTANT, content=round_content,
+                ))
+                messages.append(ModelMessage(
+                    role=MessageRole.USER, content=_CONTINUATION_HINT,
+                ))
+                yield {"type": "status", "message": (
+                    f"检测到输出截断，自动续写 {continuation_used}/{_MAX_CONTINUATIONS}..."
+                )}
+                continue
+            # 护栏用尽：聚合全文 + 打标，走 no-tool 收尾（历史镜像完整）
+            round_content = continuation_buffer + _INCOMPLETE_TAG
+            continuation_buffer = ""
+            yield {"type": "text_delta", "text": _INCOMPLETE_TAG}
+        elif round_finish_reason and round_finish_reason not in _BENIGN_FINISH_REASONS:
+            round_content += _INCOMPLETE_TAG
+            yield {"type": "text_delta", "text": _INCOMPLETE_TAG}
+
         if not round_tool_calls:
-            content = round_content
+            content = (
+                continuation_buffer + "\n" + round_content
+                if continuation_buffer else round_content
+            )
             if engine.hooks.should_hallucination_correct(prompt, used_tools, messages):
                 yield {"type": "status", "message": "幻觉闭环修正中..."}
                 corrected = engine.hooks.hallucination_correction(

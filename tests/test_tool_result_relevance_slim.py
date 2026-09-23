@@ -91,9 +91,10 @@ def test_short_output_returns_as_is():
 
 
 def test_large_output_prefers_relevance_pruning():
+    # B 分型后 read 门槛=4800（keep_diag*2），剪枝路径改用 web_fetch（1600/800 严格档）
     out = _large_mixed_output()
     hint = "debug parser.py traceback error line 42"
-    slimmed = _slim_tool_output("read", out, task_hint=hint)
+    slimmed = _slim_tool_output("web_fetch", out, task_hint=hint)
     assert len(slimmed) < len(out)
     assert "[工具输出相关性剪枝:" in slimmed  # 走的剪枝路径而非固定截断
     assert "kpirelevant" in slimmed            # 高相关段保留
@@ -104,7 +105,8 @@ def test_large_output_prefers_relevance_pruning():
 
 def test_empty_task_hint_degrades_to_significance():
     # task_hint 空 → 退化为段落显著性（报错/路径段显著性高 → 留，噪声 → 剪）
-    slimmed = _slim_tool_output("read", _large_mixed_output(), task_hint="")
+    # B 分型：同上用 web_fetch 命中严格档（read 门槛已放宽到 4800）
+    slimmed = _slim_tool_output("web_fetch", _large_mixed_output(), task_hint="")
     assert "[工具输出相关性剪枝:" in slimmed
     assert "kpirelevant" in slimmed
     assert "lorem" not in slimmed
@@ -112,8 +114,9 @@ def test_empty_task_hint_degrades_to_significance():
 
 def test_unprunable_output_falls_back_to_fixed_truncation():
     # 仅 2 段 → 剪枝返回 None → 回退固定截断（前缀 + 总长引用）
+    # B 分型：web_fetch（严格档 1600/800）命中；read 档门槛 4800 会透传
     out = _noise_para(1800) + "\n\n" + "final tail line"
-    slimmed = _slim_tool_output("read", out, task_hint="debug")
+    slimmed = _slim_tool_output("web_fetch", out, task_hint="debug")
     assert len(out) > _TOOL_RESULT_SLIM_THRESHOLD
     assert "[工具结果瘦身:" in slimmed
     assert "历史仅保留前" in slimmed
@@ -130,7 +133,7 @@ def test_prune_failure_falls_back_to_fixed_truncation(monkeypatch):
         "lingclaude.engine.context_pruning.prune_by_relevance", _boom
     )
     out = _large_mixed_output()
-    slimmed = _slim_tool_output("read", out, task_hint="debug")
+    slimmed = _slim_tool_output("web_fetch", out, task_hint="debug")
     assert "[工具结果瘦身:" in slimmed
     assert slimmed.startswith(out[:_TOOL_RESULT_SLIM_KEEP])
     assert len(slimmed) < len(out)

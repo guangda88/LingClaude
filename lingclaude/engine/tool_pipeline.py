@@ -424,6 +424,15 @@ class ToolPipeline:
                 "size_bytes": len(text),
                 "truncated": True,
                 "read_with": f"cat {path}",
+                # C(2026-09-23): 拼接指引——stub 只报"落盘了"不给读取路径，
+                # 模型只能盲目重调原工具。给分段/检索的具体命令模板，
+                # 一次重调拿到目标片段。
+                "read_hint": (
+                    f"完整输出已落盘：{path}（共 {len(text)} 字符）。"
+                    f"分段读取：head -c 8000 {path}；"
+                    f"或 read 工具带 offset/limit；"
+                    f"定向检索：grep -n <关键词> {path}"
+                ),
             }
         except Exception:
             # spill 失败时降级：不丢弃结果，原样返回
