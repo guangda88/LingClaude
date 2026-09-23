@@ -1,0 +1,9 @@
+{
+  "id": "kernel_m2_manifest_backfill_20260923",
+  "severity": "P2",
+  "due": "2026-10-31",
+  "finding": "「可挂载 agent 操作内核」M2 附属项：plugins 现有插片 manifest 一次性补录（方案 §九.3 裁决：随 M2 一次性，拒绝渐进双轨）。实锚：lingclaude/plugins/{agents,tools} 两目录，agents 约 28 项（agent_lingan/lingcreate/lingflow/lingmessage/lingminopt/lingresearch/lingtongask/lingweb/lingxi/lingyang/lingzhi + cap_* + proj_* + lc_mcp_guard + os_resource + zhibridge）+ tools 6 项（ast/bash/file_ops/git/read/web）。渐进 = 校验器长期容忍「有/无 manifest」并存，即 audit-gate-schema-drift 台账同型病灶，明令拒绝。冷插片用 activation: manual 字段表达活跃度，不用时间表表达。依赖：M1（kernel_m1_wiring_extraction_20260923）完成后启动。",
+  "source": "kernel-proposal-ruling-20260923",
+  "state": "open",
+  "created": "2026-09-23T12:29:33+08:00"
+}

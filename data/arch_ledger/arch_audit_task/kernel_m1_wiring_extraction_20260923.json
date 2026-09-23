@@ -1,0 +1,9 @@
+{
+  "id": "kernel_m1_wiring_extraction_20260923",
+  "severity": "P1",
+  "due": "2026-10-15",
+  "finding": "「可挂载 agent 操作内核」M1：coding.py 装配外移到 coding_wiring.py（WiringSpec 承接面已实锚存在），行为零变化。裁决：先行实施（方案 §九.1）——纯重构无功能收益，但不做则 M2–M4 全部垫在 God-object 上；装配时序坑已有复发实据（7637cc3：_setup_tools 先于 session_id 赋值踩 AttributeError）。⚠ 前置条件：隔壁自优化线（工作区 6 文件在途：daemon/optimizer/replay_objective/data_flywheel/tool_call_executor/session_persist 系）收口入库后方可动工，纯重构不与并行开发交织。验收：全量回归绿 + G8 黄金快照不变。建议独立会话执行（本裁决会话已 85+ 工具调用）。",
+  "source": "kernel-proposal-ruling-20260923",
+  "state": "open",
+  "created": "2026-09-23T12:29:33+08:00"
+}
