@@ -34,6 +34,9 @@ class _FakeEngine:
         self._usage = MagicMock()
         self._usage.input_tokens = 10
         self._usage.output_tokens = 20
+        # 2026-09-24: UsageSummary 契约生长 cached_tokens（cache 口径修复），
+        # 桩同步补齐——否则 persist_session 读到 MagicMock → JSON 序列化炸
+        self._usage.cached_tokens = 5
         self.session_manager = SessionManager()
 
 

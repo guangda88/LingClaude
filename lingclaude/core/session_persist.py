@@ -32,6 +32,9 @@ class SessionPersister:
             messages=tuple(engine._messages),
             input_tokens=engine._usage.input_tokens,
             output_tokens=engine._usage.output_tokens,
+            # 2026-09-24 cache 口径修复: 累计 cached 一并落盘（旧版丢弃 →
+            # -continue 后 cache% 虚低，见 Session.cached_tokens 注释）
+            cached_tokens=engine._usage.cached_tokens,
             # 2026-09-15（会话问题重构 P1-2）: 保存带 project_path —— 此前
             # Session 的 project_path 字段存在但 persist 从不传，导致所有会话
             # 落 _default/ 目录，跨项目混在一起（-continue 取全局最近）。现
@@ -52,7 +55,11 @@ class SessionPersister:
         session = result.data
         engine.session_id = session.session_id
         engine._messages = list(session.messages)
-        engine._usage = UsageSummary(session.input_tokens, session.output_tokens)
+        # 2026-09-24 cache 口径修复: cached 随会话恢复（旧版位置参数重建丢弃
+        # cached → 归零；分母 input 却恢复全历史 → cache% = 新cached/全历史input 虚低）
+        engine._usage = UsageSummary(
+            session.input_tokens, session.output_tokens, session.cached_tokens
+        )
         engine._transcript = list(session.messages)
         engine._conversation.clear()
         # 2026-09-21 (前缀缓存优化 P0-2): 恢复路径同样在写入点脱敏——

@@ -128,6 +128,11 @@ class _ReplCtx:
     # 2026-09-17 双写修复: 本 turn engine 是否已写 _messages 镜像
     # （由 done 事件的 finalized 标志置位，_run_stream_turn 收尾消费）。
     turn_finalized: bool = False
+    # 2026-09-24 ctx toolbar 直供分子: done.usage.input_tokens（provider 真值，
+    # 经 CLI 事件流每 turn 新鲜送达）。engine 侧 _last_turn_input 哨兵与
+    # _messages 镜像双失效时（长跑进程实测可发生 → toolbar 恒 0.0k/128.0k），
+    # 此字段作 _refresh_ctx_tokens 的末级兜底，保证分子永不无来由归零。
+    last_done_input_tokens: int = 0
     # 2026-09-15（会话问题重构 P0-1）: 心跳超长停滞强制重建的冷却计数。
     # 重建后若仍无心跳（重建无效——"强制重建也没用"的真实场景），第二次
     # 直接置 dead + fallback_read 永久降级裸 input()，避免反复 churn。
@@ -295,10 +300,18 @@ def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
             status.set_ctx(_real, _win)
         else:
             from lingclaude.core.tool_executor import _estimate_message_tokens
-            status.set_ctx(
-                _estimate_message_tokens(engine._messages),
-                _win,
-            )
+            _est = _estimate_message_tokens(engine._messages)
+            if _est > 0:
+                status.set_ctx(_est, _win)
+            else:
+                # 2026-09-24 末级兜底: engine 哨兵与消息镜像双失效时（长跑
+                # 进程实测可发生 → toolbar 恒 0.0k/128.0k），用本 turn
+                # done.usage.input_tokens（provider 真值，CLI 事件流直供）。
+                # 值语义 = 上一 turn 收尾时的上下文体量，轮内略滞后但方向正确。
+                status.set_ctx(
+                    int(getattr(ctx, "last_done_input_tokens", 0) or 0),
+                    _win,
+                )
     except Exception:  # noqa: BLE001
         pass
 
@@ -870,6 +883,17 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 turn_cached_tokens = int(
                     (event.get("usage") or {}).get("cached_tokens", 0) or 0
                 )
+                # 2026-09-24: done.usage.input_tokens = 本 turn 最后请求轮的
+                # 真实 prompt 体量（provider 真值）——喂给 _ReplCtx 作 ctx
+                # toolbar 分子的末级直供源（_refresh_ctx_tokens 消费）。
+                ctx.last_done_input_tokens = int(
+                    (event.get("usage") or {}).get("input_tokens", 0) or 0
+                )
+                # 2026-09-24 Bug B 主修（ctx 陈旧）: done = turn 最后一请求轮收尾，
+                # 此刻 _last_turn_input 已在 engine 侧落定 → 立即刷新 toolbar，
+                # 不再等轮边界（repl.py:191/214/709 之外的第四个刷新点）。111 轮
+                # 工具循环期间 ctx 显示值随每个请求轮跟进，不再恒挂旧值。
+                _refresh_ctx_tokens(ctx)
     except KeyboardInterrupt:
         # pump 模式下 Ctrl+C 承担中断语义（Esc 让位给输入框）
         interrupted = True
@@ -976,7 +1000,9 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
             # 2026-09-22 cache 0% 修复: cached==0 = provider 未回传缓存信息（未知），
             # 不得算成 0% 显示误导（此前「未知」与「真 0 命中」无法区分）。
             # -1 = 未知不显示，与 status.py 渲染端约定一致；首个非 0 值出现即正常显示。
-            _cpct = int(_cached_all * 100 / _in_all) if (_in_all > 0 and _cached_all > 0) else -1
+            # 2026-09-24 哨兵钳制: cached>input（口径异常/恢复混杂）时封顶 100%，
+            # 不让负口径虚数直出 toolbar；-1 = 未知不显示语义不变。
+            _cpct = min(100, int(_cached_all * 100 / _in_all)) if (_in_all > 0 and _cached_all > 0) else -1
             _in_delta = max(0, _in_all - int(usage_t0.get("input_tokens", 0) or 0))
             _segs = [f"✓ Wrapped · {observed_rounds} 轮"]
             if observed_tool_calls:

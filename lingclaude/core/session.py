@@ -23,6 +23,10 @@ class Session:
     messages: tuple[str, ...]
     input_tokens: int
     output_tokens: int
+    # 2026-09-24 cache 口径修复: 累计缓存命中随会话持久化——此前 load_session
+    # 重建 UsageSummary 时丢弃 cached（归零），而 input 恢复全历史累计，
+    # 导致 -continue 后 cache% = 本进程新 cached / 全历史 input ≈ 虚低。
+    cached_tokens: int = 0
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     expires_at: str = field(default_factory=lambda: (datetime.now() + timedelta(hours=24)).isoformat())
     project_path: str = ""
@@ -37,6 +41,7 @@ class Session:
             "messages": tuple(_redact_message(m) for m in self.messages),
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
+            "cached_tokens": self.cached_tokens,
             "created_at": self.created_at,
             "project_path": self.project_path,
             "project_name": self.project_name,
@@ -132,6 +137,7 @@ class SessionManager:
                         messages=tuple(data.get("messages", ())),
                         input_tokens=data.get("input_tokens", 0),
                         output_tokens=data.get("output_tokens", 0),
+                        cached_tokens=data.get("cached_tokens", 0),
                         created_at=data.get("created_at", ""),
                         project_path=data.get("project_path", ""),
                         project_name=data.get("project_name", ""),
@@ -165,6 +171,7 @@ class SessionManager:
             messages=session.messages,
             input_tokens=session.input_tokens,
             output_tokens=session.output_tokens,
+            cached_tokens=session.cached_tokens,
             created_at=session.created_at,
             expires_at=datetime.now().isoformat(),
             project_path=session.project_path,
@@ -196,6 +203,7 @@ class SessionManager:
                 messages=tuple(data.get("messages", ())),
                 input_tokens=data.get("input_tokens", 0),
                 output_tokens=data.get("output_tokens", 0),
+                cached_tokens=data.get("cached_tokens", 0),
                 created_at=data.get("created_at", ""),
                 project_path=data.get("project_path", ""),
                 project_name=data.get("project_name", ""),
