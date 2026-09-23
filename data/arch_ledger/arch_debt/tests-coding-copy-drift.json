@@ -1,0 +1,9 @@
+{
+  "kind": "arch_debt",
+  "location": "tests/test_coding.py（5 个用例：语法门禁×3 + 危险命令×2）",
+  "reason": "20260923 全量回归稳定失败：用例期望输出含「验证关卡」文案，实际被 permissions 层以 'Tool blocked by permissions: write' 提前拦截——测试期望串与 permissions 拦截文案不同步（HEAD 干净 worktree 稳定复现，存量漂移非新增）",
+  "due": "2026-10-08",
+  "resolve_hint": "先裁决语义：permissions 拦截发生早于语法门禁属预期行为 → 改用例期望与断言点；若门禁本应先于 permissions → 修执行序。勿只改文案糊弄",
+  "state": "open",
+  "created": "2026-09-23T16:20:00+00:00"
+}

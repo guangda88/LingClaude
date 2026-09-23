@@ -1,0 +1,9 @@
+{
+  "kind": "arch_debt",
+  "location": "tests/test_mcp_server.py conftest fixture（git commit -m init）",
+  "reason": "20260923 全量回归 16 errors 同一根因：fixture 内 git commit 以 exit 128 失败（容器 git 身份未配置/环境差异），16 个用例全部在 fixture 阶段炸出 subprocess.CalledProcessError。属环境性 debt 非代码缺陷",
+  "due": "2026-09-30",
+  "resolve_hint": "fixture 内显式配置 -c user.name/user.email 或复用仓库内既有测试 git 环境工厂；修后 16E 应全消",
+  "state": "open",
+  "created": "2026-09-23T16:20:00+00:00"
+}
