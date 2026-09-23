@@ -30,6 +30,9 @@ from typing import Any
 
 import pytest
 
+# M3 engine 侧判定与 G1 同源（2026-09-23 接管，见 _m3_scan 注释）
+from tests.test_p04_arch_guards import CORE_ENGINE_IMPORT_BASELINE, collect_core_engine_imports
+
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "lingclaude"
 CORE = SRC / "core"
@@ -379,12 +382,39 @@ def test_m2_no_seamtype_special_casing():
 # ── M3 依赖方向契约 ────────────────────────────────────────────────────────
 # core/ import 闭包不得指向 plugins/、engine/（含 importlib/__import__ 动态调用）。
 # G11 已覆盖静态 import plugins；本守卫补 G11 缺口：engine/ 方向 + 动态 import 点。
-# 豁免走台账（arch_exemption/M3，行级）：与 G1 白名单同源的 S3 纪律存量。
+# 2026-09-23 M3 接管：engine 侧【静态 import】判定改读 G1 计数基线
+# （CORE_ENGINE_IMPORT_BASELINE 单一事实源 + collect_core_engine_imports 共享收集，
+# test_g1_m3_shared_collector_contract 钉住两守卫同源）。行号快照式豁免对 engine
+# 静态侧退役——病灶：4787ec7 修剪使 tool_executor.py:187→:161，G1/M3 双红 6h+
+# 且 12 笔带病入库（守卫红期间无人拦截）。plugins/裸前缀/动态 import 点仍走
+# arch_exemption/M3 行级豁免（lines 字段），新点即红语义不变。
 M3_FORBIDDEN_PREFIXES = ("lingclaude.engine", "lingclaude.plugins", "engine", "plugins")
 
 
-def _m3_scan() -> list[str]:
-    exempt = _active_exemptions("M3")
+def _m3_engine_side_violations(found: dict[str, list[int]]) -> list[str]:
+    """engine 侧静态违规 = 与 G1 逐字同口径的基线判定（钉子测试对账用）。"""
+    violations = []
+    for key, lines in sorted(found.items()):
+        limit = CORE_ENGINE_IMPORT_BASELINE.get(key)
+        if limit is None:
+            violations.append(
+                f"{key}: 基线外新文件 {len(lines)} 条 core→engine import"
+                f"（M3 同 G1 口径，行号 {sorted(lines)}）"
+            )
+        elif len(lines) > limit:
+            violations.append(
+                f"{key}: 实际 {len(lines)} 条 > 基线 {limit}"
+                f"（M3 同 G1 口径，行号 {sorted(lines)}）"
+            )
+    return violations
+
+
+def _m3_plugin_side_scan(exempt: dict) -> list[str]:
+    """plugins/裸前缀/动态 import 点扫描（行级豁免语义保持不变）。
+
+    engine 侧静态 import 在此跳过——已归 G1 基线判定；动态 engine import
+    仍属「新增点」，行级豁免可覆盖（计数基线不含动态调用，属 G1 口径外）。
+    """
     violations = []
     for f in _py_files(CORE):
         rel = _label(f)
@@ -395,8 +425,7 @@ def _m3_scan() -> list[str]:
         if tree is None:
             continue
         for node in ast.walk(tree):
-            mods = []
-            kind = None
+            mods, kind = [], None
             if isinstance(node, ast.ImportFrom) and node.module:
                 mods, kind = [node.module], "import"
             elif isinstance(node, ast.Import):
@@ -411,14 +440,27 @@ def _m3_scan() -> list[str]:
             ):
                 mods, kind = [node.args[0].value], "dynamic"
             for m in mods:
-                if m.startswith(M3_FORBIDDEN_PREFIXES):
-                    if node.lineno not in allowed_lines:
-                        violations.append(f"{rel}:{node.lineno} [{kind}] {m}")
+                if not m.startswith(M3_FORBIDDEN_PREFIXES):
+                    continue
+                if kind != "dynamic" and m.startswith("lingclaude.engine"):
+                    continue  # engine 侧静态 import 归 G1 基线（2026-09-23 接管）
+                if node.lineno not in allowed_lines:
+                    violations.append(f"{rel}:{node.lineno} [{kind}] {m}")
     return violations
 
 
+def _m3_scan() -> list[str]:
+    """M3 违规全集 = engine 静态侧（G1 基线接管）+ plugins/动态侧（行级豁免）。"""
+    exempt = _active_exemptions("M3")
+    return _m3_engine_side_violations(collect_core_engine_imports()) + _m3_plugin_side_scan(exempt)
+
+
 def test_m3_dependency_direction():
-    """M3（律）：core/ 依赖封闭 —— 不 import/动态加载 plugins/、engine/ 新增点。"""
+    """M3（律）：core/ 依赖封闭 —— 不 import/动态加载 plugins/、engine/ 新增点。
+
+    2026-09-23 起 engine 静态侧与 G1 同基线（棘轮只缩不放）；plugins/动态侧
+    行级豁免（arch_exemption/M3）语义不变。
+    """
     violations = _m3_scan()
     assert not violations, (
         "M3 违规：core/ 新增对 plugins//engine/ 的依赖（含动态 import；"

@@ -204,15 +204,14 @@ def _count_dict_error_handlers() -> list[str]:
     return hits
 
 
-def test_g1_core_engine_imports_count_baseline():
-    """G1 换代版（2026-09-23）：按文件计数上限匹配，替代易漂移的行号键。
+def collect_core_engine_imports() -> dict[str, list[int]]:
+    """core→engine import 全量收集：{rel_path: [lineno, ...]}。
 
-    旧行号键在 30 天内 3 次被动跟号（c9d09b9/43e2676/c3102e1）、第 4 次失手
-    （4787ec7 修剪使 tool_executor.py:187→:161）造成假红 + 带病入库。
-    新口径：core 文件内 lingclaude.engine import 总条数 <= 基线（棘轮只缩不放）；
-    行号清单仅作失败诊断输出，不参与判定。收缩清偿时同步下调基线并删注释行号。
+    单一事实源：G1 计数上限与本文件其他判定、以及铁律守卫 M3 的 engine 侧
+    共同消费（2026-09-23 M3 接管）。两守卫对同一条边只记一次账、判定同源，
+    行号快照式豁免从此退役（行号漂移假红病灶见 test_g1 docstring）。
     """
-    found = {}
+    found: dict[str, list[int]] = {}
     for f in _py_files(SRC / "core"):
         tree = _parse(f)
         if tree is None:
@@ -225,6 +224,43 @@ def test_g1_core_engine_imports_count_baseline():
                 mods = [a.name for a in node.names]
             if any(m.startswith("lingclaude.engine") for m in mods):
                 found.setdefault(_label(f), []).append(node.lineno)
+    return found
+
+
+def test_g1_m3_shared_collector_contract():
+    """M3 接管的同源保证（钉子）：铁律 M3 的 engine 侧违规必须与 G1 基线判定一致。
+
+    若任一守卫口径被单独改动（前缀增删/收集器变更），本测试强制显式失败，
+    防止两守卫静默分叉重演行号漂移假红。
+    """
+    from tests.test_iron_law_guards import _m3_engine_side_violations
+
+    found = collect_core_engine_imports()
+    expected = []
+    for key, lines in sorted(found.items()):
+        limit = CORE_ENGINE_IMPORT_BASELINE.get(key)
+        if limit is None:
+            expected.append(
+                f"{key}: 基线外新文件 {len(lines)} 条 core→engine import"
+                f"（M3 同 G1 口径，行号 {sorted(lines)}）"
+            )
+        elif len(lines) > limit:
+            expected.append(
+                f"{key}: 实际 {len(lines)} 条 > 基线 {limit}"
+                f"（M3 同 G1 口径，行号 {sorted(lines)}）"
+            )
+    assert _m3_engine_side_violations(found) == expected
+
+
+def test_g1_core_engine_imports_count_baseline():
+    """G1 换代版（2026-09-23）：按文件计数上限匹配，替代易漂移的行号键。
+
+    旧行号键在 30 天内 3 次被动跟号（c9d09b9/43e2676/c3102e1）、第 4 次失手
+    （4787ec7 修剪使 tool_executor.py:187→:161）造成假红 + 带病入库。
+    新口径：core 文件内 lingclaude.engine import 总条数 <= 基线（棘轮只缩不放）；
+    行号清单仅作失败诊断输出，不参与判定。收缩清偿时同步下调基线并删注释行号。
+    """
+    found = collect_core_engine_imports()
     violations = []
     for key, count in sorted(CORE_ENGINE_IMPORT_BASELINE.items()):
         actual = found.pop(key, [])

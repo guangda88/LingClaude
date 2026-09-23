@@ -1,12 +1,9 @@
 {
   "guard": "M3",
   "file": "core/query_engine_turn_mixin.py",
-  "lines": [
-    164,
-    303
-  ],
-  "reason": "P0-A 过渡态: usage遥测兜底函数内延迟import engine/loop/loop_body; L1收尾回收; +_pre_check_compact 延迟import(303)",
+  "reason": "P0-A 过渡态: usage遥测兜底函数内延迟import engine/loop/loop_body; L1收尾回收; +_pre_check_compact 延迟import(303) | 2026-09-23 M3 接管: engine 静态边归 G1 计数基线, lines[164, 303] 退役(含伴生死行号, AST 实测); 本单仅存续于 plugins/动态 import 边。 注意: lines=[] 为显式无豁免行(空表非缺省——缺省即整文件豁免语义), plugins/动态边照常执法。",
   "granted": "2026-09-22",
   "state": "active",
-  "review_due": "2026-10-31"
+  "review_due": "2026-10-31",
+  "lines": []
 }

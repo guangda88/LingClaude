@@ -1,0 +1,9 @@
+{
+  "kind": "arch_debt",
+  "location": "tests/test_iron_law_guards.py::_m3_plugin_side_scan（M3 动态 import 检测点）",
+  "reason": "M3 动态 import 检测只认裸名 import_module(...)/__import__(...)（ast.Name 判断），属性形式 importlib.import_module('lingclaude.engine.*') 实测逃逸（2026-09-23 探针实锚：core 注入属性形动态 engine import，M3 零违规、消息体无记录）。该缺口为守卫原实现逐字保留，git 溯源非本次 M3 接管引入；接管重构中如实转债务，未做行为变更。",
+  "due": "2026-10-31",
+  "resolve_hint": "ast.Call(func=ast.Attribute(attr in ('import_module','__import__'))) 一并纳入收集（importlib.util 视形态补）；修后三式探针回归：裸名/属性形/字符串拼接（后者可声明检测边界外）。与 M2/M3 既有清偿潮同批处理。",
+  "state": "open",
+  "created": "2026-09-23T16:55:00+00:00"
+}
