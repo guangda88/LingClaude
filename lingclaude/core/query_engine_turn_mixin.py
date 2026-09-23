@@ -24,6 +24,7 @@ from lingclaude.core.layered_memory import EmotionIntensity, Experience
 from lingclaude.core.redact import redact as _redact_text
 from lingclaude.core.types import Result, is_tool_error
 from lingclaude.core.model_types import ModelMessage, MessageRole
+from lingclaude.core.session_token_sink import record_turn_usage  # D3 清偿 (2026-09-24)
 
 logger = logging.getLogger(__name__)
 
@@ -192,12 +193,24 @@ class QueryEngineTurnMixin:
             self._last_model = (
                 str(resolved_config.model) if resolved_config else getattr(self, "_last_model", "?")
             )
-            self._monitor.record_usage(
+            # D3 清偿 (2026-09-24): session 维度真实 token 落盘——经 record_turn_usage
+            # 组装 metadata 走同一 legacy_sink 链（灵忆镜像 + session_token_sink JSON 落盘），
+            # 不在 monitor 外双路写；聚合层口径不变（task_type/total 同旧语义）。
+            # round_idx: _finalize_turn 时 _messages 尚未 append，turn_count+1 = 本轮 1-based。
+            record_turn_usage(
+                self._monitor,
+                session_id=str(getattr(self, "session_id", "unknown")),
+                round_idx=self.turn_count + 1,
                 model=str(resolved_config.model) if resolved_config else "unknown",
-                task_type="unknown",
-                total_tokens=total_input + total_output,
+                provider=(
+                    type(self._provider).__name__.removesuffix("Provider").lower()
+                    if self._provider is not None
+                    else "unknown"
+                ),
                 input_tokens=total_input,
                 output_tokens=total_output,
+                cached_tokens=total_cached,
+                task_type="unknown",
             )
             # 2026-09-21 (前缀缓存优化 P0-2): 脱敏前移到写入点——历史一经写入
             # 即为脱敏后的稳定字节，发送时原样透传（见 _build_messages 注释）。

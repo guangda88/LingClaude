@@ -240,13 +240,35 @@ def _make_aggregator(ctx: WiringContext) -> Any:
 
 
 def _make_monitor(ctx: WiringContext) -> Any:
+    from lingclaude.core.session_token_sink import SessionTokenSink
     from lingclaude.core.token_monitor import TokenMonitor
 
     # P3.4 双写：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
     # （与 P3.2/P3.3 同一开关、同一纪律；主路默认零依赖）
     # LingMemoryTokenSink 已在模块级导入（g3 纪律）
-    sink = LingMemoryTokenSink() if dualwrite_enabled() else None
-    return TokenMonitor(legacy_sink=sink)
+    lingyi_sink = LingMemoryTokenSink() if dualwrite_enabled() else None
+    # D3 清偿 (2026-09-24): session 维度真实 token 落盘（arch_review
+    # review-20260923-jev-laya-24h-consumption.json D3：117,421 sessions
+    # 0 含 token 字段的 schema 盲区）。默认开，LINGCLAUDE_SESSION_TOKEN_SINK=off
+    # 关闭；旁路纪律与灵忆桥同款（best-effort，绝不炸主路）。
+    session_sink = SessionTokenSink()
+    sink = _ChainedSink([s for s in (lingyi_sink, session_sink) if s is not None])
+    return TokenMonitor(legacy_sink=sink or None)
+
+
+class _ChainedSink:
+    """legacy_sink 链式分发：逐个调用，逐个吞错（旁路纪律：永不重抛）。"""
+
+    def __init__(self, sinks: list) -> None:
+        self._sinks = sinks
+
+    def on_usage(self, usage: dict) -> None:
+        for s in self._sinks:
+            try:
+                s.on_usage(usage)
+            except Exception as e:  # noqa: BLE001 — 旁路纪律，见 _emit_legacy_sink
+                logger.warning("[_ChainedSink] %s 镜像失败（已忽略）: %s",
+                               type(s).__name__, e)
 
 
 def _make_prior_verifier(ctx: WiringContext) -> Any:

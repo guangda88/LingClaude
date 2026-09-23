@@ -1,5 +1,5 @@
 {
-  "head": "442a4dc",
+  "head": "38ecbf0",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "04f0d46ddb0e",
     "tests/test_iron_law_guards.py": "970706c17bfa",
@@ -38,7 +38,7 @@
     "arch_debt:tests-coding-copy-drift": "b42982bc2e36",
     "arch_debt:tests-mcp-server-fixture-git-env": "5d60b857ebdf",
     "arch_debt:topic-stack-export-view-j4-migration": "bd90a94f8d64",
-    "arch_debt:xdist-state-write-race": "a62d4a81dfc9",
+    "arch_debt:xdist-state-write-race": "0feba70c3ed3",
     "arch_debt:zhibridge-mcp-unbuilt": "90d265374d4b",
     "arch_exemption:__init__.py": "0e8898f347fd",
     "arch_exemption:approval_matrix.py": "9ca5a26dee90",
@@ -151,5 +151,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-23T17:43:14+00:00"
+  "checked": "2026-09-23T22:55:35+00:00"
 }

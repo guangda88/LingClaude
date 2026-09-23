@@ -35,6 +35,21 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_session_token_sink(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D3 session token sink 测试污染隔离（2026-09-24 补漏）。
+
+    事故：wiring._make_monitor 无条件挂 SessionTokenSink（默认开），
+    真链路集成测试（test_n5_done_usage / test_ctx_gauge_fix 等）走
+    TokenMonitor→legacy_sink 时把桩 provider 数据写进了生产目录
+    ~/.lingclaude/state/session_token_usage/（37 份桩文件混入 1 份真数据）。
+    修复：全测试进程默认置 LINGCLAUDE_SESSION_TOKEN_SINK=off；
+    sink 模块单测经其模块级 autouse 夹具重置为 on（那些用例显式注入
+    root=tmp_path，不落生产目录；env 门在 root 之前生效，所以必须重置）。
+    """
+    monkeypatch.setenv("LINGCLAUDE_SESSION_TOKEN_SINK", "off")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_persistence_files(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """permissions/approval_matrix 持久化写点隔离到 tmp（2026-09-23 事故修复）。
 

@@ -1,0 +1,98 @@
+{
+  "kind": "arch_review_entry",
+  "contract": "docs/CORE_SURFACE_CONTRACT.md v1（DoD 判定标准）+ docs/research/20260923_jev_laya_decision_paradigm_24h_review.md",
+  "summary": "Jev/Laya 式决策模型 24h 内消费、收益、token 体感归因与 24h vs 前 24h 对比综述:9 维度消费全景(arch_ledger 引用层 / seam 接缝层 / NanoJev 内核 / P1 四件套 / 实测层 / 6 大类消费点 / 沙箱层 / 台账 / 数据流信号 / 自审)。架构收益高且确定(P0-A 循环纯化 + P1-0 Speculative Fan Out 挂 seam + 6 类消费点 0 LLM token + ECE 校准 + cost matrix 门控);实测吞吐收益在常规 lc 会话分布上当前 0 决策修正,挂账 due 2026-11-21 复核。用户体感'任务进展快 + token 消费多'是建范式期 vs 用范式期的两期曲线不矛盾:commits ×5.94× / docs ×9.91× / code ×1.58× / token(估算)×8×。token 增多主要在 docs 落盘 + commit 仪式,不是 LLM 调用。关键 schema 盲区:仓内 117421 sessions 中 0 含 token 字段,真实 LLM token 消费无落盘数据,需 task_scheduler.total_tokens_used 加 StateStore 落盘路径修复。",
+  "state": "open",
+  "created": "2026-09-23T20:35:00+08:00",
+  "evidence": {
+    "commits": [
+      "1f6c9c7 P0-C ref-typesafe-jev/ref-laya-system1 入册",
+      "6b4b37c P0-A 阶段0/1/L0",
+      "b026246 P0-A 阶段3 LingClaudeThread",
+      "3082d7f P1-0 Speculative Fan Out 挂 LoopHooks 子 seam",
+      "9064ce9 B1 FanOutScheduler 调度器真身",
+      "74c29c5 B2 confidence 门控实接",
+      "6883f1b P1-3/P1-1/P1-4/P1-2 四件套",
+      "9b5ed34 NanoJev 契约消费层",
+      "c3102e1 spec_decision 铺开消费点 ③④⑧⑨",
+      "6f56726 铺开消费点 ⑩",
+      "9790999 spec_decision 7 消费点默认转正",
+      "e6acfde 完成声明核验 + 测试失败分诊",
+      "d30911f Laya fast lane 实机判定质量验证脚本",
+      "304707b Laya v3 规范复测证据",
+      "01dc5b8 P1-4 fan_out 分支并行化 3.0×",
+      "38c894e fan_out 转正 + P0-2/P1-6/P1-7 收益验证",
+      "263270d P0-B 沙箱 Landlock/Seatland",
+      "2457d41 docs(audit) 3220 insertions"
+    ],
+    "verification": "本 review 是会话级综述,无单一 commit 验证;真数字已逐项落盘到 docs/research/20260923_jev_laya_decision_paradigm_24h_review.md §五;建议同步落盘 task_scheduler.total_tokens_used 加 StateStore 落盘路径以补 schema 盲区",
+    "metrics": {
+      "near_24h_commits": 95,
+      "prev_24h_commits": 16,
+      "commits_multiplier": "5.94x",
+      "near_24h_docs_files": 109,
+      "prev_24h_docs_files": 11,
+      "docs_multiplier": "9.91x",
+      "near_24h_code_files": 185,
+      "prev_24h_code_files": 117,
+      "code_multiplier": "1.58x",
+      "near_24h_insertions": 25803,
+      "prev_24h_insertions": 7677,
+      "insertions_multiplier": "3.36x",
+      "near_24h_commit_body_bytes": 72961,
+      "prev_24h_commit_body_bytes": 15846,
+      "commit_body_multiplier": "4.60x",
+      "near_24h_session_snapshots": 86,
+      "prev_24h_session_snapshots": 47,
+      "session_history_cells_near_24h": 3219,
+      "session_history_cells_prev_24h": 2281,
+      "token_field_present_in_session_history": "0/117421",
+      "snapshots_with_input_tokens_gt_0": "0/all"
+    }
+  },
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "docs 落盘密度需降低(2457d41 一笔 3220 insertions 是 token 爆炸点)",
+      "owner": "user",
+      "due": null,
+      "evidence": "本 review §六"
+    },
+    {
+      "id": "D2",
+      "decision": "commit body 需短化(当前平均 768 bytes/commit,目标 150-200 bytes)",
+      "owner": "user",
+      "due": null,
+      "evidence": "本 review §六"
+    },
+    {
+      "id": "D3",
+      "decision": "落盘真实 LLM token 计量(task_scheduler.total_tokens_used 加 StateStore 落盘) → 已清偿 2026-09-24：修复点改判（task_scheduler.mark_completed 是死接线，真实漏斗=_finalize_turn→TokenMonitor.record_usage），session_token_sink.py 经 wiring._ChainedSink 注入，落盘 ~/.lingclaude/state/session_token_usage/，schema 含 session_id/round_idx/input/output/cached/total/model/provider/task_type/created_at，单测 9 用例绿",
+      "owner": "user",
+      "due": null,
+      "evidence": "本 review §七 D3 清偿记录 + lingclaude/core/session_token_sink.py + tests/test_session_token_sink.py；生产抽验 da362765…/000004（in=124,149/cached=114,688，openai/glm-5.3-flash，2026-09-24 06:28）——真链路吃到生产数据；同日测试桩污染事故（37 份桩文件混入生产目录）已修：conftest autouse 置 LINGCLAUDE_SESSION_TOKEN_SINK=off + 回归钉 test_env_toggle_stops_default_root_writes",
+      "resolved": "2026-09-24"
+    },
+    {
+      "id": "D4",
+      "decision": "fan_out 调度收益复核(fast lane 0 决策修正 + Laya 冷启 21.6s 待解)",
+      "owner": "user",
+      "due": "2026-11-21",
+      "evidence": "data/arch_ledger/arch_debt/fastlane-dead-plugin-review.json"
+    },
+    {
+      "id": "D5",
+      "decision": "D3 遗留两项判读（2026-09-24）：①本地 fallback（submission.py:109-113）估算不落盘=设计如此——provider 存在时再估算会双重记账，无 provider 即无 LLM 消费，本就不该进真值台账，结案；②daemon P0 门禁加 token 不回退判据缓议——P0 门禁语义=行为基准分不回退、代理指标仅 tiebreaker（daemon.py:129-131），且生产 token 落盘 2026-09-24 才开始积累，攒满 4 周后评审基线与判据",
+      "owner": "user",
+      "due": "2026-10-24",
+      "evidence": "本 review §七 D3 清偿记录第 5 条 + lingclaude/core/submission.py:109-113 + lingclaude/self_optimizer/daemon.py:129-131"
+    }
+  ],
+  "notes": [
+    "本 review 与 docs/research/20260923_jev_laya_decision_paradigm_24h_review.md 配套:文档是消费全景 + 收益 + 体感归因 + 对比数据;本 entry 是台账级索引 + 决策 + 度量",
+    "memory 联动:lingclaude-decision-paradigm-token-tradeoff(用户体感归因) + lingclaude-token-schema-blind-spot(schema 盲区)",
+    "真读纪律:所有 commit hash、文件锚点、实测数字均真读验证;真数字与估算严格区分(铁律 §四)",
+    "D3 清偿联动：memory lingclaude-token-schema-blind-spot 已于 2026-09-24 更新（落盘路径已建，历史 session 仍估算口径，跨期对比需区分两期）",
+    "2026-09-24 债务清理会话：D3 生产抽验通过（真值到账）；测试桩污染生产目录事故发现并修复（conftest 全局 off 隔离 + 回归钉）；遗留两项判读入 D5（fallback=设计如此结案，daemon 门禁 token 判据缓议 due 2026-10-24）"
+  ]
+}

@@ -994,7 +994,8 @@ class OptimizationDaemon:
             history["snapshots"] = snapshots[-_BEHAVIOR_SNAPSHOT_CAP:]
             behavior_path = self.state_dir / "behavior_history.json"
             behavior_path.parent.mkdir(parents=True, exist_ok=True)
-            behavior_path.write_text(json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
+            from lingclaude.core.state_store import _atomic_write_json
+            _atomic_write_json(behavior_path, history)
             return Result.ok(None)
         except Exception as e:
             return Result.fail(f"Failed to save behavior history: {e}", code="IO_ERROR")
