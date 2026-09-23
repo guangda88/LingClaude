@@ -1,7 +1,7 @@
 {
   "name": "agent/lingflow",
   "target": "lingflow-carrier",
-  "display_name": "灵流",
+  "display_name": "灵通",
   "version": "0.1.0",
   "trust_level": "T2",
   "plug_level": "L1",

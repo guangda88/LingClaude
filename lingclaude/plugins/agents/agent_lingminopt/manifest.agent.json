@@ -1,7 +1,7 @@
 {
   "name": "agent/lingminopt",
   "target": "lingminopt-carrier",
-  "display_name": "灵敏优",
+  "display_name": "灵极优",
   "version": "0.1.0",
   "trust_level": "T2",
   "plug_level": "L1",

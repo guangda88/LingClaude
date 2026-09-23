@@ -1,0 +1,24 @@
+{
+  "type": "contract_drift",
+  "target": "agent_lingflow",
+  "state": "clean",
+  "fingerprint": "91181d645ef22b73",
+  "surface": {
+    "name": "agent/lingflow",
+    "version": "0.1.0",
+    "trust_level": "T2",
+    "plug_level": "L1",
+    "capabilities": [
+      "workflow_orchestration"
+    ],
+    "transport_kind": "platform",
+    "transport_command": null,
+    "cwd": "/home/ai/lingflow",
+    "stop_layer_kernel": "平台型载体（agents/ + data_v8_domain.jsonl，流程编排平台，AGENTS.md 在册）",
+    "stop_layer_seams": [
+      "family_agent"
+    ]
+  },
+  "recorded_at": "2026-09-23T22:47:34+00:00",
+  "git_head": "be1187b"
+}

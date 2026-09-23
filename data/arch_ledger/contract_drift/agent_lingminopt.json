@@ -1,0 +1,28 @@
+{
+  "type": "contract_drift",
+  "target": "agent_lingminopt",
+  "state": "clean",
+  "fingerprint": "8bb4edd97f56f3f5",
+  "surface": {
+    "name": "agent/lingminopt",
+    "version": "0.1.0",
+    "trust_level": "T2",
+    "plug_level": "L1",
+    "capabilities": [
+      "cli"
+    ],
+    "transport_kind": "cli",
+    "transport_command": [
+      "python3",
+      "-m",
+      "lingminopt.mcp_server"
+    ],
+    "cwd": "/home/ai/lingminopt",
+    "stop_layer_kernel": "CLI 载体（pyproject 实锤 lingminopt.cli.commands:cli）→ 模型轻量化/微调评测工具面",
+    "stop_layer_seams": [
+      "family_agent"
+    ]
+  },
+  "recorded_at": "2026-09-23T22:47:35+00:00",
+  "git_head": "be1187b"
+}

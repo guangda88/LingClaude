@@ -1,4 +1,4 @@
-"""灵敏优（lingminopt）插片——家族批量插片化（批2）。
+"""灵极优（lingminopt）插片——家族批量插片化（批2）。
 
 载体定性（2026-09-18 实测）：CLI 型（/home/ai/lingminopt）
 铁律锚点：manifest 全声明 + agent_family.McpAgentPluginBase（J4 run 全程 record 化 +
@@ -15,7 +15,7 @@ MANIFEST_PATH = Path(__file__).parent / "manifest.agent.json"
 
 
 class LingMinoptAgentPlugin(McpAgentPluginBase):
-    """agent/lingminopt 灵敏优插片（cli 型，manifest 全驱动）。"""
+    """agent/lingminopt 灵极优插片（cli 型，manifest 全驱动）。"""
 
     def _call_tool(self, tool: str, arguments: dict) -> str:
         if self._manifest["transport"].get("kind") != "mcp":
