@@ -14,6 +14,11 @@
 日志/快照: StateStore（data/arch_ledger/，type=arch_m6_snapshot）——
 2026-09-17 铁律返审后归原语：快照曾私连 logs/seam_trend.jsonl（J4 违例），
 现走 arch_ledger 同款台账，可 query/回放。
+2026-09-23 第二批整改（audit P0 #5）：①接缝口径快照迁移到独立命名空间
+arch_m6_seam_snapshot（此前 arch_m6_snapshot 被 datalog_aggregator.py 按日快照
+鸠占——7 份 JSON 全是 day/generated_at/models 维度，无一含 seam_impl_distribution，
+"双口径"实体）；②补运行时口径：SeamRegistry.snapshot() 热拔插状态入报，
+与静态扫描并列，分歧即显式标注（仪表不裁定，只显歧）。
 """
 from __future__ import annotations
 
@@ -32,7 +37,12 @@ sys.path.insert(0, str(ROOT))
 
 from lingclaude.core.state_store import StateStore  # noqa: E402
 
-T_SNAP = "arch_m6_snapshot"
+# 2026-09-23 audit P0 #5：接缝口径独立命名空间。arch_m6_snapshot 被飞轮
+# datalog_aggregator.py 的按日快照占用（7 份 JSON 均为 datalog 维度），本仪表
+# 的接缝快照若继续写同名 type，只会互相污染——"M6 双口径"的字面实体。
+T_SNAP = "arch_m6_seam_snapshot"
+# 遗留命名空间（datalog 口径）：比对告警用，迁移期共读不共写。
+T_SNAP_LEGACY = "arch_m6_snapshot"
 
 
 def _snap_store() -> StateStore:
@@ -114,18 +124,61 @@ def git_first_commit_age(rel_path: str) -> str | None:
 
 
 def load_last_snapshot() -> dict | None:
-    """取最近一次快照（StateStore，type=arch_m6_snapshot，按 ts key 排序）。"""
-    recs = []
+    """取最近一次快照（StateStore，type=arch_m6_seam_snapshot，按 ts key 排序）。
+
+    空命名空间时回读遗留 arch_m6_snapshot 并过滤：只认含接缝口径字段
+    （seam_impl_distribution）的历史记录——datalog 口径的鸠占快照不作为环比基线
+    （否则 total_specs 周环比会对着 datalog 字段算出垃圾 delta）。
+    """
     s = _snap_store()
-    d = s._json_backend._root / T_SNAP
-    if d.is_dir():
+    for ns in (T_SNAP, T_SNAP_LEGACY):
+        d = s._json_backend._root / ns
+        if not d.is_dir():
+            continue
+        recs = []
         for f in sorted(d.glob("*.json")):
             try:
                 rec = json.loads(f.read_text(encoding="utf-8"))
-                recs.append(rec)
             except (ValueError, OSError):
                 continue
-    return recs[-1] if recs else None
+            if "seam_impl_distribution" in rec:
+                recs.append(rec)
+        if recs:
+            return recs[-1]
+    return None
+
+
+def runtime_seam_snapshot() -> dict:
+    """运行时口径：SeamRegistry 热拔插状态实拍（P0 #5 整改——此前从未调用）。
+
+    进程内注册表在巡检进程里是空的，这里显式装载全部插件（等价主干启动路径
+    的 register 钩子），使运行时口径有真实内容；装载失败按 seam 隔离单列
+    （fail visible，不静默吞）。
+    """
+    from lingclaude.core.seam import SeamRegistry
+
+    loaded, failed = {}, []
+    for domain in sorted((SRC / "plugins").iterdir()):
+        if not domain.is_dir():
+            continue
+        for pdir in sorted(domain.iterdir()):
+            entry = pdir / "plugin.py"
+            if not entry.is_file():
+                continue
+            mod_name = f"lingclaude.plugins.{domain.name}.{pdir.name}.plugin"
+            try:
+                import importlib
+
+                mod = importlib.import_module(mod_name)
+                reg = getattr(mod, "register", None)
+                if callable(reg):
+                    reg(SeamRegistry)
+                loaded[f"{domain.name}/{pdir.name}"] = "ok"
+            except Exception as e:  # noqa: BLE001 —— 仪表不裁定，失败也要显歧
+                failed.append({"plugin": f"{domain.name}/{pdir.name}",
+                               "error": f"{type(e).__name__}: {e}"})
+    return {"registry": SeamRegistry.snapshot(), "plugins_loaded": loaded,
+            "plugins_failed": failed}
 
 
 def load_closed_reviews() -> dict[str, dict]:
@@ -197,11 +250,21 @@ def main() -> int:
         "total_specs": total_specs,
         "specs_by_file": specs,
         "total_specs_delta_vs_last": spec_delta,
+        # P0 #5 整改：运行时口径入报（SeamRegistry 实拍），与静态扫描并列。
+        "runtime": runtime_seam_snapshot(),
         # 静态口径盲区修复：单实现观察必须带卷宗审查状态（如有）。
         # 静态计数与卷宗运行时计数分歧时，以卷宗为准并显式标 reviewed，
         # 静态结论降级为线索（J5 四条件之 2：单口径不作裁定）。
         "closed_reviews": reviews,
     }
+    # 双口径显歧：静态扫描点 vs 运行时注册数（仪表不裁定，分歧必须可见）
+    rt = report["runtime"]["registry"]
+    divergences = {}
+    for st in sorted(set(dist) | set(rt)):
+        sc, rc = dist.get(st, 0), len(rt.get(st, []))
+        if sc != rc:
+            divergences[st] = {"static_scan": sc, "runtime_registry": rc}
+    report["static_vs_runtime_divergence"] = divergences
     for st in list(single_impl_ages):
         if st in reviews:
             rv = reviews[st]
@@ -239,15 +302,24 @@ def main() -> int:
         print(f"\n[3] 装配 spec 总数: {total_specs}"
               + (f"（较上次快照 {'+' if (spec_delta or 0) >= 0 else ''}{spec_delta}）" if spec_delta is not None else "（首次巡检，无环比）"))
         print("\n定位提醒：仪表不判对错；单实现≠必回收，需结合扩展意图人工审查（铁律修剪语法）。")
+        if report["static_vs_runtime_divergence"]:
+            print("\n[!] 静态 vs 运行时口径分歧（仪表只显歧不裁定）:")
+            for st, d in report["static_vs_runtime_divergence"].items():
+                print(f"  {st:<14} 静态扫描={d['static_scan']}  运行时注册={d['runtime_registry']}")
+        if report["runtime"]["plugins_failed"]:
+            print("\n[!] 插件装载失败（fail visible，不静默吞）:")
+            for f in report["runtime"]["plugins_failed"]:
+                print(f"  {f['plugin']}: {f['error']}")
 
     # 追加快照（StateStore 归原语；key=UTC ts，可按时间回放）
+    # P0 #5 整改：独立命名空间 arch_m6_seam_snapshot，不再与 datalog 口径共写
     s = _snap_store()
     snap_key = report["ts"].replace(":", "").replace("+", "Z")
     import sys as _sys
 
     (s._json_backend._root / T_SNAP).mkdir(parents=True, exist_ok=True)
     s.save(T_SNAP, snap_key, report)
-    print(f"\n快照已入册: arch_m6_snapshot/{snap_key}", file=_sys.stderr)
+    print(f"\n快照已入册: {T_SNAP}/{snap_key}", file=_sys.stderr)
     return 0
 
 

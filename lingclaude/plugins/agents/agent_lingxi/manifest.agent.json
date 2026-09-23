@@ -41,5 +41,12 @@
     "absent_after": 2
   },
   "state_record": "agent_run:lingxi",
-  "notes": "Phase 1 试验田（用户 2026-09-17 裁定）：MCP 已知就绪最快跑通；T1 全审计（协议同源基础设施）；L1 替换（unregister 后 lc 主干照跑）。铁律 7：缝 key 带域前缀 agent/；铁律 6：trust/plug 双声明；铁律 3：run 全程 record 化。探针债务 2026-09-17 清偿（修订史 20260917-21）：--use-openssl-ca + 弃 npx + 补 clientInfo.version + caller 身份声明。"
+  "notes": "Phase 1 试验田（用户 2026-09-17 裁定）：MCP 已知就绪最快跑通；T1 全审计（协议同源基础设施）；L1 替换（unregister 后 lc 主干照跑）。铁律 7：缝 key 带域前缀 agent/；铁律 6：trust/plug 双声明；铁律 3：run 全程 record 化。探针债务 2026-09-17 清偿（修订史 20260917-21）：--use-openssl-ca + 弃 npx + 补 clientInfo.version + caller 身份声明。",
+  "contract_anchor": {
+    "guard": "N5",
+    "record": "contract_drift/agent-agent_lingxi",
+    "fingerprint_algo": "sha256(json(contract_surface, sort_keys=True))[:16]",
+    "verified": "2026-09-23",
+    "note": "T3 契约漂移侦测锚点：契约面=capabilities+transport+stop_layer；对账命令 python3 scripts/contract_drift.py check agent:agent_lingxi（漂移退出 1）；N1 周期对账复用同一指纹器（scripts/n1_federation_audit.py）"
+  }
 }

@@ -1,0 +1,9 @@
+{
+  "kind": "hardcoded_direct",
+  "location": "lingclaude/plugins/agents/{agent_family.py:47} × 20 个家族插片 plugin.py register()",
+  "reason": "M6 双口径开通即抓到（audit P0#5 第二批整改，2026-09-23）：20 个家族插片（agent_lingan/lingflow/lingweb/lingmessage/lingzhi/lingyang/lingcreate/lingminopt/lingresearch/lingtongask/proj_lingdai/lingkang/lingshi/linglv/lingshang/lingsheng/lingchu/agent_zhibridge 等）的 register() 全部写 XxxPlugin() 无参构造，而 McpAgentPluginBase.__init__(manifest_path) 必填——import 成功但 register 必抛 TypeError，主干从未真正挂载（静态扫描 34 个 register 调用点 vs SeamRegistry 运行时实拍仅 6 缝：agent/lc-guard,agent/lingxi,cap/browser,cap/infer,cap/inspect,os/resource）。各 plugin.py 顶部 MANIFEST_PATH 常量已定义但无人传入。与 fastlane-dead-plugin-review 同类：'提交了≠运行了'。",
+  "due": "2026-10-15",
+  "resolve_hint": "register() 改 XxxPlugin(MANIFEST_PATH)（常量就在同文件）；修完跑 scripts/seam_trend_inspect.py 看 static_vs_runtime_divergence 归零；20 个插件逐一 probe（guard 健康探针 absent_after 纪律）",
+  "state": "open",
+  "created": "2026-09-23T12:56:14+00:00"
+}

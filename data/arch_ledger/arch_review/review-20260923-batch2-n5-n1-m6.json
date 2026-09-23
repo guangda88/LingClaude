@@ -1,0 +1,31 @@
+{
+  "type": "arch_review",
+  "key": "review-20260923-batch2-n5-n1-m6",
+  "title": "第二批整改落地：N5 契约漂移守卫 + N1 周期对账 + M6 双口径（audit P0 #1/#4/#5）",
+  "as_of": "2026-09-23",
+  "head": "96aeaa7",
+  "changes": {
+    "P0#1_N5": [
+      "新建 scripts/contract_drift.py（新命名空间，避开 n5_* CLI 前缀）：行为指纹 = 契约面（capabilities+transport+stop_layer）归一化 SHA-256[:16]，record/check/show 三态命令，drift 退出 1",
+      "agent_lingxi manifest 加 contract_anchor（N5 锚点），契约面不含 anchor 自身（锚点不参与指纹）",
+      "首记 clean：agent_lingxi fp=94d21a8a22dc79fc + lc_mcp_guard fp=045478fb95808235（type=contract_drift）"
+    ],
+    "P0#4_N1": [
+      "新建 scripts/n1_federation_audit.py：federation_pair 双 record 对账（缺一/不一致/指针未互指即警）+ --fix 自动补建对偶 + 六态 transition 状态机（dissolved 联动不留半边）",
+      "绑 N5：共享 behavior_fingerprint 指纹器；指纹分歧 = drift 进入条件，告警自动触发 paired→drift transition（六态机首次跑活）",
+      "整改验证：漂移注入→自动 drift→指纹恢复→显式 restored→对账绿→归位 paired（transition 史留档 lc-ac/ac-lc record）"
+    ],
+    "P0#5_M6": [
+      "scripts/seam_trend_inspect.py 补运行时口径：显式装载全部插件 register + SeamRegistry.snapshot() 实拍入报（此前从未调用）",
+      "双口径显歧：static_vs_runtime_divergence 字段（静态扫描 34 register 点 vs 运行时 6 缝）+ 装载失败 fail visible",
+      "快照命名空间分开：接缝口径迁 arch_m6_seam_snapshot（arch_m6_snapshot 被 datalog_aggregator 鸠占——7 份 JSON 全 datalog 维度，P0#5'双口径'实体坐实）；环比基线过滤 datalog 形态",
+      "入 CI：arch-guards job 新增 N5 check / N1 audit / M6 snapshot 三步骤"
+    ]
+  },
+  "new_debt": {
+    "slug": "m6-family-carriers-register-hook-broken",
+    "due": "2026-10-15",
+    "summary": "M6 运行时口径开通即抓到：20 个家族插片 register() 全部无参构造 vs McpAgentPluginBase.__init__(manifest_path) 必填——import 成功但装载必炸，主干从未挂载（'提交了≠运行了'又一实证，与 fastlane-dead-plugin-review 同类）"
+  },
+  "tests": "tests/agents/test_batch2_n5_n1_m6.py 15 项（N5×5 / N1×6 / M6×4），全绿；守卫回归 test_iron_law_guards 8 绿 + test_iron_law_5_8 22 绿 + test_work_claim/test_guard_wiring 绿"
+}

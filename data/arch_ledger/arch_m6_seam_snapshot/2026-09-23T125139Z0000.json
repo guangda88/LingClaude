@@ -1,0 +1,199 @@
+{
+  "ts": "2026-09-23T12:51:39+00:00",
+  "seam_impl_distribution": {
+    "AGENT": 23,
+    "MULTIMODAL": 1,
+    "ORCHESTRATOR": 1,
+    "PROVIDER": 2,
+    "RESOURCE": 2,
+    "SANDBOX": 8,
+    "TOOL": 1
+  },
+  "single_impl_seams": {
+    "MULTIMODAL": {
+      "file": "lingclaude/seams/multimodal_lingtong.py",
+      "first_commit": "2026-09-15"
+    },
+    "ORCHESTRATOR": {
+      "file": "lingclaude/seams/research_crew.py",
+      "first_commit": "2026-09-15"
+    },
+    "TOOL": {
+      "file": "lingclaude/engine/tools.py",
+      "first_commit": "2026-04-03",
+      "review_status": "reviewed",
+      "review_case": "first-seam-recycling-review",
+      "review_verdict": "留任（不回收）",
+      "static_count_divergence": "静态=1 但卷宗实测运行时=26，静态口径失真，以卷宗为准（②③联合否决①）"
+    }
+  },
+  "total_specs": 60,
+  "specs_by_file": {
+    "lingclaude/core/wiring.py": 60
+  },
+  "total_specs_delta_vs_last": 0,
+  "runtime": {
+    "registry": {
+      "agent": [
+        "agent/lc-guard",
+        "agent/lingxi",
+        "cap/browser"
+      ],
+      "provider": [
+        "cap/infer"
+      ],
+      "resource": [
+        "cap/inspect",
+        "os/resource"
+      ]
+    },
+    "plugins_loaded": {
+      "agents/agent_lingxi": "ok",
+      "agents/cap_browser": "ok",
+      "agents/cap_infer": "ok",
+      "agents/cap_inspect": "ok",
+      "agents/lc_mcp_guard": "ok",
+      "agents/os_resource": "ok",
+      "agents/proj_family_meeting": "ok",
+      "tools/ast": "ok",
+      "tools/bash": "ok",
+      "tools/file_ops": "ok",
+      "tools/git": "ok",
+      "tools/read": "ok",
+      "tools/web": "ok"
+    },
+    "plugins_failed": [
+      {
+        "plugin": "agents/agent_lingan",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingcreate",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingflow",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingmessage",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingminopt",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingresearch",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingtongask",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingweb",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingyang",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_lingzhi",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/agent_zhibridge",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_agent_gateway",
+        "error": "ValueError: N3: 域前缀 'proj' 不在 ('core', 'agent', 'cap', 'os', 'hw') 五域内（name='proj/agent-gateway'）"
+      },
+      {
+        "plugin": "agents/proj_lingchu",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_lingdai",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_lingkang",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_linglv",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_lingshang",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_lingsheng",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_lingshi",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      },
+      {
+        "plugin": "agents/proj_lingyi",
+        "error": "TypeError: McpAgentPluginBase.__init__() missing 1 required positional argument: 'manifest_path'"
+      }
+    ]
+  },
+  "closed_reviews": {
+    "TOOL": {
+      "case": "first-seam-recycling-review",
+      "verdict": "留任（不回收）",
+      "opened": "2026-09-17",
+      "static_count_M6": 1,
+      "runtime_count": 26
+    }
+  },
+  "static_vs_runtime_divergence": {
+    "AGENT": {
+      "static_scan": 23,
+      "runtime_registry": 0
+    },
+    "MULTIMODAL": {
+      "static_scan": 1,
+      "runtime_registry": 0
+    },
+    "ORCHESTRATOR": {
+      "static_scan": 1,
+      "runtime_registry": 0
+    },
+    "PROVIDER": {
+      "static_scan": 2,
+      "runtime_registry": 0
+    },
+    "RESOURCE": {
+      "static_scan": 2,
+      "runtime_registry": 0
+    },
+    "SANDBOX": {
+      "static_scan": 8,
+      "runtime_registry": 0
+    },
+    "TOOL": {
+      "static_scan": 1,
+      "runtime_registry": 0
+    },
+    "agent": {
+      "static_scan": 0,
+      "runtime_registry": 3
+    },
+    "provider": {
+      "static_scan": 0,
+      "runtime_registry": 1
+    },
+    "resource": {
+      "static_scan": 0,
+      "runtime_registry": 2
+    }
+  }
+}

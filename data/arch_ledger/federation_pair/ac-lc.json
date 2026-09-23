@@ -10,5 +10,25 @@
   "note_reverse": "2026-09-18 双向铺平补充（lc 调外部 agent 方向）：lc 经自身 .mcp.json 的 agent-gateway 薄壳（proj/agent-gateway，5 工具 agent_invoke/agent_chat/agent_batch/agent_status/agent_list）消费 ac（headless atomcode -p，绕开 daemon goal 面 401）+ cc/codex/crush/opencode。T3 只观测 + L2 缺席降级。ac 侧实测：agent_invoke(ac) 经 MCP 客户端出 PONG，agent_run:agent-gateway record succeeded 入账。",
   "counterpart": "data/arch_ledger/federation_pair/lc-ac.json",
   "trust_level": "T1",
-  "created_by": "lingclaude"
+  "created_by": "lingclaude",
+  "transitions": [
+    {
+      "from": "paired",
+      "to": "drift",
+      "at": "2026-09-23T12:47:35+00:00",
+      "note": "N1 周期对账自动降级: state 不一致"
+    },
+    {
+      "from": "drift",
+      "to": "restored",
+      "at": "2026-09-23T12:47:35+00:00",
+      "note": "对偶同步恢复"
+    },
+    {
+      "from": "restored",
+      "to": "paired",
+      "at": "2026-09-23T12:49:02+00:00",
+      "note": "对偶同步归位"
+    }
+  ]
 }

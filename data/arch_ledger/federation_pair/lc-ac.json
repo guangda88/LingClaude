@@ -14,5 +14,25 @@
     "ac_side": ".mcp.json mcpServers.lc-guard（ac 经 MCP 消费 lc 守卫面）",
     "lc_side": "lingclaude/plugins/agents/lc_mcp_guard/{manifest,server,plugin} + agent_registry/agent/lc-guard",
     "note": "两侧对偶 record 齐，state 一致（paired）。N1 周期对账（缺一/不一致即警）已建立。"
-  }
+  },
+  "transitions": [
+    {
+      "from": "paired",
+      "to": "drift",
+      "at": "2026-09-23T12:47:35+00:00",
+      "note": "N1 周期对账自动降级: fingerprint"
+    },
+    {
+      "from": "drift",
+      "to": "restored",
+      "at": "2026-09-23T12:47:35+00:00",
+      "note": "指纹对账恢复（整改验证）"
+    },
+    {
+      "from": "restored",
+      "to": "paired",
+      "at": "2026-09-23T12:49:02+00:00",
+      "note": "对账绿（P0#4 整改验证完成后归位）"
+    }
+  ]
 }

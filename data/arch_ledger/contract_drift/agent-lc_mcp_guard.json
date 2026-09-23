@@ -1,0 +1,32 @@
+{
+  "type": "contract_drift",
+  "target": "agent:lc_mcp_guard",
+  "state": "clean",
+  "fingerprint": "045478fb95808235",
+  "surface": {
+    "name": "agent/lc-guard",
+    "version": "0.1.0",
+    "trust_level": "T1",
+    "plug_level": "L1",
+    "capabilities": [
+      "lc_audit_tasks",
+      "lc_audit_trigger",
+      "lc_law_read",
+      "lc_ledger_query",
+      "lc_org_query",
+      "lc_workclaim_query"
+    ],
+    "transport_kind": "mcp",
+    "transport_command": [
+      "python3",
+      "lingclaude/plugins/agents/lc_mcp_guard/server.py"
+    ],
+    "cwd": "/home/ai/lingclaude",
+    "stop_layer_kernel": "FastMCP stdio → lc 守卫/台账查询面（self_audit_trigger + arch_ledger + ling_org + 铁律条文）",
+    "stop_layer_seams": [
+      "guard_tool"
+    ]
+  },
+  "recorded_at": "2026-09-23T12:47:35+00:00",
+  "git_head": "96aeaa7"
+}
