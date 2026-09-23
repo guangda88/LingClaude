@@ -34,6 +34,53 @@ class TestScoreParams:
         events = [(t, e) for t, errs in runs for e in errs]
         return [SessionTrace(session_id="s1", events=events)]
 
+    def _bilateral_trace(self, events: list[tuple[str, bool]]) -> list[SessionTrace]:
+        """F6: 双边事件 → 单 session 轨迹。events: [(tool, success)]"""
+        ev = [(t, "" if ok else "err", ok) for t, ok in events]
+        return [SessionTrace(session_id="s1", events=ev)]
+
+    # ---- F6 churn 反力项 ----
+
+    def test_churn_penalty_pushes_rl_up(self):
+        # 纯成功长段(6)：rl 越小误拦越多 → 代价单调下降（推高 rl）
+        tr = self._bilateral_trace([("bash", True)] * 6)
+        scores = {
+            rl: score_params(tr, {"consecutive_fail_limit": 3, "tool_repeat_limit": rl})
+            for rl in (2, 4, 6)
+        }
+        assert scores[2] > scores[4] > scores[6]
+        assert scores[6] == 0.0  # rl ≥ 段长 → 无误拦
+
+    def test_churn_zero_without_bilateral_data(self):
+        # 单边语料（二元组，success 视为 False）→ churn 项归零，退化 F1 语义
+        tr = self._trace([("bash", ["ok-ish"] * 6)])
+        assert score_params(
+            tr, {"consecutive_fail_limit": 3, "tool_repeat_limit": 2}
+        ) == score_params(tr, {"consecutive_fail_limit": 3})
+        # 对照：纯失败段不走 churn 分支，走误差分支
+        assert score_params(
+            tr, {"consecutive_fail_limit": 3}
+        ) == pytest.approx(0.1 * 2 + 1.0 + 0.6)
+
+    def test_bilateral_mixed_runs_scored_by_side(self):
+        # 成功段(rl=4 误拦) + 失败段(fl=3 干预) 并存，两侧代价都计入
+        tr = self._bilateral_trace(
+            [("bash", True)] * 6 + [("read", False)] * 3
+        )
+        c = score_params(tr, {"consecutive_fail_limit": 3, "tool_repeat_limit": 4})
+        # churn: (6-4)*0.4 = 0.8；terminal: 0.1*2+1.0+0.6 = 1.8
+        assert c == pytest.approx(0.8 + 1.8)
+
+    def test_fl_rl_independent(self):
+        # fl 只影响失败段、rl 只影响成功段
+        tr = self._bilateral_trace(
+            [("bash", True)] * 5 + [("read", False)] * 4
+        )
+        base = score_params(tr, {"consecutive_fail_limit": 2, "tool_repeat_limit": 3})
+        move_fl = score_params(tr, {"consecutive_fail_limit": 5, "tool_repeat_limit": 3})
+        move_rl = score_params(tr, {"consecutive_fail_limit": 2, "tool_repeat_limit": 6})
+        assert move_fl > base and move_rl < base
+
     def test_terminal_fl1_blocks_early(self):
         # 终端长段(5)：fl=1 → 1次浪费+1次干预；fl=5 → 0.1*2+1*3+1干预
         tr = self._trace([("read", ["未找到匹配文本"] * 5)])
@@ -121,6 +168,42 @@ class TestLoadTraces:
 
     def test_missing_db_graceful(self, tmp_path):
         assert load_traces(tmp_path / "nope.db") == []
+
+    # ---- F6 双边表优先 ----
+
+    def _add_tool_events(self, db: Path, rows: list[tuple[str, str, int]]) -> None:
+        conn = sqlite3.connect(db)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tool_events (id INTEGER PRIMARY KEY,"
+            " session_id TEXT NOT NULL DEFAULT '', tool_name TEXT NOT NULL,"
+            " success INTEGER NOT NULL DEFAULT 1, occurred_at TEXT NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO tool_events (session_id, tool_name, success,"
+            " occurred_at) VALUES (?, ?, ?, ?)",
+            [(sid, tool, succ, f"2026-09-23T10:{i:02d}:00")
+             for i, (sid, tool, succ) in enumerate(rows)],
+        )
+        conn.commit()
+        conn.close()
+
+    def test_bilateral_table_preferred(self, tmp_path):
+        db = self._make_db(tmp_path)
+        # 双边表：s1 有 2 成功 + 1 失败；error_log 里的旧 s1 失败行不计
+        self._add_tool_events(db, [("s1", "bash", 1), ("s1", "bash", 1),
+                                   ("s1", "read", 0)])
+        traces = load_traces(db)
+        by_sid = {t.session_id: t for t in traces}
+        assert len(by_sid["s1"].events) == 3  # 双边表覆盖，非 error_log 的 2
+        assert [e[2] for e in by_sid["s1"].events] == [True, True, False]
+
+    def test_empty_bilateral_falls_back(self, tmp_path):
+        db = self._make_db(tmp_path)
+        self._add_tool_events(db, [])  # 表存在但空 → 回退 error_log
+        traces = load_traces(db)
+        by_sid = {t.session_id: t for t in traces}
+        assert len(by_sid["s1"].events) == 2
+        assert all(not e[2] for e in by_sid["s1"].events)  # 回退侧全 False
 
     def test_objective_empty_db_returns_zero(self, tmp_path):
         obj = ReplayObjective(db_path=tmp_path / "nope.db")

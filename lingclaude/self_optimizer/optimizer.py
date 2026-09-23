@@ -58,10 +58,10 @@ def _build_search_space(goal: str) -> SearchSpace:
     elif goal == "behavior":
         # F1 (2026-09-22): 搜索空间=被控对象 behavior_policy.yaml 的真实阈值
         # （原 structure 空间调的是 benchmark 题集自身阈值 → Goodhart 空转）。
-        # tool_repeat_limit 钳位保守区间：误差单边语料暂无反力项（见
-        # replay_objective.score_params docstring），待双边事件流接入放开。
+        # F6 (2026-09-23): 双边事件流接入，churn 反力项激活，rl 钳位放开
+        # [3,6]→[2,8]（纯误差单边时 churn 项归零，仍安全）。
         space.add_discrete("consecutive_fail_limit", [1, 2, 3, 4, 5, 6])
-        space.add_discrete("tool_repeat_limit", [3, 4, 5, 6])
+        space.add_discrete("tool_repeat_limit", [2, 3, 4, 5, 6, 7, 8])
 
     return space
 

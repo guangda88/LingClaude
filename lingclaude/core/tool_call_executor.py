@@ -26,6 +26,26 @@ class ToolCallExecutor:
 
     def __init__(self, engine: Any) -> None:
         self._engine = engine
+        self._flywheel: Any = None  # F6: 惰性缓存，避免每事件重建连接
+
+    def _log_tool_event(self, tool_name: str, success: bool) -> None:
+        """F6 (2026-09-23): 双边事件快照——成功侧是 error_log 缺失的半边
+        语料，失败侧也写（success=0），回放侧才能拼出完整工具时序。
+        吞异常：遥测不得影响工具执行主链路。"""
+        try:
+            if self._flywheel is None:
+                from lingclaude.core.data_flywheel import DataFlywheel, ToolEvent
+                self._flywheel = DataFlywheel()
+                self._tool_event_cls = ToolEvent
+            import time
+            self._flywheel.log_tool_event(self._tool_event_cls(
+                session_id=getattr(self._engine, "session_id", "") or "",
+                tool_name=tool_name,
+                success=success,
+                occurred_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            ))
+        except Exception:
+            logger.debug("tool_event write failed", exc_info=True)
 
     def process(self, tool_calls: tuple, messages: list, content: str = "") -> None:
         """执行一批工具调用（主入口）。
@@ -60,6 +80,9 @@ class ToolCallExecutor:
                     error_message=tool_output[:200],
                     tool_name=tc.name,
                 )
+                self._log_tool_event(tc.name, success=False)
+            else:
+                self._log_tool_event(tc.name, success=True)
             messages.append(ModelMessage(
                 role=MessageRole.TOOL,
                 content=image_tool_text(tool_output, extract_image_content(tool_output)),
@@ -112,6 +135,9 @@ class ToolCallExecutor:
                     error_message=tool_output[:200],
                     tool_name=tc.name,
                 )
+                self._log_tool_event(tc.name, success=False)
+            else:
+                self._log_tool_event(tc.name, success=True)
             messages.append(ModelMessage(
                 role=MessageRole.TOOL,
                 content=image_tool_text(tool_output, extract_image_content(tool_output)),
@@ -135,6 +161,9 @@ class ToolCallExecutor:
                 error_message=tool_output[:200],
                 tool_name=tc.name,
             )
+            self._log_tool_event(tc.name, success=False)
+        else:
+            self._log_tool_event(tc.name, success=True)
         messages.append(ModelMessage(
             role=MessageRole.TOOL,
             content=image_tool_text(tool_output, extract_image_content(tool_output)),

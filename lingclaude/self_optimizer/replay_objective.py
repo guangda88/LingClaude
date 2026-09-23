@@ -17,6 +17,15 @@ consecutive_fail_limit）。
 
 语料：data_flywheel.db error_log（session_id, tool_name, error_message,
 occurred_at）。只读 ATTACH，不写任何库。
+
+F6 双边事件流（2026-09-23，Phase 2 落地）：
+  - 源头：DataFlywheel 新增 tool_events 表（session_id, tool_name,
+    success, occurred_at），ToolCallExecutor 三条执行路径全量写入，
+    成功侧不再缺席 → churn 反力项激活，rl 钳位放开 [3,6]→[2,8]。
+  - 消费：load_traces 优先双边表，空/缺失回退 error_log 单边（此时
+    churn 项自然归零，行为等同 F1）。
+  - 事件 schema：events 升级 (tool, err, success) 三元组，旧二元组
+    （success=False）兼容。
 """
 
 from __future__ import annotations
@@ -39,18 +48,25 @@ def is_transient(error_message: str) -> bool:
 
 @dataclass
 class SessionTrace:
-    """单 session 工具错误序列（按时间升序）。"""
+    """单 session 工具事件序列（按时间升序）。
+
+    F6: events 升级为 (tool, err, success) 三元组；err 对成功事件为 ""。
+    索引访问 e[0]/e[1]/e[2] 兼容旧 (tool, err) 二元消费方（长度=2 时
+    success 视为 False，即纯失败语料）。
+    """
 
     session_id: str
-    events: list[tuple[str, str]] = field(default_factory=list)  # (tool, err)
+    events: list[tuple] = field(default_factory=list)
 
 
 def load_traces(
     db_path: str | Path,
     max_sessions: int = 2000,
 ) -> list[SessionTrace]:
-    """从 data_flywheel.db 读 error_log，按 session 聚合成回放轨迹。
+    """从 data_flywheel.db 读双边事件，按 session 聚合成回放轨迹。
 
+    F6 (2026-09-23): 优先读 tool_events 双边表（成功+失败完整时序），
+    表空/缺失时回退 error_log 单边语料（纯失败序列，success 全 False）。
     只读；库不存在时返回空表（调用方回退默认参数评分，graceful）。
     """
     import sqlite3
@@ -60,16 +76,33 @@ def load_traces(
         return []
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        rows = conn.execute(
-            "SELECT session_id, tool_name, error_message FROM error_log "
-            "ORDER BY occurred_at"
-        ).fetchall()
+        n = conn.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
+            "AND name='tool_events'"
+        ).fetchone()[0]
+        if n and conn.execute("SELECT COUNT(*) FROM tool_events").fetchone()[0]:
+            rows = [
+                (sid, tool, "", bool(succ))
+                for sid, tool, succ in conn.execute(
+                    "SELECT session_id, tool_name, success FROM tool_events "
+                    "ORDER BY occurred_at"
+                ).fetchall()
+            ]
+        else:
+            # 回退：单边失败语料（F1 原始路径）
+            rows = [
+                (sid, tool, err, False)
+                for sid, tool, err in conn.execute(
+                    "SELECT session_id, tool_name, error_message FROM error_log "
+                    "ORDER BY occurred_at"
+                ).fetchall()
+            ]
     finally:
         conn.close()
 
-    grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    for sid, tool, err in rows:
-        grouped[str(sid)].append((str(tool or "?"), str(err or "")))
+    grouped: dict[str, list[tuple[str, str, bool]]] = defaultdict(list)
+    for sid, tool, err, succ in rows:
+        grouped[str(sid)].append((str(tool or "?"), str(err or ""), succ))
     # 取"最活跃"的 max_sessions 个会话：噪声少、代表性强
     top = sorted(grouped.items(), key=lambda kv: -len(kv[1]))[:max_sessions]
     return [SessionTrace(session_id=k, events=v) for k, v in top]
@@ -104,11 +137,15 @@ def score_params(
     内点最优由语料段长分布自然决定：短段主导 → 解偏保守；
     若未来长段（真 stuck）占比升高，最优解自动左移。数据说了算。
 
-    tool_repeat_limit：误差单边语料无法构造「健康重复被误拦」的
-    反力项（需成功事件双边流，Phase 2 datalog tool.call 接入后放开），
-    由调用方在搜索空间钳位保守区间 [3,6]，本函数暂不消费该参数。
+    tool_repeat_limit：F6 (2026-09-23) 双边事件流接入后放开的反力项——
+    连续成功 ≥ rl 次的同工具重复调用若被误拦，按 churn_penalty × 次
+    记罚（ rl 越小误拦越多 → 推高 rl）。误差侧反力（推低 fl）与成功
+    侧反力（推高 rl）对冲 → rl 也进入内点。双边语料缺失时（回退单边）
+    成功事件不存在，churn 项自然归零，行为退化回 F1 语义。
     """
     fl = max(1, int(params.get("consecutive_fail_limit", 3)))
+    rl = max(1, int(params.get("tool_repeat_limit", 3)))
+    churn_penalty = 0.4
 
     total = 0.0
     for trace in traces:
@@ -121,8 +158,18 @@ def score_params(
             while j < n and events[j][0] == tool:
                 j += 1
             run_len = j - i
-            transient = any(is_transient(e[1]) for e in events[i:j])
-            if transient:
+
+            def _ok(e: tuple) -> bool:
+                return len(e) > 2 and bool(e[2])
+
+            ok_run = all(_ok(e) for e in events[i:j])
+            if ok_run:
+                # F6 churn 反力项：健康重复被误拦的代价（推高 rl）。
+                # 第 rl 次之后的每次多余调用才是误拦伤害（拦的动作发生在
+                # 调用后，第 rl 次调用本身无伤害 → run_len - rl）。
+                if run_len > rl:
+                    total += (run_len - rl) * churn_penalty
+            elif any(is_transient(e[1]) for e in events[i:j]):
                 total += max(0, run_len - fl) * heal_loss
             else:
                 tolerated = min(run_len, fl)

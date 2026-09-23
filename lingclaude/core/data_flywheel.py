@@ -27,6 +27,16 @@ class ErrorPattern:
 
 
 @dataclass(frozen=True)
+class ToolEvent:
+    """F6 (2026-09-23): 双边工具事件——success 位区分成功/失败侧。"""
+
+    session_id: str
+    tool_name: str
+    success: bool
+    occurred_at: str
+
+
+@dataclass(frozen=True)
 class CorrectionEntry:
     original_error: str
     correction: str
@@ -102,6 +112,27 @@ class DataFlywheel:
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_corrections_source ON corrections(source)"
         )
+        # F6 (2026-09-23): tool_events 双边事件表——tool.call 成功+失败双边
+        # 语料，供 replay_objective churn 反力项消费（Phase 2 接线）。
+        # 与 error_log 差异：只记最小面（success 位 + session + tool + 时序），
+        # 失败侧 error_log 已有详情，此处不冗余存错误文本。
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS tool_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL DEFAULT '',
+                tool_name TEXT NOT NULL,
+                success INTEGER NOT NULL DEFAULT 1,
+                occurred_at TEXT NOT NULL
+            )
+        """)
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tool_events_session "
+            "ON tool_events(session_id, occurred_at)"
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tool_events_tool "
+            "ON tool_events(tool_name)"
+        )
         conn.commit()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -138,6 +169,29 @@ class DataFlywheel:
         except Exception as e:
             logger.warning("飞轮记录错误失败: %s", e)
             return Result.fail(f"Flywheel log failed: {e}", code="DB_ERROR")
+
+    def log_tool_event(self, event: ToolEvent) -> Result[int]:
+        """F6 (2026-09-23): 双边事件写入。失败侧仍照常写 error_log（详情），
+        此处补成功位快照（双边流），供 churn 反力项回放消费。"""
+        try:
+            conn = self._get_connection()
+            c = conn.cursor()
+            c.execute(
+                """INSERT INTO tool_events
+                   (session_id, tool_name, success, occurred_at)
+                   VALUES (?, ?, ?, ?)""",
+                (
+                    event.session_id,
+                    event.tool_name,
+                    1 if event.success else 0,
+                    event.occurred_at,
+                ),
+            )
+            safe_commit(conn)
+            return Result.ok(c.lastrowid)
+        except Exception as e:
+            logger.warning("飞轮记录工具事件失败: %s", e)
+            return Result.fail(f"Flywheel tool_event failed: {e}", code="DB_ERROR")
 
     def log_correction(self, correction: CorrectionEntry) -> Result[int]:
         try:

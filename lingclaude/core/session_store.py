@@ -176,6 +176,7 @@ class SessionStore:
         total_output: int,
         conversation: list[Any],
         tag: str | None = None,
+        total_cached: int = 0,
     ) -> Path | None:
         """序列化并落盘。失败返回 None (checkpoint 是 best-effort)。
 
@@ -201,6 +202,8 @@ class SessionStore:
                 "used_tools": used_tools,
                 "total_input": total_input,
                 "total_output": total_output,
+                # 2026-09-23: cached 累计随 checkpoint 持久化（resume 不丢缓存口径）
+                "total_cached": total_cached,
                 "messages": serialized,
                 "conversation": [
                     _redact_text(str(item)) if isinstance(item, str) else item

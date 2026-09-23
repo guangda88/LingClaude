@@ -67,6 +67,7 @@ class DaemonState:
     best_ever_score: float | None = None
     best_ever_params: dict[str, Any] = field(default_factory=dict)
     best_ever_cycle_id: int | None = None
+    best_ever_goal: str | None = None  # F5: best_ever 所属 goal 语义（防跨尺子比较）
     benchmark_baseline: float | None = None  # P0 基线持久化（跨进程）
 
     @classmethod
@@ -83,6 +84,7 @@ class DaemonState:
                     best_ever_score=raw.get("best_ever_score"),
                     best_ever_params=raw.get("best_ever_params", {}),
                     best_ever_cycle_id=raw.get("best_ever_cycle_id"),
+                    best_ever_goal=raw.get("best_ever_goal"),
                     benchmark_baseline=raw.get("benchmark_baseline"),
                 )
             except (json.JSONDecodeError, KeyError):
@@ -142,6 +144,22 @@ class OptimizationDaemon:
                 self._last_benchmark_score,
             )
         self._behavior_snapshot: dict[str, Any] = {}
+        # F5 (2026-09-23): best_ever_goal 卫兵——best_ever_score 是「goal
+        # 语义内」的最优（structure=violations 数 / behavior=回放代价），
+        # 跨 goal 比较无意义（27 violations vs 代价分不可通约）。goal 与
+        # 归档时不一致 → 旧基线一次性重置，避免 P1 门禁用错尺子永久回滚。
+        state_goal = getattr(self.state, "best_ever_goal", None)
+        current_goal = getattr(self.config.optimizer, "goal", "structure")
+        if self.state.best_ever_score is not None and state_goal != current_goal:
+            logger.warning(
+                "[F5卫兵] goal 已切换 %s→%s，重置跨语义 best_ever 基线 "
+                "(score=%s @cycle#%s)",
+                state_goal or "structure(旧档)", current_goal,
+                self.state.best_ever_score, self.state.best_ever_cycle_id,
+            )
+            self.state.best_ever_score = None
+            self.state.best_ever_params = {}
+            self.state.best_ever_cycle_id = None
         # P0-4: session snapshot/rewind
         from pathlib import Path as P
         self._session_mgr = SessionManager(save_dir=P(".lingclaude/sessions"))
@@ -282,6 +300,14 @@ class OptimizationDaemon:
         )
 
         violations_before = metrics.get("structure_violations", 0)
+        # F5 (2026-09-23): score_before 同语义化——improvements 判据
+        # (violations_after < violations_before) 要求 before/after 同一
+        # 把尺子。behavior 循环的 best_score 是回放代价（非 violations
+        # 数），若 before 仍取 structure 口径 28，代价分（量级几十）永远
+        # 无法与之形成有效比较 → improvements 恒 0 死锁（第 683 圈实证）。
+        # behavior 下 before 由 P0 门禁后的当前策略回放分回填。
+        is_behavior = getattr(self.config.optimizer, "goal", "") == "behavior"
+        score_before: float | None = None if is_behavior else float(violations_before)
         start = time.monotonic()
 
         request = OptimizationRequest(
@@ -309,40 +335,69 @@ class OptimizationDaemon:
         # 测，恒等分 → 门禁死门，atomcode B2 / opencode #9）。
         # after.score < before.score → 参数会拉低行为分 → 拒绝应用本轮参数。
         # F2 归因链：清扫超时 pending（崩溃残留 → rolled_back），随后开本轮实验单。
+        # F5 (2026-09-23): behavior goal 下 P0 跳过——adopt_params 的
+        # _PARAM_TO_CHECK 只映射 structure 参数键（max_class_size 等），
+        # behavior 键（consecutive_fail_limit/tool_repeat_limit）全部
+        # miss → 复测恒等分 → 门禁既不通过也不拒绝，纯烧两遍基准时间
+        # （死门）。behavior 的实证闸由 P1 择优 + report-only 护栏承担。
         self.experiments.expire_stale_pending()
-        bench_before = self.benchmark.run()
-        self.state.benchmark_baseline = bench_before.score
-        self.state.save(self.state_path)
-        logger.info(
-            "[P0门禁] 基准分 %.1f/%d（passed=%d/%d）",
-            bench_before.score, 100, bench_before.passed, bench_before.total,
+        is_behavior_goal = (
+            getattr(self.config.optimizer, "goal", "") == "behavior"
         )
-        self.benchmark.adopt_params(result.best_params)
-        bench_after = self.benchmark.run()
-        if bench_after.score < bench_before.score:
-            # F2 归因链：本轮 best_params 被门禁拒绝 → 结算 rejected。
-            # score_before 取行为基准分（门禁语义，与 score_after 可比）。
-            exp_id = self.experiments.start(
-                self.state.total_cycles + 1, result.best_params, bench_before.score
-            )
-            logger.warning(
-                "[P0门禁] 参数联动复测回退 %.1f → %.1f，本轮 best_params 拒绝应用"
-                "（violations=%s 仅作参考）",
-                bench_before.score, bench_after.score, result.best_score,
-            )
-            self.experiments.settle(
-                exp_id,
-                "rejected",
-                score_after=bench_after.score,
-                reason="p0_gate_regression",
-            )
-            return Result.ok(None)
-        if bench_after.score > bench_before.score:
+        if is_behavior_goal:
+            # F5: behavior 的 before = 当前策略参数的回放代价——与
+            # best_score 同一把尺子（同语料同函数），improvements 判据
+            # 才有效。策略缺键回退出厂默认（fl=2/rl=3，与 behavior_check
+            # 回退一致）。注：report-only 模式下策略不动，基线每轮同值，
+            # improvements 语义为「候选胜过现行基线」计数。
+            from lingclaude.core.policy_loader import get as _policy_get
+            from lingclaude.self_optimizer.replay_objective import ReplayObjective
+
+            _pol = _policy_get("behavior_policy") or {}
+            _cur = {
+                "consecutive_fail_limit": int(_pol.get("consecutive_fail_limit", 2)),
+                "tool_repeat_limit": int(_pol.get("tool_repeat_limit", 3)),
+            }
+            score_before = ReplayObjective().evaluate(_cur)
             logger.info(
-                "[P0门禁] 参数联动复测提升 %.1f → %.1f，best_params 通过",
-                bench_before.score, bench_after.score,
+                "[P0门禁] goal=behavior 跳过联动复测（adopt_params 无 behavior 键"
+                "映射，恒等分无裁决力）；当前策略回放代价 before=%.2f",
+                score_before,
             )
-        self._last_benchmark_score = bench_before.score
+        else:
+            bench_before = self.benchmark.run()
+            self.state.benchmark_baseline = bench_before.score
+            self.state.save(self.state_path)
+            logger.info(
+                "[P0门禁] 基准分 %.1f/%d（passed=%d/%d）",
+                bench_before.score, 100, bench_before.passed, bench_before.total,
+            )
+            self.benchmark.adopt_params(result.best_params)
+            bench_after = self.benchmark.run()
+            if bench_after.score < bench_before.score:
+                # F2 归因链：本轮 best_params 被门禁拒绝 → 结算 rejected。
+                # score_before 取行为基准分（门禁语义，与 score_after 可比）。
+                exp_id = self.experiments.start(
+                    self.state.total_cycles + 1, result.best_params, bench_before.score
+                )
+                logger.warning(
+                    "[P0门禁] 参数联动复测回退 %.1f → %.1f，本轮 best_params 拒绝应用"
+                    "（violations=%s 仅作参考）",
+                    bench_before.score, bench_after.score, result.best_score,
+                )
+                self.experiments.settle(
+                    exp_id,
+                    "rejected",
+                    score_after=bench_after.score,
+                    reason="p0_gate_regression",
+                )
+                return Result.ok(None)
+            if bench_after.score > bench_before.score:
+                logger.info(
+                    "[P0门禁] 参数联动复测提升 %.1f → %.1f，best_params 通过",
+                    bench_before.score, bench_after.score,
+                )
+            self._last_benchmark_score = bench_before.score
 
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         report_name = f"cycle_{self.state.total_cycles + 1:04d}.md"
@@ -359,12 +414,16 @@ class OptimizationDaemon:
         violations_after = int(result.best_score)
 
         # ---- P1 择优回滚（2026-09-17）：以归档历史最优为 baseline ----
-        # best_score（violations，越低越好）劣于归档历史最优 → 不应用本轮
-        # 参数，回滚应用 best_ever_params（若历史最优存在）——防止优化漂移。
+        # best_score 劣于归档历史最优 → 不应用本轮参数，回滚应用
+        # best_ever_params（若历史最优存在）——防止优化漂移。
         # F2 归因链：本轮实验单在此开立（观察窗起点），accept/rollback 于
-        # 三个分支即时结算；score_before 取 violations（代理目标，跨轮可比）。
+        # 三个分支即时结算。
+        # F5 (2026-09-23): score_before 同语义化——台账 score_before 必须与
+        # best_score 同一把尺子（behavior=回放代价 / structure=violations），
+        # 否则 state_store_ext 的 F0 指标（参数应用率）跨尺子失真。
         exp_id = self.experiments.start(
-            self.state.total_cycles + 1, result.best_params, violations_before
+            self.state.total_cycles + 1, result.best_params,
+            score_before if score_before is not None else violations_before,
         )
         best_ever = self.state.best_ever_score
         if best_ever is not None and result.best_score > best_ever:
@@ -391,6 +450,10 @@ class OptimizationDaemon:
                 self.state.best_ever_score = float(result.best_score)
                 self.state.best_ever_params = dict(result.best_params)
                 self.state.best_ever_cycle_id = self.state.total_cycles + 1
+                # F5: 归档时盖 goal 印——下轮加载时卫兵据此识别跨语义基线
+                self.state.best_ever_goal = getattr(
+                    self.config.optimizer, "goal", "structure"
+                )
 
         cycle = OptimizationCycle(
             cycle_id=self.state.total_cycles + 1,
@@ -402,8 +465,15 @@ class OptimizationDaemon:
             best_params=result.best_params,
             experiments=result.experiments,
             duration_seconds=round(duration, 2),
-            violations_before=violations_before,
-            violations_after=violations_after,
+            # F5: before/after 同轮同语义——behavior 下取回放代价分，
+            # structure 下保持 violations 数。CLI/Intel 的「违规 28→27」
+            # 展示语义变为「目标分 before→after」，improvements 判据
+            # (after < before) 由此恢复有效（此前跨尺子恒假 → 死锁）。
+            violations_before=(
+                int(round(score_before))
+                if score_before is not None else violations_before
+            ),
+            violations_after=int(violations_after),
             report_path=str(report_path),
         )
 

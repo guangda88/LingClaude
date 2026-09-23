@@ -323,6 +323,7 @@ class SubmissionMixin:
         used_tools: bool,
         total_input: int,
         total_output: int,
+        total_cached: int = 0,
         tag: str | None = None,
     ) -> None:
         # P1 (2026-09-20, atomcode inflight 借鉴): turn_start 的 round=-1 inflight
@@ -336,7 +337,7 @@ class SubmissionMixin:
             tag = f"round{round_idx}"
         self._session_persister.save_checkpoint(
             messages, round_idx, prompt, used_tools, total_input, total_output,
-            tag=tag,
+            total_cached=total_cached, tag=tag,
         )
         # P0-1（2026-09-21，全 15 家精读 §3.2）：checkpoint 旁路追加一条
         # rollout 事件（append-only JSONL，不覆盖、不删旧）——不可变会话的
@@ -402,6 +403,9 @@ class SubmissionMixin:
         used_tools = data["used_tools"]
         total_input = data.get("total_input", 0)
         total_output = data.get("total_output", 0)
+        # 2026-09-23 (cache 0% 断点修复): cached 与 input/output 同为跨轮累计量,
+        # resume 链路同口径恢复（stream_submit 侧 loop_body.py:431 已带 cached）
+        total_cached = data.get("total_cached", 0)
         raw_messages = data.get("messages", [])
         saved_conversation = data.get("conversation", [])
 
@@ -466,10 +470,14 @@ class SubmissionMixin:
             response = result.data
             total_input += response.usage.input_tokens
             total_output += response.usage.output_tokens
+            # 2026-09-23: 此前丢弃 cached_tokens（cache 0% 断点之三——provider
+            # 已正确解析，本层只喂了 input/output 两个成员）
+            total_cached += response.usage.cached_tokens
 
             if not response.tool_calls:
                 final_content = self._finalize_turn(
                     prompt, response.content, used_tools, total_input, total_output, resolved_config,
+                    total_cached,
                 )
                 self._transcript.append(final_content)
                 self._clear_checkpoint()
@@ -483,11 +491,13 @@ class SubmissionMixin:
 
             used_tools = True
             self._tool_call_executor.process(response.tool_calls, messages, content=response.content)
-            self._save_checkpoint(messages, ri, prompt, used_tools, total_input, total_output)
+            self._save_checkpoint(messages, ri, prompt, used_tools, total_input, total_output,
+                                  total_cached=total_cached)
 
         content = response.content if response and response.content else "[达到最大工具调用轮次]"
         final_content = self._finalize_turn(
             prompt, content, used_tools, total_input, total_output, resolved_config,
+            total_cached,
         )
         self._transcript.append(final_content)
         self._clear_checkpoint()

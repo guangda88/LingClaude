@@ -86,6 +86,7 @@ class SessionPersister:
         total_input: int,
         total_output: int,
         tag: str | None = None,
+        total_cached: int = 0,
     ) -> None:
         engine = self._engine
         engine._sync_session_store()
@@ -96,6 +97,7 @@ class SessionPersister:
             used_tools=used_tools,
             total_input=total_input,
             total_output=total_output,
+            total_cached=total_cached,
             conversation=engine._conversation,
             tag=tag,
         )
