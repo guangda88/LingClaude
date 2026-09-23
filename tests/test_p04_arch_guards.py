@@ -140,8 +140,15 @@ BASELINE_SYS_PATH = 14
 #   函数内 import 无意义，全部上提模块级清偿，见同批 commit）。
 #   注：实测 562 含在途未提交改动（permissions.py::_get_approval_matrix
 #   内 os，属 P0-2 会话，其提交时自行上提或进基线）。518 → 562。
-BASELINE_LAZY = 604
+BASELINE_LAZY = 613
 # === 2026-09-23 (G3 尾巴清偿): cli/app.py:1036 selftest 分支 `import os` 上提——模块级 :10 已有，纯删零行为变化。605 → 604，基线终值。
+# === 2026-09-24 (启动提速第二轮·工具插片惰性装载): 604 → 613，基线同步 ===
+#   ① 604 → 609: HEAD 遗留漂移 +5（历史提交未同步台账，本轮实测归因，非本轮新增）；
+#   ② 609 → 613: 本轮 +4，均为函数内延迟 import（S3 纪律，合法懒加载非膨胀）——
+#      tools.py::_ensure_tool_plugins_loaded 函数内 import PluginLoader ×1；
+#      coding_wiring.py::LazyToolPlugins __repr__/warm/load_now 函数内 import ×3。
+#      换来：6 个工具插片 exec_module 全部移出 CodingRuntime 构造期（首输入前
+#      必付 → 用户首输入期间/首工具调用时），主干 coding.py 仍零 diff。
 # === 2026-09-23 (G3 二次归因清偿): 629 → 605，基线 562 → 605 ——===
 #   基线脱锚根因：4a9d314(09-22 20:20) 设 562 后，24h 内三波提交（spec_decision
 #   铺开/P1-5 两级瘦身/通电+守卫换代）累计 +67，G3 为告警级不阻塞，无人归因。
