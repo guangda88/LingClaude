@@ -1,0 +1,7 @@
+{
+  "severity": "P1",
+  "finding": "fast lane 死插片裁定(due 2026-11-21)：选(b)摘除降级为独立验证工具。理由：本轮 7 消费点已让 lc 投机决策有概率层，fast lane 冗余。执行时删除插片挂载、保留独立验证工具入口，需 FanOutScheduler 侧回归确认无残余消费。",
+  "source": "user-ruling-20260923",
+  "state": "open",
+  "created": "2026-09-22T16:41:59+00:00"
+}

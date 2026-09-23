@@ -1,0 +1,11 @@
+{
+  "severity": "P2",
+  "finding": "门禁脱节样例（数据迁移未同步校验器）：5234c2a（09-16）定扁平 schema stop_layer.{kernel,seams,implementations} 并配齐 6 份 manifest；38c894e（09-22 22:20）「审计 J3 关单」将 6 份 manifest 迁为嵌套形态 stop_layer.sub_seams.{seams,implementations}，但未同步 PluginManifest.validate——结果六插件 manifest 校验全败、整组拒绝入册（S4 报错『stop_layer.seams 缺失』），test_tool_plugins_p1_p2(_warm) fixture 级 ERROR，HEAD 自带红（全量回归 21f/22e 的源头之一）。模式名：数据先行、门禁滞后，迁移与校验异 commit 脱节。",
+  "source": "灵克会话 2026-09-23（用户令：作为「门禁脱节」样例落账）；上游在案发现 audit-j3-sub-seams-missing.json（其 resolution 即 38c894e 的迁移本身）",
+  "pattern": "schema 迁移 commit 必须同 commit 携带校验器适配 + 新旧形态哨兵测试；否则迁移即自断门禁",
+  "state": "resolved",
+  "created": "2026-09-23T08:20:00+08:00",
+  "resolved": "2026-09-23T08:20:00+08:00",
+  "resolution": "7d22975（09-23 06:51，AtomCode）：PluginManifest.validate / validate_manifest_dict 双兼容——sub_seams 存在读嵌套、否则读扁平，存量契约不变；门禁语义（seams/implementations 必填）保留而非删报错。新增哨兵测试 test_j3_stop_layer_nested_form_accepted（嵌套可加载 + 扁平仍合法 + 盘上 6 份生产 manifest 全过）。灵克独立复验：tests/test_s4_plugin_loader_mechanism.py 6/6 passed（2026-09-23 本会话实测）。",
+  "erratum": "更正灵克 2026-09-23 早间口头汇报：所称连环修复 commit 4a4e78d / abbe21a / 47e37e3 经 git log --all 实测均不存在（grep 无命中），『修一个暴露一个』连环账表述系未经实证的转述，作废。截至落账时 7d22975 之后无后续修复提交，本 case 以单 commit 收口为准。教训入档：commit 哈希入正式台账前必须 git log 实锚。"
+}

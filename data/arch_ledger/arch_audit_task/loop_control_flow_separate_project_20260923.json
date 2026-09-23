@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "是否行动/是否安全决策点(循环控制流消费点)：上批已裁定单独立项防回归放大，不并入 spec_decision 主线。新会话需先查此任务再动循环控制流相关代码。",
+  "source": "user-ruling-20260923-carried",
+  "state": "open",
+  "created": "2026-09-22T16:41:59+00:00"
+}

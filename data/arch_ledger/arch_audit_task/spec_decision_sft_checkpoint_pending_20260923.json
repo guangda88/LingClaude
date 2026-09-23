@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "spec_decision SFT checkpoint 挂账：7 消费点现走本地先验概率(已可用)。待 lc 会话数据积累后训练 lc 特化 checkpoint 落位，概率层质量兑现。触发条件：lc 会话数据量达标 + 训练流水线空闲。在此之前不阻塞 7 消费点运行。",
+  "source": "user-ruling-20260923",
+  "state": "open",
+  "created": "2026-09-22T16:41:59+00:00"
+}
