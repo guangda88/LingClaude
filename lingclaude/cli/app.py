@@ -854,11 +854,52 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- R-toolbar-logfix (2026-09-23): root 文件兜底，根治 lastResort 裸写 ----
+# 根因链（n5_stream_watchdog 修复B 的宿主级推广）:
+#   宿主进程对部分 logger 子树（如 core.hallucination_guard）无任何 handler
+#   → logging.lastResort 兜底裸写 sys.stderr（无时间戳、无清洗），
+#   与 CLI toolbar 重绘（cli/status.py ● 状态行）在 tty 上并发交错，
+#   撕裂出 "●allucination_guard" / "fact:18" / "22o8mit" 等混排行。
+#   前科: n5 修复B 之前同机制把 "round_end" 撕成 "roubashnd"。
+# 方案: 进程入口给 root 挂 WARNING 级文件 handler。lastResort 仅对
+#   "一路无 handler 且级别 ≥ WARNING" 的记录触发——root 有 handler 后
+#   该条件永不成立。文件内落盘即审计留痕（守卫问题另有带内警告，
+#   query_engine_turn_mixin 的 ⚠️[幻觉治理] 追加，无可见性损失）。
+_LOG_DIR = Path.home() / ".lingclaude" / "logs"
+_ROOT_LOG_PATH = _LOG_DIR / "host_root.log"
+
+
+def _install_root_file_logging() -> None:
+    """root logger 挂 WARNING 文件兜底（幂等，OSError 静默放弃）。
+
+    不动宿主既有 handler（纯增量）；文件系统不可写时放弃兜底——
+    宁缺毋滥，绝不回落到裸写 tty 的老路。
+    """
+    root = logging.getLogger()
+    if getattr(root, "_lingclaude_file_guard", False):
+        return
+    try:
+        _LOG_DIR.mkdir(parents=True, exist_ok=True)
+        fh = logging.FileHandler(_ROOT_LOG_PATH, encoding="utf-8")
+        fh.setLevel(logging.WARNING)
+        fh.setFormatter(
+            logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+        )
+        fh._is_lingclaude_guard = True  # 测试/清理用标记
+        root.addHandler(fh)
+        root._lingclaude_file_guard = True  # type: ignore[attr-defined]
+    except OSError:  # pragma: no cover - 只读 fs 等极端环境
+        pass
+
+
 def main() -> int:
     # 审计#5 修复:F12c 的 key 单点文件此前定义了但零调用 — 整条 key 兜底链
     # （task_router 注释明言「key 实际单点存放于 ~/.ling_keys.env」）建立在该
     # 文件已加载的假设上。在任何子命令分派前注入，不覆盖 shell 已 export 的值。
     _load_keys_env()
+    # R-toolbar-logfix: 同样必须在任何子命令分派前装配——任何入口路径
+    # （repl/run/daemon 转发）下的日志告警都不许再走 lastResort 裸写 tty。
+    _install_root_file_logging()
     parser = argparse.ArgumentParser(
         prog="lingclaude",
         description="lingclaude — Self-optimizing AI runtime",
