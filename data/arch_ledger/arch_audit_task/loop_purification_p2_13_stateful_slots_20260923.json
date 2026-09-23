@@ -1,0 +1,8 @@
+{
+  "id": "loop_purification_p2_13_stateful_slots_20260923",
+  "severity": "P2",
+  "finding": "循环纯化深化（hooks.py 停层声明中悬置的 P2-13）：loop_control_flow_separate_project_20260923 收口时实测，loop_body 已是模块级函数，engine._* 引用仅 22 处且多为行为面（hooks seam 已覆盖：journal/behavior/flywheel/幻觉闭环/provider outcome）。剩余真数据槽位（如 _conversation/_messages/_usage/_provider 名等状态载体）仍散挂引擎实例。本单 = 把这些数据槽位迁 StateStore（可快照/可注入/多运行时各持一份），达成『循环可从快照完全重建』的最终形态。前置依赖已满足：事件流可回放（be47c90）+ 三运行时共享（6502586）。触发条件：B 路线外部 harness 挂载需要状态隔离，或崩溃恢复需要严格快照完整性时动工；当前主循环行为正确（golden master 在守），不急于无需求动工。",
+  "source": "lingke-unload-closeout-20260923",
+  "state": "open",
+  "created": "2026-09-23T11:12:00+08:00"
+}
