@@ -217,6 +217,55 @@ class DataFlywheel:
             logger.warning("飞轮记录纠正失败: %s", e)
             return Result.fail(f"Flywheel correction failed: {e}", code="DB_ERROR")
 
+    def get_recent_corrections(self, limit: int = 3) -> Result[list[dict[str, Any]]]:
+        """R9 (2026-09-23): corrections 消费面——为 prompt 注入提供读取。
+
+        两路取样：24h 内最近 top-N（热记忆）+ 全库随机 1 条（冷唤醒，
+        防止「只记得最近」导致旧错误无限复发）。内容存的是用户原话
+        （b7c7283 新格式），注入即真实教训，非计数壳。
+        """
+        try:
+            conn = self._get_connection()
+            c = conn.cursor()
+            c.execute(
+                """SELECT original_error, correction, confidence, applied_at
+                   FROM corrections
+                   WHERE datetime(applied_at) >= datetime('now', '-1 day')
+                   ORDER BY id DESC LIMIT ?""",
+                (limit,),
+            )
+            recent = [
+                {
+                    "original_error": r[0],
+                    "correction": r[1],
+                    "confidence": r[2],
+                    "applied_at": r[3],
+                }
+                for r in c.fetchall()
+            ]
+            sampled: list[dict[str, Any]] = []
+            c.execute("SELECT COUNT(*) FROM corrections")
+            total = c.fetchone()[0]
+            if total > 0:
+                c.execute(
+                    """SELECT original_error, correction, confidence, applied_at
+                       FROM corrections ORDER BY RANDOM() LIMIT 1"""
+                )
+                r = c.fetchone()
+                if r:
+                    sampled.append(
+                        {
+                            "original_error": r[0],
+                            "correction": r[1],
+                            "confidence": r[2],
+                            "applied_at": r[3],
+                        }
+                    )
+            return Result.ok(recent + sampled)
+        except Exception as e:
+            logger.warning("飞轮读取近期纠正失败: %s", e)
+            return Result.fail(f"Flywheel recent_corrections failed: {e}", code="DB_ERROR")
+
     def get_recurring_errors(self, min_count: int = 2, limit: int = 20) -> Result[list[dict[str, Any]]]:
         try:
             conn = self._get_connection()

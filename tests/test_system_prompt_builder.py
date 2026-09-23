@@ -198,3 +198,74 @@ def test_message_builder_base_prompt_is_alias():
     from lingclaude.core.message_builder import MessageBuilder
 
     assert MessageBuilder.BASE_PROMPT is _BASE_PROMPT
+
+
+# ---------- R9: corrections 消费面注入 (2026-09-23) ----------
+
+
+def test_corrections_injection_real_content(monkeypatch, tmp_path):
+    """R9: 纠正块从计数壳升级为真实内容注入（消费面激活端到端）"""
+    from datetime import datetime
+
+    import lingclaude.core.data_flywheel as dfw
+    import lingclaude.core.system_prompt_builder as spb
+
+    class _FW(dfw.DataFlywheel):
+        def __init__(self, db_path=None):
+            super().__init__(db_path=str(tmp_path / "fw_r9.db"))
+
+    monkeypatch.setattr(dfw, "DataFlywheel", _FW)
+    fw = _FW()
+    assert fw.log_correction(
+        dfw.CorrectionEntry(
+            original_error="编造了 431 行基建考古报告",
+            correction="无工具实证不得输出考古结论",
+            source="user",
+            confidence=0.8,
+            applied_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
+        )
+    ).is_ok
+    fw.close()
+
+    class _B(_DummyBehavior):
+        corrections_received = 3
+
+    suffix = spb.build_dynamic_system_suffix(
+        behavior=_B(),
+        layered_memory=_DummyMemory(),
+        meta_cognition=_DummyMeta(),
+        messages=["问题"],
+        session_cache_hits=0,
+        dementia_detector=_DummyDementia(),
+        project_index=None,
+    )
+    assert "📚 近期纠正实录" in suffix
+    assert "无工具实证" in suffix      # correction 内容
+    assert "编造了 431 行" in suffix   # original_error 内容
+
+
+def test_corrections_injection_fail_soft(monkeypatch, tmp_path):
+    """R9: 库读取炸掉时只留计数行，prompt 组装不阻断"""
+    import lingclaude.core.data_flywheel as dfw
+    import lingclaude.core.system_prompt_builder as spb
+
+    class _Boom:
+        def __init__(self, db_path=None):
+            raise RuntimeError("db gone")
+
+    monkeypatch.setattr(dfw, "DataFlywheel", _Boom)
+
+    class _B(_DummyBehavior):
+        corrections_received = 3
+
+    suffix = spb.build_dynamic_system_suffix(
+        behavior=_B(),
+        layered_memory=_DummyMemory(),
+        meta_cognition=_DummyMeta(),
+        messages=["问题"],
+        session_cache_hits=0,
+        dementia_detector=_DummyDementia(),
+        project_index=None,
+    )
+    assert "已收到 3 次用户纠正" in suffix
+    assert "近期纠正实录" not in suffix

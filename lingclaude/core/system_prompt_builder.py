@@ -257,6 +257,33 @@ def build_dynamic_system_suffix(
         extras.append(
             "\n⚠ 纠正记录: 已收到 {} 次用户纠正。请更加谨慎，确认信息准确后再回答。".format(bm.corrections_received)
         )
+        # R9 (2026-09-23): corrections 消费面激活——计数壳升级为真实内容。
+        # 库里存的已是用户原话（b7c7283 新格式），注入 = 教训带内容地回炉。
+        # 双路取样: 24h 内 top-2（热记忆）+ 全库随机 1 条（冷唤醒防旧错复发）。
+        # fail-soft：读取失败只留计数行，绝不阻断 prompt 组装。
+        try:
+            from lingclaude.core.data_flywheel import DataFlywheel
+
+            fw = DataFlywheel()
+            res = fw.get_recent_corrections(limit=2)
+            lines: list[str] = []
+            if res.is_ok and res.data:
+                seen_ids = set()
+                for c_ in res.data:
+                    key = (c_["correction"][:50], c_["original_error"][:50])
+                    if key in seen_ids:
+                        continue
+                    seen_ids.add(key)
+                    lines.append(
+                        "  - 纠正: {} → 勿重犯: {}".format(
+                            c_["correction"][:80].replace("\n", " "),
+                            c_["original_error"][:60].replace("\n", " ") or "（无原文）",
+                        )
+                    )
+            if lines:
+                extras.append("\n📚 近期纠正实录（务必避免重犯）:\n" + "\n".join(lines))
+        except Exception as e:  # pragma: no cover - fail-soft 兜底
+            logger.warning("corrections 注入失败（fail-soft）: %s", e)
 
     if bm.total_turns > 2 and bm.tool_use_rate < 0.2:
         extras.append(

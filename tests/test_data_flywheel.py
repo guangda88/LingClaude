@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pytest
 
+from datetime import datetime
+
 from lingclaude.core.data_flywheel import DataFlywheel, ErrorPattern, CorrectionEntry, FlywheelStats
 
 
@@ -138,3 +140,56 @@ class TestDataFlywheelBasics:
         stats = fw2.get_stats()
         assert stats.total_errors == 1
         fw2.close()
+
+
+# ---------- R9: corrections 消费面 (2026-09-23) ----------
+
+
+class TestGetRecentCorrections:
+    """R9: get_recent_corrections 两路取样（24h 热记忆 + 冷唤醒）"""
+
+    def test_reads_real_content(self, flywheel):
+        """新格式语料可读出真实内容，且字段完整"""
+        now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
+        for i in range(2):
+            res = flywheel.log_correction(
+                CorrectionEntry(
+                    original_error=f"编造了数字{i}",
+                    correction=f"必须先工具实证再报数{i}",
+                    source="user",
+                    confidence=0.8,
+                    applied_at=now,
+                )
+            )
+            assert res.is_ok
+        got = flywheel.get_recent_corrections(limit=2)
+        assert got.is_ok
+        assert len(got.data) >= 2
+        assert got.data[0]["correction"] == "必须先工具实证再报数1"  # id DESC, 最新在前
+        assert "编造了数字1" in got.data[0]["original_error"]
+
+    def test_stale_row_falls_to_cold_sample(self, flywheel):
+        """48h 前的旧行不进 24h 窗，但可经冷唤醒（随机 1 条）浮出"""
+        old = "2026-09-20T08:00:00.000000"
+        res = flywheel.log_correction(
+            CorrectionEntry(
+                original_error="旧错误",
+                correction="旧教训",
+                source="user",
+                confidence=0.7,
+                applied_at=old,
+            )
+        )
+        assert res.is_ok
+        got = flywheel.get_recent_corrections(limit=2)
+        assert got.is_ok
+        # 24h 窗 0 条；冷唤醒 1 条必含旧行（库仅此一行）
+        assert all("旧教训" not in r["correction"] for r in got.data[:0])  # 占位恒真
+        assert len(got.data) == 1
+        assert got.data[0]["correction"] == "旧教训"
+
+    def test_empty_db_returns_ok_empty(self, flywheel):
+        """空库 fail-soft：Result.ok([])，不抛异常"""
+        got = flywheel.get_recent_corrections()
+        assert got.is_ok
+        assert got.data == []
