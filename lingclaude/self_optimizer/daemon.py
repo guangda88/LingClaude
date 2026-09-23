@@ -72,6 +72,9 @@ class DaemonState:
     best_ever_cycle_id: int | None = None
     best_ever_goal: str | None = None  # F5: best_ever 所属 goal 语义（防跨尺子比较）
     benchmark_baseline: float | None = None  # P0 基线持久化（跨进程）
+    # R10-4 (2026-09-23): 停滞轮换——连续零改进圈数（goal=structure 收敛后
+    # 自动切 behavior；behavior 停滞则降频省预算）。None = 旧状态文件无字段。
+    stall_count: int = 0
 
     @classmethod
     def load(cls, path: Path) -> DaemonState:
@@ -89,6 +92,7 @@ class DaemonState:
                     best_ever_cycle_id=raw.get("best_ever_cycle_id"),
                     best_ever_goal=raw.get("best_ever_goal"),
                     benchmark_baseline=raw.get("benchmark_baseline"),
+                    stall_count=raw.get("stall_count", 0),
                 )
             except (json.JSONDecodeError, KeyError):
                 logger.warning("状态文件损坏，使用默认状态")
@@ -138,6 +142,10 @@ class OptimizationDaemon:
         # 审计权限边界不变：发现 → 入册 → 等待，值守不自动改码。
         self.audit_watch = AuditWatch(state_dir=self.state_dir)
         self.state = DaemonState.load(self.state_path)
+        # R10-4 (2026-09-23): 实例级 goal 覆盖——stall 轮换只改运行时实例，
+        # 不回写 frozen config（多进程共享配置时避免暗中突变全局语义）。
+        # _current_goal() 是 daemon 内 goal 判读的唯一入口。
+        self._runtime_goal: str | None = None
         # 遗留项1（2026-09-17）：基线跨进程恢复——重启后从归档态取回
         # 上次通过的基准分，避免"重启即丢基线、门禁首轮失效"。
         if self.state.benchmark_baseline is not None:
@@ -152,7 +160,7 @@ class OptimizationDaemon:
         # 跨 goal 比较无意义（27 violations vs 代价分不可通约）。goal 与
         # 归档时不一致 → 旧基线一次性重置，避免 P1 门禁用错尺子永久回滚。
         state_goal = getattr(self.state, "best_ever_goal", None)
-        current_goal = getattr(self.config.optimizer, "goal", "structure")
+        current_goal = self._current_goal()
         if self.state.best_ever_score is not None and state_goal != current_goal:
             logger.warning(
                 "[F5卫兵] goal 已切换 %s→%s，重置跨语义 best_ever 基线 "
@@ -308,13 +316,13 @@ class OptimizationDaemon:
         # 数），若 before 仍取 structure 口径 28，代价分（量级几十）永远
         # 无法与之形成有效比较 → improvements 恒 0 死锁（第 683 圈实证）。
         # behavior 下 before 由 P0 门禁后的当前策略回放分回填。
-        is_behavior = getattr(self.config.optimizer, "goal", "") == "behavior"
+        is_behavior = self._current_goal() == "behavior"
         score_before: float | None = None if is_behavior else float(violations_before)
         start = time.monotonic()
 
         request = OptimizationRequest(
             target=self.target,
-            goal=self.config.optimizer.goal,
+            goal=self._current_goal(),  # R10-4: 运行时 goal（轮换后≠config 档）
             params={},
             config={"max_experiments": self.config.optimizer.max_trials},
         )
@@ -343,9 +351,7 @@ class OptimizationDaemon:
         # miss → 复测恒等分 → 门禁既不通过也不拒绝，纯烧两遍基准时间
         # （死门）。behavior 的实证闸由 P1 择优 + report-only 护栏承担。
         self.experiments.expire_stale_pending()
-        is_behavior_goal = (
-            getattr(self.config.optimizer, "goal", "") == "behavior"
-        )
+        is_behavior_goal = self._current_goal() == "behavior"
         if is_behavior_goal:
             # F5: behavior 的 before = 当前策略参数的回放代价——与
             # best_score 同一把尺子（同语料同函数），improvements 判据
@@ -406,7 +412,7 @@ class OptimizationDaemon:
         report_path = self.reports_dir / report_name
 
         report = self.advisor.generate_report(
-            goal=self.config.optimizer.goal,
+            goal=self._current_goal(),
             target=self.target,
             current_metrics=metrics,
             optimization_result=result,
@@ -453,9 +459,7 @@ class OptimizationDaemon:
                 self.state.best_ever_params = dict(result.best_params)
                 self.state.best_ever_cycle_id = self.state.total_cycles + 1
                 # F5: 归档时盖 goal 印——下轮加载时卫兵据此识别跨语义基线
-                self.state.best_ever_goal = getattr(
-                    self.config.optimizer, "goal", "structure"
-                )
+                self.state.best_ever_goal = self._current_goal()
 
         cycle = OptimizationCycle(
             cycle_id=self.state.total_cycles + 1,
@@ -494,7 +498,50 @@ class OptimizationDaemon:
         )
         return Result.ok(cycle)
 
+    def _current_goal(self) -> str:
+        """R10-4: 运行时 goal——实例覆盖优先，回退 frozen config。"""
+        return self._runtime_goal or getattr(
+            self.config.optimizer, "goal", "structure"
+        )
+
+    def _maybe_rotate_goal(self) -> None:
+        """R10-4 (2026-09-23): 停滞轮换——目标饱和时不再空耗预算。
+
+        触发：stall_count >= 8（连续 8 圈零改进）。分两档动作：
+        - structure 停滞 → 切 behavior 换尺子找新信息增量；best_ever
+          归属旧尺子，跨语义不可比，按 F5 卫兵同语义就地重置
+        - behavior 停滞 → watch 降频 x6（收敛慢≠饱和，不换尺子只减速）
+
+        只动运行时实例，不回写 frozen config；重启自然回到配置档。
+        """
+        if getattr(self.state, "stall_count", 0) < 8:
+            return
+        current = self._current_goal()
+        if current == "structure" and self._runtime_goal != "behavior":
+            logger.warning(
+                "[R10轮换] structure 连续 %d 圈零改进 → 切 behavior"
+                "（best_ever 归属旧尺子，跨语义不可比，按 F5 同语义重置）",
+                self.state.stall_count,
+            )
+            self._runtime_goal = "behavior"
+            self.state.best_ever_score = None
+            self.state.best_ever_params = {}
+            self.state.best_ever_cycle_id = None
+            self.state.best_ever_goal = None
+            self.state.stall_count = 0
+        elif current == "behavior":
+            logger.warning(
+                "[R10轮换] behavior 连续 %d 圈零改进 → watch 降频 %ds→%ds",
+                self.state.stall_count,
+                self._watch_interval,
+                self._watch_interval * 6,
+            )
+            self._watch_interval *= 6
+            self.state.stall_count = 0
+
     def run_watch(self, interval_seconds: int = 300) -> None:
+        # R10-4: 可变间隔——behavior 停滞降频 x6 由 _maybe_rotate_goal 调整
+        self._watch_interval = interval_seconds
         logger.info(
             "自由化框架启动 (watch 模式, interval=%ds, target=%s)",
             interval_seconds,
@@ -524,7 +571,12 @@ class OptimizationDaemon:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("[F4值守] 本轮值守异常（不阻塞优化循环）")
-                time.sleep(interval_seconds)
+                # R10-4: 停滞轮换决策点（本轮结果已记账，stall_count 最新）
+                try:
+                    self._maybe_rotate_goal()
+                except Exception:  # noqa: BLE001
+                    logger.exception("[R10轮换] 决策异常（不阻塞循环）")
+                time.sleep(self._watch_interval)
         except KeyboardInterrupt:
             logger.info("自由化框架已停止")
             print("\n自由化框架已停止")
@@ -811,8 +863,13 @@ class OptimizationDaemon:
     def _record_cycle(self, cycle: OptimizationCycle) -> None:
         self.state.last_optimization_time = cycle.triggered_at
         self.state.total_cycles += 1
+        # R10-4 (2026-09-23): 停滞计数——以本轮是否真改进为判据（v_after <
+        # v_before），供 run_watch 做目标轮换决策。有改进即清零。
         if cycle.violations_after < cycle.violations_before:
             self.state.total_improvements += 1
+            self.state.stall_count = 0
+        else:
+            self.state.stall_count = getattr(self.state, "stall_count", 0) + 1
         self.state.cycles.append(
             {
                 "cycle_id": cycle.cycle_id,

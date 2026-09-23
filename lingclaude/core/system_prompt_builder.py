@@ -265,7 +265,9 @@ def build_dynamic_system_suffix(
             from lingclaude.core.data_flywheel import DataFlywheel
 
             fw = DataFlywheel()
-            res = fw.get_recent_corrections(limit=2)
+            # R10-2 (2026-09-23): 复发感知读取——注入条目带 recurrence_count，
+            # 「注入过仍复发」的纠正加 🔁 重点标记（段3 效果可观测的第一步）。
+            res = fw.get_recent_corrections_with_recurrence(limit=2)
             lines: list[str] = []
             if res.is_ok and res.data:
                 seen_ids = set()
@@ -274,8 +276,11 @@ def build_dynamic_system_suffix(
                     if key in seen_ids:
                         continue
                     seen_ids.add(key)
+                    _rc = int(c_.get("recurrence_count", 0) or 0)
+                    _mark = f"🔁{_rc}次 " if _rc > 0 else ""
                     lines.append(
-                        "  - 纠正: {} → 勿重犯: {}".format(
+                        "  - {}纠正: {} → 勿重犯: {}".format(
+                            _mark,
                             c_["correction"][:80].replace("\n", " "),
                             c_["original_error"][:60].replace("\n", " ") or "（无原文）",
                         )

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -239,6 +240,25 @@ class QueryEngineTurnMixin:
                             "hallucination_guard: 检测到 %d 个问题: %s",
                             len(vr["issues"]), vr["issues"]
                         )
+                        # R10 (2026-09-23): 复发埋点——守卫触发即落 error_log
+                        # （细粒度 pattern_type，喂活 top_error_patterns 聚合）
+                        # + 30min 窗口内的注入记录 recurrence_count+1。
+                        # fail-soft：埋点故障绝不影响主输出。
+                        try:
+                            from lingclaude.core.data_flywheel import DataFlywheel
+                            _fact_types = sorted({
+                                str(i).split(":", 1)[0].strip()
+                                for i in vr.get("issues", []) if str(i).strip()
+                            }) or ["unknown"]
+                            _fw = DataFlywheel()
+                            _fw.record_recurrence(
+                                session_id=str(getattr(self, "session_id", "unknown")),
+                                fact_types=_fact_types,
+                                occurred_at=datetime.now().isoformat(timespec="seconds"),
+                            )
+                            _fw.close()
+                        except Exception:  # pragma: no cover - fail-soft
+                            logger.debug("R10 复发埋点异常（已忽略）", exc_info=True)
             except Exception as e:
                 # fail-soft: 验证器故障绝不影响主输出
                 logger.debug("hallucination_guard: 验证失败（已忽略）: %s", e, exc_info=True)

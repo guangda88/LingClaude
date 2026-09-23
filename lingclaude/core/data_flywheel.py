@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +104,13 @@ class DataFlywheel:
         cols = {r[1] for r in c.execute("PRAGMA table_info(corrections)").fetchall()}
         if "experiment_id" not in cols:
             c.execute("ALTER TABLE corrections ADD COLUMN experiment_id TEXT")
+        # R10-1 (2026-09-23): 复发率埋点——被注入后同会话 30min 窗口内守卫
+        # 再触发 ⇒ 该纠正标记复发。无跨轮状态传递的诚实近似（详见
+        # record_recurrence docstring 的三重局限说明）。
+        if "recurrence_count" not in cols:
+            c.execute("ALTER TABLE corrections ADD COLUMN recurrence_count INTEGER NOT NULL DEFAULT 0")
+        if "last_recurred_at" not in cols:
+            c.execute("ALTER TABLE corrections ADD COLUMN last_recurred_at TEXT")
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_errors_file ON error_log(file_path)"
         )
@@ -265,6 +273,109 @@ class DataFlywheel:
         except Exception as e:
             logger.warning("飞轮读取近期纠正失败: %s", e)
             return Result.fail(f"Flywheel recent_corrections failed: {e}", code="DB_ERROR")
+
+    def record_recurrence(
+        self,
+        session_id: str,
+        fact_types: list[str],
+        window_minutes: int = 30,
+        occurred_at: str | None = None,
+    ) -> Result[int]:
+        """R10-1 (2026-09-23): 幻觉复发埋点——写入 error_log + 命中计数。
+
+        时序关联近似（无跨轮注入清单传递的诚实方案）：
+        - 「复发」判据 = 同 session_id 在 window_minutes 内有注入记录
+          （meta.feedback），此时守卫再触发 ⇒ 近似视为「注入未抑制住」。
+        - 命中的注入记录 recurrence_count +1。
+
+        三重已知局限（都是低召回方向，不产生误报性乐观）：
+        1. 窗口内注入未被 LLM 实际读到（prompt 构建时机差异）⇒ 误标
+        2. 注入有效但错误类型不同 ⇒ 只体现在 fact_type 聚类里
+        3. 非 strict 模式下守卫只对部分回合生效 ⇒ 漏计
+        """
+        occurred_at = occurred_at or datetime.now().isoformat(timespec="seconds")
+        try:
+            conn = self._get_connection()
+            c = conn.cursor()
+            since = (
+                datetime.fromisoformat(occurred_at)
+                - timedelta(minutes=window_minutes)
+            ).isoformat(timespec="seconds")
+            # R10-3: 细粒度 pattern_type——hallucination:hard_fact 等。
+            # 此前 error_log 表 0 生产写入方，state_store.top_error_patterns
+            # 的 pattern_type+tool_name 聚合一直在聚空表。
+            inserted = 0
+            for ft in fact_types or ["unknown"]:
+                c.execute(
+                    """INSERT INTO error_log
+                       (pattern_type, file_path, error_message, tool_name,
+                        context, session_id, occurred_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        f"hallucination:{ft}",
+                        "response_text",
+                        "幻觉守卫触发（R10 埋点）",
+                        "hallucination_guard",
+                        "",
+                        session_id,
+                        occurred_at,
+                    ),
+                )
+                inserted += 1
+            # 时序窗口内的注入记录 → 复发计数 +1
+            # 注意：SQLite 的 datetime(a)-datetime(b) 是字符串前缀转数字相减
+            # （同年前缀抵消恒 0），必须用 julianday 天差换算秒。
+            c.execute(
+                """UPDATE corrections
+                   SET recurrence_count = recurrence_count + 1,
+                       last_recurred_at = ?
+                   WHERE id IN (
+                       SELECT id FROM corrections
+                       WHERE source = 'meta.feedback'
+                         AND (julianday(?) - julianday(applied_at)) * 86400.0 >= 0
+                         AND (julianday(?) - julianday(applied_at)) * 86400.0 <= ?
+                       ORDER BY id DESC LIMIT 5
+                   )""",
+                (occurred_at, occurred_at, occurred_at, window_minutes * 60),
+            )
+            recurrent = c.rowcount
+            safe_commit(conn)
+            logger.info(
+                "R10 复发埋点: session=%s fact_types=%s 新增=%d 命中注入=%d",
+                session_id, fact_types, inserted, recurrent,
+            )
+            return Result.ok(recurrent)
+        except Exception as e:
+            logger.warning("R10 复发埋点失败（fail-soft）: %s", e)
+            return Result.fail(f"Flywheel recurrence failed: {e}", code="DB_ERROR")
+
+    def get_recent_corrections_with_recurrence(
+        self, limit: int = 3
+    ) -> Result[list[dict[str, Any]]]:
+        """R10-1: get_recent_corrections 的复发感知版——每条附 recurrence_count，
+        供 prompt_builder 对「注入过仍复发」的纠正加重点标记。"""
+        base = self.get_recent_corrections(limit=limit)
+        if base.is_error:
+            return base
+        try:
+            conn = self._get_connection()
+            c = conn.cursor()
+            c.execute(
+                """SELECT correction, recurrence_count FROM corrections
+                   WHERE recurrence_count > 0 ORDER BY last_recurred_at DESC LIMIT 50"""
+            )
+            hot = {r[0]: r[1] for r in c.fetchall()}
+            enriched = []
+            for item in base.data or []:
+                count = hot.get(item.get("correction", ""), 0)
+                enriched.append({**item, "recurrence_count": count})
+            return Result.ok(enriched)
+        except Exception as e:
+            # fail-soft： enrichment 失败退回无计数版本
+            logger.warning("复发计数 enrich 失败（降级）: %s", e)
+            return Result.ok(
+                [{**item, "recurrence_count": 0} for item in (base.data or [])]
+            )
 
     def get_recurring_errors(self, min_count: int = 2, limit: int = 20) -> Result[list[dict[str, Any]]]:
         try:
