@@ -17,6 +17,7 @@ from typing import Any
 
 from lingclaude.core.image_content import extract_image_content, image_tool_text
 from lingclaude.core.types import is_tool_error
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,6 @@ class ToolCallExecutor:
                 from lingclaude.core.data_flywheel import DataFlywheel, ToolEvent
                 self._flywheel = DataFlywheel()
                 self._tool_event_cls = ToolEvent
-            import time
             self._flywheel.log_tool_event(self._tool_event_cls(
                 session_id=getattr(self._engine, "session_id", "") or "",
                 tool_name=tool_name,

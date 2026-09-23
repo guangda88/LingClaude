@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,6 @@ class DefaultLoopHooks:
         失败/未启用 → 不挂钩子（DefaultLoopHooks 的 _fan_out_* 属性缺失，
         pre_decide 走「fn is None → None」直通路径，语义不变）。
         """
-        import os
         if os.environ.get("LINGCLAUDE_FAN_OUT", "") not in ("1", "true", "TRUE"):
             return None
         try:

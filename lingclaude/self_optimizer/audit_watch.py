@@ -18,6 +18,7 @@ import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +152,6 @@ class AuditWatch:
         F5 触发条件②（verify_ledger 自动落账）由此从"人工"变"值守自动"，
         条件③（F0 基线 ≥1 周）继续按墙钟积累。
         """
-        import subprocess
 
         scripts = Path(__file__).resolve().parent.parent.parent / "scripts"
         result: dict = {"backfill": None, "governor": None, "verified": False}
@@ -191,7 +191,6 @@ class AuditWatch:
     @staticmethod
     def _run_subprocess(script_path: str, timeout: int):
         """钩子脚本执行器（独立方法便于测试打桩，不碰真实 subprocess）。"""
-        import subprocess
 
         return subprocess.run(
             [sys.executable, script_path],

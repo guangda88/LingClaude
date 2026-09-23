@@ -17,6 +17,8 @@ from lingminopt import (
     ExperimentConfig,
 )
 from lingminopt.core.models import OptimizationResult as LMOptResult
+import itertools
+import time as _t
 
 
 @dataclass(frozen=True)
@@ -111,8 +113,6 @@ class SynchronousOptimizer:
             # 实测 50 trials 早停返回 fl=1，全曲线最优 fl=2）。穷举天然
             # 全覆盖，历史含每个组合，产出与 lingminopt 契约同构。
             if request.goal == "behavior":
-                import itertools
-                import time as _t
 
                 grid = [
                     {"consecutive_fail_limit": fl, "tool_repeat_limit": rl}

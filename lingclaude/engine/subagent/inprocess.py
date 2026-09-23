@@ -16,6 +16,7 @@ from lingclaude.engine.subagent.base import (
     SubagentResult,
     SubagentStatus,
 )
+import uuid
 
 
 class InProcessSubagentBackend(SubagentBackend):
@@ -81,7 +82,6 @@ class InProcessSubagentBackend(SubagentBackend):
     def _run_parallel(self, request: SubagentRequest, ctx: SubagentContext) -> SubagentResult:
         """T1-6: 并行执行多个子任务（每个任务独立 SubAgent）。"""
         from lingclaude.engine.loop.sub_agent import SubAgent, SubAgentConfig
-        import uuid
 
         config = SubAgentConfig(
             max_rounds=request.max_rounds,

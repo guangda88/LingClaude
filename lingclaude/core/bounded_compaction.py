@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 from typing import Any
+import re
 
 # 有界字段上限（治「压缩摘要比原文还长」：每字段固定条数，产物尺寸可预测）
 _BOUNDED_LIMITS = {
@@ -135,7 +136,6 @@ def build_bounded_decision_pattern(
             break
 
     # 来源引用：压缩了 dropped_count 轮 + 提取文件引用（路径形 token）
-    import re
     files = sorted({
         m for m in re.findall(r"(?:~|(?<![\w])/|\.\.?/)[\w./~-]+", all_text)
         if len(m) > 3 and not m.startswith("http")

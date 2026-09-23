@@ -128,7 +128,6 @@ class HeuristicBackend:
         低难度，但证据扎实就应判支撑）。state 拼接「证据完整度=X」，P=该值
         （sigmoid 语义直通，阈值化交给消费方按 claim_gate_threshold 判）。
         """
-        import re
         ev = 0.0
         m = re.search(r"证据完整度=([01]\.\d+)", state)
         if m:
@@ -203,7 +202,6 @@ class HeuristicBackend:
         （同话题重复投机收益递减）、证据完整度抬升 P(达成)（证据扎实则声明可信）。
         信号缺失时按 0 兜底（保守）。
         """
-        import re
         reuse = 0.0
         m = re.search(r"复用度=([01]\.\d+)", state)
         if m:

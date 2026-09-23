@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from datetime import datetime as _dt
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,6 @@ def record_turn_learnings(
             # 供 F0 指标（规则有效率）与未来证据挂钩消费；历史 corrections 恒 0
             # 的缺口在此闭合（log_correction 此前全仓零调用）。
             try:
-                from datetime import datetime as _dt
 
                 from lingclaude.core.data_flywheel import CorrectionEntry, DataFlywheel
                 from lingclaude.self_optimizer.experiments import ExperimentLedger

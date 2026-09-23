@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from lingclaude.core.types import ToolResult
+import re
 
 
 # 路径形 token 提取正则——单一来源，两个 handler 共用，禁止二次分叉。
@@ -42,7 +43,6 @@ def _check_sensitive_in_command(command: str) -> tuple[str | None, str | None]:
     2026-09-12（codex 审计 P0-2）：两 handler 共用此函数，消除正则分叉。
     """
     from lingclaude.engine.sensitive_path_gate import check_sensitive_path
-    import re
 
     for p in re.findall(_PATH_TOKEN_RE, command):
         if len(p) > 1:

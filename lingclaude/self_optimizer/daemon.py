@@ -20,6 +20,9 @@ from lingclaude.self_optimizer.optimizer import (
 )
 from lingclaude.self_optimizer.trigger import OptimizationTrigger
 from lingclaude.core.session import SessionManager
+from pathlib import Path as P
+import os
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +164,6 @@ class OptimizationDaemon:
             self.state.best_ever_params = {}
             self.state.best_ever_cycle_id = None
         # P0-4: session snapshot/rewind
-        from pathlib import Path as P
         self._session_mgr = SessionManager(save_dir=P(".lingclaude/sessions"))
         self._current_session = self._session_mgr.create(
             project_path=str(P(target).resolve()),
@@ -544,7 +546,6 @@ class OptimizationDaemon:
            即发散——一次调多参出问题时无法归因，也没有复测窗口）。
         3. 失败只告警不抛出（本函数在优化循环尾部调用，不应炸掉整个循环）。
         """
-        import os
 
         if not params:
             return
@@ -636,7 +637,6 @@ class OptimizationDaemon:
             record_change(config_path, source="self_optimizer")
 
             # P1-2: patch 审计记录 — 每次变更先落 patch,写配置只是应用 patch
-            from datetime import datetime, timezone
 
             patches_dir = Path(".lingclaude") / "patches"
             patches_dir.mkdir(parents=True, exist_ok=True)
@@ -706,7 +706,6 @@ class OptimizationDaemon:
         2. 单参数限幅：每周期最多写 1 个键（归因窗口）。
         3. 合法键白名单 + int 强制，防搜索空间外的值写进策略文件。
         """
-        import os
 
         if not params:
             return

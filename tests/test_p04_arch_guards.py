@@ -140,7 +140,19 @@ BASELINE_SYS_PATH = 14
 #   函数内 import 无意义，全部上提模块级清偿，见同批 commit）。
 #   注：实测 562 含在途未提交改动（permissions.py::_get_approval_matrix
 #   内 os，属 P0-2 会话，其提交时自行上提或进基线）。518 → 562。
-BASELINE_LAZY = 562
+BASELINE_LAZY = 605
+# === 2026-09-23 (G3 二次归因清偿): 629 → 605，基线 562 → 605 ——===
+#   基线脱锚根因：4a9d314(09-22 20:20) 设 562 后，24h 内三波提交（spec_decision
+#   铺开/P1-5 两级瘦身/通电+守卫换代）累计 +67，G3 为告警级不阻塞，无人归因。
+#   本轮 git-vs-4a9d314 函数级 AST 对比逐处归因：177 语句 = internal 141
+#   （循环规避/解耦，S3 合法，抽查 fan_out_scheduler 6 处 policy_loader.get 确证）
+#   + 三方可选 9（yaml/laya）+ 跨族插片 3（lingmessage/ling_key_store 均带
+#   ensure_import_path 显式契约+ImportError 兜底；torch 重依赖单例懒加载）
+#   + stdlib 24（真违规，与 09-22 清偿同类：无循环可能，函数内 import 无意义）。
+#   清偿：24 处 stdlib 上提模块级（20 lift+delete / 4 已有仅删），实测 629→605；
+#   cli/app.py:1036 os 跳过（logfix 在途，提交时自行处理或下次清偿）。
+#   口径注：净增 67 与语句差 73 的差额为嵌套函数重复行走所致（_count_lazy
+#   已知测量缺陷，J5 候审项）。562 → 605。
 
 def _py_files(root: Path):
     return [f for f in sorted(root.rglob("*.py")) if "__pycache__" not in f.parts]

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import os as _os
 
 logger = logging.getLogger(__name__)
 
@@ -253,7 +254,6 @@ def _get_approval_matrix() -> Any | None:
     LINGCLAUDE_SANDBOX_MODE / LINGCLAUDE_APPROVAL_POLICY 覆盖，资产读
     approvals.json always_allow）；未启用/构建失败 → None（调用方走原语义）。
     """
-    import os as _os
     if _os.environ.get("LINGCLAUDE_APPROVAL_MATRIX", "") not in ("1", "true", "TRUE"):
         return None
     global _APPROVAL_MATRIX_SINGLETON
@@ -356,7 +356,6 @@ def _load_persisted() -> None:
         # （原条件 `if _GLOBAL_MODE == "ask"` 会把 approvals.json 显式写的
         #  "mode": "ask" 也覆盖掉 — 注释声称 approvals.json 优先级更高，
         #  实现却相反）。兜底读 config 的调用点延后至模块尾部（见文件末尾）。
-        import os as _os
 
         _GLOBAL_MODE = load_approval_mode(
             Path(_os.environ.get("LINGCLAUDE_CONFIG") or "config.yaml")

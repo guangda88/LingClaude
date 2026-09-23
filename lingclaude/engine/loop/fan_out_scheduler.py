@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from typing import Any
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +215,6 @@ class FanOutScheduler:
         再空跑一轮无新收益）才终止。分词：CJK 逐字 + 拉丁按词（纯 split 对
         中文无空格文本失准，「就 本轮上下文 回答子目标」切不出词）。
         """
-        import re
 
         def _tokens(text: str) -> set[str]:
             t = (text or "").lower()

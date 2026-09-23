@@ -34,6 +34,7 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+import sqlite3
 
 _TRANSIENT_RE = re.compile(
     r"timed out|timeout|rate.?limit|429|5\d\d|connection|temporarily",
@@ -69,7 +70,6 @@ def load_traces(
     表空/缺失时回退 error_log 单边语料（纯失败序列，success 全 False）。
     只读；库不存在时返回空表（调用方回退默认参数评分，graceful）。
     """
-    import sqlite3
 
     path = Path(db_path).expanduser()
     if not path.exists():

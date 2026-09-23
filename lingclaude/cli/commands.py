@@ -18,6 +18,8 @@ import time
 from pathlib import Path
 
 from lingclaude.cli.repl_turn import _record_long_task_metrics
+import json as _json
+import shlex
 
 
 def _next_fork_tag() -> str:
@@ -183,7 +185,6 @@ class SlashCommandProcessor:
             if not path.exists():
                 path = mgr.save_dir / "_default" / f"{full}.json"
             try:
-                import json as _json
 
                 data = _json.loads(path.read_text(encoding="utf-8"))
             except Exception as e:  # noqa: BLE001 — 文件损坏留痕不崩
@@ -377,7 +378,6 @@ class SlashCommandProcessor:
         if pinned:
             pinned_cfg = engine._pinned_model_config
             base = getattr(pinned_cfg, "base_url", "?") if pinned_cfg else "?"
-            import time
             ttl_remain = int(engine._pinned_model_expires - time.time()) if engine._pinned_model_expires != float('inf') else -1
             ttl_str = f" (剩余 {ttl_remain}s)" if ttl_remain > 0 else (" (会话级)" if ttl_remain < 0 else " (已过期，自动解除)")
             print(f"[当前钉住模型] {pinned} @ {base}{ttl_str}")
@@ -553,7 +553,6 @@ class SlashCommandProcessor:
             command = ""
             args: list[str] = []
             if "--command" in rest:
-                import shlex
 
                 lang_part, _, after = rest.partition("--command")
                 lang = lang_part.strip()
@@ -568,7 +567,6 @@ class SlashCommandProcessor:
                     if cmd_tokens:
                         command, args = cmd_tokens[0], cmd_tokens[1:]
             else:
-                import shlex
 
                 tokens = shlex.split(rest)
                 if len(tokens) >= 2:
