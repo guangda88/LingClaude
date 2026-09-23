@@ -1,0 +1,8 @@
+{
+  "claim_key": "tests__test_handover.py",
+  "event": "released_stale_archived",
+  "member": "lingke",
+  "path": "tests/test_handover.py",
+  "note": "sweeper: 已释放过期锁补审计归档",
+  "at": 1790162473.6694646
+}

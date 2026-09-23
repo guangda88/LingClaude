@@ -1,0 +1,7 @@
+{
+ "date": "2026-09-23",
+ "event": "remediated",
+ "note": "自审 P0 第一批整改（audit-20260923-verified 执行）：①P0#3 N3 域前缀——plugin_manifest.py regex 允许域前缀 /（^[a-z0-9][a-z0-9_/-]*$，防路径注入保持）；SeamRegistry.register 增 validate_seam_namespace（跨物理层类型 AGENT/MULTIMODAL/ORCHESTRATOR/RESOURCE 强制 {ns}/{seam}，ns∈core/agent/cap/os/hw，测试 mock 用 validate_namespace=False 显式豁免 J5）；②P0#2 N4 时效查——tests/agents/conftest.py:28-29 J5 反例修复（except 改显式留痕写 arch_audit_state/guard_faults.json）；新增 scripts/work_claim_sweeper.py 周期清理 stale 锁（过期 held 强制释放+日志，过期 released 补审计归档，--dry-run 支持）；test_iron_law_5_8.py 增 4 项 expired/sweeper/守卫故障专项（22 项全绿）。",
+ "doc": "docs/audit/20260923_iron_law_self_audit.md §四 P0#2/#3",
+ "recorded": "2026-09-23T12:30:00+00:00"
+}
