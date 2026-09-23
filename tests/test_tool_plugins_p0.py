@@ -19,12 +19,23 @@ from lingclaude.engine.tools import ToolRegistry
 
 @pytest.fixture(autouse=True)
 def _clean_seam_registry():
-    """每个测试前后清空 SeamRegistry.TOOL，防跨测试泄漏。"""
+    """每个测试前后清空 SeamRegistry.TOOL + 重置惰性装载标志，防跨测试泄漏。
+
+    2026-09-24 启动提速: 插片装载收口到 tools._ensure_tool_plugins_loaded
+    （进程级 exactly-once）。若前一用例已触发装载，后一用例构造的 runtime
+    将因幂等跳过而拿不到插件 —— fixture 必须连同 _PLUGIN_LOAD_DONE 一并重置。
+    """
+    from lingclaude.engine import tools as _tools_mod
+
     for name in list(SeamRegistry.list_names(SeamType.TOOL)):
         SeamRegistry.unregister(SeamType.TOOL, name)
+    _tools_mod._PLUGIN_LOAD_DONE = False
+    _tools_mod._PLUGIN_LOAD_ERROR = ""
     yield
     for name in list(SeamRegistry.list_names(SeamType.TOOL)):
         SeamRegistry.unregister(SeamType.TOOL, name)
+    _tools_mod._PLUGIN_LOAD_DONE = False
+    _tools_mod._PLUGIN_LOAD_ERROR = ""
 
 
 class TestToolPluginLoad:
@@ -51,10 +62,18 @@ class TestToolPluginLoad:
 
 class TestCodingRuntimePluginIntegration:
     def test_runtime_assembly_registers_plugins(self):
-        """CodingRuntime 装配后 tool_plugins 加载进 SeamRegistry.TOOL。"""
+        """CodingRuntime 装配后 tool_plugins 惰性可用（2026-09-24 启动提速契约）。
+
+        契约更新：装载从构造期移出（LazyToolPlugins 句柄）——构造后 seam 暂无
+        插件（提速断言），显式触发（等价 warm/miss 回填）后 bash_plugin +
+        read_plugin 可用 —— 最终一致性与旧契约对齐。
+        """
         runtime = CodingRuntime()
         assert hasattr(runtime, "tool_plugins")
-        assert runtime.tool_plugins  # 非空：bash_plugin + read_plugin
+        assert runtime.tool_plugins  # 句柄非空（wired 名单契约不变）
+        names0 = set(SeamRegistry.list_names(SeamType.TOOL))
+        assert not {n for n in names0 if n.endswith("_plugin")}  # 构造期零装载
+        runtime.tool_plugins.load_now()  # 触发惰性装载
         names = set(SeamRegistry.list_names(SeamType.TOOL))
         assert "bash_plugin" in names
         assert "read_plugin" in names
@@ -62,6 +81,7 @@ class TestCodingRuntimePluginIntegration:
     def test_plugins_coexist_with_specs_tools(self):
         """插件与现有 SPECS 34 工具共存，register_all_tools 回归不受影响。"""
         runtime = CodingRuntime()
+        runtime.tool_plugins.load_now()  # 触发惰性装载（2026-09-24 契约）
         # SPECS 工具仍注册（test_coding 回归）
         assert "bash" in runtime.registry._tools
         assert "read" in runtime.registry._tools

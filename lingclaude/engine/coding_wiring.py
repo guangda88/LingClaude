@@ -145,28 +145,61 @@ def _make_tool_pipeline(ctx: CodingWiringContext) -> Any:
     )
 
 
+class LazyToolPlugins:
+    """启动提速（2026-09-24 第二轮）：工具插片惰性句柄。
+
+    装配期只挂本句柄（O(1)，不 exec_module）；真实装载收口到
+    tools.py::_ensure_tool_plugins_loaded（warm 线程 + 首调用兜底共用，
+    exactly-once）。__bool__ 恒真：保持旧契约「装配后 runtime.tool_plugins
+    非空」与 manifest 14 项 wired 名单不变（test_coding 回归网）。
+    """
+
+    __slots__ = ("_runtime",)
+
+    def __init__(self, runtime: Any) -> None:
+        self._runtime = runtime
+
+    def __bool__(self) -> bool:
+        return True
+
+    def __repr__(self) -> str:
+        from lingclaude.engine import tools as _tools
+
+        return (
+            f"<LazyToolPlugins dir={_tools._PLUGINS_DIR!r} "
+            f"loaded={_tools._PLUGIN_LOAD_DONE} err={_tools._PLUGIN_LOAD_ERROR!r}>"
+        )
+
+    def warm(self) -> None:
+        """后台热身：由 cli 在欢迎横幅后起线程调用（非阻塞）。"""
+        from lingclaude.engine.tools import _ensure_tool_plugins_loaded
+
+        _ensure_tool_plugins_loaded()
+
+    def load_now(self) -> list[str]:
+        """同步装载（selftest/调试用）。返回当前已装载插件名（失败返回 []）。"""
+        from lingclaude.engine.tools import _ensure_tool_plugins_loaded
+
+        if not _ensure_tool_plugins_loaded():
+            return []
+        from lingclaude.core.seam import SeamRegistry, SeamType
+
+        return sorted(SeamRegistry.list_names(SeamType.TOOL))
+
+
 def _load_tool_plugins(ctx: CodingWiringContext) -> Any:
-    """P0: 加载 lingclaude/plugins/tools/ 下工具插件（示范载体：bash_plugin/read_plugin）。
+    """P0: 工具插片载体（plugins/tools/，注册进 SeamRegistry.TOOL）。
 
     灵元纪律：
     - 变化（工具实现）= 插片，目录内自包含 manifest + 实现。
-    - 目录不存在/为空 → 返回 []（fail-soft，不影响现有 SPECS 34 工具回归）。
+    - 目录不存在/为空 → 装载返回空（fail-soft，不影响现有 SPECS 34 工具回归）。
     - 加载成功后注册进 SeamRegistry.TOOL，ToolRegistry.execute 优先走插件
       （tools.py Q1 热拔插通道：外部换血代理优先于内部 handler）。
-    """
-    from lingclaude.core.plugin_loader import PluginLoader
 
-    plugins_dir = "lingclaude/plugins/tools"
-    results = PluginLoader().load_plugins_from_dir(plugins_dir)
-    loaded = [name for name, r in results.items() if r.is_ok]
-    if results:
-        logger.info(
-            "CodingRuntime: 工具插件目录 %s 加载 %d 个: %s",
-            plugins_dir,
-            len(loaded),
-            ", ".join(sorted(loaded)),
-        )
-    return loaded
+    2026-09-24 启动提速：装载从构造期移出 —— 本工厂只返回惰性句柄，
+    真实装载见 tools.py::_ensure_tool_plugins_loaded（warm + miss 回填）。
+    """
+    return LazyToolPlugins(ctx.runtime)
 
 
 def load_tool_plugins_selftest() -> int:
@@ -204,7 +237,7 @@ CODING_WIRING_MANIFEST: tuple[CodingWiringSpec, ...] = (
     CodingWiringSpec("file_read", _make_file_read, note="文件读取"),
     CodingWiringSpec("grep_tool", _make_grep_tool, note="grep 搜索"),
     CodingWiringSpec("registry", _make_registry, note="工具注册表（register_all_tools 消费）"),
-    CodingWiringSpec("tool_plugins", _load_tool_plugins, note="P0: 工具插件载体（plugins/tools/，注册进 SeamRegistry.TOOL）"),
+    CodingWiringSpec("tool_plugins", _load_tool_plugins, note="P0: 工具插件载体（plugins/tools/，2026-09-24 起惰性装载：LazyToolPlugins 句柄，warm+miss 回填见 tools.py）"),
     CodingWiringSpec("permissions", _make_permissions, note="权限上下文（deny/mode）"),
     CodingWiringSpec("evaluator", _make_evaluator, note="结构评估"),
     CodingWiringSpec("optimizer", _make_optimizer, note="同步优化器"),

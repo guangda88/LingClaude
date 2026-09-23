@@ -16,7 +16,7 @@ import time
 import urllib.request
 import warnings
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from lingclaude.cli.display import (
     QualityReport,
@@ -55,6 +55,10 @@ _logger = logging.getLogger(__name__)
 
 
 _behavior_daemon: OptimizationDaemon | None = None
+
+# 2026-09-24 退出挂死修复: BusResponder stop 事件提升为模块级, 供
+# _hard_exit_after_close 在 os._exit 前显式置位（atexit 会被 os._exit 跳过）。
+_bus_stop_event: threading.Event | None = None
 
 
 
@@ -130,6 +134,57 @@ def _close_runtime(runtime: "CodingRuntime") -> None:
         pass
 
 
+def _hard_exit_after_close(runtime: "CodingRuntime", code: int) -> NoReturn:
+    """2026-09-24 退出挂死修复: 交互 REPL 退出路径的确定性收尾。
+
+    根因: 第三方库线程池 worker 若卡在工作项（non-daemon），解释器 shutdown
+    阶段 threading._shutdown → concurrent.futures._python_exit → t.join() 会
+    永久阻塞 —— 而 atexit 队列排在 join 之后，_close_runtime 永远轮不到执行
+    （2026-09-23 用户实测: 退出后 10 分钟无提示符，Ctrl+C 才能看到 traceback
+    落在 threading.py:1592 atexit_call()）。
+
+    修复: REPL 全部收尾（会话保存/统计/TTY 恢复）已在 _interactive_loop 内完成
+    （repl.py:1325-1336），此处显式跑完 runtime.close()（三段均有超时界，
+    coding.py:87-117）后直接 os._exit —— 跳过 join 阶段，挂死与 Ctrl+C
+    噪音 traceback 一并消灭。
+
+    语义注意（fire-and-forget 退出，同 BackgroundTaskManager 约定 background.py:16）:
+    - os._exit 跳过 atexit 队列 → bus responder stop 事件在此显式置位
+      （只 set 不 join，join 反而回到同一挂死类）；
+    - 仅用于交互 REPL 路径。单轮/headless/banner 路径仍走正常返回 + atexit。
+    """
+    stop = globals().get("_bus_stop_event")
+    if stop is not None:
+        try:
+            stop.set()
+        except Exception:  # noqa: BLE001
+            pass
+    _close_runtime(runtime)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
+
+def _start_tool_plugin_warm(runtime: "CodingRuntime") -> None:
+    """2026-09-24 启动提速: 工具插片后台热身。
+
+    插件 exec_module 已移出 CodingRuntime 构造期（coding_wiring.LazyToolPlugins）,
+    此处在进入 REPL 前起 daemon 线程预热, 用户首输入期间完成装载; 即使线程尚未
+    装完, ToolRegistry.execute 的 miss 回填（tools.py）也会兜底。fail-soft:
+    warm 失败不影响主流程（execute 兜底路径会重试并记录 _PLUGIN_LOAD_ERROR）。
+    """
+
+    def _warm() -> None:
+        try:
+            handle = getattr(runtime, "tool_plugins", None)
+            if handle is not None and hasattr(handle, "warm"):
+                handle.warm()
+        except Exception:  # noqa: BLE001 — 后台预热失败不外泄
+            pass
+
+    threading.Thread(target=_warm, name="tool-plugin-warm", daemon=True).start()
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     config = load_config(Path(args.config) if args.config else None)
     # 审计#4 修复:--bash-executor 必须在 CodingRuntime 创建前生效
@@ -177,9 +232,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if args.interactive and os.environ.get("LINGCLAUDE_BUS_LISTENER") != "0":
         from lingclaude.cli.repl_turn import start_bus_responder_background
 
-        _bus_responder_stop = start_bus_responder_background()
+        # 2026-09-24: stop 事件同时挂模块级全局 —— 交互退出走 os._exit 硬退
+        # （_hard_exit_after_close），atexit 队列被跳过，需在硬退前显式置位。
+        global _bus_stop_event
+        _bus_stop_event = start_bus_responder_background()
         import atexit
-        atexit.register(_bus_responder_stop.set)
+        atexit.register(_bus_stop_event.set)
 
     # 退出时清理 runtime 资源（LSP 子进程 + BackgroundTaskManager 线程池）。
     # 修复:BackgroundTaskManager.shutdown() 存在但从未被调用 — 解释器 shutdown 阶段
@@ -215,14 +273,19 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     if args.prompt:
         if args.interactive:
-            return _interactive_loop(engine, args.prompt)
+            # 2026-09-24 退出挂死修复: REPL 收尾（保存/统计/TTY）已在
+            # _interactive_loop 内完成，此处 close + os._exit 确定性退出，
+            # 不再进入解释器 shutdown 的线程 join 阶段。
+            _start_tool_plugin_warm(runtime)
+            _hard_exit_after_close(runtime, _interactive_loop(engine, args.prompt))
         # P1-4 headless: --print / --json 走无装饰驱动（stdout 只出最终结果）
         if getattr(args, "print_", False) or getattr(args, "json_out", False):
             from lingclaude.cli.repl_turn import _headless_turn
             return _headless_turn(engine, args.prompt, as_json=bool(getattr(args, "json_out", False)))
         return _single_turn(engine, args.prompt, args.verbose)
     elif args.interactive:
-        return _interactive_loop(engine, None)
+        _start_tool_plugin_warm(runtime)
+        _hard_exit_after_close(runtime, _interactive_loop(engine, None))
     else:
         version = _get_version()
         provider_status = _provider_status(engine)

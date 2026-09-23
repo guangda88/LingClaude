@@ -15,10 +15,54 @@ finalizeContent -> finalize_content, presentCall/Result -> present_call/result).
 
 from __future__ import annotations
 
+import logging
+import threading
 from typing import Any, Callable
 
 from lingclaude.core.seam import SeamRegistry, SeamType
 from lingclaude.core.types import Result, ToolDefinition, ToolOutputDefinition
+
+logger = logging.getLogger(__name__)
+
+# ── 2026-09-24 启动提速第二轮: 工具插片装载惰性化 ──────────────────────────
+# 此前 _load_tool_plugins 在 CodingRuntime 构造期同步 exec_module 6 个插片
+# （全部用户首输入前必付）。现改为：装配期挂一个轻量句柄（LazyToolPlugins），
+# 真实装载收口到本函数 —— warm 线程提前热身 + 首次 execute_tool miss 兜底
+# 共用同一个双检锁函数，保证 exactly-once、无并发重复装载。
+_PLUGINS_DIR = "lingclaude/plugins/tools"
+_PLUGIN_LOAD_LOCK = threading.Lock()
+_PLUGIN_LOAD_DONE = False
+_PLUGIN_LOAD_ERROR = ""
+
+
+def _ensure_tool_plugins_loaded() -> bool:
+    """工具插片惰性装载（收口点，幂等）。
+
+    返回是否最终处于「已装载」状态。fail-soft：目录缺失/装载异常 →
+    记 _PLUGIN_LOAD_ERROR 后返回 False，主干 execute 回退内部 handler
+    （对齐 _load_tool_plugins docstring 的 fail-soft 纪律，不影响 SPECS 34 工具）。
+    """
+    global _PLUGIN_LOAD_DONE, _PLUGIN_LOAD_ERROR
+    if _PLUGIN_LOAD_DONE:
+        return True
+    with _PLUGIN_LOAD_LOCK:
+        if _PLUGIN_LOAD_DONE:  # 双检锁: warm 线程与首调用兜底竞速时 exactly-once
+            return True
+        try:
+            from lingclaude.core.plugin_loader import PluginLoader  # S3 纪律: 函数内延迟 import
+
+            results = PluginLoader().load_plugins_from_dir(_PLUGINS_DIR)
+            loaded = [n for n, r in results.items() if r.is_ok]
+            if results:
+                logger.info(
+                    "ToolRegistry: 工具插件目录 %s 惰性装载 %d 个: %s",
+                    _PLUGINS_DIR, len(loaded), ", ".join(sorted(loaded)),
+                )
+            _PLUGIN_LOAD_DONE = True
+        except Exception as e:  # noqa: BLE001 — fail-soft，回退内部 handler
+            _PLUGIN_LOAD_ERROR = f"{type(e).__name__}: {e}"
+            logger.warning("ToolRegistry: 工具插件惰性装载失败（fail-soft）: %s", _PLUGIN_LOAD_ERROR)
+        return _PLUGIN_LOAD_DONE
 
 
 class _ToolSeamProxy:
@@ -81,6 +125,10 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return Result.fail(f"Tool not found: {name}", code="NOT_FOUND")
+        # 2026-09-24 启动提速: 惰性装载兜底（miss 回填）。插件装载已移出构造期,
+        # 若首调用时 warm 线程尚未装完, 此处同步补装再走 seam (仅对内部已知工具
+        # 回填; NOT_FOUND 早退在前, 未知名不触发装载)。
+        _ensure_tool_plugins_loaded()
         # Q1 (2026-09-14): 主干热路径走 seam —— 同名覆盖即热拔插。
         # 先查 SeamRegistry.TOOL 槽位。但本注册表 register() 时自己会注册指向自身的
         # _ToolSeamProxy（tools.py register），若直接走它会造成 execute→proxy→execute 死循环。
