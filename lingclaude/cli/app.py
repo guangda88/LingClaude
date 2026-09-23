@@ -1033,7 +1033,6 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "selftest":
-        import os
         os.environ["LINGCLAUDE_PLUGIN_SELFTEST"] = "1"
         from lingclaude.engine.coding_wiring import load_tool_plugins_selftest
         return load_tool_plugins_selftest()
