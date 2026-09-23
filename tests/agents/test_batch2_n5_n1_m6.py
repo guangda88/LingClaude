@@ -264,13 +264,19 @@ class TestM6DualCaliber:
         assert divergences
 
     def test_m6_debt_registered(self):
-        """新发现的 register 钩子潜伏 bug 已挂账（due 2026-10-15）。"""
+        """register 钩子潜伏 bug 已于 batch4（2026-09-23）清偿 resolve。
+
+        原断言（state==open, due 2026-10-15）随债务清偿换代：现验证
+        resolved 态 + resolution 留痕（生命周期闭环契约）。
+        """
         from lingclaude.core.state_store import StateStore
 
         s = StateStore(backend="json", root=ROOT / "data" / "arch_ledger")
         try:
             rec = s.load("arch_debt", "m6-family-carriers-register-hook-broken")
-            assert rec is not None and rec["state"] == "open"
-            assert rec["due"] == "2026-10-15"
+            assert rec is not None, "债务台账必须可读（历史在案）"
+            assert rec["state"] == "resolved"
+            assert "MANIFEST_PATH" in rec.get("resolution", "")
+            assert "agent/proj-" in rec.get("resolution", "")
         finally:
             s.close()

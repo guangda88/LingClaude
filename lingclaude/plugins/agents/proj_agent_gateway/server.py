@@ -1,4 +1,4 @@
-"""灵克外部 Agent 网关 MCP 薄壳（proj/agent-gateway，第二层试验田：lc 调外部编程 agent）。
+"""灵克外部 Agent 网关 MCP 薄壳（agent/proj-agent-gateway，第二层试验田：lc 调外部编程 agent）。
 
 Hermes WebUI / Orca / Hermes Studio 在 lc 侧的对应物——把 cc、codex、crush、
 opencode、atomcode(ac) 这一批外部编程 agent 统一插片化，供 lc 像调自家成员一样调用。
@@ -17,7 +17,7 @@ ac 特判（daemon goal 面 401 阻塞的替代）：ac 的 `agent_invoke` 走 h
 - 铁律 1：本薄壳全在 plugins/agents/proj_agent_gateway/，core/ 零 diff；
 - 铁律 3/J4：每次工具调用记 agent_run:agent-gateway record（转发+错误结构化，失败如实入账）；
 - 铁律 6：trust_level=T3（外部工具只观测）+ plug_level=L2（缺席降级：单 agent 挂了不影响其余）；
-- 铁律 7：缝 key 带域前缀 proj/agent-gateway（N3 守卫消费，外部工程域）；
+- 铁律 7：缝 key 带域前缀 agent/proj-agent-gateway（N3 守卫消费，外部工程域）；
 - J1 薄壳纪律：每个 agent 只做 subprocess 分发+超时+错误结构化，不实现 agent 自身业务逻辑；
   各 agent 的调用形态固化在 _AGENTS 表（数据，非结构），改 agent 入口只改表不动代码。
 

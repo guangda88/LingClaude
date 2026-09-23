@@ -1,5 +1,5 @@
 {
-  "name": "proj/lingdai",
+  "name": "agent/proj-lingdai",
   "target": "lingdai-carrier",
   "display_name": "灵戴",
   "version": "0.1.0",

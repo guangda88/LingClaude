@@ -58,30 +58,34 @@ REGISTRY_MEMBERS = {  # 批2-4：登记型（载体在/未装/缺席，非 MCP �
     "agent/lingweb": LingWebAgentPlugin,
     "agent/lingyang": LingYangAgentPlugin,
     "agent/lingzhi": LingZhiAgentPlugin,
-    "proj/lingyi": ProjLingyiPlugin,
-    "proj/lingkang": ProjLingkangPlugin,
-    "proj/linglü": ProjLinglvPlugin,      # 缝 key=账本原样 proj/linglü；目录 ASCII 名 proj_linglv（ü→v）
-    "proj/lingchu": ProjLingchuPlugin,
-    "proj/lingdai": ProjLingdaiPlugin,
-    "proj/lingshang": ProjLingshangPlugin,
-    "proj/lingsheng": ProjLingshengPlugin,
-    "proj/lingshi": ProjLingshiPlugin,
+    "agent/proj-lingyi": ProjLingyiPlugin,
+    "agent/proj-lingkang": ProjLingkangPlugin,
+    "agent/proj-linglv": ProjLinglvPlugin,      # 缝 key=N3五域合规 agent/proj-linglv（原 proj/linglü）；目录 ASCII 名 proj_linglv（ü→v）
+    "agent/proj-lingchu": ProjLingchuPlugin,
+    "agent/proj-lingdai": ProjLingdaiPlugin,
+    "agent/proj-lingshang": ProjLingshangPlugin,
+    "agent/proj-lingsheng": ProjLingshengPlugin,
+    "agent/proj-lingshi": ProjLingshiPlugin,
 }
 MEMBERS = {**MCP_MEMBERS, **REGISTRY_MEMBERS}
 
 
 
 def _mid_dir(seam_or_mid: str) -> tuple[str, str]:
-    """缝 key（agent/xxx 或 proj/xxx）或裸 mid → (mid, 插片目录名)。
+    """缝 key（agent/xxx / agent/proj-xxx）或裸 mid → (mid, 插片目录名)。
 
-    proj/linglü 的目录是 ASCII 名 proj_linglv（ü→v），manifest 缝 key 保持账本原样。
+    batch4 N3 五域合规（2026-09-23）：proj 载体缝 key 统一 agent/proj-<mid>，
+    账本 mid 剥离 proj- 前缀；目录保持 ASCII 名 proj_<mid>（ü→v）。
     """
     if "/" in seam_or_mid:
-        dom, mid = seam_or_mid.split("/", 1)
+        dom, rest = seam_or_mid.split("/", 1)
     else:
-        dom, mid = "agent", seam_or_mid
-    # 目录名统一 <域>_<mid>：agent_ 与 proj_ 前缀都在（账本 12 agent/ + 8 proj/ 全量插片化）；
-    # proj/linglü 例外（ü→v → proj_linglv），缝 key 保持账本原样 proj/linglü。
+        dom, rest = "agent", seam_or_mid
+    if rest.startswith("proj-"):
+        mid = rest[len("proj-"):]
+        return mid, f"proj_{mid.replace(chr(252), 'v')}"
+    mid = rest
+    # 目录名统一 <域>_<mid>：agent_ 前缀（账本 agent/ 成员全量插片化）
     return mid, f"{dom}_{mid.replace(chr(252), 'v')}"
 
 def _manifest(seam_or_mid: str) -> dict:
@@ -221,8 +225,8 @@ def test_registry_member_run_fails_honest(seam_key, tmp_path):
 
 def test_absent_carriers_are_honest():
     """载体缺席 5 成员（全在 proj/ 域）：capabilities 为空 + notes 声明缺席（铁律 8 第 1 条）。"""
-    for seam_key in ("proj/lingchu", "proj/lingdai", "proj/lingshang",
-                     "proj/lingsheng", "proj/lingshi"):
+    for seam_key in ("agent/proj-lingchu", "agent/proj-lingdai", "agent/proj-lingshang",
+                     "agent/proj-lingsheng", "agent/proj-lingshi"):
         mf = _manifest(seam_key)
         assert mf["capabilities"] == []
         assert "缺席" in mf["notes"]

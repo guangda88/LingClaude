@@ -1,9 +1,9 @@
-"""灵律（linglü）插片——家族批量插片化（批4）。
+"""灵律（linglv，原 linglü）插片——家族批量插片化（批4）。
 
 载体定性（2026-09-18 实测）：服务型（/home/ai/linglaw）
 铁律锚点：manifest 全声明 + agent_family.McpAgentPluginBase（J4 run 全程 record 化 +
 铁律 8 缺席查）；非 MCP 型：_call_tool 显式 raise → run failed 入账（J4 不假活）。
-账本对账：org_member/linglü.json 的 trust/plug 声明与 manifest 一致（测试锚定）。
+账本对账：org_member/linglv.json（原 linglü.json，ü→v 归一） 的 trust/plug 声明与 manifest 一致（测试锚定）。
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ MANIFEST_PATH = Path(__file__).parent / "manifest.agent.json"
 
 
 class ProjLinglvPlugin(McpAgentPluginBase):
-    """proj/linglü 灵律插片（service 型，manifest 全驱动）。"""
+    """agent/proj-linglv（原 proj/linglü） 灵律插片（service 型，manifest 全驱动）。"""
 
     def _call_tool(self, tool: str, arguments: dict) -> str:
         if self._manifest["transport"].get("kind") != "mcp":
@@ -28,4 +28,5 @@ class ProjLinglvPlugin(McpAgentPluginBase):
 
 def register(registry) -> None:
     from lingclaude.core.seam import SeamType  # 延迟 import，避免循环
-    registry.register(SeamType.AGENT, ProjLinglvPlugin.name, ProjLinglvPlugin())
+    _p = ProjLinglvPlugin(MANIFEST_PATH)
+    registry.register(SeamType.AGENT, _p.name, _p)

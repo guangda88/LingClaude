@@ -4,9 +4,10 @@
   "state": "active",
   "created": "2026-09-21T04:00:00+00:00",
   "first_layer_access": true,
-  "plug_seam_key": "proj/family-meeting",
+  "plug_seam_key": "agent/proj-family-meeting",
   "trust_level": "T1",
   "plug_level": "L2",
   "first_layer_at": "2026-09-21T04:00:00+00:00",
-  "note": "家族会议编排插片（4bbf01c 落地，2026-09-21 对账补登记）"
+  "note": "家族会议编排插片（4bbf01c 落地，2026-09-21 对账补登记）",
+  "plug_seam_key_updated": "2026-09-23 N3五域合规(batch4): proj/*→agent/*"
 }

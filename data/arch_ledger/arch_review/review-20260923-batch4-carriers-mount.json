@@ -1,0 +1,23 @@
+{
+  "type": "arch_review",
+  "key": "review-20260923-batch4-carriers-mount",
+  "title": "自审 batch4：家族载体装载+能用双断言（debt m6-family-carriers-register-hook-broken 清偿）",
+  "as_of": "2026-09-23",
+  "head": "batch4 提交前（继承 65f37ef）",
+  "changes": [
+    "方案A（用户裁定）：19 个 McpAgentPluginBase 载体 register() 改显式构造 XxxPlugin(MANIFEST_PATH)；第二层根因同场修复——基类 name 为实例 property（读 manifest），类上访问得 property 对象非缝 key，注册改为先构造实例再用 _p.name（core 零 diff）",
+    "proj/* 缝 key 撞 N3 五域白名单（core/agent/cap/os/hw）：按 batch1 判例修工件合规——8 个 proj 载体 + proj_agent_gateway + proj_family_meeting 缝 key 统一 proj/X → agent/proj-X（manifest.name / docstring / server.py / 测试断言与映射全链同步）",
+    "org_member 档案 10 份 plug_seam_key 同步（含 linglü.json 非 ASCII 文件名漏网，git mv 归一 linglv.json）；proj_linglv manifest 的 target/state_record/org_member 三字段 ü→v 归一",
+    "tests/agents/test_agent_family.py：MEMBERS 映射键换代 + _mid_dir() 适配 agent/proj-* 缝 key（mid 剥 proj- 前缀、目录 proj_<mid> ü→v）",
+    "装载+能用双断言入 CI（ci.yml arch-guards 新步骤）+ scripts/verify_family_carriers.py（真实链路：构造→manifest→N3→SeamRegistry 挂载，20 插片含 gateway）",
+    "M6 验收：seam_trend_inspect 运行时实拍 AGENT 缝 6→23，33 插片装载 0 失败，static_vs_runtime_divergence AGENT 23 vs 23 归零（resolve_hint 验收口径达成）"
+  ],
+  "new_debt": [],
+  "tests": {
+    "verify_family_carriers": "20/20 ok（构造→N3→注册）",
+    "test_agent_family ledger": "20 passed（manifest↔org_member 对账）",
+    "test_p04_arch_guards": "15 passed",
+    "test_iron_law_5_8": "22 passed（batch3 回归基线）",
+    "seam_trend_inspect": "runtime AGENT=23，divergence AGENT 归零"
+  }
+}

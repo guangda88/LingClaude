@@ -15,7 +15,7 @@ MANIFEST_PATH = Path(__file__).parent / "manifest.agent.json"
 
 
 class ProjLingkangPlugin(McpAgentPluginBase):
-    """proj/lingkang 灵康插片（library 型，manifest 全驱动）。"""
+    """agent/proj-lingkang 灵康插片（library 型，manifest 全驱动）。"""
 
     def _call_tool(self, tool: str, arguments: dict) -> str:
         if self._manifest["transport"].get("kind") != "mcp":
@@ -28,4 +28,5 @@ class ProjLingkangPlugin(McpAgentPluginBase):
 
 def register(registry) -> None:
     from lingclaude.core.seam import SeamType  # 延迟 import，避免循环
-    registry.register(SeamType.AGENT, ProjLingkangPlugin.name, ProjLingkangPlugin())
+    _p = ProjLingkangPlugin(MANIFEST_PATH)
+    registry.register(SeamType.AGENT, _p.name, _p)

@@ -28,4 +28,5 @@ class LingFlowAgentPlugin(McpAgentPluginBase):
 
 def register(registry) -> None:
     from lingclaude.core.seam import SeamType  # 延迟 import，避免循环
-    registry.register(SeamType.AGENT, LingFlowAgentPlugin.name, LingFlowAgentPlugin())
+    _p = LingFlowAgentPlugin(MANIFEST_PATH)
+    registry.register(SeamType.AGENT, _p.name, _p)

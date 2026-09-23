@@ -2,11 +2,12 @@
   "name": "灵视",
   "domain": "视觉",
   "first_layer_access": true,
-  "plug_seam_key": "proj/lingshi",
+  "plug_seam_key": "agent/proj-lingshi",
   "trust_level": "T3",
   "plug_level": "L3",
   "external_project": true,
   "note": "视觉服务",
   "created": "2026-09-17T17:01:08+00:00",
-  "first_layer_at": "2026-09-17T17:01:08+00:00"
+  "first_layer_at": "2026-09-17T17:01:08+00:00",
+  "plug_seam_key_updated": "2026-09-23 N3五域合规(batch4): proj/*→agent/proj-*"
 }

@@ -2,11 +2,12 @@
   "name": "灵律",
   "domain": "法律",
   "first_layer_access": true,
-  "plug_seam_key": "proj/linglü",
+  "plug_seam_key": "agent/proj-linglv",
   "trust_level": "T3",
   "plug_level": "L3",
   "external_project": true,
   "note": "法律检索/合规",
   "created": "2026-09-17T17:01:08+00:00",
-  "first_layer_at": "2026-09-17T17:01:08+00:00"
+  "first_layer_at": "2026-09-17T17:01:08+00:00",
+  "plug_seam_key_updated": "2026-09-23 N3五域合规(batch4): proj/linglü→agent/proj-linglv"
 }

@@ -1,6 +1,6 @@
 {
-  "name": "proj/linglü",
-  "target": "linglü-carrier",
+  "name": "agent/proj-linglv",
+  "target": "linglv-carrier",
   "display_name": "灵律",
   "version": "0.1.0",
   "trust_level": "T3",
@@ -30,7 +30,7 @@
     "method": "carrier_check",
     "absent_after": 2
   },
-  "state_record": "agent_run:linglü",
-  "org_member": "linglü",
+  "state_record": "agent_run:linglv",
+  "org_member": "linglv",
   "notes": "家族批量插片化批4（用户 2026-09-18 指令 20 实体全量插片化）。载体在册：服务端点待确认（批4）。债务总账：family-carriers-batch2-4（due 2026-10-15）。"
 }

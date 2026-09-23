@@ -48,9 +48,9 @@ def _load_sweeper():
 def test_pair_seam_keys_symmetric_with_domain_prefix():
     """两对偶插片的缝 key 均带域前缀（铁律 7 联动），构成互认对。"""
     assert LcGuardMcpPlugin.name == "agent/lc-guard"
-    assert AgentGatewayMcpPlugin.name == "proj/agent-gateway"
+    assert AgentGatewayMcpPlugin.name == "agent/proj-agent-gateway"
     assert domain_of(LcGuardMcpPlugin.name) == "agent"
-    assert domain_of(AgentGatewayMcpPlugin.name) == "proj"
+    assert domain_of(AgentGatewayMcpPlugin.name) == "agent"  # batch4 N3五域合规
 
 
 def test_pair_declaration_symmetry():

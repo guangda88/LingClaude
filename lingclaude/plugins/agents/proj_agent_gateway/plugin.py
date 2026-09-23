@@ -1,4 +1,4 @@
-"""外部 Agent 网关 MCP 薄壳插片（proj/agent-gateway，第二层试验田：lc 调外部编程 agent）。
+"""外部 Agent 网关 MCP 薄壳插片（agent/proj-agent-gateway，第二层试验田：lc 调外部编程 agent）。
 
 Hermes WebUI / Orca 式的多 agent 聚合在 lc 侧的对应物：lc 经 .mcp.json 连接本薄壳
 （server.py，FastMCP stdio，5 工具），驱动 cc/codex/crush/opencode/atomcode 各出一版
@@ -9,7 +9,7 @@ Hermes WebUI / Orca 式的多 agent 聚合在 lc 侧的对应物：lc 经 .mcp.j
 - 铁律 3/J4：每次 MCP 调用记 agent_run:agent-gateway record（转发+错误结构化，J4）；
 - 铁律 6：trust_level=T3（外部 agent 非 lc 代码在手，只探活+透传结果）+ plug_level=L2
   （缺席降级：单 agent 挂了不影响其余，不崩主干）；
-- 铁律 7：缝 key 带域前缀 proj/agent-gateway（N3 守卫消费，外部工程域）；
+- 铁律 7：缝 key 带域前缀 agent/proj-agent-gateway（N3 守卫消费，外部工程域）；
 - 候选铁律 8：MCP 探针失败累计 → absent（N4 缺席查，不假活）；
 - J1 薄壳纪律：封装层零 agent 业务判断，只子进程分发+超时+错误结构化，不抄 agent kernel。
 
@@ -40,7 +40,7 @@ TERMINAL_STATES = ("succeeded", "timeout", "failed", "aborted")
 class AgentGatewayMcpPlugin:
     """AgentSeam 协议实现（run/abort/status），MCP stdio 传输（外部 agent 网关薄壳）。"""
 
-    name = "proj/agent-gateway"  # 铁律 7：域前缀缝 key（外部工程域 proj/）
+    name = "agent/proj-agent-gateway"  # 铁律 7：域前缀缝 key（外部工程域 proj/）
 
     def __init__(self, store: StateStore | None = None) -> None:
         self._manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
@@ -205,7 +205,7 @@ class AgentGatewayMcpPlugin:
 
 
 def register(registry) -> None:
-    """插件入口：SeamRegistry.register(SeamType.AGENT, "proj/agent-gateway", plugin)。
+    """插件入口：SeamRegistry.register(SeamType.AGENT, "agent/proj-agent-gateway", plugin)。
 
     M5 截肢：unregister 后主干照跑（L2 降级，单 agent 缺席不影响其余）。
     """

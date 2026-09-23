@@ -1,5 +1,5 @@
 {
-  "name": "proj/agent-gateway",
+  "name": "agent/proj-agent-gateway",
   "target": "agent-gateway-mcp-server",
   "display_name": "外部 Agent 网关 MCP 薄壳（lc 调 cc/codex/crush/opencode/ac）",
   "version": "0.1.0",
@@ -9,7 +9,10 @@
   "transport": {
     "kind": "mcp",
     "mode": "stdio",
-    "command": ["python3", "lingclaude/plugins/agents/proj_agent_gateway/server.py"],
+    "command": [
+      "python3",
+      "lingclaude/plugins/agents/proj_agent_gateway/server.py"
+    ],
     "command_note": "lc 仓内 MCP server 薄壳（FastMCP stdio），把 cc/codex/crush/opencode/atomcode 这批外部编程 agent 封装为统一工具面，供 lc（MCP 客户端）调用。薄壳=子进程分发+错误结构化，零 agent 业务逻辑（J1：变化走接缝，薄壳不抄 agent kernel）。ac 走 headless -p 绕开 daemon goal 面 401 鉴权坑。",
     "cwd": "/home/ai/lingclaude",
     "startup_timeout_s": 30,
@@ -17,7 +20,9 @@
   },
   "stop_layer": {
     "kernel": "FastMCP stdio → 外部 agent 子进程（claude/codex/crush/opencode/atomcode headless）",
-    "seams": ["agent_tool"],
+    "seams": [
+      "agent_tool"
+    ],
     "implementations": 1,
     "note": "薄壳 kernel=协议翻译（MCP tools/call → 各 agent 子进程 argv），子插片接缝=agent_tool（每个 agent 调用形态一个实现，_AGENTS 表数据驱动）；薄壳不判业务，只分发+超时+错误结构化。单 agent 缺席/故障 L2 降级不影响其余。"
   },

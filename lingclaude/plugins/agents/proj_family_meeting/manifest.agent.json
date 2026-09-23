@@ -1,5 +1,5 @@
 {
-  "name": "proj/family-meeting",
+  "name": "agent/proj-family-meeting",
   "target": "family-meeting-mcp",
   "display_name": "家族会议编排",
   "version": "1.0.0",
@@ -15,9 +15,16 @@
   },
   "stop_layer": {
     "kernel": "FamilyMeetingPlugin（状态机+账本，J1 薄壳，业务在 lingbus 与各成员侧）",
-    "seams": ["proj/family-meeting", "agent/lingmessage"],
+    "seams": [
+      "agent/proj-family-meeting",
+      "agent/lingmessage"
+    ],
     "implementations": 1
   },
-  "health_probe": {"timeout_s": 10, "absent_after": 2},
-  "notes": "L2：lingmessage MCP 不可达时召集如实 failed 不假活。会议状态机 convened→collecting→converged→assigned。"
+  "health_probe": {
+    "timeout_s": 10,
+    "absent_after": 2
+  },
+  "notes": "L2：lingmessage MCP 不可达时召集如实 failed 不假活。会议状态机 convened→collecting→converged→assigned。",
+  "seams": []
 }

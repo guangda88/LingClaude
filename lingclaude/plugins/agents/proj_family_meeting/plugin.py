@@ -1,4 +1,4 @@
-"""家族会议编排插片（proj/family-meeting）——lc 召集 12 子开会、收集发言、主持收敛、派发监督。
+"""家族会议编排插片（agent/proj-family-meeting）——lc 召集 12 子开会、收集发言、主持收敛、派发监督。
 
 用户裁定场景（2026-09-19）："召集12子XX点开会，讨论话题1.2.3，灵X主持收敛，并监督各子执行。"
 
@@ -12,7 +12,7 @@
   atomcode），召集 recipients 用 "all"（总线侧广播）。
 
 铁律锚点：
-- 铁律 7：缝 key proj/family-meeting（proj 域前缀）；
+- 铁律 7：缝 key agent/proj-family-meeting（proj 域前缀）；
 - J4：convene/poll/converge/assign 每步落 meeting record，失败如实入账不假活；
 - L2：lingmessage MCP 不可达时召集失败如实返回（缺席降级，不本地假开会）。
 """
@@ -90,7 +90,7 @@ class FamilyMeetingPlugin:
 
     @property
     def name(self) -> str:
-        return "proj/family-meeting"
+        return "agent/proj-family-meeting"
 
     # ── 账本 ──────────────────────────────────────────────────────────
     def _meeting_path(self, meeting_id: str) -> Path:

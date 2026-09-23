@@ -4,6 +4,8 @@
   "reason": "M6 双口径开通即抓到（audit P0#5 第二批整改，2026-09-23）：20 个家族插片（agent_lingan/lingflow/lingweb/lingmessage/lingzhi/lingyang/lingcreate/lingminopt/lingresearch/lingtongask/proj_lingdai/lingkang/lingshi/linglv/lingshang/lingsheng/lingchu/agent_zhibridge 等）的 register() 全部写 XxxPlugin() 无参构造，而 McpAgentPluginBase.__init__(manifest_path) 必填——import 成功但 register 必抛 TypeError，主干从未真正挂载（静态扫描 34 个 register 调用点 vs SeamRegistry 运行时实拍仅 6 缝：agent/lc-guard,agent/lingxi,cap/browser,cap/infer,cap/inspect,os/resource）。各 plugin.py 顶部 MANIFEST_PATH 常量已定义但无人传入。与 fastlane-dead-plugin-review 同类：'提交了≠运行了'。",
   "due": "2026-10-15",
   "resolve_hint": "register() 改 XxxPlugin(MANIFEST_PATH)（常量就在同文件）；修完跑 scripts/seam_trend_inspect.py 看 static_vs_runtime_divergence 归零；20 个插件逐一 probe（guard 健康探针 absent_after 纪律）",
-  "state": "open",
-  "created": "2026-09-23T12:56:14+00:00"
+  "state": "resolved",
+  "created": "2026-09-23T12:56:14+00:00",
+  "resolved": "2026-09-23T15:40:00+00:00",
+  "resolution": "方案A落地（用户裁定）：19 个 McpAgentPluginBase 载体 register() 改显式构造 XxxPlugin(MANIFEST_PATH) + 实例 .name 注册（name 为实例 property，类上访问拿不到缝 key ——债务第二层根因）；proj/* 缝 key 撞 N3 五域白名单（core/agent/cap/os/hw），按 batch1 判例改工件合规：proj/X → agent/proj-X（8 proj 载体 + agent_gateway + family_meeting + org_member 10 档案 + 测试映射/断言同步）。运行时实装 6→21 缝（AGENT 6→20）。装载+能用双断言入 CI：scripts/verify_family_carriers.py（真实链路 构造→manifest→N3→挂载）。注意：9-19 会议经 lingbus 旁路能开 ≠ 主干装载层通，本债务修的是 SeamRegistry 装载缝。"
 }
