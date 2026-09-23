@@ -143,6 +143,13 @@ class CodingRuntime(
         # （scripts/extract_tool_specs.py AST 提取，黄金快照对照零失真），
         # G8 守卫锁定本文件不再出现 ToolDefinition( 内联注册。
         register_all_tools(self.registry, self)
+        # 装表扫尾（2026-09-23）：LSP A/B 闸门——env 三态（off/control/treatment），
+        # 默认 off 零变化；control 下移 lsp、treatment 下包 handler 记账（fail-open）。
+        from lingclaude.engine.lsp_ab import apply_lsp_ab_gate
+
+        self._lsp_ab_recorder = apply_lsp_ab_gate(
+            self.registry, getattr(self.config, "session_id", "default")
+        )
         self._plan_mode_active: bool = False
         # T0-1: plan_mode 接入 — 用于过滤写工具
         from lingclaude.engine.plan_mode import PlanMode

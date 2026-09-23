@@ -1,0 +1,9 @@
+{
+  "id": "lsp_ab_data_collection_20260923",
+  "title": "LSP A/B 数据收集与默认化裁定",
+  "severity": "P3",
+  "state": "open",
+  "due": "2026-10-07",
+  "source": "session-lingk-20260923",
+  "finding": "装表扫尾落地：lingclaude/engine/lsp_ab.py（env LINGCLAUDE_LSP_AB 三态闸门：off 默认零变化 / control 下移 lsp / treatment 包 handler 记账至 data/ab_runs/lsp/，fail-open），接线点 engine/coding.py register_all_tools 之后，测试 tests/test_lsp_ab_gate.py 11 测。待办：1) 用 treatment 组实跑收集 lsp 调用数据 1-2 周；2) 数据足够后裁定 lsp 是否默认化（保持现状全量装表 vs 按数据收缩）；3) 若泛化为通用挂载 gate，转入 docs/research/20260923_mountable_agent_kernel_proposal.md M3 期。"
+}
