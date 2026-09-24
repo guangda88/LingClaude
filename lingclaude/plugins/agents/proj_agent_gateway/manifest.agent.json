@@ -39,6 +39,10 @@
     "method": "mcp_list_tools",
     "absent_after": 2
   },
+  "fleet_health": {
+    "quorum_min": 3,
+    "_note": "L2⑤ quorum 预警阈值（2026-09-24 主裁议题A裁决建议 3/5）：agent_status fleet 段 active（进程可达且未被健康门冷却）低于此值即 alert=true。与 health_probe（薄壳自身探针）分开：此段管 5 家外部 agent 编制。"
+  },
   "state_record": "agent_run:agent-gateway",
   "federation_pair": "lc-ac",
   "notes": "第二层试验田（lc 调外部编程 agent 方向，Hermes WebUI/Orca 式的多 agent 聚合在 lc 侧的对应物）：lc 经 .mcp.json 连接本薄壳，调 agent_invoke/agent_batch 驱动 cc/codex/crush/opencode/atomcode 各出一版结论。与 lc-guard（ac 调 lc 守卫面）互为对偶：federation_pair record key=lc-ac，N1 周期对账（缺一/不一致即警）。T3 只观测（外部 agent 非 lc 代码在手，只探活+透传结果，不审计其内部）；L2 缺席降级（单 agent 挂了其余照常，不崩主干）。ac 特判：daemon goal 面 401（外部客户端拿不到 webui token），改 headless atomcode -p 子进程封装，实测 PONG 通。审计权限边界：薄壳只读转发 agent 输出，不写各 agent 仓主干。",

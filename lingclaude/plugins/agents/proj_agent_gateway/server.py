@@ -576,11 +576,49 @@ def agent_batch(agents: list[str], prompt: str,
                        "worktree_enabled": ws is not None}, ensure_ascii=False)
 
 
+def _fleet_summary(probe: dict) -> dict:
+    """L2⑤ quorum 预警（2026-09-24）：agent_status 探测结果 + 运行时健康门缓存
+    → 编制健康汇总。活跃判定 = 进程可达（bin 存在）且未被运行时健康门冷却
+    （J4 如实：探测可达 ≠ 当前可用——配额墙冷却中的 agent 不计入活跃，但
+    available 照实分开记，两类缺席的处置动作不同）。
+
+    警报分型（v0.4 规划 L2 缺口③：一家断供无 quorum 规则→静默缩编）：
+    - active < quorum 且 available >= quorum → 可恢复型（健康门冷却中，
+      到期或探测确认后自动回升，无需人工）；
+    - active < quorum 且 available < quorum → 永久缺编型（bin 缺失/离线，
+      需人工介入）。
+
+    阈值来自 manifest fleet_health.quorum_min（缺省 3，主裁议题A裁决建议 3/5）；
+    纯函数：不跑子进程，只吃探测结果与 _health，可单测。
+    """
+    runtime_down = {a for a, h in _health.items()
+                    if time.monotonic() < h["failed_until"]}
+    qmin = int(_MANIFEST.get("fleet_health", {}).get("quorum_min", 3))
+    n_avail = sum(1 for s in probe.values() if s.get("available"))
+    active = [a for a, s in probe.items()
+              if s.get("available") and a not in runtime_down]
+    if len(active) >= qmin:
+        alert, why = False, ""
+    elif n_avail >= qmin:
+        alert, why = True, (f"active {len(active)} < quorum {qmin}（运行时健康门"
+                            f"冷却中: {sorted(runtime_down)}），进程可达 {n_avail}"
+                            "台——可恢复型缺编，冷却到期自动回升，无需人工")
+    else:
+        alert, why = True, (f"active {len(active)} < quorum {qmin} 且进程可达 "
+                            f"{n_avail} < {qmin}——永久缺编型（bin 缺失/离线），"
+                            "需人工介入")
+    return {"total": len(_MANIFEST_AGENTS), "available": n_avail,
+            "active": len(active), "quorum_min": qmin,
+            "alert": alert, "alert_reason": why}
+
+
 @mcp.tool()
 def agent_status() -> str:
     """探活 5 家外部 agent（command -v 可达性 + version 冒烟），L2 降级依据。
 
-    返回 JSON：{agent:{bin, available, version}}，version 取探测输出首行。
+    返回 JSON：{agent:{bin, available, version}, fleet:{total, available,
+    active, quorum_min, alert, alert_reason}}，version 取探测输出首行；
+    fleet 段为 L2⑤ 编制健康汇总（quorum 预警，阈值 manifest fleet_health 段）。
     """
     out: dict[str, object] = {}
     for a, spec in _AGENTS.items():
@@ -591,6 +629,7 @@ def agent_status() -> str:
         r = _run(spec["probe"], 15)
         out[a] = {"bin": spec["bin"], "available": True,
                   "version": (r["stdout"].strip().splitlines() or [""])[0][:80]}
+    out["fleet"] = _fleet_summary(out)   # L2⑤：加 fleet 段前传入，纯 agent 探测视图
     return json.dumps(out, ensure_ascii=False)
 
 

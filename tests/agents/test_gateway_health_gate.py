@@ -1,6 +1,6 @@
 """agent-gateway 健康门禁分级冷却测试（2026-09-24 L2①）。
 
-覆盖（13 测试）：
+覆盖（21 测试）：
 1. failed 一次即入冷却（硬失败语义不变）
 2. degraded 单次不入冷却（软失败，连败阈值 _DEGRADED_LIMIT=3）
 3. degraded 连败达阈入冷却，reason 带 degraded×N 溯源
@@ -9,17 +9,26 @@
 6. 冷却到期转半开：首探测放行、并发者仍拒（原"到期弹栈"语义升级）
 7. _classify 三级判定（failed/degraded/ok）
 8. reason 截断 200 字符（J4 留痕不膨胀）
-9. 梯子升级 900→1800→3600 封顶（L2②a；L2③ 起以缺省 agent crush 断言）
-10. 半开探测成功全复位（L2②a）
-11. 半开探测 degraded<阈不滞留 limbo（L2②a 边角）
-12. force 旁路兼容冷却期与半开态（L2②a，含半开并发拒绝断言）
+9. 半开探测成功全复位（L2②a）
+10. 半开探测 degraded<阈不滞留 limbo（L2②a 边角）
+11. force 旁路兼容冷却期与半开态（L2②a，含半开并发拒绝断言）
+12. 梯子升级 900→1800→3600 封顶（L2②a；L2③ 起以缺省 agent crush 断言）
 13. per-agent 冷却基准：cc/opencode 1800 起步，缺省 900 与旧梯子等价（L2③）
+14. L2④ manifest 等价回归：五家形态/超时/probe/quota/profile/default_model/冷却基准
+15. L2④ 模板实例化：占位符 replace 注入、prompt 花括号原样保留、codex modes 分支
+16. L2④ 数据驱动验收：mock spec 过 _agents_from_manifest 推导点即成（J1）
+17. L2⑤ quorum 满编/双家冷却不警（3/5 边界），三家冷却=可恢复型分型
+18. L2⑤ 永久缺编型分型：bin 缺失+冷却叠加，available<quorum 需人工
+19. L2⑤ 阈值 manifest 驱动：缺省 3，fleet_health.quorum_min 覆盖生效
+20. L2⑤ 冷却到期残留不计 runtime_down（惰性清理不误伤 active）
+21. L2⑤ agent_status 输出 fleet 段（桩化直喂，不跑真实子进程）
 
 直载 server.py（plugins 无包结构）；fastmcp 缺席时注入假桩，测试自给自足。
 """
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import sys
 import time
@@ -228,3 +237,74 @@ def test_l2_4_arbitrary_agent_addition_without_code_change():
     finally:
         gw._MANIFEST_AGENTS.pop("mockagent", None)
     assert gw._fallback_of("mockagent") is None  # 清理后 live 读失效（无残留）
+
+
+# ── L2⑤ quorum 预警（_fleet_summary 纯函数，直喂桩数据）──────────────────
+
+def _probe_stub(available: list[str]) -> dict:
+    """5 家探测桩：available 列表内的 agent available=True，其余 False。"""
+    return {a: {"bin": a + "bin", "available": a in available, "version": "v0"}
+            for a in ("cc", "codex", "crush", "opencode", "ac")}
+
+
+def test_l2_5_quorum_full_and_recoverable_alert():
+    """满编/双家冷却不警（3/5 边界值）；三家冷却=可恢复型（available 仍 5）。"""
+    assert gw._fleet_summary(_probe_stub(["cc", "codex", "crush", "opencode", "ac"]))["alert"] is False
+    gw._mark_failed("cc", "quota wall")
+    gw._mark_failed("opencode", "weekly limit")
+    s = gw._fleet_summary(_probe_stub(["cc", "codex", "crush", "opencode", "ac"]))
+    assert s["active"] == 3 and s["alert"] is False          # 3/5 边界：不警
+    gw._mark_failed("codex", "boom")
+    s = gw._fleet_summary(_probe_stub(["cc", "codex", "crush", "opencode", "ac"]))
+    assert s["active"] == 2 and s["alert"] is True
+    assert "可恢复" in s["alert_reason"] and "无需人工" in s["alert_reason"]
+
+
+def test_l2_5_quorum_permanent_absence():
+    """bin 缺失 + 冷却叠加 → 永久缺编型：available < quorum，需人工介入。"""
+    for a in ("cc", "codex", "crush"):
+        gw._mark_failed(a, "down")
+    s = gw._fleet_summary(_probe_stub(["opencode", "ac"]))   # 3 家 bin 缺失 + 3 家冷却
+    assert s["available"] == 2 and s["active"] == 2
+    assert s["alert"] is True and "人工" in s["alert_reason"]
+    assert "永久缺编" in s["alert_reason"]
+
+
+def test_l2_5_quorum_threshold_from_manifest():
+    """阈值 manifest 驱动：缺省 3；fleet_health.quorum_min 覆盖生效（改数据不改代码）。"""
+    assert gw._fleet_summary(_probe_stub(["cc", "codex", "crush"]))["quorum_min"] == 3
+    old = gw._MANIFEST.get("fleet_health")
+    try:
+        gw._MANIFEST["fleet_health"] = {"quorum_min": 2}
+        assert gw._fleet_summary(_probe_stub(["cc", "codex", "crush"]))["alert"] is False
+        gw._MANIFEST["fleet_health"] = {"quorum_min": 4}
+        assert gw._fleet_summary(_probe_stub(["cc", "codex", "crush"]))["alert"] is True
+    finally:
+        if old is None:
+            gw._MANIFEST.pop("fleet_health", None)
+        else:
+            gw._MANIFEST["fleet_health"] = old
+
+
+def test_l2_5_expired_cooldown_entry_not_runtime_down():
+    """边角：_health 到期残留（惰性清理）不计入 runtime_down——active 不被误伤。"""
+    gw._mark_failed("cc", "boom")
+    gw._health["cc"]["failed_until"] = time.monotonic() - 1   # 已到期但未清
+    s = gw._fleet_summary(_probe_stub(["cc", "codex", "crush", "opencode", "ac"]))
+    assert s["active"] == 5 and s["alert"] is False
+
+
+def test_l2_5_agent_status_output_has_fleet_section():
+    """agent_status 输出含 fleet 段：monkeypatch 探测路径直喂桩数据（不跑真实子进程）。"""
+    orig_which, orig_run = gw._which, gw._run
+    gw._which = lambda a: f"/usr/bin/{a}bin"
+    gw._run = lambda argv, to: {"stdout": "MockAgent 1.0\n", "stderr": "", "exit": 0, "timed_out": False}
+    try:
+        out = json.loads(gw.agent_status())
+    finally:
+        gw._which, gw._run = orig_which, orig_run
+    assert set(out["fleet"]) == {"total", "available", "active", "quorum_min",
+                                 "alert", "alert_reason"}
+    assert out["fleet"]["total"] == 5 and out["fleet"]["available"] == 5
+    assert out["fleet"]["alert"] is False
+    assert "fleet" in gw.agent_status.__doc__   # docstring 声明 fleet 段语义
