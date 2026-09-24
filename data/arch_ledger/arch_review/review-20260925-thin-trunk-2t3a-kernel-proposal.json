@@ -6,7 +6,15 @@
   "created": "2026-09-25T00:48:47+08:00",
   "status": "proposed（架构方向经用户 2026-09-25 教义宣告确认；2026-09-25 外部 Agent 四方评审合议完成，教义 v2 增 L0 地基层待用户批准；实施待排期）",
   "head": "209392f",
-  "key": ["2T3A", "极薄主干", "分形插片", "state_store", "双写迁移", "cordis对标", "一切皆插片"],
+  "key": [
+    "2T3A",
+    "极薄主干",
+    "分形插片",
+    "state_store",
+    "双写迁移",
+    "cordis对标",
+    "一切皆插片"
+  ],
   "findings": {
     "doctrine": "用户 2026-09-25 宣告：除主干外一切皆为插片——包括接缝、包括 agent-loop。L1 主干 = 2T3A 状态机主架构，三原语 records/events/transition（以用户宣告为准），对标 DSH 的 cordis 微内核，但比它更薄。",
     "doctrine_v2": "教义修订案 v2（待用户批准）：「除主干外一切皆插片，主干之下有地基（L0），地基之外一切皆插片。」L0 宪法级不可插片清单（四方评审合议，采 codex 可操作判据——若替换该组件会导致无法判断插片合法性或治理者合法性，则保留为 L1/L0 固有设施）：（1）2T3A 三原语实现与三表 schema；（2）挂载器/缝注册表本身（挂载器挂载挂载器=无限回归）；（3）事件账本追加写路径（递归治理收敛出口）+ 崩溃恢复最小引导集；（4）身份锚点/审计契约/守卫裁决权（N1-N9 拒收通过决策链）/用户确认机制（铁律升格废除必须用户亲裁）；（5）元层：教义存身之所（git 受保护分支+签名提交），教义修订建模为特殊 transition（需 arch_law_revision 守护）；（6）词表层：types.py 状态枚举与 transition 合法集。另设免事件化白名单（瞬态域）：热路径动作只记边界事件（入/出/错）不逐调用落账，防账本膨胀与热路径过缝开销。",
@@ -39,9 +47,9 @@
     "state_query 自省插片：需设计并走工具面注册，本提案 P3 待排期（cordis Gap 之二）",
     "cli/ 缝化（会话循环插片化）：波及面大于 core 内部迁移，单列裁决未排期",
     "wiring/seam 双体系统一：接缝自身插片化后的终局，迁移期间双轨对账口径已在 M6 记录",
-    "双层熔断闸（per-fiber→缝域→全局+状态落账+half-open 契约）：四方评审共识新件，实施序列第一位「建闸期」，待排期",
-    "双写对账器（checksum 周期比对+失败冻结迁移+迁移五阶段状态机 register→double-write→read-source→read-target→drop）：四方评审共识新件，先于任何双写迁移落地",
-    "不变量守护框架（合法转换表+UndefinedTransitionError+hypothesis）：主干收缩的前置基础设施",
+    "双层熔断闸：已落地 53a0166（建闸期①，2026-09-25）——CircuitBreaker 三层独立熔断（fiber 阈3/domain 阈4/global 阈6，滑动窗口60s）+half-open 单探测纪律（probe_holder）+hot_swap 修复通道+白名单+事件 sink 留桩（对接 ly_state_events 待接线）；refresh 准入接线（闸只挡激活不拆现役）；测试 17/17+回归 37/37 全绿",
+    "双写对账器：对账器已落地 ef23407（建闸期②，2026-09-25）——StateReconciler 三值判定（consistent/drift/error，不可达≠写偏）+规范化哈希比对+key 并集缺失方向性+ok()=读切换前置；state_store 增 list_keys 枚举原语；测试 9/9+回归 51/51 全绿。【残留】迁移五阶段状态机（register→double-write→read-source→read-target→drop）写入双写协议文档（任务书#5）未做",
+    "不变量守护框架：已落地 2aed076（建闸期③，2026-09-25）——TransitionTable 合法边表+三值分类（legal/illegal/unclassified，表未覆盖≠非法待人工裁决）+strict/observe 双模式+PLUGIN_LIFECYCLE_TABLE（边表严格来自 8 处实测赋值点）；property 冒烟固定种子替代（hypothesis 未安装，安装后无缝换 @given）；测试 7/7 全绿",
     "events 表 kind 字段（command/event/query 分层）：codex 轻方案，解决重放语义膨胀，与 LingYiBackend schema 演进一并设计",
     "plugin_lifecycle 通电核验：LifecycleManager 实例直接装配点未找到（机制深度在产：seam 钩子/hooks 蓝绿钩子/TUI 渲染对位），是未接线还是被绕过待核",
     "多线路冗余：codex/opencode 共用 ZAI 配额单点（2026-09-29 重置），volcengine 备用线路已验证可用；模型路由韧性应作为插片化一部分"
