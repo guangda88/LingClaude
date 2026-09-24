@@ -1,5 +1,5 @@
 {
-  "head": "86a5884",
+  "head": "6a0262b",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "9e1841a1d995",
     "tests/test_iron_law_guards.py": "f545695889df",
@@ -9,7 +9,9 @@
     "lingclaude/core/state_store.py": "584a3187aecb",
     "lingclaude/core/seam.py": "7fb8e77c35f9",
     ".github/workflows/ci.yml": "623fb111495d",
+    "arch_debt:agent-gateway-breaker-manifest": "0d2a6d5c4169",
     "arch_debt:agent-lingxi-mcp-probe-timeout": "c39e07793d79",
+    "arch_debt:arch-guard-gate-commit-latency": "79975bf37476",
     "arch_debt:arch-m3-dynamic-import-attr-form": "a32bacebe53e",
     "arch_debt:arch-m3-tool-executor-import": "3d65cf0c8f9c",
     "arch_debt:candzone-ironlaw5-federation-arbitration": "8f668aaf503a",
@@ -163,5 +165,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-24T09:41:36+00:00"
+  "checked": "2026-09-24T12:37:25+00:00"
 }
