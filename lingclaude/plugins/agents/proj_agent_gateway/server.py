@@ -180,54 +180,85 @@ def _profile_args(agent: str, profile: str = "") -> list[str]:
     return [t.format(profile=profile) for t in pat]
 
 
-# ── agent 级健康门禁（2026-09-19；2026-09-24 L2① 分级冷却）──────────────────
+# ── agent 级健康门禁（2026-09-19；2026-09-24 L2① 分级冷却 / L2②a 梯子+半开）─────
 # 教训：opencode GLM 周限额满，靠 60-72s 超时试错才发现；cc exit=0 但 stderr
 # 带 unrecognized_model 警告（degraded）。failed 一次入冷却；degraded 属软失败
 # （exit=0），连续 _DEGRADED_LIMIT 次才入冷却——单次告警可能是瞬时回声，不过度
-# 熔断。冷却期内 dispatch 直接跳过（fast-fail，不撞墙）；force=True 可强制重试。
-_COOLDOWN_S = 900          # 冷却 15 分钟（周/日限额级故障，重试无意义）
+# 熔断。冷却期内 dispatch 直接跳过（fast-fail，不撞墙）；冷却时长沿梯子连败升级
+# （900s→1800s→3600s 封顶），到期转半开探测：首个到达调用放行探测，并发者仍被
+# 拒（防探测风暴——一次真实探测要 60-72s）；探测成功 _mark_ok 全复位，失败沿梯
+# 子升级重入。force=True 可强制重试（绕过一切门禁）。
+_COOLDOWN_LADDER = (900, 1800, 3600)   # 冷却梯子 15m→30m→1h：连败升级，封顶 1h（L2②a）
 _DEGRADED_LIMIT = 3        # degraded 连败阈值：连续 N 次软告警按冷却处理（L2①）
-_health: dict[str, dict] = {}   # agent → {"failed_until": epoch, "reason": str, "level": str}
-_degraded_streak: dict[str, int] = {}   # agent → 连续 degraded 计数（一次 ok 即清零）
+_health: dict[str, dict] = {}   # agent → {"failed_until","reason","level","fail_count","half_open"}
+_degraded_streak: dict[str, int] = {}   # agent → 连续 degraded 计数（一次 ok 即全复位）
 
 
 def _mark_ok(agent: str) -> None:
-    """成功即复位 degraded 连败计数（半开探测的最小语义：一次成功即清零）。"""
+    """成功即全复位（半开探测闭环，2026-09-24 L2②a）：
+    探测成功 = 恢复——冷却状态、连败梯子计数、degraded 连败计数全部清零。"""
+    _health.pop(agent, None)
     _degraded_streak.pop(agent, None)
 
 
 def _mark_failed(agent: str, reason: str, level: str = "failed") -> None:
-    """冷却记入（分级差异化，2026-09-24 L2①）：
+    """冷却记入（分级 + 连败升级梯子，2026-09-24 L2①/②a）：
 
-    - failed：立即入冷却 _COOLDOWN_S（周/日限额级，重试无意义）；
+    - failed：立即入冷却，时长沿 _COOLDOWN_LADDER 按连败次数升级
+      （15m→30m→1h 封顶）——反复失败说明重试无意义在加深，冷却应递增；
     - degraded：exit=0 但有配额/模型告警——软失败，连续 _DEGRADED_LIMIT 次才入
       冷却（单次告警可能是瞬时回声，避免过度熔断）；计数挂 _degraded_streak，
-      一次 ok（_mark_ok）即清零。
+      一次 ok（_mark_ok）即全复位。
 
+    半开探测闭环：冷却到期转 half_open（_health_check 放行单次探测），探测成功
+    _mark_ok 全复位；探测失败回到本函数，fail_count+1 沿梯子升级重入冷却。
     J4：如实记因由，不假活。
     """
     if level == "degraded":
         streak = _degraded_streak.get(agent, 0) + 1
         if streak < _DEGRADED_LIMIT:
             _degraded_streak[agent] = streak
+            h0 = _health.get(agent)
+            if h0 and time.monotonic() >= h0["failed_until"]:
+                _health.pop(agent, None)   # 半开探测后 degraded<阈：冷却已过期，清态放行（防 limbo）
             return
-        _degraded_streak.pop(agent, None)   # 入冷却即清计数，冷却到期自然复位
+        _degraded_streak.pop(agent, None)   # 入冷却即清计数
         reason = f"degraded×{streak}: {reason}"
     else:
-        _degraded_streak.pop(agent, None)   # hard failed 覆盖任何残余计数
-    _health[agent] = {"failed_until": time.monotonic() + _COOLDOWN_S,
-                      "reason": reason[:200], "level": level}
+        _degraded_streak.pop(agent, None)   # hard failed 覆盖任何残余计数（回归修复）
+    h = _health.get(agent)
+    fail_count = (h.get("fail_count", 1) + 1) if h else 1   # 梯子记忆：探测失败继续升级
+    idx = min(fail_count, len(_COOLDOWN_LADDER)) - 1
+    _health[agent] = {"failed_until": time.monotonic() + _COOLDOWN_LADDER[idx],
+                      "reason": reason[:200], "level": level,
+                      "fail_count": fail_count, "half_open": False}
 
 
 def _health_check(agent: str, force: bool = False) -> dict | None:
-    """冷却期内返回 {'cooldown': ..., 'reason': ...}（调用方跳过该 agent）；否则 None。"""
+    """冷却期内返回 {'cooldown': True, ...}（调用方跳过该 agent）；否则 None。
+
+    半开探测（2026-09-24 L2②a）：冷却到期不再直接清除，转 half_open——第一个
+    到达的调用放行为探测（返回 None），后续并发调用仍按冷却拒绝（防探测风暴：
+    探测一次真实调用要 60-72s，不能每个请求都去撞墙）。探测结果由调用点回写：
+    成功 _mark_ok 全复位 / 失败 _mark_failed 沿梯子升级重入冷却。
+    force=True 绕过一切门禁（人工强推，语义不变）。
+    """
     h = _health.get(agent)
-    if h and not force and time.monotonic() < h["failed_until"]:
+    if h is None:
+        return None
+    if time.monotonic() < h["failed_until"]:
+        if force:
+            return None
         return {"cooldown": True, "remaining_s": round(h["failed_until"] - time.monotonic()),
                 "reason": h["reason"]}
-    if h and time.monotonic() >= h["failed_until"]:
-        _health.pop(agent, None)   # 冷却过期，自动清除
-    return None
+    # 冷却已到期：half_open 转换（幂等），首个到达者放行探测
+    if not h.get("half_open"):
+        h["half_open"] = True
+        return None                                  # 本调用即探测者，放行
+    if force:
+        return None
+    return {"cooldown": True, "remaining_s": 0, "half_open": True,
+            "reason": f"探测中(半开): {h['reason']}"}
 
 
 # 失败判定（结构化，薄壳只做信号匹配不判业务）：非零 exit / 超时 / stderr 配额墙特征。

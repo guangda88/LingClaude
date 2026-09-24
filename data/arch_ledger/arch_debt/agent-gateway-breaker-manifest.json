@@ -7,5 +7,5 @@
   ,
   "state": "open",
   "created": "2026-09-24T18:05:00+08:00",
-  "progress": "①degraded分级冷却已落地（2026-09-24：_DEGRADED_LIMIT=3连败入冷却+_mark_ok成功复位+两处调用点接线+tests/agents/test_gateway_health_gate.py 8测试；另勘误：立项时'缺口①b degraded恒不入冷却'系:219陈旧注释误导——21dbf5d(09-19)起degraded已随failed同权入冷却，真实缺口为分级粒度，本提交即修）。②③④⑤待做。"
+  "progress": "①分级冷却+②a连败梯子&半开探测已落地（2026-09-24：梯子(900,1800,3600)连败升级封顶、冷却到期转 half_open 单次探测防风暴、_mark_ok 全复位、半开探测 degraded<阈清态防 limbo 边角封堵；tests/agents/test_gateway_health_gate.py 12测试全绿含边角；另勘误：立项时'缺口①b degraded恒不入冷却'系:219陈旧注释误导——21dbf5d(09-19)起degraded已随failed同权入冷却，真实缺口为分级粒度，①提交即修）。②manifest五段结构化与③quorum预警待做。"
 }
