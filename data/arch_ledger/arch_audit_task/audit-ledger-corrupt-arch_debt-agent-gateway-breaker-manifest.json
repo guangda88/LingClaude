@@ -1,0 +1,9 @@
+{
+  "severity": "P1",
+  "finding": "台账 record 损坏: arch_debt/agent-gateway-breaker-manifest",
+  "source": "self_audit_trigger",
+  "state": "resolved",
+  "created": "2026-09-24T13:19:02+00:00",
+  "resolution": "损坏实锤复现+修复：progress 尾悬挂逗号（line 11 char 3120），HEAD 与工作区同源——即 3ec4ceb 已把损坏台账推上双远端；全仓扫描仅此 1 文件损坏。已修复（去尾逗号）并顺手完成单关闭（五项全清 state=resolved）。根因：上轮编辑 progress 手误悬挂逗号，pre-commit 四门禁无 JSON 校验故漏过；审计状态机 21:19 正确报警但 21:24 提交未查新任务，程序失误认账。教训：台账 JSON 编辑后必须 json.load 自验再提交。防复发建议：security_gate 增 JSON lint（归属灵安，转提案非本单裹挟）。",
+  "resolved_at": "2026-09-24T23:14:08+08:00"
+}
