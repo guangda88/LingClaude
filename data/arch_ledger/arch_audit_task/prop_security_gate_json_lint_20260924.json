@@ -1,0 +1,13 @@
+{
+  "type": "cross_member_proposal",
+  "severity": "P2",
+  "title": "security_gate 增设 JSON 语法 lint 层（防台账带病入库）",
+  "proposed_by": "lingclaude",
+  "owner": "lingan",
+  "owner_scope_note": "security_gate 六层正式代码位于 /home/ai/lingan/security_gate.py（本仓 lingmemory/security_gate.py 仅为 2026-07-04 移交前的历史代持骨架），实现归属灵安；本单仅为提案路由与证据固化，lingclaude 不改 lingan 仓代码",
+  "source": "audit-ledger-corrupt-arch_debt-agent-gateway-breaker-manifest.json 的 resolution 防复发建议（commit 5af5dae，2026-09-24）",
+  "evidence": "2026-09-24 3ec4ceb：arch_debt/agent-gateway-breaker-manifest.json progress 尾悬挂逗号（line 11 char 3120）致 JSON 损坏，pre-commit 四门禁（arch-guard/security/review/secret 全绿）无 JSON 语法校验故放行，带病入库双远端；后由审计状态机 21:19 报警（P1）确诊，5af5dae 修复并全仓扫描确认仅此 1 处",
+  "suggestion": "pre-commit security 层对 staged 的 data/arch_ledger/**/*.json（可先最小集）执行 json.load / python3 -m json.tool 等价校验，失败即 reject；毫秒级成本，防 P1 级台账损坏复发；是否扩至全仓 JSON 由灵安按六层职责裁量",
+  "state": "open",
+  "created": "2026-09-24T23:56:00+08:00"
+}

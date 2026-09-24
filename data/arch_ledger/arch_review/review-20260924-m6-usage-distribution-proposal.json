@@ -92,6 +92,25 @@
     "以上 4 个零调用 core 模块的判定与 26 工具/MCP/skill 的判定同源——均须待'宿主账 + 成员自报账'双源合并后才可作回收裁决，静态单口径只作线索"
    ],
    "修剪建议": "铁律 4 首例真实回收优先切这批'连装配都形同虚设'的模块（comfort_zone/goal_receipt/l7 三层/lingmemory_memstore_bridge），而非 26 工具里的闲置项——前者纯沉没成本且结构守卫对其全绿（M1-M5 看不见它们的闲置）；fan_out 门默认关单独列'启用 or 回收'二选一裁决，与 sub_agent 阈值问题同案处理"
+  },
+  "装配欠账节（2026-09-24 补充：4/10 缝彻底空壳零争议、2/10 半真半假——比调用分布更根本的结构性欠账）": {
+   "彻底空壳缝（缝在册+L等级声明+register=0，实体全焊 core/）": [
+    "TRANSPORT（L1）：缝零装配，传输实现直连 lacp/（trace/manifest/bus）——'可互换'承诺从未被测过",
+    "MEMORY（L1）：缝零装配，记忆策略实体 8 文件住 core/（memory_engine/layered_memory/5 个 lingmemory 桥件，含 .bak 备份文件——均未入 git 跟踪，属磁盘垃圾非仓库资产，不计入跟踪面证据）",
+    "GOVERNANCE（L1）：缝零装配，治理实体 10+ 文件住 core/（governance/governance_v2/verifier/audit_collector/l5_audit/l7_*），gov/guard/ 已裁决未迁（8ee89aa）",
+    "SELF_OPT（L1）：缝零装配，自优化实体住 core/——cognitive_rhythm 走 wiring 体系已装配（core/wiring.py:399,450），装配度量须辨 wiring/seam 双体系防误判；comfort_zone 零调用与 l7_cognitive 三层孤儿两件为死代码"
+   ],
+   "半真半假缝（有装配但零调用；实体实测住 lingclaude/seams/ 插片区本身、住址合规——2026-09-24 复核修正'实体长在主干目录'的原始误判）": [
+    "ORCHESTRATOR（L3）：1 处装配（seams/research_crew.py:302），实体+接线全在插片区；M3 判其'合规'源于 single_impl（J1）而非住址；唯一真问题：零调用（归调用口径管）",
+    "MULTIMODAL（L3）：1 处装配（seams/multimodal_lingtong.py:213），同上，零调用"
+   ],
+   "真实达标缝（对照）": "PROVIDER(5)/SANDBOX(8)/AGENT(27)/RESOURCE(3)——四类装配实、实体在插片区，铁律 1 真实达标区",
+   "判据": "10 类缝里 4 类彻底空壳零争议（40%）；6/10（60%）的宽口径含 ORCHESTRATOR/MULTIMODAL 两个住址合规仅零调用的'半真半假'项，采用时须注明；core/ ≈28K 行厚度主要由四类空壳缝的'该拔未拔实体'叠出来",
+   "处置建议（与调用分布口径互补的两级守卫）": [
+    "调用分布口径（本提案既有）管'造了用不用'——适用已装配实体",
+    "装配欠账口径（本节新增）管'该装配没装配'——M5 截肢对零 register 缝专项：零装配缝本身进回收候选，二选一裁决（实体迁出真装配 / 撤缝），不做则 L1 承诺是未兑现声明",
+    "两级守卫合议后才构成完整'有路无车'仪表：结构缝（装配欠账）× 使用缝（调用分布）正交，各自独立出线索，合议出强候选"
+   ]
   }
  },
  "related_debts": [
