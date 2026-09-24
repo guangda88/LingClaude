@@ -184,12 +184,22 @@ def _profile_args(agent: str, profile: str = "") -> list[str]:
 # 教训：opencode GLM 周限额满，靠 60-72s 超时试错才发现；cc exit=0 但 stderr
 # 带 unrecognized_model 警告（degraded）。failed 一次入冷却；degraded 属软失败
 # （exit=0），连续 _DEGRADED_LIMIT 次才入冷却——单次告警可能是瞬时回声，不过度
-# 熔断。冷却期内 dispatch 直接跳过（fast-fail，不撞墙）；冷却时长沿梯子连败升级
-# （900s→1800s→3600s 封顶），到期转半开探测：首个到达调用放行探测，并发者仍被
-# 拒（防探测风暴——一次真实探测要 60-72s）；探测成功 _mark_ok 全复位，失败沿梯
-# 子升级重入。force=True 可强制重试（绕过一切门禁）。
-_COOLDOWN_LADDER = (900, 1800, 3600)   # 冷却梯子 15m→30m→1h：连败升级，封顶 1h（L2②a）
+# 熔断。冷却期内 dispatch 直接跳过（fast-fail，不撞墙）；冷却时长沿 per-agent
+# 梯子（_ladder_for：基准×1/2/4，缺省 900→1800→3600 封顶）连败升级，到期转半开
+# 探测：首个到达调用放行探测，并发者仍被拒（防探测风暴——一次真实探测要
+# 60-72s）；探测成功 _mark_ok 全复位，失败沿梯子升级重入。force=True 可强制
+# 重试（绕过一切门禁）。
+_COOLDOWN_BASE: dict[str, int] = {     # per-agent 基准（L2③，2026-09-24）：
+    "cc": 1800,        # 按量配额墙（探测一次烧 60-72s 配额，冷却基数放宽）
+    "opencode": 1800,  # 周限额型，恢复节奏慢
+}                      # 其余缺省 900 —— 梯子与 L2②a 硬编码版完全等价（向后兼容）
 _DEGRADED_LIMIT = 3        # degraded 连败阈值：连续 N 次软告警按冷却处理（L2①）
+
+def _ladder_for(agent: str) -> tuple[int, ...]:
+    """per-agent 冷却梯子（L2③）：基准 × (1,2,4)。缺省 900 → 900/1800/3600，
+    与 L2②a 硬编码梯子完全等价；配额墙型 agent 基准 1800 → 1800/3600/7200。"""
+    base = _COOLDOWN_BASE.get(agent, 900)
+    return (base, base * 2, base * 4)
 _health: dict[str, dict] = {}   # agent → {"failed_until","reason","level","fail_count","half_open"}
 _degraded_streak: dict[str, int] = {}   # agent → 连续 degraded 计数（一次 ok 即全复位）
 
@@ -202,10 +212,11 @@ def _mark_ok(agent: str) -> None:
 
 
 def _mark_failed(agent: str, reason: str, level: str = "failed") -> None:
-    """冷却记入（分级 + 连败升级梯子，2026-09-24 L2①/②a）：
+    """冷却记入（分级 + 连败升级梯子，2026-09-24 L2①/②a/③）：
 
-    - failed：立即入冷却，时长沿 _COOLDOWN_LADDER 按连败次数升级
-      （15m→30m→1h 封顶）——反复失败说明重试无意义在加深，冷却应递增；
+    - failed：立即入冷却，时长沿 _ladder_for(agent) 按连败次数升级
+      （缺省基准 900：15m→30m→1h 封顶；配额墙型 agent 基准 1800：30m→1h→2h 封顶）
+      ——反复失败说明重试无意义在加深，冷却应递增；
     - degraded：exit=0 但有配额/模型告警——软失败，连续 _DEGRADED_LIMIT 次才入
       冷却（单次告警可能是瞬时回声，避免过度熔断）；计数挂 _degraded_streak，
       一次 ok（_mark_ok）即全复位。
@@ -228,8 +239,9 @@ def _mark_failed(agent: str, reason: str, level: str = "failed") -> None:
         _degraded_streak.pop(agent, None)   # hard failed 覆盖任何残余计数（回归修复）
     h = _health.get(agent)
     fail_count = (h.get("fail_count", 1) + 1) if h else 1   # 梯子记忆：探测失败继续升级
-    idx = min(fail_count, len(_COOLDOWN_LADDER)) - 1
-    _health[agent] = {"failed_until": time.monotonic() + _COOLDOWN_LADDER[idx],
+    ladder = _ladder_for(agent)
+    idx = min(fail_count, len(ladder)) - 1
+    _health[agent] = {"failed_until": time.monotonic() + ladder[idx],
                       "reason": reason[:200], "level": level,
                       "fail_count": fail_count, "half_open": False}
 

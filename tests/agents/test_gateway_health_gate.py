@@ -9,10 +9,11 @@
 6. 冷却到期转半开：首探测放行、并发者仍拒（原"到期弹栈"语义升级）
 7. _classify 三级判定（failed/degraded/ok）
 8. reason 截断 200 字符（J4 留痕不膨胀）
-9. 梯子升级 900→1800→3600 封顶（L2②a）
+9. 梯子升级 900→1800→3600 封顶（L2②a；L2③ 起以缺省 agent crush 断言）
 10. 半开探测成功全复位（L2②a）
 11. 半开探测 degraded<阈不滞留 limbo（L2②a 边角）
 12. force 旁路兼容冷却期与半开态（L2②a，含半开并发拒绝断言）
+13. per-agent 冷却基准：cc/opencode 1800 起步，缺省 900 与旧梯子等价（L2③）
 
 直载 server.py（plugins 无包结构）；fastmcp 缺席时注入假桩，测试自给自足。
 """
@@ -117,17 +118,28 @@ def test_health_check_expiry_enters_half_open():
 
 
 def test_cooldown_ladder_upgrades_and_caps():
-    gw._mark_failed("cc", "boom1")
-    assert gw._health["cc"]["fail_count"] == 1
-    base = gw._health["cc"]["failed_until"] - time.monotonic()
-    assert 880 <= base <= 920                        # 第1档 900s
+    gw._mark_failed("crush", "boom1")                 # crush 无 per-agent 基准 → 缺省梯子
+    assert gw._health["crush"]["fail_count"] == 1
+    base = gw._health["crush"]["failed_until"] - time.monotonic()
+    assert 880 <= base <= 920                        # 第1档 900s（缺省基准，向后兼容自证）
     for expect in (1800, 3600, 3600):                # 探测失败逐级升级，3600 封顶
-        _expire()
-        assert gw._health_check("cc") is None        # 半开放行探测
-        gw._mark_failed("cc", "boom again")          # 探测失败沿梯子重入
-        remaining = gw._health["cc"]["failed_until"] - time.monotonic()
+        _expire("crush")
+        assert gw._health_check("crush") is None     # 半开放行探测
+        gw._mark_failed("crush", "boom again")       # 探测失败沿梯子重入
+        remaining = gw._health["crush"]["failed_until"] - time.monotonic()
         assert expect - 20 <= remaining <= expect
-    assert gw._health["cc"]["fail_count"] == 4       # 超出梯子长度后封顶不再增
+    assert gw._health["crush"]["fail_count"] == 4       # 超出梯子长度后封顶不再增
+
+
+def test_per_agent_cooldown_base():
+    """L2③：配额墙型 agent 基准 1800（梯子 1800/3600/7200），缺省 900 完全等价旧梯子。"""
+    assert gw._ladder_for("cc") == (1800, 3600, 7200)
+    assert gw._ladder_for("opencode") == (1800, 3600, 7200)
+    assert gw._ladder_for("crush") == (900, 1800, 3600)
+    assert gw._ladder_for("unknown-x") == (900, 1800, 3600)   # 未知 agent 走缺省
+    gw._mark_failed("cc", "quota wall")
+    remaining = gw._health["cc"]["failed_until"] - time.monotonic()
+    assert 1780 <= remaining <= 1800                # cc 首档即 1800s
 
 
 def test_probe_success_full_reset():
