@@ -1,0 +1,10 @@
+{
+  "kind": "arch_project",
+  "location": "lingclaude/plugins/agents/proj_agent_gateway/ (server.py 554行 + plugin.py + manifest.agent.json)",
+  "reason": "v0.4 规划 §十 L2 立项（2026-09-24 主裁议题A批准，排期 1 月内）。立项前实测校准（server.py:183-225、:88-155，2026-09-24）：\n【缺口①熔断】冷却骨架已在（2026-09-19 落地：_mark_failed 单次失败→900s 全局冷却 + _health_check 派发门禁 + force 旁路 + _classify ok/degraded/failed 三级），真实缺口四点：(a)失败计数升级缺——单次失败即满额 900s，无连败升级/成功复位/半开探测；(b)degraded 闭环缺——_QUOTA_PAT 命中（cc unrecognized_model 等）判 degraded 恒不入冷却，恰是撞配额墙实战模式漏网（cc 实测多次撞 Claude 配额墙即此形态）；(c)per-agent 配置缺——_COOLDOWN_S 模块级常量，无 per-agent 差异化（cc 配额墙与 opencode 周限额恢复节奏不同）；(d)fallback 链硬编码——_fallback_of 仅 opencode→crush 一条，数据驱动不足。\n【缺口②manifest】5 家外部 agent 身份在 _AGENTS 字典硬编码（server.py:111-155），manifest.agent.json 仅有网关薄壳自身段、无 per-agent 段。与 kernel_m2_manifest_backfill_20260923 边界：M2 单管 plugins/{agents,tools} 目录 lc 插片 manifest 存在性补录（依赖 M1），本单管网关对 5 家外部 agent 的 per-agent manifest 化（vendor/bin/argv 形态/超时/quota/profile 结构化外移），两单不重叠；M2 校验器落地后本单 per-agent 段可复用其 schema，非硬前置。\n【缺口③quorum/替补机制】失败单次改派已有（server.py:347-353 带 fallback_from 溯源），但 5 家去留/断供 quorum 规则无——单家断供即静默缩编，无预警、无编制定义（v0.4 原文：一家断供无 quorum 规则）。",
+  "due": "2026-10-24",
+  "resolve_hint": "实施优先级（按实战价值/改动面排序）：①(b) degraded 入冷却闭环——改动最小、直击 cc 撞墙实战，degraded 计数满 N 次转 failed 入冷却；②(a) 计数升级+半开探测——连续失败升级冷却时长，冷却到期后半开单次探测成功才复位；③(c) per-agent 配置——_COOLDOWN_S 拆 _AGENT_COOLDOWN dict，per-agent 差异化；④② manifest 五段结构化——_AGENTS 表外移 manifest.agent.json per-agent 段（J1 数据驱动延续，薄壳不抄 agent kernel）；⑤③ quorum 预警——agent_status 加 fleet 健康汇总，活跃 agent 数低于 quorum 阈值即警（阈值建议 3/5）。验收：单测覆盖 degraded 闭环/冷却升级/半开复位路径 + 5 家 PONG 冒烟 + security/review-gate 轻门禁绿（push-gate-xdist-spin 债改判后全量门按 PUSH_SOP 宿主侧跑）。前置：无（独立于 M1/M2 可立即动工；建议独立会话执行）。"
+  ,
+  "state": "open",
+  "created": "2026-09-24T18:05:00+08:00"
+}

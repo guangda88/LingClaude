@@ -1,9 +1,9 @@
 {
-  "id": "kernel_m1_wiring_extraction_20260923",
-  "severity": "P1",
-  "due": "2026-10-15",
-  "finding": "「可挂载 agent 操作内核」M1：coding.py 装配外移到 coding_wiring.py（WiringSpec 承接面已实锚存在），行为零变化。裁决：先行实施（方案 §九.1）——纯重构无功能收益，但不做则 M2–M4 全部垫在 God-object 上；装配时序坑已有复发实据（7637cc3：_setup_tools 先于 session_id 赋值踩 AttributeError）。⚠ 前置条件：隔壁自优化线（工作区 6 文件在途：daemon/optimizer/replay_objective/data_flywheel/tool_call_executor/session_persist 系）收口入库后方可动工，纯重构不与并行开发交织。验收：全量回归绿 + G8 黄金快照不变。建议独立会话执行（本裁决会话已 85+ 工具调用）。■收口判据（12:35 固化，三条全满足才动工）：①工作区 M 文件清单回到裁决日基线（core/ 与 self_optimizer/ 零 M，docs/research/ 与 .atomcode/notes/ 不计）；②无活跃 pytest 全量进程；③git log 出现隔壁批次入库提交（或经用户明示「隔壁已收口」）。■判据来源：12:33 实测隔壁仍在收口进行时（全量回归 pytest 跑 44 分钟 + core 三文件 12:22 仍在改）。\n\n【2026-09-23 会话移交要点】\n- 启动判据已全绿: core/+self_optimizer/ 零 M、无活跃 pytest、隔壁 b142dab 已入库; G3 存量清零(2d09c1a), 守卫 14 passed 全绿。\n- 验收(不变): 全量回归绿 + G8 快照不变 + G1/M3 守卫绿(提交时门禁 pre-commit 自动强制, 红灯即真违规, 勿用 LINGCLAUDE_SKIP_ARCH_GATE 绕行)。\n- 战场: engine/coding.py(27 方法装配) → engine/coding_wiring.py(WiringSpec 承接面已存在); 纯重构无功能变化。\n- 工具纪律: edit 工具当日多次同参失败, 优先 python 原位替换+锚点唯一性断言; 改守卫必须探针双测(假红复现+拦截验证)+文件 md5 还原; 改守卫后自审清单含债务台账全扫(arch_debt+arch_exemption 两目录)。\n- 环境注意: cc 会读码写文档不动代码, 工作区 M 文件先 `git diff` 分辨归属再动手; default.json 为审计状态机自主刷新勿提交; 研究文档 untracked 归隔壁线勿裹挟。",
-  "source": "kernel-proposal-ruling-20260923",
-  "state": "open",
-  "created": "2026-09-23T12:29:33+08:00"
+ "id": "kernel_m1_wiring_extraction_20260923",
+ "severity": "P1",
+ "due": "2026-10-15",
+ "finding": "「可挂载 agent 操作内核」M1：coding.py 装配外移到 coding_wiring.py（WiringSpec 承接面已实锚存在），行为零变化。裁决：先行实施（方案 §九.1）——纯重构无功能收益，但不做则 M2–M4 全部垫在 God-object 上；装配时序坑已有复发实据（7637cc3：_setup_tools 先于 session_id 赋值踩 AttributeError）。⚠ 前置条件：隔壁自优化线（工作区 6 文件在途：daemon/optimizer/replay_objective/data_flywheel/tool_call_executor/session_persist 系）收口入库后方可动工，纯重构不与并行开发交织。验收：全量回归绿 + G8 黄金快照不变。建议独立会话执行（本裁决会话已 85+ 工具调用）。■收口判据（12:35 固化，三条全满足才动工）：①工作区 M 文件清单回到裁决日基线（core/ 与 self_optimizer/ 零 M，docs/research/ 与 .atomcode/notes/ 不计）；②无活跃 pytest 全量进程；③git log 出现隔壁批次入库提交（或经用户明示「隔壁已收口」）。■判据来源：12:33 实测隔壁仍在收口进行时（全量回归 pytest 跑 44 分钟 + core 三文件 12:22 仍在改）。\n\n【2026-09-23 会话移交要点】\n- 启动判据已全绿: core/+self_optimizer/ 零 M、无活跃 pytest、隔壁 b142dab 已入库; G3 存量清零(2d09c1a), 守卫 14 passed 全绿。\n- 验收(不变): 全量回归绿 + G8 快照不变 + G1/M3 守卫绿(提交时门禁 pre-commit 自动强制, 红灯即真违规, 勿用 LINGCLAUDE_SKIP_ARCH_GATE 绕行)。\n- 战场: engine/coding.py(27 方法装配) → engine/coding_wiring.py(WiringSpec 承接面已存在); 纯重构无功能变化。\n- 工具纪律: edit 工具当日多次同参失败, 优先 python 原位替换+锚点唯一性断言; 改守卫必须探针双测(假红复现+拦截验证)+文件 md5 还原; 改守卫后自审清单含债务台账全扫(arch_debt+arch_exemption 两目录)。\n- 环境注意: cc 会读码写文档不动代码, 工作区 M 文件先 `git diff` 分辨归属再动手; default.json 为审计状态机自主刷新勿提交; 研究文档 untracked 归隔壁线勿裹挟。\n\n【2026-09-24 判据核查留痕（灵克主会话）】三条收口判据实测全绿：①git status --porcelain core/+self_optimizer/ 零 M；②无活跃 pytest 进程；③隔壁批次入库提交在案（c1f24a0 selfopt evaluator 修复等）。→ M1 具备动工条件。⚠ 本会话不执行（工具调用 165+ 超单内'建议独立会话'纪律 + 全量回归验收在沙箱不可跑[push-gate-xdist-spin 债改判：全量门归宿主侧]）——留给独立会话按验收清单（全量回归绿+G8 快照不变+守卫绿）动工。",
+ "source": "kernel-proposal-ruling-20260923",
+ "state": "open",
+ "created": "2026-09-23T12:29:33+08:00"
 }
