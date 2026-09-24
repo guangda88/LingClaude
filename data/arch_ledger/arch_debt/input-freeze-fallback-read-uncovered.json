@@ -1,0 +1,10 @@
+{
+  "kind": "runtime_bug_unremediated",
+  "location": "lingclaude/cli/repl.py:393 _read_input 裸 input() 降级路径；尸检宿主 pid 1387113（2026-09-24 00:24 前后输入冻结，用户手动重启）",
+  "reason": "输入冻结真 bug 未修未立案（铁律式盘点发现的 4 项账外项之一）。9-18 已加永久降级机制（ctx.fallback_read=True），但 00:20-00:24 那次冻结降级未兜住——输入环冻结根因未定位。帧级取证窗口已关闭（/proc 消失），只能等下次冻结抓样本。与 1957858 会话在攻的退出挂死（threading._shutdown join 阻塞）相关但独立：退出修复（_hard_exit_after_close）只管退出不管输入。缓解面：重启可恢复，session 按 session_id 续载对话不丢",
+  "due": "2026-10-08",
+  "resolve_hint": "①先加观测：输入环心跳/读超时日志，冻结时可判 fd 层还是消费层；②下次冻结立刻 py-spy dump 抓栈（教训：尸检窗口转瞬即逝）；③审查 _read_input 降级链触发条件——freeze 时 fallback_read 为何未切换；④与退出挂死同主题排查：第三方线程池 non-daemon worker 阻塞是否同样卡输入环",
+  "progress": "①已落（2026-09-24）：repl.py _arm_input_watchdog——_read_input 两条阻塞读（PT prompt/fallback input()）各挂 30s daemon 看门狗，超时 warning 落日志 input_read_watchdog（取证起点=日志时间戳，立即 py-spy）；附 _log_fallback_once 降级首用留痕。②③④待下次冻结/专项排查",
+  "state": "open",
+  "created": "2026-09-24T10:30:00+08:00"
+}

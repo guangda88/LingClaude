@@ -403,6 +403,41 @@ def _drain_stdin_buffer() -> None:
     except Exception:  # noqa: BLE001 — 非 TTY/无 termios 时静默跳过
         pass
 
+# 20260924 输入冻结观测加固（arch_debt/input-freeze-fallback-read-uncovered ①）:
+# _read_input 两条阻塞读此前零观测——冻结与「用户在思考」不可区分，
+# 2026-09-24 00:24 冻结尸检窗口转瞬即逝无法取证。每次读挂 daemon 看门狗，
+# 超阈值未返回即 warning 落日志（下次冻结可判 fd 层/消费层，且日志时间戳
+# 就是取证起点——立即 py-spy dump 该进程）。观测层异常全吞，不反噬输入环。
+_INPUT_WATCHDOG_TIMEOUT_S = 30.0
+_fallback_path_logged = False
+
+
+def _arm_input_watchdog(path_kind: str) -> threading.Timer:
+    def _on_timeout() -> None:
+        _logger.warning(
+            "input_read_watchdog: %s 阻塞已超 %.0fs（输入环疑似冻结——"
+            "请立即 py-spy dump 本进程抓栈，见 "
+            "arch_debt/input-freeze-fallback-read-uncovered）",
+            path_kind,
+            _INPUT_WATCHDOG_TIMEOUT_S,
+        )
+
+    t = threading.Timer(_INPUT_WATCHDOG_TIMEOUT_S, _on_timeout)
+    t.daemon = True
+    t.start()
+    return t
+
+
+def _log_fallback_once() -> None:
+    """永久降级路径首次使用时留痕（降级切换点静默，冻结史不可见的补漏）。"""
+    global _fallback_path_logged
+    if not _fallback_path_logged:
+        _fallback_path_logged = True
+        _logger.warning(
+            "input_loop_permanent_fallback: 裸 input() 隔离读路径已启用（PT session 被绕开）"
+        )
+
+
 def _read_input(ctx: _ReplCtx) -> str:
     # P1（2026-09-15 tty 行规程损坏事故）:失活降级时若复用同一个 PT session，
     # 其底层 asyncio Application 可能已损坏（pump 线程卡死/断言）→ 降级直读
@@ -421,6 +456,8 @@ def _read_input(ctx: _ReplCtx) -> str:
         # 未构造过 PT 会话。
         _patch_pt_modifier_enter()
         ensure_readline()
+        _log_fallback_once()
+        _wd = _arm_input_watchdog("fallback_read/input()")
         try:
             _line = input(_status_prompt(ctx) if get_output_format() == "plain" else "灵克> ")
             if _line.strip():
@@ -441,7 +478,10 @@ def _read_input(ctx: _ReplCtx) -> str:
             except UnicodeDecodeError:
                 print("[输入编码错误，请检查终端编码设置]")
                 return ""
+        finally:
+            _wd.cancel()
     session = ctx.session
+    _wd = _arm_input_watchdog("pt_session/prompt()")
     try:
         text = ctx.session.prompt(_status_prompt(ctx))
         # 审计#11 修复:prompt_toolkit 的 PromptSession 已自动写 FileHistory,
@@ -461,6 +501,8 @@ def _read_input(ctx: _ReplCtx) -> str:
         except UnicodeDecodeError:
             print("[输入编码错误，请检查终端编码设置]")
             return ""
+    finally:
+        _wd.cancel()
 
 
 def _drain_pending_notice(ctx: _ReplCtx) -> None:

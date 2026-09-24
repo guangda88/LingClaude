@@ -1,0 +1,9 @@
+{
+  "kind": "process_risk",
+  "location": "双 lc 会话共享同一工作树（实测事故：2026-09-24 提交 c154b44 时暂存区被并行会话在 add→commit 窗口覆盖，HEAD 混入陈旧 blob，原子 amend 修复）",
+  "reason": "结构性竞争无流程约束，随时可再发生。机制：两个会话各自 git add 后、commit 前存在窗口，对方 add 会覆盖暂存区。当前并行会话已收口大部分活，但沙箱策略 3 文件（bash.py/sandbox_provider.py/sandbox_policy.py）等归属未确认改动仍在工作树",
+  "due": "2026-10-15",
+  "resolve_hint": "短期纪律：每次 commit 前 git status + git diff --staged 逐文件复核归属，分主题切提交不一把 -a；中期：错峰交付约定或单会话化；若双会话成为常态，考虑 git worktree 每会话独立工作树（selfopt evaluator 已有 worktree 排除先例 c1f24a0）",
+  "state": "open",
+  "created": "2026-09-24T10:30:00+08:00"
+}
