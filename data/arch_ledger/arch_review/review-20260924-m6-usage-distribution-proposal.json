@@ -6,13 +6,17 @@
  "head": "85187a5",
  "created": "2026-09-24T11:31:33+00:00",
  "author": "lingclaude（灵克，全族代码审计 SDT-lc-001）",
- "status": "proposed（待用户裁决，未生效）",
+ "status": "approved（用户已批准立项，M6 改造实施待排期）",
  "findings": {
   "路通没车主证据": [
    "data_flywheel.db tool_events 9/23-9/24 全量 1,010 次调用仅 5 工具：read 750 / bash 238 / glob 10 / grep 6 / write 6",
    "注册面：M6 快照 TOOL 运行时 26 实现、AGENT 接缝 23 实现；agent_runs 台账仅 11 条且多为外部探活/失败",
    "sub_agent + fan_out_scheduler（337 行并行调度，env 门默认关）零真实调用；R8/R9 软引导注入从未触发过一次真实 sub_agent",
    "ORCHESTRATOR / MULTIMODAL 各 1 实现、龄期 9 天+，无使用痕迹",
+   "MCP 工具：.mcp.json 注册 2 server（lc-guard / agent-gateway）+ mcp_tools.py 懒加载装配，tool_events 全量 mcp_* 调用 = 0——注册即闲置",
+   "Skill：项目 skills/ 3 + 族共享 .lingfamily/skills/ 1 + 宿主 ~/.atomcode/skills 2 共 6 个 skill 可发现；datalog lingclaude 目录 use_skill 真实触发 0 次",
+   "全族 8 成员 12 个 MCP server 登记，近 7d 真实调用仅 2 个（ling-term-mcp 246 次 / lc-guard 6 次，均经宿主 lingresearch 或 lingclaude datalog），10 个零调用；ling-term-mcp 实际宿主是 lingresearch 不是它注册位置",
+   "全族 5 成员 26 个 skill 登记（lingtongask 一家 13 个 -gate/publish 质量门占 50%），宿主 use_skill 通道 7d 合计 23 次；lingtongask 走自身 skill_executor 独立管线不计入宿主账",
    "估算约 8 成注册能力零车流"
   ],
   "审计发现不了的机制性原因": [
@@ -23,7 +27,41 @@
   ]
  },
  "proposal": {
-  "M6 第三口径": "调用分布：按 SeamType 汇总各实现的近期真实调用次数（数据源 tool_events / agent_runs / journal），并入 M6 快照；零调用 N 天（建议 N=30）的接缝实现自动进铁律 4 回收候选清单",
+  "M6 第三口径": "调用分布：按 SeamType 汇总各实现的近期真实调用次数（数据源 tool_events / agent_runs / journal），并入 M6 快照；零调用 N 天（建议 N=30）的接缝实现自动进铁律 4 回收候选清单。覆盖范围从工具/agent 扩展到全部已注册插片族：MCP server（lc-guard/agent-gateway）、skill（项目/族共享/宿主三处共 6 个）、治理插片、l7 桥件",
+  "MCP/skill 口径专项（本次新增）": [
+   "MCP：.mcp.json 注册即闲置——lc-guard/agent-gateway 两 server 装配但 tool_events 全量 mcp_* 调用 0 次；口径数据源 = mcp_proxy.list_all_tools() 实测注册工具数 × 真实调用计数（journal tool_events 或 datalog）",
+   "Skill：6 个可发现 skill（项目 3 + 族共享 1 + 宿主 2）中 use_skill 触发 0 次；口径数据源 = datalog 中 use_skill 工具调用计数（datalog 是 skill 触发的唯一留痕介质，须确认 datalog 写盘口径稳定）",
+   "两族的回收语义与工具不同：MCP server 闲置=进程/凭证浪费（可挂 absent 语义），skill 闲置=文档资产（回收=降级为参考资料，不进 StateStore 台账，避免修剪扩大治理面）",
+   "调用口径盲区声明补充：MCP/skill 都是宿主侧工具（AtomCode 宿主 datalog），与 lingclaude 自身 tool_events 两套账，须双源合并才有完整口径——单源 0 调用不等于真闲置（可能只是记账介质未覆盖该调用路径）",
+   "修剪语法首次真实回收的候选优先级排序由三口径合议产生，MCP/skill 两族按各自回收语义分流（server 走 absent 降级，skill 走文档降级）"
+  ],
+  "全族 MCP/Skill 资产清单（2026-09-24 盘点实测，8 成员 12 server + 5 成员 26 skill）": {
+   "mcp_servers": [
+    {"member": "lingclaude", "servers": ["lc-guard", "agent-gateway"], "note": "agent-gateway 零调用（其健康门测试 9c20753 前会话才补录）"},
+    {"member": "lingresearch", "servers": ["ling-term-mcp", "context7", "database"], "note": "ling-term-mcp 是全族调用主力（7d 246 次，宿主 datalog 在 lingresearch 目录）；context7/database 零调用"},
+    {"member": "lingflow", "servers": ["mcp_registry.json 登记 1 个"], "note": "零调用"},
+    {"member": "lingflow_plus", "servers": ["lingbus（.crush/mcp_servers.json）"], "note": "零调用"},
+    {"member": "lingmessage", "servers": ["zai_mcp_http.js"], "note": "零调用"},
+    {"member": "lingminopt", "servers": ["mcp_server.py"], "note": "零调用"},
+    {"member": "lingxi", "servers": ["mcp_client.ts + mcp-http-proxy.ts（宿主侧 client）"], "note": "零调用"},
+    {"member": "lingyang", "servers": ["mcp_server.py ×3（lingextract/lingyuan_mcp/根）"], "note": "零调用"},
+    {"member": "lingzhi", "servers": ["zhineng-knowledge（mcp_config.json）"], "note": "零调用"}
+   ],
+   "skills": [
+    {"member": "lingtongask", "count": 13, "note": "全是 -gate/publish 质量门；走自身 skill_executor.py 独立管线，宿主 use_skill 通道查不到"},
+    {"member": "lingresearch", "count": 5, "note": "run-tests/paper-formal-audit/research-task/paper-methodology/clipboard"},
+    {"member": "lingclaude", "count": 5, "note": "code-audit/lingbus-middlewares/audit-scanner/apply-security-patch/mcp-wrap"},
+    {"member": "lingzhi", "count": 2, "note": "retrieval-eval/rag-search"},
+    {"member": "lingminopt", "count": 1, "note": "eval-design-patterns"}
+   ],
+   "调用面 7d 汇总": "宿主 use_skill 通道全族合计 23 次；mcp__ 前缀调用 ling-term-mcp 246 / lc-guard 6 / excalidraw 4（excalidraw 未在 8 成员清单内，宿主自带）"
+  },
+  "多成员分账口径盲区（本次新增，J5 四条件之 1 失败模式扩展）": [
+   "宿主单一 datalog 是'宿主视角'账，不是'全族视角'账：成员若走本地直连（自身 mcp_client / 自身 skill_executor）不经宿主 datalog，宿主账本天然 0 记录——判定闲置前须先确认该成员的调用路径是否经过记账介质",
+   "lingtongask 13 个 gate skill 是口径盲区典型样例：数量全族最多，宿主 use_skill 通道 0 记录，但实际走 skill_executor 管线可能高频触发——拿宿主单账误判它'闲置'就是 J5 四条件之 2 的'单一口径自己证明自己'违规",
+   "MCP 调用前缀 mcp__<server>__ 是宿主 datalog 的统一留痕，该口径查 ling-term-mcp/lc-guard 可信（246/6 次是这条路径抓到的）；10 个零调用 server 中，凡登记位置与宿主 datalog 目录不一致的（lingflow/lingmessage/lingminopt/lingxi/lingyang/lingzhi 本地实现），须先向该成员取证再判闲置",
+   "落地建议：调用口径做成'宿主账 + 成员自报账'双源合并（成员各报自己 executor/journal 的近 30 天调用数，汇入 M6 快照），缺自报的成员该 server/skill 标记 unverified 而非 0 调用（与 N6 单口径 unverified 标记语义一致）"
+  ],
   "失败模式声明（J5 四条件之 1）": [
    "静态口径看不见动态注册（M6 既有声明）；调用口径看不见低频但关键路径的插片（如 content 守卫可能数月不触发但不可回收）——故调用口径只产出线索不自动回收，回收仍走审计流程",
    "冷启动偏差：新注册插片天然零调用，回收候选必须排除龄期 < N 天者（与既有龄期字段合并判定）"
@@ -33,7 +71,28 @@
    "M6 快照生成器加 usage_distribution 字段（仪表层，只观测不裁决）",
    "first-seam-recycling-review 留任案（TOOL 缝）在调用口径下重验：26 实现中 21 个零调用",
    "修剪语法首次真实回收的候选优先级排序由三口径合议产生"
-  ]
+  ],
+  "回收候选节（2026-09-24 静态引用面 + 运行时调用点实测，铁律 4 首次真实回收的优先切口）": {
+   "零运行时调用点的 core 模块（比工具层/MCP/skill 更深的过度工程重灾区——面向内的自省面而非面向外的能力面）": [
+    "comfort_zone.py：全仓 grep 非 import 调用处 = 0，仅被 wiring 装配，造了降级逻辑但没有任何执行路径真正问过它",
+    "goal_receipt.py：运行时调用点 = 0，仅在 evidence_protocol/spec_decision 文档里被提到名字，无实际代码调用",
+    "l7_cognitive_bridge.py：零被引用（除自身），纯孤儿模块",
+    "l7_cognitive_facade.py：零被引用（除自身），孤儿模块；l7_cognitive.py 仅 2 处引用且无实际调用点——classifier/bridge/facade 三层整体没接进任何执行路径",
+    "lingmemory_memstore_bridge.py：5 个 lingmemory 桥件里唯一完全孤儿的（0 非自引用）"
+   ],
+   "设施完整但门默认关（sub_agent 同款反模式）": [
+    "fan_out_scheduler.py（337 行并行调度器）：仅 thread.py/hooks.py 两处引用，且 env 门 LINGCLAUDE_FAN_OUT 默认关——零真实调用；投机扇出三钩子（pre_decide/post_check/decide_continue）装配在位但默认直通，等于没装"
+   ],
+   "假阳性警示（引用≠调用，须 M6 运行时口径上线后复核）": [
+    "degradation_detector.py：5 处引用中 3 处是 wiring/audit 装配语句，运行时降级判定是否真触发过无证据（未验证）",
+    "fact_checker.py：仅被 l10_a_post_audit 一处引用，而 l10 本身处于低频链路——l10→fact_checker 是低频对低频，实际触发频率未验证"
+   ],
+   "口径盲区（J5 四条件之 1 失败模式声明）": [
+    "静态引用面 ≠ 运行时调用面：comfort_zone/goal_receipt 等 0 调用点是 grep 出来的，反射式调用（getattr 动态导入）查不到，须 M6 调用口径上线后用运行时证据复核",
+    "以上 4 个零调用 core 模块的判定与 26 工具/MCP/skill 的判定同源——均须待'宿主账 + 成员自报账'双源合并后才可作回收裁决，静态单口径只作线索"
+   ],
+   "修剪建议": "铁律 4 首例真实回收优先切这批'连装配都形同虚设'的模块（comfort_zone/goal_receipt/l7 三层/lingmemory_memstore_bridge），而非 26 工具里的闲置项——前者纯沉没成本且结构守卫对其全绿（M1-M5 看不见它们的闲置）；fan_out 门默认关单独列'启用 or 回收'二选一裁决，与 sub_agent 阈值问题同案处理"
+  }
  },
  "related_debts": [
   "token_monitor task_type/metadata 全空（账记了量没记归属）——调用口径的数据源修复项",
