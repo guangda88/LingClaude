@@ -4,17 +4,19 @@
   "as_of": "2026-09-25",
   "author": "lingke",
   "created": "2026-09-25T00:48:47+08:00",
-  "status": "proposed（架构方向经用户 2026-09-25 教义宣告确认；实施三步走待排期裁决）",
-  "head": "fb2bbb0",
+  "status": "proposed（架构方向经用户 2026-09-25 教义宣告确认；2026-09-25 外部 Agent 四方评审合议完成，教义 v2 增 L0 地基层待用户批准；实施待排期）",
+  "head": "209392f",
   "key": ["2T3A", "极薄主干", "分形插片", "state_store", "双写迁移", "cordis对标", "一切皆插片"],
   "findings": {
     "doctrine": "用户 2026-09-25 宣告：除主干外一切皆为插片——包括接缝、包括 agent-loop。L1 主干 = 2T3A 状态机主架构，三原语 records/events/transition（以用户宣告为准），对标 DSH 的 cordis 微内核，但比它更薄。",
+    "doctrine_v2": "教义修订案 v2（待用户批准）：「除主干外一切皆插片，主干之下有地基（L0），地基之外一切皆插片。」L0 宪法级不可插片清单（四方评审合议，采 codex 可操作判据——若替换该组件会导致无法判断插片合法性或治理者合法性，则保留为 L1/L0 固有设施）：（1）2T3A 三原语实现与三表 schema；（2）挂载器/缝注册表本身（挂载器挂载挂载器=无限回归）；（3）事件账本追加写路径（递归治理收敛出口）+ 崩溃恢复最小引导集；（4）身份锚点/审计契约/守卫裁决权（N1-N9 拒收通过决策链）/用户确认机制（铁律升格废除必须用户亲裁）；（5）元层：教义存身之所（git 受保护分支+签名提交），教义修订建模为特殊 transition（需 arch_law_revision 守护）；（6）词表层：types.py 状态枚举与 transition 合法集。另设免事件化白名单（瞬态域）：热路径动作只记边界事件（入/出/错）不逐调用落账，防账本膨胀与热路径过缝开销。",
     "decode_2t3a": "三原语解读：records（状态记录）/ events（状态变迁）/ transition（变迁机制）。注记（实测，供对照不作为定义）：state_store.py:130-152 DDL 恰好两张表（ly_state_records upsert / ly_state_events 追加，含 from_state→to_state+actor+data），lingmemory/distiller.py:37 自述三动作 create/transition/query——「2表+3动作」与三原语相容。",
     "foundation_in_repo": "主干地基已在仓内且部分投产：lingclaude/core/state_store.py 文件头自述「迁移的第一性接缝——15 个状态模块迁灵忆 2T3A」。（a）StateBackend 协议已定义（:47-56，record_type+key 寻址，后端可插拔）；（b）双后端在位——JsonFileBackend（现状事实标准 ~/.lingclaude/*.json）与 LingYiBackend（2T3A 形态，asyncpg/PostgreSQL，ensure_schema 幂等建表）；（c）双写迁移协议已写明三切片：写双份→读切灵忆+机械核对→移除 json（:10-13）；（d）主干属性已编码：后端故障绝不炸主流程（best-effort，:15-17）；（e）生产消费者实测三点：memory_engine.py:188-207（StateStore 默认注入+save）、task_aggregation.py:125-133（J4 归原语主通道，record_type=task/task_group）、lifecycle_mixin.py:130（接线验证）。口径注意：role_separation.py:462 / governance_verifier.py:294 只借 _atomic_write_json 工具函数，非缝消费，未来统计缝采用率须剔除。",
     "de_facto_state_machine": "当前系统的「事实上状态机」为三层循环嵌套，均实测：L1 会话循环 cli/repl.py:1354（消费 stop_reason）；L2 轮次生命周期 core/submission.py:45 submit()（前检→生成→终态判定→finalize/checkpoint，:70-79 转移判定散在 if 链）；L3 工具轮循环 core/model_call.py:193 _call_model 内（:425 处理 tool_calls，:69 解析 max_tool_rounds）。显式词表仅有 core/types.py:10-16 StopReason 五态：COMPLETED / MAX_TURNS_REACHED / MAX_BUDGET_REACHED / CONSECUTIVE_FAILURE / ERROR——即 transition 的 to_state 词表；turn 是 record，转移是隐式 if 链，无显式状态机实体。极薄主干提案 = 把既有事实升格为显式三原语主干，非重写。",
     "cordis_gap": "对标 cordis（vendor/cordis/src/fiber.ts L625-639 + dsh_seam_mapping.md Gap 清单存灵安）差距不在三原语、在两个运行时语义：（1）服务生命周期强一致联动——required service 消失→依赖插件自动 dispose，回归→自动重载，PENDING 为合法常态，事件驱动而非周期探活；我方 events 目前只记日志不触发联动，transition 合法性无 enforcement。（2）模型自省工具族（cordis_inspect/_define/_run/_stop/_undefine）无等价物。「比它更薄」的达成路径：不搬 cordis 的 vendor/service 注册面（60+ 包），只取三原语+挂载器。",
     "thin_trunk_measure": "按「除主干外皆插片」标尺二分 core 27,964 行：主干候选实测四件（submission.py submit 生命周期 506 行 / model_call.py 循环机制 / types.py StopReason+Result 词表 / hooks.py+seam.py 挂载机制本身），约 1,500 行级；其余 26K+ 全部为插片候选（含 QueryEngine 四件套、session 六件套、memory/governance/l7）。会话循环（REPL）亦插片候选：会话形态可替换（REPL/WebUI/API 三宿主已在），意味着 cli/ 未来缝化，波及面大于 core 内部迁移，单列裁决。",
-    "relation_to_m6": "与 M6 卷宗构成标尺-刻度关系：M6 调用分布量「用不用」，本提案定「一切状态变化的唯一形态」。清账迁移（MEMORY/GOVERNANCE 实体出 core）与 15 状态模块双写迁移是同一动作的两面，合并执行，一套工程。装配欠账口径由此获得出生判据：新插片必须走缝挂载出生，不再入 core。"
+    "relation_to_m6": "与 M6 卷宗构成标尺-刻度关系：M6 调用分布量「用不用」，本提案定「一切状态变化的唯一形态」。清账迁移（MEMORY/GOVERNANCE 实体出 core）与 15 状态模块双写迁移是同一动作的两面，合并执行，一套工程。装配欠账口径由此获得出生判据：新插片必须走缝挂载出生，不再入 core。",
+    "external_review_20260925": "外部 Agent 四方评审合议（claude-code/crush/atomcode/codex 四家成功，opencode 因 ZAI 配额缺席；输入文档 evolution-brief-20260925-thin-trunk-fractal-plugins.md，汇总 synthesis-20260925-external-review-evolution.md）。四共识：（1）L0 地基必须显式存在——「主干之下还有地基」，宪法级不可插片清单见 doctrine_v2；（2）熔断闸双层化：per-fiber→缝域→全局三段+确定性判据+状态落账+half-open 契约+白名单 fiber+热路径硬隔离；（3）递归治理需外部锚点切断自指：双层账本分离（execution/governance 交叉引用不混写）+ hash 链周期快照签名 + 三值语义（unverified 显式化）+「不可判定→人工裁决」为合法 transition；（4）形式化验证降级为不变量守护：合法转换表+UndefinedTransitionError+hypothesis，优先验证两属性（蓝绿切换无状态丢失/依赖降级不循环触发）。采纳 codex 轻方案：events 表加 kind 字段（command/event/query）解决重放语义膨胀，constraint 升第四原语列入观察。codex 可操作判据：若替换该组件会导致无法判断插片合法性或治理者合法性，则保留为 L1 固有设施。实施序列采 crush 总评：先建闸、再迁缝、后动刀。"
   },
   "proposal": {
     "p1_trunk_declaration": "宣布 StateBackend 三原语为 L1 主干：records upsert / events 追加 / create-transition-query 三动词。写「主干必需清单」第一卡，设主干冻结区（只许修 bug 不许加功能）。JsonFileBackend 与 LingYiBackend 双后端可插拔本身即主干属性（best-effort：后端故障绝不炸主流程）。",
@@ -36,6 +38,12 @@
     "transition enforcement + 生命周期联动事件：需设计，本提案 P3 待排期（cordis Gap 之一）",
     "state_query 自省插片：需设计并走工具面注册，本提案 P3 待排期（cordis Gap 之二）",
     "cli/ 缝化（会话循环插片化）：波及面大于 core 内部迁移，单列裁决未排期",
-    "wiring/seam 双体系统一：接缝自身插片化后的终局，迁移期间双轨对账口径已在 M6 记录"
+    "wiring/seam 双体系统一：接缝自身插片化后的终局，迁移期间双轨对账口径已在 M6 记录",
+    "双层熔断闸（per-fiber→缝域→全局+状态落账+half-open 契约）：四方评审共识新件，实施序列第一位「建闸期」，待排期",
+    "双写对账器（checksum 周期比对+失败冻结迁移+迁移五阶段状态机 register→double-write→read-source→read-target→drop）：四方评审共识新件，先于任何双写迁移落地",
+    "不变量守护框架（合法转换表+UndefinedTransitionError+hypothesis）：主干收缩的前置基础设施",
+    "events 表 kind 字段（command/event/query 分层）：codex 轻方案，解决重放语义膨胀，与 LingYiBackend schema 演进一并设计",
+    "plugin_lifecycle 通电核验：LifecycleManager 实例直接装配点未找到（机制深度在产：seam 钩子/hooks 蓝绿钩子/TUI 渲染对位），是未接线还是被绕过待核",
+    "多线路冗余：codex/opencode 共用 ZAI 配额单点（2026-09-29 重置），volcengine 备用线路已验证可用；模型路由韧性应作为插片化一部分"
   ]
 }

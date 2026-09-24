@@ -110,12 +110,73 @@
     "调用分布口径（本提案既有）管'造了用不用'——适用已装配实体",
     "装配欠账口径（本节新增）管'该装配没装配'——M5 截肢对零 register 缝专项：零装配缝本身进回收候选，二选一裁决（实体迁出真装配 / 撤缝），不做则 L1 承诺是未兑现声明",
     "两级守卫合议后才构成完整'有路无车'仪表：结构缝（装配欠账）× 使用缝（调用分布）正交，各自独立出线索，合议出强候选"
-   ]
+   ],
+   "插片辨别框架（2026-09-24 用户裁点补充：清账前必须先辨别——'不能光考虑清，还要辨别哪些真有用/该用没用/真没用'）": {
+    "原则": "清理是处置动作，辨别是前置判据——没有辨别的清账就是行数红线的还魂（铁律 1 反例记忆明令禁止）。三分类不是静态标签，是每个插片必须过的判据链，且判据本身可被 J5 四条件审计",
+    "三分类判据": {
+     "真常用（retain，不动）": {
+      "判据": "运行时调用计数 > 阈值（建议 7d ≥ 3 次或 30d ≥ 10 次）+ 调用方是执行主路径而非装配语句",
+      "操作化": "tool_events / datalog mcp__ 计数 / agent_runs 台账；lingclaude 自身 5 内置工具（read/bash/glob/grep/write）实测属此类",
+      "处置": "保留 + 纳入 M6 常态调用分布快照"
+     },
+     "该用没用起来（revive，激活或降级二选一）": {
+      "判据": "设计时有明确消费场景（有 R8 类引导/有装配/有测试）但运行时 0 或极低调用；且调用缺失的原因是'门默认关/引导太软/账本不覆盖'而非'场景不存在'",
+      "操作化": "三问：①有没有装配与引导（fan_out env 门、R8 软提示）？②引导是否被真实采纳过（R8 从未触发过真实调用=引导无效）？③记账介质是否覆盖其调用路径（lingtongask skill_executor 不经宿主账=不可判）？——三问后仍归此类的，给观察期（建议 30d）内激活（开门/硬引导/展示可见性）再复测",
+      "实例": "sub_agent/fan_out（门默认关）、MCP agent-gateway（有测试无流量）、lingtongask 13 gate skill（走自身管线，宿主账不可见）",
+      "处置": "先修可见性与引导（本轮 sub_agent TUI 状态行+阈值 5→3 即此类处置），复测仍零调用则降级到第三类"
+     },
+     "真没用（recycle，进回收候选）": {
+      "判据": "①零运行时调用点（grep 非 import 调用处=0）+ ②零装配或零被引用 + ③无扩展意图声明 + ④观察期内无新增调用——四条同时成立",
+      "操作化": "静态（引用面/调用点 grep）+ 运行时（M6 调用口径，含反射调用探测——静态 grep 看不见 getattr 动态导入，须运行时口径复核）双口径合议；观察期防冷启动误杀",
+      "实例": "comfort_zone / goal_receipt / l7_cognitive_bridge / l7_cognitive_facade / lingmemory_memstore_bridge（5 个零调用点 core 模块）",
+      "处置": "进铁律 4 回收候选清单 → 审计流程裁决 → 回收入账（首例真实回收）"
+     },
+     "判定纪律（J5 四条件落地）": [
+      "单口径不出终审：静态 grep 0 调用 ≠ 真没用（反射/宿主外路径/账本盲区都可能是假阳性）——静态+运行时+（跨成员时）成员自报三方合议",
+      "失败模式显式声明：每类判据须自曝'测不到什么'（反射调用/宿主外直连/冷启动期）",
+      "误差入账：辨别结论本身入 M6 快照，误杀/漏判历史可 query，可信度随修正史累积",
+      "行为锚终审：静态口径集体失明时，'删掉它跑 7d 观察期'的行为测试是最终裁决——但这是重手术，只对三口径合议后的强候选使用"
+     ]
+    },
+    "对既有清单的回溯套用": "前几轮识别的回收候选按本框架重新过链：5 个零调用 core 模块维持第三类（四条判据已实测成立）；sub_agent/fan_out 从'闲置'改判第二类（该用没用——有装配有引导但门关+引导软，本轮 TUI 可见性+阈值调整即激活处置，30d 复测）；26 工具 21 个零调用暂列第三类候选但须先过'宿主账覆盖该调用路径'确认"
+   },
+   "铁律 L1 全称命题合规差距（2026-09-24 用户最终裁点：'除了主干，一切皆为插片'——不留例外的全称命题）": {
+    "主干有权存在的全部内容（L1 字面口径）": [
+     "2T3A 三原语本体：state_store.py(279) + seam.py(383) + datalog.py(145) + types.py(359) + model_types.py(190) ≈ 1,356 行",
+     "装配器本体：wiring.py(527) + plugin_loader.py(338) + plugin_manifest.py(259) + plugin_lifecycle.py(398) ≈ 1,522 行",
+     "合计 ≈ 2,878 行——这是'比 cordis 更薄'的字面兑现目标"
+    ],
+    "合规差距（实测）": {
+     "core/ 现状": "118 文件 27,964 行",
+     "主干本体": "≈2,878 行（10.3%）",
+     "需迁出插片区": "≈25,086 行（89.7%）——113 个文件无权继续住在 core/",
+     "结论": "以 L1 全称命题为准绳，当前 core/ 89.7% 是'名插片、身主干'；此前 M3 依赖闭包守卫对它们全绿恰因它们住在 core/——守卫自身成了违规的庇护所"
+    },
+    "迁移清单（113 文件按目标缝分组，每批迁完补 register + M5 截肢用例）": {
+     "治理族 → gov/ 域（GOVERNANCE 缝，8ee89aa 已裁决未迁）": "governance.py / governance_integration.py / governance_verifier.py / audit_collector.py / l5_audit.py / l10_a_post_audit.py / approval_matrix.py / policy_loader.py / role_separation.py / guard.py / hallucination_guard.py / success_gate.py / behavior_check.py ≈ 13 文件",
+     "记忆族 → plugins/memory/（MEMORY 缝）": "memory_engine.py / layered_memory.py / 5 个 lingmemory_*_bridge / session_token_sink / token_memory 相关 ≈ 9 文件",
+     "自优化族 → plugins/selfopt/（SELF_OPT 缝）": "meta_cognition.py / cognitive_rhythm.py / turn_learner.py / reasoning_chain.py / data_flywheel.py / dementia_detector.py / topic_drift_detector.py / gray_zone.py / comfort_zone（或径直回收）≈ 9 文件",
+     "认知/上下文族 → plugins/context/（新缝或并入 TOOL）": "context_engine.py / context_cache.py / context_compression.py / bounded_compaction.py / message_builder.py / system_prompt_builder.py / topic_stack.py / behavior.py / intel.py ≈ 9 文件",
+     "会话族 → plugins/session/（新缝）": "session.py / session_runtime.py / session_store.py / session_journal.py / session_persist.py / session_projection.py / file_history.py ≈ 7 文件",
+     "调度/任务族 → plugins/sched/（新缝）": "scheduler.py / task_scheduler.py / task_manager.py / wakeup_channel.py / submission.py / worktree.py / file_lock.py ≈ 7 文件",
+     "模型接入族 → plugins/model/（PROVIDER 缝已存在，实体应随迁）": "model_adapter.py / model_call.py / models.py / rate_limiter.py / llm_probe.py / lm_quick.py / token_pricing.py / token_monitor.py / token_reports.py / model_request_log.py / query_engine*4 mixin ≈ 15 文件",
+     "工具执行族 → plugins/tools/（TOOL 缝已存在）": "tool_executor.py / tool_call_executor.py / mcp_tools.py / skill_parser.py / skill_index.py ≈ 5 文件",
+     "审计/证据族 → 并入 gov 或回收": "evidence_protocol.py / fact_checker.py / prior_verifier.py / verify_ledger.py / repair_card.py / metrics.py ≈ 6 文件",
+     "直接回收（辨别框架第三类零调用）": "comfort_zone.py / goal_receipt.py / l7_cognitive*.3 文件 / lingmemory_memstore_bridge.py + 各 .bak ≈ 7 文件",
+     "残余需逐个裁决": "config.py / permissions.py / devnull_compat.py / image_content.py / redact.py / safe_db.py / sqlite_store_base.py / manifest_lock.py / rollout.py / mailbox_notify.py / task_aggregation.py / l7_types.py / l7_session.py / l7_classifier.py ≈ 14 文件（部分或属原语辅助层，须逐个判定'是否状态机原语的必要组成'）"
+    },
+    "执行序（三批，与辨别框架联动）": [
+     "第一批（零风险直接删）：辨别框架第三类 7 文件——0 引用实测成立，删后 M1-M5 全绿不变",
+     "第二批（撤 4 条空壳缝）：TRANSPORT/MEMORY/GOVERNANCE/SELF_OPT 零 register 缝——或撤或真装配，二选一",
+     "第三批（主体迁移 ≈25K 行）：按上表 9 族分 9 个 PR，每族迁完跑 M4 换域 + M5 截肢 + M3 依赖闭包复测；预估这是数周级工程，须排期挂账"
+    ],
+    "判据校准声明（防误读）": "迁移完成后 core/ ≈2.9K 行不是目标本身——判据是 M3 依赖闭包变纯（core/ 传递 import ⊆ stdlib + 状态机原语）+ 换域截肢双绿；行数下降是结果不是 KPI（铁律 1 反例记忆）"
+   }
   }
  },
  "related_debts": [
   "token_monitor task_type/metadata 全空（账记了量没记归属）——调用口径的数据源修复项",
-  "proxy3 request_log.db 空转、日志走 socket 不落盘——全族分账数据源断供"
+  "proxy3 request_log.db 空转、日志走 socket 不落盘——全族分账数据源断供【2026-09-25 进展：根因确认为服务进程死亡+监管进程（PID 4163420，9-16 起）失能不拉起；服务本体健在 /home/ai/llm-proxy/proxy3_py/main.py，setsid 重启后 760 模型路由恢复、四路外部 CLI 经它出网成功——服务级恢复；request_log 落盘与归属字段两项修复仍未完成，本 debt 保持挂账。另实测：灵克 bash 运行于受限网络命名空间（0 监听可见），分账盲区存在物理层版本——观测位置决定账目视角】"
  ],
  "user_decision": "2026-09-24 用户批准立项（'好'）——本卷宗为提案入账，M6 改造实施仍待排期",
  "verification": [
