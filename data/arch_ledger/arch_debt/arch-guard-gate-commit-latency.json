@@ -1,0 +1,9 @@
+{
+  "kind": "arch_project",
+  "location": "lingclaude/scripts/arch_guard_gate.sh (54行, pre-commit) + lefthook.yml:25-27 + tests/test_p04_arch_guards.py (G1/G2) + tests/test_iron_law_guards.py (M3)",
+  "reason": "2026-09-24 会话实测：848dcf6 提交总耗时约97s，arch-guard-gate 占约96s——3个守卫用例串行（G1 core→engine计数基线 / G2 sys.path基线 / M3依赖方向），均为 import 驱动型测试，单测均约32s。结构性风险：门禁越慢→绕过诱因越强（LINGCLAUDE_SKIP_ARCH_GATE=1 留痕旁路已存在），守卫有效性随耗时上升而衰减；高频提交场景每次 commit 固定支出约1.5min。与 push-gate-xdist-spin（push 门宿主资源/xdist spin）不重叠，本单只管 commit 门守卫自身耗时。",
+  "due": "2026-10-24",
+  "resolve_hint": "按价值/风险排序：①分层触发——staged 仅含 docs/data/.atomcode 等非守卫面路径时跳过：G1/G2/M3 守护的是 core→engine 导入行为与 sys.path，无关路径改动逻辑上不可能红，改动最小收益最大；②G1 静态化——计数基线若为真实 import 计数，改 AST 静态解析 import 语句，消掉 import 开销（预计最大头）；③缓存扩展——脚本已有 staged 内容哈希去重锁（/tmp/.arch_gate_*），扩展为 24h TTL 内容缓存，失效键必须含基线文件指纹（tests/test_p04_arch_guards.py 等），防基线改动后吃旧缓存；④G1 移 pre-push——commit 只留 G2/M3，换速度但放宽带病提交窗口（脚本头注释 4787ec7 假红6小时教训即窗口风险，慎选）。验收：docs/data-only 提交门禁 <2s、常规提交 <10s，红/绿判定等价（构造违规样本验证），旁路使用率不升。前置：无，独立可动工。",
+  "state": "open",
+  "created": "2026-09-24T11:16:34+00:00"
+}
