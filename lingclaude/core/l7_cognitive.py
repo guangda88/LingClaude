@@ -22,7 +22,6 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
@@ -34,72 +33,20 @@ logger = logging.getLogger(__name__)
 
 
 # ── 分层记忆 tier ──
-
-class MemoryTier(str, Enum):
-    ALWAYS = "always"        # 重要度 >= 8, 每次会话自动加载, ~2K tokens, 最多 5 条
-    ONDEMAND = "ondemand"    # 重要度 3-7, 语义检索触发, 最多 10 条
-    TRIGGERED = "triggered"  # 重要度 1-2, 会话钩子触发, 最多 20 条
-
-
-def importance_to_tier(importance: int) -> MemoryTier:
-    if importance >= 8:
-        return MemoryTier.ALWAYS
-    if importance >= 3:
-        return MemoryTier.ONDEMAND
-    return MemoryTier.TRIGGERED
-
-
-# ── OKF type (知识格式) ──
-
-class OKFType(str, Enum):
-    DECISION = "decision"      # 架构/设计决策
-    PREFERENCE = "preference"  # 用户/成员偏好
-    HARDWARE = "hardware"      # 硬件配置
-    BLOCKER = "blocker"        # 阻塞/问题
-    PROJECT = "project"        # 项目信息
-    CONCEPT = "concept"        # 核心概念
-    MEMBER = "member"          # 成员信息
-    TOOL = "tool"              # 工具/技术
-    GLOSSARY = "glossary"      # 术语共识
-
-
-# ── 消息分类 ──
-
-class MessageCategory(str, Enum):
-    DECISION = "decision"
-    INCIDENT = "incident"
-    ACHIEVEMENT = "achievement"
-    PROJECT = "project"
-    PREFERENCE = "preference"
-    BLOCKER = "blocker"
-    GENERAL = "general"
+# 2026-09-24 循环清偿：MemoryTier/OKFType/MessageCategory/CognitiveMemory/
+# importance_to_tier 定义下沉 l7_types.py（叶子模块），此处从叶子导入并
+# 保留 re-export（消费方 ``from l7_cognitive import CognitiveMemory`` 不变）。
+from lingclaude.core.l7_types import (  # noqa: F401
+    CognitiveMemory,
+    MemoryTier,
+    MessageCategory,
+    OKFType,
+    importance_to_tier,
+)
 
 
 # ── 数据结构 ──
 
-@dataclass
-class CognitiveMemory:
-    """L7 认知记忆条目 - 在 L7 MemoryEntry 之上加 tier/type/importance"""
-    id: str = ""
-    key: str = ""
-    value: Any = None
-    source: str = ""           # 来源成员
-    session_id: str = ""
-    importance: int = 5        # 1-10
-    tier: MemoryTier = MemoryTier.TRIGGERED
-    okf_type: OKFType = OKFType.CONCEPT
-    tags: list[str] = field(default_factory=list)
-    created_at: float = 0.0
-    updated_at: float = 0.0
-    access_count: int = 0
-
-    def __post_init__(self):
-        if not self.id:
-            self.id = uuid4().hex[:12]
-        if not self.created_at:
-            self.created_at = time.time()
-        self.updated_at = self.created_at
-        self.tier = importance_to_tier(self.importance)
 
 
 @dataclass

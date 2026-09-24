@@ -37,7 +37,7 @@ CORE_ENGINE_IMPORT_BASELINE = {
     "core/model_call.py": 6,             # :81 :102 :200 :302 :366 :456（P0-A 过渡态集中地）
     "core/prior_verifier.py": 1,         # :128
     "core/query_engine_turn_mixin.py": 2,  # :164 :303
-    "core/tool_executor.py": 1,          # :161
+    "core/tool_executor.py": 0,          # 2026-09-24 清偿：:161 延迟导入（32d8d44，9-12），基线 1→0
     "core/wiring.py": 2,                 # :199 :218
 }
 BASELINE_SYS_PATH = 14

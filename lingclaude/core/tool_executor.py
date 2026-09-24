@@ -158,10 +158,10 @@ class ToolExecutor:
 
     def _execute_mcp_tool_typed(self, name: str, kwargs: dict[str, Any]) -> ToolResult[Any]:
         """强类型版本：MCP 工具调用。"""
-        from lingclaude.engine import mcp_proxy
-
-        self._engine._ensure_mcp()
-        result = mcp_proxy.call_tool(name, **kwargs)
+        # 2026-09-24 arch-m3-tool-executor-import 清偿：engine.mcp_proxy 依赖
+        # 下沉至 McpToolsMixin.mcp_call_tool 门面（core/mcp_tools.py），本模块
+        # 不再直接依赖 engine —— G1/M3 计数基线 tool_executor.py 1→0。
+        result = self._engine.mcp_call_tool(name, kwargs)
         if result.is_error:
             return ToolResult.err(
                 result.error or "MCP tool call failed",

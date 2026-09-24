@@ -1,0 +1,8 @@
+{
+  "guard": "M1",
+  "file": "core/l7_types.py",
+  "reason": "2026-09-24 循环清偿（core-l7-classifier-circular-import）：MemoryTier/OKFType/MessageCategory/CognitiveMemory 定义自 l7_cognitive.py 逐字下沉本叶子模块，域词命中面随定义平移（l7_cognitive 豁免持续存在），豁免守恒非新增语义。l7_cognitive.py 收缩后可评估豁免转档。",
+  "granted": "2026-09-24",
+  "state": "active",
+  "review_due": "2026-10-24"
+}

@@ -432,13 +432,21 @@ def _m3_plugin_side_scan(exempt: dict) -> list[str]:
                 mods, kind = [a.name for a in node.names], "import"
             elif (
                 isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in ("__import__", "import_module")
+                and isinstance(node.func, (ast.Name, ast.Attribute))
+                and (
+                    (isinstance(node.func, ast.Name)
+                     and node.func.id in ("__import__", "import_module"))
+                    or (isinstance(node.func, ast.Attribute)
+                        and node.func.attr in ("import_module", "__import__"))
+                )
                 and node.args
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)
             ):
                 mods, kind = [node.args[0].value], "dynamic"
+                # 属性形（importlib.import_module 等）2026-09-24 纳入；kind 保持
+                # "dynamic" 不分叉——下游 `kind != "dynamic"` 过滤会把新标签误当
+                # 静态 import 跳过（探针实测踩坑，勿再拆分 kind 值）。
             for m in mods:
                 if not m.startswith(M3_FORBIDDEN_PREFIXES):
                     continue

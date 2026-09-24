@@ -126,6 +126,23 @@ class McpToolsMixin:
                 ))
         return defs
 
+    def _proxy(self):
+        """engine.mcp_proxy 延迟取用 —— core 内统一接缝（2026-09-24 下沉）。"""
+        from lingclaude.engine import mcp_proxy
+
+        return mcp_proxy
+
+    def mcp_call_tool(self, name: str, kwargs: dict):
+        """MCP 工具调用门面（2026-09-24 tool_executor engine 依赖下沉接缝）。
+
+        mcp_proxy 仍函数内延迟 import（G1 计数口径，mcp_tools 基线 4 维持：
+        _discover_mcp_tools 的 import 平移到 _proxy，此处新增 1 条，净不变）；
+        core 其他模块（tool_executor 等）经此门面调用，不再各自 import engine。
+        """
+        mcp_proxy = self._proxy()
+        self._ensure_mcp()
+        return mcp_proxy.call_tool(name, **kwargs)
+
     def _ensure_mcp(self) -> None:
         if self._mcp_initialized:
             return
@@ -156,7 +173,8 @@ class McpToolsMixin:
         已废弃为内部兼容路径。正常流程走 _lazy_discover(server_key)。
         """
         from lingclaude.engine.mcp_client import discover_and_register
-        from lingclaude.engine import mcp_proxy
+
+        mcp_proxy = self._proxy()
 
         empty_servers = [
             s for s in mcp_proxy.list_servers()

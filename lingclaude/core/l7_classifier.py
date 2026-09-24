@@ -3,15 +3,17 @@
 2026-09-14: 由 lingclaude/core/l7_cognitive.py 剥离 —— 分类规则 + 画像提取
 是独立的纯逻辑（输入文本 → 输出类别/画像），不依赖 CognitiveStore 状态。
 
-依赖仅 MessageCategory / OKFType / CognitiveMemory（从 l7_cognitive re-export，
-避免循环 import —— l7_cognitive 顶层 re-export 本模块的 MessageClassifier）。
+2026-09-24: 类型依赖下沉 l7_types.py（叶子模块，仅 stdlib）——原从
+l7_cognitive 导入四名，与 l7_cognitive 顶层 re-export 本模块的
+MessageClassifier 形成顶层双向依赖，直接 import 本模块即循环炸
+（core-l7-classifier-circular-import 清偿）。
 """
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from lingclaude.core.l7_cognitive import (
+from lingclaude.core.l7_types import (
     CognitiveMemory,
     MessageCategory,
     OKFType,

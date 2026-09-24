@@ -4,6 +4,8 @@
   "reason": "存量脆弱点(非本会话引入)：l7_classifier 顶层 import l7_cognitive，l7_cognitive 顶层反向 re-export MessageClassifier——直接 import l7_classifier 触发循环(ImportError)，经 l7_cognitive 入口则正常；全量回归绿说明入口序恰稳。PKG 冒烟(walk_packages)暴露。P0-A L0 迁移后导入冒烟审计发现，属模块初始化顺序地雷",
   "due": "2026-10-15",
   "resolve_hint": "把 l7_cognitive 对 MessageClassifier 的 re-export 改为延迟(lazy)或移入函数内，斩断顶层双向依赖",
-  "state": "open",
-  "created": "2026-09-21T17:15:38+00:00"
+  "state": "resolved",
+  "created": "2026-09-21T17:15:38+00:00",
+  "resolved": "2026-09-24T03:35:00+00:00",
+  "resolution": "叶子模块下沉清偿（债单 hint 的 lazy 方案实测不足：_CLASSIFY_RULES/_PROFILE_PATTERNS 模块级使用 MessageCategory/OKFType，纯延迟导入救不了模块层引用）。落地方案：MessageCategory/OKFType/MemoryTier/importance_to_tier/CognitiveMemory 定义自 l7_cognitive.py 逐字平移新叶子模块 core/l7_types.py（仅 stdlib 依赖）；l7_classifier 与 l7_cognitive 均从叶子导入；l7_cognitive 保留 re-export（消费方 from l7_cognitive import CognitiveMemory 不变）；顺清 Enum 死 import。行为级验证：直接 import l7_classifier（原炸点）✓、l7_cognitive+re-export 面✓、classify 行为✓、l7 三测试件绿。新增 M1 豁免 core/l7_types.py（域词命中面随定义平移，豁免守恒非扩张，review_due 2026-10-24）。"
 }
