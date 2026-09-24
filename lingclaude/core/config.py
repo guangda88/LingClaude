@@ -104,7 +104,8 @@ class IntelConfig:
     digest_hour: int = 23
     # R8: 主 agent 工具调用超过此阈值时,system prompt 注入 sub_agent 推荐提示
     # （治本：docs/SYSTEMS_THEORY_SYNTHESIS.md §一.4 token 战 + R5 阶段 2 长会话 token 治本）
-    auto_sub_agent_threshold: int = 5
+    # 2026-09-24: 5→3（sub_agent 使用率趋零的抓手之一，观察 data/agent_runs 一周后再议硬拆）
+    auto_sub_agent_threshold: int = 3
 
 
 @dataclass(frozen=True)
@@ -222,7 +223,7 @@ class lingclaudeConfig:
                 auto_relay=intel_raw.get("auto_relay", True),
                 relay_target=intel_raw.get("relay_target", ""),
                 digest_hour=intel_raw.get("digest_hour", 23),
-                auto_sub_agent_threshold=intel_raw.get("auto_sub_agent_threshold", 5),
+                auto_sub_agent_threshold=intel_raw.get("auto_sub_agent_threshold", 3),
             ),
             verification=VerificationConfig(
                 enabled=ver_raw.get("enabled", True),

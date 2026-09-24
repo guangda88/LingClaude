@@ -373,7 +373,7 @@ def build_dynamic_system_suffix(
     # 不强制（模型仍有自由裁量）——只是建议,避免"长任务靠堆轮次"的反模式。
     try:
         threshold = int(
-            getattr(behavior, "auto_sub_agent_threshold", 5) if behavior is not None else 5
+            getattr(behavior, "auto_sub_agent_threshold", 3) if behavior is not None else 3
         )
         current_calls = tool_call_count  # R8：直接从参数取,避免双重真实源混淆
         if threshold > 0 and current_calls >= threshold:

@@ -16,11 +16,12 @@ import pytest
 
 
 class TestAutoSubAgentThresholdConfig:
-    def test_default_threshold_is_5(self):
+    def test_default_threshold_is_3(self):
         from lingclaude.core.config import IntelConfig
 
         c = IntelConfig()
-        assert c.auto_sub_agent_threshold == 5
+        # 2026-09-24: 5→3（sub_agent 使用率趋零的抓手之一）
+        assert c.auto_sub_agent_threshold == 3
 
     def test_custom_threshold_from_dict(self):
         """用户可在 config.yaml 设 intel.auto_sub_agent_threshold 调整阈值。"""
@@ -79,17 +80,17 @@ class TestSubAgentPromptInjection:
     def test_no_injection_below_threshold(self):
         from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
-        args = self._make_args(tool_call_count=4)
+        args = self._make_args(tool_call_count=2)
         prompt = build_dynamic_system_suffix(**args)
         assert "R8" not in prompt, "tool_call_count < threshold 不应注入"
 
     def test_injection_at_threshold(self):
         from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
-        args = self._make_args(tool_call_count=5)
+        args = self._make_args(tool_call_count=3)
         prompt = build_dynamic_system_suffix(**args)
         assert "R8 提示" in prompt
-        assert "5 次工具调用" in prompt
+        assert "3 次工具调用" in prompt
         assert "sub_agent" in prompt  # 推荐使用 sub_agent 工具
 
     def test_injection_far_above_threshold(self):
@@ -142,11 +143,11 @@ class TestSubAgentPromptInjection:
         assert "100 次" not in prompt
 
     def test_default_threshold_fallback(self):
-        """behavior 缺 auto_sub_agent_threshold 字段时回落到 5。"""
+        """behavior 缺 auto_sub_agent_threshold 字段时回落到 3（2026-09-24 调整）。"""
         from lingclaude.core.system_prompt_builder import build_dynamic_system_suffix
 
         args = self._make_args(
-            tool_call_count=5,
+            tool_call_count=3,
             behavior=self._behavior(),  # 不传 auto_sub_agent_threshold
         )
         prompt = build_dynamic_system_suffix(**args)
@@ -214,4 +215,100 @@ class TestSubAgentFlywheelLog:
         assert rec["pattern_type"] == "sub_agent_call"
         assert rec["tool_name"] == "sub_agent"
         assert "success=True" in rec["error_message"]
-        assert "rounds=2" in rec["error_message"]
+
+
+class TestSubAgentRenderVisibility:
+    """TUI 过程可见性：handler 必须在启动/结束时机经 render_facade 打状态行。"""
+
+    def _run_handler(self, monkeypatch, rendered: list, fake_result):
+        """公共骨架：mock render_facade.render 捕获渲染调用，跑一遍 handler。"""
+        class FakeRuntime:
+            _model_provider = None
+
+        rt = FakeRuntime()
+        rt._session_runtime = MagicMock()  # flywheel 走 MagicMock，静默
+
+        import lingclaude.engine.subagent as subagent_module
+
+        class FakeSubagentModule:
+            SubagentManager = lambda default="inprocess": MagicMock(
+                run=lambda *a, **kw: fake_result)
+            SubagentContext = MagicMock
+            SubagentRequest = MagicMock
+
+        monkeypatch.setattr(
+            subagent_module, "SubagentManager", FakeSubagentModule.SubagentManager)
+
+        import lingclaude.engine.tool_handlers.subagent_tools as st
+        import lingclaude.cli.render_facade as rf
+
+        def fake_render(method, *args, **kwargs):
+            rendered.append((method, args, kwargs))
+
+        monkeypatch.setattr(rf, "render", fake_render)
+
+        return st.SubagentToolsMixin._sub_agent_handler(self=rt, task="ping")
+
+    def test_start_and_end_status_lines_rendered(self, monkeypatch):
+        """启动时打 ⏳ 行，结束时打 ✅ 行，各含任务/轮次关键字。"""
+        rendered: list = []
+        fake_result = MagicMock(
+            agent_id="a1", output="done", tools_used=[],
+            success=True, error=None, rounds=2, provider="inprocess",
+        )
+        result = self._run_handler(monkeypatch, rendered, fake_result)
+
+        assert result.is_ok
+        methods = [m for m, _, _ in rendered]
+        assert "print_info" in methods, "至少一次状态行渲染"
+        texts = " ".join(str(args[0]) for _, args, _ in rendered if args)
+        assert "⏳" in texts and "sub_agent 启动" in texts
+        assert "✅" in texts and "sub_agent 结束" in texts
+        assert "rounds=2" in texts
+
+    def test_failure_end_line_uses_error_mark(self, monkeypatch):
+        """失败时结束行用 ❌ 并带错误预览。"""
+        rendered: list = []
+        fake_result = MagicMock(
+            agent_id="a2", output="", tools_used=[],
+            success=False, error="boom", rounds=1, provider="inprocess",
+        )
+        self._run_handler(monkeypatch, rendered, fake_result)
+
+        texts = " ".join(str(args[0]) for _, args, _ in rendered if args)
+        assert "❌" in texts and "boom" in texts
+
+    def test_render_failure_does_not_break_handler(self, monkeypatch):
+        """渲染抛异常不得阻断 handler（best-effort 兜底）。"""
+        rendered: list = []
+        fake_result = MagicMock(
+            agent_id="a3", output="x", tools_used=[],
+            success=True, error=None, rounds=1, provider="inprocess",
+        )
+
+        import lingclaude.engine.subagent as subagent_module
+
+        class FakeSubagentModule:
+            SubagentManager = lambda default="inprocess": MagicMock(
+                run=lambda *a, **kw: fake_result)
+            SubagentContext = MagicMock
+            SubagentRequest = MagicMock
+
+        monkeypatch.setattr(
+            subagent_module, "SubagentManager", FakeSubagentModule.SubagentManager)
+
+        import lingclaude.engine.tool_handlers.subagent_tools as st
+        import lingclaude.cli.render_facade as rf
+
+        def broken_render(*a, **kw):
+            raise RuntimeError("renderer gone")
+
+        monkeypatch.setattr(rf, "render", broken_render)
+
+        class FakeRuntime:
+            _model_provider = None
+            _session_runtime = MagicMock()
+
+        result = st.SubagentToolsMixin._sub_agent_handler(
+            self=FakeRuntime(), task="ping")
+        assert result.is_ok, "渲染异常不得影响 ToolResult"

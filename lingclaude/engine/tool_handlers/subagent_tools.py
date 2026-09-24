@@ -38,11 +38,28 @@ class SubagentToolsMixin:
             max_rounds=max_rounds,
             provider=provider,
         )
+        # TUI 过程可见性：子代理启动/结束状态行（best-effort，渲染失败不阻断）
+        try:
+            from lingclaude.cli.render_facade import render
+            render("print_info", f"⏳ sub_agent 启动: {task[:60]} (max_rounds={max_rounds})")
+        except Exception:  # noqa: BLE001
+            pass
         manager = getattr(self, "_subagent_manager", None)
         if manager is None:
             manager = SubagentManager()
             self._subagent_manager = manager
         result = manager.run(request, ctx)
+
+        # TUI 过程可见性：结束状态行（成功✅/失败❌ + 轮次 + 耗时摘要）
+        try:
+            from lingclaude.cli.render_facade import render
+            mark = "✅" if result.success else "❌"
+            preview = (result.output or result.error or "")[:80].replace("\n", " ")
+            render("print_info",
+                   f"{mark} sub_agent 结束: rounds={result.rounds} "
+                   f"provider={result.provider or 'inprocess'} | {preview}")
+        except Exception:  # noqa: BLE001
+            pass
 
         # R8：把每次 sub_agent 调用喂给 DataFlywheel,让"子代理节流效果"可查
         # （docs/SYSTEMS_THEORY_SYNTHESIS §一.4 token 战的治本项）
