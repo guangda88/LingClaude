@@ -11,6 +11,9 @@
 1. **沙箱内无网络话语权**：会话 bash 运行在 `bwrap --unshare-net` 且 `ulimit -v=1GB`。
    DNS / 连通性 / 带宽 / 内存容量判据一律无效；网络与重负载操作走主进程
    （`git_push` 工具 / 宿主 shell）。沙箱内跑 `pytest -n8` 的"复现"不作为门禁缺陷证据。
+   ⚠ 09-24 首航教训：**共享宿主网卡 ≠ 共享 DNS**——网卡检查通过的沙箱仍会死于
+   `Could not resolve host`。传输类操作前必须过 `getent hosts <远端主机>` 实测
+   （已固化进 `safe_push.sh` L1b 拒跑线；ls-remote 不可达时 L6b 降级用 reflog 自写记录取证）。
 2. **timeout 必须显式给足**：`git_push` 工具默认 120s，全量门禁 20-40min——
    push 一律 `timeout >= 7200`。僵尸 push 第一死因就是默认值杀壳留下孤儿钩子链。
 3. **输出直写文件，不走管道**：统一 `/tmp/push_<remote>_<时间戳>.log`。

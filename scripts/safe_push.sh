@@ -21,6 +21,14 @@ if [ "$(ls /sys/class/net 2>/dev/null | grep -cv '^lo$')" -eq 0 ]; then
   echo "        沙箱内网络操作/判据一律无效——push 必须走宿主或 git_push 工具。" >&2
   exit 3
 fi
+# L1b DNS 实测（09-24 首航教训）：共享宿主网卡的沙箱可能网卡检查通过但 DNS 被隔离，
+# push 必死于 Could not resolve host。用远端主机名实测解析，比网卡检查更贴近真实依赖。
+RHOST=$(git remote get-url "$REMOTE" 2>/dev/null | sed -e 's#^[^@]*@##' -e 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##' -e 's#[:/].*##')
+if [ -n "$RHOST" ] && ! getent hosts "$RHOST" >/dev/null 2>&1; then
+  echo "REFUSE: 远端主机 $RHOST DNS 解析失败（getent 返回非 0）。" >&2
+  echo "        此环境传输必死——push 走 git_push 工具（主进程网络层）或宿主侧执行。" >&2
+  exit 3
+fi
 
 # ---- L2 远端存在性 + 双名去重提示（铁律 5 前置）----
 git remote get-url "$REMOTE" >/dev/null 2>&1 || {
@@ -51,8 +59,18 @@ RC=$?
 # ---- L6 以远端实际指针为准验证，不信本地跟踪引用（铁律 5）----
 if [ "$RC" -eq 0 ]; then
   LOCAL_HEAD=$(git rev-parse HEAD)
-  REMOTE_HEAD=$(git ls-remote "$REMOTE" "refs/heads/$BRANCH" | awk '{print $1}')
-  if [ "$LOCAL_HEAD" = "$REMOTE_HEAD" ]; then
+  REMOTE_HEAD=$(git ls-remote "$REMOTE" "refs/heads/$BRANCH" 2>/dev/null | awk '{print $1}')
+  if [ -z "$REMOTE_HEAD" ]; then
+    # L6b 兜底（09-24 首航教训）：ls-remote 不可达（如沙箱 DNS 隔离）时，
+    # 用 reflog 里 git 与远端协商成功后自写的 "update by push" 记录作证，并明示证据降级。
+    PUSH_TS=$(git reflog show "refs/remotes/$REMOTE/$BRANCH" -1 --format='%gs' 2>/dev/null | grep '^update by push')
+    if [ -n "$PUSH_TS" ]; then
+      echo "WARN: ls-remote 不可达，证据降级为 reflog 自写记录：$REMOTE/$BRANCH == $(git rev-parse --short "$REMOTE/$BRANCH")（$PUSH_TS）"
+    else
+      echo "WARN: ls-remote 不可达且无 update by push 记录，push 状态不明，宿主侧 git ls-remote 复核。查 $LOG" >&2
+      RC=5
+    fi
+  elif [ "$LOCAL_HEAD" = "$REMOTE_HEAD" ]; then
     echo "OK: $REMOTE/$BRANCH == $LOCAL_HEAD（本地=远端实证一致）"
   else
     echo "WARN: push 返回 0 但远端头(${REMOTE_HEAD:-空}) != 本地(${LOCAL_HEAD})，查 $LOG" >&2
