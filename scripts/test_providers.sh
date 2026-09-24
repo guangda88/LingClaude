@@ -16,7 +16,6 @@ providers = cfg['routing']['providers']
 # 与 lingclaude/model/task_router.py::_KNOWN_PROVIDER_DEFAULTS 同源维护。
 STR_SHORTHAND_BASE = {
     "glm":      "https://open.bigmodel.cn/api/paas/v4",
-    "zhipu":    "https://open.bigmodel.cn/api/paas/v4",
     "deepseek": "https://api.deepseek.com/v1",
     "minimax":  "https://api.minimaxi.com/v1",
     "nvidia":   "https://integrate.api.nvidia.com/v1",

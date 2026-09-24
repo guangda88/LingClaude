@@ -147,7 +147,6 @@ _PROVIDER_ENV_KEY_MAP: dict[str, str] = {
     "kimi": "KIMI_API_KEY",
     "mimo": "XIAOMI_TOKEN_PLAN_API_KEY",
     "zai": "ZAI_API_KEY",
-    "zhipu": "ZHIPU_API_KEY",
     "glm": "ZHIPU_API_KEY",
     "dashscope": "DASHSCOPE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
@@ -177,12 +176,6 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "base_url": "http://127.0.0.1:8765/v1",
         "model": "free/auto",
         "models": ["free/auto", "free/code", "free/long", "free/vision", "free/fast"],
-    },
-    "zhipu": {
-        "type": "openai",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-        "model": "glm-4.7",
-        "models": ["glm-4.7", "glm-4-plus", "glm-4-air"],
     },
     "deepseek": {
         "type": "openai",
