@@ -7,10 +7,12 @@ StateBackend 协议读写；后端可插拔：
 - JsonFileBackend : 现状行为（~/.lingclaude/*.json），迁移前的事实标准
 - LingYiBackend   : 灵忆 2T3A 形态（records upsert + events 追加，asyncpg/PostgreSQL）
 
-双写期协议（一个版本周期）：
-  切片1（本切片）: 写双份（json 事实标准 + 灵忆镜像），读走 json
-  切片2          : 读切灵忆（json 降级 fallback），对照表机械核对一致后
-  切片3          : 移除 json 写入，迁移完成
+双写期协议（正式化为迁移五阶段状态机，见
+  docs/design/state_migration_dualwrite_protocol.md）：
+  register → double-write → read-source → read-target → drop
+  每阶段显式 revert transition 入账；对账失败冻结（frozen）而非带病推进；
+  一致性仲裁以 lineage（ly_state_events 追加顺序）而非时间戳。
+  本模块当前处于 double-write 阶段（切片1：写双份 json+灵忆，读走 json）。
 
 设计约束（与全库一致）：
 - 状态保存是 best-effort：任何后端故障只 logger.warning，绝不炸主流程
