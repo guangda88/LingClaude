@@ -68,10 +68,10 @@ except ImportError:
     L5Context = None
     R5SignalSourceMock = None
     Z3PredicateMock = None
-try:
-    from z3_declaration_consistency import DeclarationConsistencyChecker
-except ImportError:
-    DeclarationConsistencyChecker = None
+# 2026-09-24 启动优化：删除顶层 z3_declaration_consistency import（纯冗余——
+# 唯一使用点在 l5_audit.py:29（有自身 fallback），且 l5_audit 仅被
+# _get_l5_auditor() 函数内惰性加载，冷启动不再加载 z3。
+# 包外无引用（已 grep 验证 tests/test_l5_three_party_integration.py 直接 import lingan 侧）。
 
 # T2/T3: 灵极优 IntentPrecheck + 灵研 R5KBConflict (PYTHONPATH 旁路, 统一走 cross_repo_seam)
 _seam_import("lingresearch")
