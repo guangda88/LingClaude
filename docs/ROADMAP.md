@@ -318,3 +318,50 @@ T3 启动前必须清账。
 本节修正原 ROADMAP 的一个**认知错位**：原 P2-3 把 webUI 标为「可选非核心」，但
 0.4.0 实测发现 webUI 鉴权漏洞+桥接层断裂是真实 P0 安全风险（详见审计总账 W1-W13）。
 凡涉及「模型面之外的暴露面」，其安全等级应等同核心代码，不能因「可选」降级。
+
+---
+
+## 5+1 ↔ P0-P3 映射表（2026-09-24 增补）
+
+> 来源：《5+1 未来发展规划 v0.4》（`.atomcode/notes/20260924_future_development_5plus1_v0.4.md`，2026-09-24 主裁议题 A/B 双案裁决通过）。
+> 目的：消除"规划与既有路线图互相不可见"（v0.4 §〇 三大硬约束之一）。
+> 分层定义：5+1 = **L0** 治理宪章（gov/，横切）+ **L1** core/ + **L2** agent/ + **L3** os/ + **L4** cap/（拆 L4a 交互面 / L4b 能力底座）+ **L5** hw/；临界路径 L1→L2。域前缀依铁律 7 六域（`core, agent, cap, os, hw, gov`，2026-09-24 用户裁决扩域）。
+
+### P0-P3 → 5+1 逐项映射
+
+| 项 | 内容一句话 | 5+1 归层 | 域前缀 | 状态 / 说明 |
+|----|-----------|---------|--------|------------|
+| P0-1 | Todo list tool | L2 | `agent` | 待做 |
+| P0-2 | Tool result pruning | L2 | `agent` | 待做；P1-3 的前置 |
+| P0-3 | request_user_input tool | L2 | `agent` | 待做 |
+| P0-4 | Session snapshot/rewind | L1 | `core` | ✅ 已落地（`core/session.py`） |
+| P0-5 | LSP 集成 RFC（设计稿） | L2 | `agent` | 待做（纯文档）；P1-1 前置 |
+| P1-1 | LSP 集成实现 | L2 | `agent` | 待做，依赖 P0-5 |
+| P1-2 | Subagent 多后端 | L2 | `agent` | 待做 |
+| P1-3 | Spill storage | L2 | `agent` | 待做，依赖 P0-2 |
+| P1-4 | Sandbox policy（bwrap） | **L3** | `os` | 待做；与 v0.4 L3"单 OS 租户隔离"轨同层同向，实施时合并设计 |
+| P1-5 | Schedule / Jobs | L1 | `core` | 🔶 机制就绪未接线（2026-08-25 审查降级） |
+| P1-6 | Code intelligence 图谱 | L2 | `agent` | 待做 |
+| P2-1 | 插件架构 capability seam | **L4b** | `cap` | 需 RFC；依赖 P1-1/P1-6；为 v0.4 L4"统一协议草案"的局部前身 |
+| P2-2 | Session projection | L1 | `core` | ✅ 已落地（snapshot-based；event-sourced 已裁决否决） |
+| P2-3 | Web UI | **L4a** | `cap` | 低优先；安全等级等同核心代码（见文末"修正说明"） |
+| P3 | Multi-provider 再抽象等 4 项 | —（不吸收） | — | 保持差异化，不映射 |
+
+### 5+1 规划轨 → ROADMAP 锚点（反向对照）
+
+| v0.4 规划轨 | ROADMAP 锚点 | 说明 |
+|------------|--------------|------|
+| L0 gov/ 治理域（N9 rss_watchdog 挂 gov/ + free-RAM 守卫门） | 无对应 P 项（新增） | 2026-09-24 主裁 B1 裁决新建域；立项单 `gov-n9-rss-watchdog-project`（due 10-15） |
+| L1 token schema 收尾（老路径接入 + cost 字段 + 灵忆镜像对齐） | 无对应 P 项（新增） | 立项单 `token-schema-legacy-path-ingest`（due 10-15） |
+| L1 coding.py 装配外移 M1 | 无对应 P 项 | v0.4 硬轨，待自优化线收口 |
+| L2 熔断 + manifest 化（agent-gateway） | 无对应 P 项 | v0.4 硬轨 |
+| L3 单 OS 多进程租户隔离 | **P1-4 Sandbox policy** | 同层同向，bwrap 方案复用 |
+| L3 异 OS 设备最小验证 | 无对应 P 项 | v0.4 缓轨（M4-M6） |
+| L4 统一协议草案 | 无对应 P 项（P2-1 为局部前身） | v0.4 缓轨（M4-M6） |
+| L4a 真实场景端到端 / L5 GPU 评估 v4 | 无对应 P 项 | v0.4 已裁砍/缓，重启条件见 v0.4 §4.0 |
+
+### 边界说明
+
+1. ROADMAP 的 P0-P3 以"价值×成本"排序，5+1 以"治理分层"归位——两套坐标互补而非替代；本附录只做映射，**不改变任何项的既有优先级**。
+2. 标注 os/cap 域前缀（P1-4/P2-1/P2-3）只表示归层归属，**不因归层而提前实施**；排期一律以 v0.4 §十 裁决排期为准。
+3. 后续新增 P 项时建议在各自小节加一行"**5+1 归层**"，本表随季度校准或大版本刷新。
