@@ -1,0 +1,9 @@
+{
+  "kind": "arch_project",
+  "location": "lingclaude/core/state_store.py session_token_sink（a66e04c 已落地）+ session_history.json 老路径",
+  "reason": "规划 v0.4 三个月硬约束之一（议题 A 已裁批准）。session_token_sink 2026-09-23 落地且 StateStore 路径已见真实数据，但 session_history.json 老路径仍 0 含字段——新旧路径并行即双轨台账，须收口。剩余：①老路径接入 token 字段；②cost 换算字段；③灵忆（lingzhi）镜像消费侧对齐。",
+  "due": "2026-10-15",
+  "resolve_hint": "避免在老路径复制实现：老路径读写点统一走 sink 出口；cost 字段单价表外置配置；完成后以真实会话回归验证 0 双写。",
+  "state": "open",
+  "created": "2026-09-24T07:47:46+00:00"
+}

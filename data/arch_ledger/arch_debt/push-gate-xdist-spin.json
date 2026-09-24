@@ -1,0 +1,10 @@
+{
+  "kind": "infrastructure_defect",
+  "location": "lefthook.yml pre-push.full-pytest → .git/hooks/pre-push",
+  "reason": "pre-push 全量门禁 pytest -n 8 存在卡死缺陷，三次真实 push 均未跑完：①09-24 晨 3600s 被运行器超时杀（孤儿化+管道断裂）；②12:44 重发后 pytest 临时目录 12:40 起零活动，8 worker 纯 CPU 自旋 2h12m（wchan=0 非死锁等待），04 worker 均匀满载、零测试执行；③同 run 前段实测跑到 98%（8977s）卡死在最后 ~12 测试之一——非启动期 collection 问题，是尾部个别测试在 xdist 下无限循环。附带发现：门禁即便不死也会拒推——progress 点中 3 个 F（--tb=line 模式被杀致名单丢失，肇事测试待 A 线复跑取证）。门禁自 09-10 上线以来从未完整跑完过一次，'全量兜底'实为'全量堵门'。",
+  "due": "2026-10-08",
+  "resolve_hint": "①手动带 --timeout=300 复跑全量（-rf 出完整名单），收割自旋测试的 pytest-timeout 超时栈定位肇事者；②对肇事测试判型：真死循环→修测试 / xdist 环境敏感（参考 test_lc_mcp_guard StopIteration 前科与 xdist-state-write-race 债）→标 no_xdist_serial 或 skip 留痕；③修后验证：pre-push 链端到端真实跑完一次（允许时间 ≤40min）；④若 xdist 调度层缺陷无法测试侧修，评估门禁降参数（-n 4 或 serial）的代价。临时缓解已用并留痕：LEFTHOOK=0 旁路（本债 resolve 前再 push 需手动补跑 security+review-gate 两道轻门禁）。",
+  "state": "open",
+  "created": "2026-09-24T13:35:00+00:00",
+  "resolution": ""
+}

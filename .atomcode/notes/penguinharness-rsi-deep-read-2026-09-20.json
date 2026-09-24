@@ -1,0 +1,132 @@
+{
+  "project_name": "PenguinHarness (Prism-Shadow/penguin-harness)",
+  "repo_url": "https://github.com/Prism-Shadow/penguin-harness",
+  "license": "Apache-2.0",
+  "language": "TypeScript (Node >= 24, pnpm 11 monorepo)",
+  "core_features": [
+    "Local-first multi-agent app development platform",
+    "Recursive Self-Improvement (RSI) loop: Target Agent → frozen Benchmark → isolated evaluation → Candidate → accept/rollback, with versioned snapshot before every round",
+    "Agents build agents — penguin-sdk skill builds a self-contained app (RAG recipe included) whose embedded agent's AGENTS.md becomes the persona",
+    "Unified LLM API + 1000+ model adapters (DeepSeek, GLM, Kimi, Qwen, GPT, Gemini, Claude, Inkling + any OpenAI-protocol endpoint)",
+    "Append-only JSONL Trace per Session, designed for crash-torn-tail recovery",
+    "Plugin library (17 plugins, 4 categories) shipped as plain files (plugin.json + skills/<n>/SKILL.md + hooks/*.mjs) — files-are-truth, no caching",
+    "Goal mode (background hook: start.mjs writes GOAL.json, stop.mjs reads Trace, dispatches next round) and continual learning (background subagent folds long-task findings into skills)",
+    "Agent Company mode (CEO/HR/Finance/Researcher/Mirror digital twins, all-hands channel for board approval)"
+  ],
+  "architecture_layers": [
+    "packages/core (@prismshadow/penguin-core) — SDK: context_engine, OmniMessage protocol, Agent/Session/Plugin loader, Trace writer, hooks runner. The whole library is here; everything else is a thin host.",
+    "packages/cli (@prismshadow/penguin-cli) — commander-based CLI; run/chat/server/web/config. A thin client over the HTTP API.",
+    "packages/server (@prismshadow/penguin-server) — HTTP/SSE backend that CLI/Desktop/Web all talk to. Imported as @prismshadow/penguin-server/lock for the live-server lock.",
+    "packages/desktop — Electron shell. Forks penguin-server as utilityProcess on shared data root; one BrowserWindow over http://localhost:<port>; no preload, no node integration; tray icon; HMR layer (mechanism only — see packages/hmr).",
+    "packages/web — Vite/React SPA the server serves; same-origin over the embedded HTTP.",
+    "packages/hmr — runtime hot-update of platform code via POST /api/hmr/upgrade pushing a CLI bundle into an HMR store.",
+    "packages/landing — public marketing site.",
+    "packages/docs — docs site content (referenced by SKILL.md / docs paths).",
+    "plugins/ — 17 npm packages (@penguinharness/<name>), each its own self-contained content directory (plugin.json + skills/ + hooks/); resolved through Node from core's dependency list; source-of-truth on disk, no build step.",
+    "examples/ — sample apps."
+  ],
+  "distinguishing_features": [
+    "The 'Optimizer' and 'Evaluator' are not TypeScript modules — they are agents running SKILL.md protocols. agent-tuning ships four skills: agent-initialization, benchmark-design, agent-evaluation, agent-optimization. The Optimizer is an agent following plugins/agent-tuning/skills/agent-optimization/SKILL.md.",
+    "Scoreboard is a YAML file (benchmarks/<id>/scoreboard.yaml) that is authoritative: 'do not add a server, frontend, script, or consistency check that recomputes or validates them.' (agent-optimization/SKILL.md:129).",
+    "Snapshot-before-every-round: agent_state/ is archived into <target>/snapshots/v<version>.tar.gz atomically (excluding .vault.toml). Reject restores the previous Reference from that archive.",
+    "Trace writer uses single write(2) on O_APPEND — explicitly avoids Node's appendFile 512 KiB chunking because a torn 512KB chunk glues onto every later record and breaks the whole file (writer.ts:71-101).",
+    "Privacy boundary in evaluation: Test Agent sees only statement/, never rubric/, gold answers, or scoring rules. Optimizer never sees evaluator private state. Contamination rule: if private info enters optimizer context, restore active Candidate and stop.",
+    "Skills install = drop a SKILL.md under agent_state/skills/<n>/. Frontmatter (name + description) is auto-injected into system prompt; full body is 'index first, body on demand' — agent reads SKILL.md via shell when it actually needs it (agent-initialization/SKILL.md:46-65).",
+    "Goal mode + continual learning are hook packages (Node scripts), not core logic. start.mjs writes GOAL.json; stop.mjs reads Trace and decides next round."
+  ],
+  "key_files_actually_read": [
+    "/tmp/penguin-read/README.md:46-99 (Why PenguinHarness, four plugin categories)",
+    "/tmp/penguin-read/plugins/README.md (loader is data, not code; tests live in core)",
+    "/tmp/penguin-read/pnpm-workspace.yaml (packages/* + plugins/*; overrides for security CVEs)",
+    "/tmp/penguin-read/packages/core/src/index.ts:34-66 (public exports: Session, Agent, trace, plugins, omnimessage)",
+    "/tmp/penguin-read/packages/core/src/trace/writer.ts:1-278 (append-only JSONL with torn-tail healing, single write(2) on O_APPEND, per-instance serialization chain)",
+    "/tmp/penguin-read/packages/core/src/plugins/index.ts:1-533 (PLUGIN_CATEGORIES 4-cat list:500-505; loadLibraryPlugins:466; groupPlugins:512; workspacePluginRoot:251; parseSkillFrontmatter:177; append-only frontmatter injection)",
+    "/tmp/penguin-read/plugins/agent-tuning/plugin.json (category: ai-app-development, version 2026.09.15.1)",
+    "/tmp/penguin-read/plugins/agent-tuning/skills/agent-optimization/SKILL.md:1-131 (the Optimizer — 8-round evidence→hypothesis→Candidate→evaluate→accept/rollback loop; snapshot rule:67; scoreboard append:97-125)",
+    "/tmp/penguin-read/plugins/agent-tuning/skills/agent-evaluation/SKILL.md:1-140 (the Evaluator — 4 failure codes:133-138; protocol_version:1 contract:21-31; private rubric:54; trace binding:82)",
+    "/tmp/penguin-read/plugins/agent-tuning/skills/benchmark-design/SKILL.md:1-206 (Pilot = 1 Run/Case; publish gate score<85:73,155; status=published/failed/draft; Case layout:56-65)",
+    "/tmp/penguin-read/plugins/agent-tuning/skills/agent-initialization/SKILL.md:1-104 (AGENTS.md as behavior layer; skills as drop-in dirs; embedded agent of an SDK app:101)",
+    "/tmp/penguin-read/plugins/agent-development/plugin.json (4 skills: penguin-config, penguin-orchestration, penguin-sdk, unified-llm-api)",
+    "/tmp/penguin-read/plugins/agent-development/skills/penguin-sdk/SKILL.md:1-120 (createAgent/createSession streaming loop; RAG recipe is later in the file; embedded agent = the app's persona)",
+    "/tmp/penguin-read/packages/cli/src/index.ts:34-84 (commander registration of all subcommands, i18n-driven)",
+    "/tmp/penguin-read/packages/cli/src/commands/run.ts:1-180 (one-shot SSE; --background/--json/--goal/--source benchmark; CLI is a thin HTTP/SSE client)",
+    "/tmp/penguin-read/packages/cli/src/commands/chat.ts:74-133 (interactive REPL; --resume; /compact, /clear, /exit per the README)",
+    "/tmp/penguin-read/packages/cli/src/commands/serve.ts:331-381 (penguin server = headless Web service, port 7364; penguin web = server + open browser; existingInstanceUrl pre-start lock check)",
+    "/tmp/penguin-read/packages/cli/src/commands/config.ts:2-136 (penguin config model add --provider --model-id --api-key --base-url --client-type --set-default --vision/--no-vision --fast-mode; vault subcommands; lang <en|zh>)",
+    "/tmp/penguin-read/packages/desktop/src/main.ts:1-60 (Electron shell; forks @prismshadow/penguin-server as utilityProcess; one BrowserWindow over http://localhost:<port>; no preload/nodeIntegration; tray; dev-isolated identity)",
+    "/home/ai/lingclaude/lingclaude/self_optimizer/optimizer.py:1-80 (lc anchor: SearchSpace with structure/performance/simplicity goals, MinimalOptimizer wrapper, OptimizationResult frozen dataclass)"
+  ],
+  "weaknesses": [
+    "Scoreboard YAML is authoritative but human-editable — no DB transaction; concurrent writers could clobber. They compensate by 'append and verify before reporting success'.",
+    "Snapshot is a tar.gz (excludes .vault.toml), so secrets aren't snapshotted but recovery needs the vault separately. Restoring across machines is not addressed.",
+    "Plugin loader reads files on every call (no caching) — fine because files are small and calls infrequent, but cold-start library scans touch 17 plugins × multiple files each.",
+    "Trace writer's torn-tail heal inserts a literal blank line that 'every reader ignores' — depends on tolerant readers; a strict parser breaks.",
+    "Two separate protocol versions for Optimizer↔Evaluator communication (plain YAML over subagent) and Optimizer↔LLM (skill instructions) — easy to drift; the SKILL.md pins specific phrases ('Return only the clean YAML').",
+    "Goal mode + continual learning are Node hook scripts — no sandboxing beyond the host's command approval; a malformed stop.mjs can stall the loop.",
+    "Desktop is Electron + utilityProcess — RAM cost > TUI/REST-only.",
+    "Workers in agent-evaluation never see the rubric, but the Optimizer doesn't run tests against the evaluator's scoring model itself, so evaluator drift is silent."
+  ],
+  "borrowable_for_lc": [
+    {
+      "pattern": "Snapshot-before-every-round: atomically tar.gz <agent_state> excluding .vault.toml into <target>/snapshots/v<N>.tar.gz; on reject, untar to restore.",
+      "why_borrowable": "lc self_optimizer currently has no atomic state snapshot. Today a Candidate that breaks Agent State requires manual recovery. A versioned tar.gz per round (incremental version numbers, never reuse a rejected version) gives the Optimizer a single command to rollback.",
+      "difficulty": "medium",
+      "lc_anchor": "/home/ai/lingclaude/lingclaude/self_optimizer/optimizer.py — add SnapshotManager that wraps agent_state into <workspace>/snapshots/v<version>.tar.gz before each round; OptimizationRequest already has params/config; extend with snapshot_path."
+    },
+    {
+      "pattern": "Authoritative scoreboard YAML: writes are append+verify; no server/frontend/script recomputes the averages. Score = rounded 2dp; cost = 6dp; duration_ms = nearest int.",
+      "why_borrowable": "lc's self_optimizer stores experiment history in memory only and recomputes on each call. Lifting PenguinHarness's 'single source of truth' rule (and field-level rounding) into lc's benchmark scoreboard would make experiments replayable and the evaluator deterministic.",
+      "difficulty": "low",
+      "lc_anchor": "/home/ai/lingclaude/lingclaude/self_optimizer/benchmark.py — emit scoreboard.yaml as the canonical artifact; lock recomputation policy at the schema level."
+    },
+    {
+      "pattern": "Append-only JSONL trace with single write(2) on O_APPEND + torn-tail heal (writer.ts:71-101).",
+      "why_borrowable": "lc has its own journal (repl_io / layered_memory), but the specific anti-chunking rationale ('appendFile's 512 KiB split causes torn lines that glue onto later records') is a real failure mode worth pinning in lc's journal writer. The 'every reader ignores a blank line' contract is portable.",
+      "difficulty": "low",
+      "lc_anchor": "/home/ai/lingclaude/lingclaude/core/layered_memory.py and any journal sink — adopt the single-write invariant; add a tail probe at first append after reopen."
+    },
+    {
+      "pattern": "Skills as plain SKILL.md files with frontmatter name+description auto-injected into system prompt; full body read on demand via shell.",
+      "why_borrowable": "lc already has SKILL.md-style skills (this is roughly what the existing hooks/skills pipeline does). The 'index first, body on demand' design saves system-prompt tokens — directly applicable to lc's prompt budget concerns.",
+      "difficulty": "low",
+      "lc_anchor": "/home/ai/lingclaude/.claude/skills/ — confirm frontmatter auto-injection; the 'agent reads SKILL.md via shell when it needs it' pattern maps to tool-use Read on demand."
+    },
+    {
+      "pattern": "Optimizer/Evaluator communicate via plain protocol YAML over subagent; privacy boundary (rubric is private, test agent never sees scoring rules).",
+      "why_borrowable": "lc evaluators today run inline. Splitting into an Optimizer agent that only sees scoreboard+traces and an Evaluator agent that only sees rubric+workspace mirrors PenguinHarness's contamination rule, prevents Optimizer from over-fitting to test artifacts.",
+      "difficulty": "high",
+      "lc_anchor": "/home/ai/lingclaude/lingclaude/self_optimizer/evaluator.py — refactor into two role agents with explicit visibility lists."
+    },
+    {
+      "pattern": "preinstalled: false for plugin not auto-installed on default_agent (humanizer, use-claude-code, continual-learning, agent-company).",
+      "why_borrowable": "lc's hooks/skills likewise tend to be globally on. PenguinHarness's preinstall flag is a clean signal that 'this is opt-in capability' — worth adopting in lc's skill catalog metadata.",
+      "difficulty": "low",
+      "lc_anchor": "lc skill/hook metadata — add `preinstall: false` field; default_agent-like entrypoints skip loading on init."
+    },
+    {
+      "pattern": "Live-server lock file per data root; second `penguin server` on same root refuses with URL, second `penguin web` simply opens the existing instance (serve.ts:336-368).",
+      "why_borrowable": "lc has multi-process risk (CLI + server + desktop can collide on the same data root). PenguinHarness's per-root lock + 'attach vs refuse' differentiation is a well-tested pattern.",
+      "difficulty": "medium",
+      "lc_anchor": "/home/ai/lingclaude/lingclaude/core/scheduler.py — add `~/.lingclaude/data/.lock` or per-project lock; lc's run/chat/web equivalents should distinguish refuse vs attach."
+    },
+    {
+      "pattern": "Goal mode implemented as a hook package: start.mjs writes GOAL.json, stop.mjs reads Trace, dispatches next round or ends goal.",
+      "why_borrowable": "lc's loop / scheduler is a candidate for the same shape: the 'goal mode' logic (objective → repeated rounds → stop condition) lives outside core, in a hook package. core just runs hook scripts at the right points.",
+      "difficulty": "medium",
+      "lc_anchor": "/home/ai/lingclaude/lingclaude/core/scheduler.py + /home/ai/lingclaude/lingclaude/cli/commands.py — split scheduler into core orchestration + pluggable goal/continual-learning hook packages."
+    },
+    {
+      "pattern": "CLI as thin HTTP/SSE client to the server (run.ts:1-30). `penguin run` is a Session POST + SSE subscription; `penguin chat` reuses the same primitives with a REPL on top.",
+      "why_borrowable": "lc's CLI (`lingclaude/cli/commands.py`) currently embeds model calls directly. Adopting the 'thin client + central server' shape would let lc's TUI / CLI / future web share one runtime path.",
+      "difficulty": "high",
+      "lc_anchor": "/home/ai/lingclaude/lingclaude/cli/commands.py + /home/ai/lingclaude/lingclaude/cli/repl.py — extract a server boundary; existing model_call.py becomes a client."
+    }
+  ],
+  "structural_correction": "The user's prompt described PenguinHarness as 'core/ cli/ sdk/ desktop/ web/'. The actual layout is `packages/{cli,core,desktop,docs,hmr,landing,server,web}` + `plugins/` (17 packages). 'sdk' is not a separate package — `@prismshadow/penguin-core` IS the SDK (its index.ts exports Agent, Session, createAgent, createSession, omnimessage, trace, plugins, hooks).",
+  "sources": [
+    "https://github.com/Prism-Shadow/penguin-harness",
+    "https://penguin.ooo/docs/skills",
+    "https://penguin.ooo/docs/self-improvement",
+    "https://www.npmjs.com/package/@prismshadow/penguin-core"
+  ]
+}

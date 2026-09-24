@@ -49,8 +49,9 @@ class SeamType(str, Enum):
 
 
 # N3 命名空间互证（铁律 7）：跨物理层插片缝 key 必带域前缀 {ns}/{seam}。
-# 域 ∈ {core, agent, cap, os, hw}（四层宏图）。core 域类型保持原字面量（存量豁免）。
-DOMAIN_NAMESPACES = ("core", "agent", "cap", "os", "hw")
+# 域 ∈ {core, agent, cap, os, hw, gov}（前五域四层宏图；gov 为治理域，
+# 2026-09-24 用户裁决扩域）。core 域类型保持原字面量（存量豁免）。
+DOMAIN_NAMESPACES = ("core", "agent", "cap", "os", "hw", "gov")
 # 跨物理层类型（N3 强制域前缀）；core 域类型（provider/tool/sandbox/transport/
 # memory/governance/self_opt）保持裸 key 存量豁免（铁律 7 §2）。
 CROSS_PHYSICAL_TYPES = frozenset({
@@ -59,7 +60,7 @@ CROSS_PHYSICAL_TYPES = frozenset({
 
 
 def validate_seam_namespace(seam_type: SeamType, name: str) -> str:
-    """N3 命名空间校验：跨物理层类型强制 name 带域前缀，域前缀 ∈ 五域。
+    """N3 命名空间校验：跨物理层类型强制 name 带域前缀，域前缀 ∈ 六域（含 gov，2026-09-24 用户裁决扩域）。
 
     返回规范化 name（strip 后原样）；非法抛 ValueError（fail fast，注册前拦截）。
     core 域类型跳过（存量豁免：provider/tool/sandbox/... 保持裸 key）。
