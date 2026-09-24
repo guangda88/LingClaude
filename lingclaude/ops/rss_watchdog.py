@@ -1,4 +1,12 @@
-"""N6 RSS 增长看门狗 — 长时会话内存泄漏观测盲区补齐（opencode 盲区 #2）。
+"""N9 RSS 增长看门狗（仪表）— 长时会话内存泄漏观测盲区补齐（opencode 盲区 #2）。
+
+分层标注（2026-09-24，主裁 B1 裁决 gov/ 第六域 + 守卫/仪表分层强制）:
+  本模块 = 仪表（只观测告警，不拒收任何动作）：/proc RSS 采样 + 阈值增长告警。
+  原 N6 编号与铁律注册表撞号（N6=口径成本互证），改挂 N9（N1-N7 全占、N8 留环境守卫）。
+  守卫侧（free-RAM < 阈值拒启动，可拒收动作）实现于 lingclaude/gov/guard/，
+  框架仍收口 core/governance.py 单轨（铁律 7 gov 域物理落地规范）。
+  本模块保持 ops/ 仪表身份，不以纯仪表实体迁入守卫目录。
+
 
 背景:
   token_monitor 只记 token 总量, 交互会话进程 RSS 无任何观测。
@@ -53,7 +61,7 @@ def _effective_hard_limit_mb(baseline_mb: int) -> int:
         return RSS_HARD_LIMIT_MB
     return max(RSS_HARD_LIMIT_MB, baseline_mb + GROWTH_WARN_MB)
 
-_LINGBUS_ALERT_SUBJECT = "[N6守卫] 会话 RSS 异常"
+_LINGBUS_ALERT_SUBJECT = "[N9仪表] 会话 RSS 异常"
 
 # 会话基线表: session_id -> baseline_mb（dict 保序, 便于 LRU 淘汰）
 _BASELINES: dict[str, int] = {}
@@ -105,7 +113,7 @@ def check_rss_growth(
     if growth >= GROWTH_WARN_MB:
         line = f"RSS 增长 {growth}MB（基线 {_BASELINES[key]}→{current_mb}）≥{GROWTH_WARN_MB}MB"
         findings.append(f"WARNING: {line}")
-        _logger.warning("[N6] %s", line)
+        _logger.warning("[N9] %s", line)
         if (key, "growth") not in _ALERTED:
             _ALERTED.add((key, "growth"))
             _notify(key, "WARNING", f"{line} event={event}")
@@ -116,7 +124,7 @@ def check_rss_growth(
     if hard and (key, "hard") not in _ALERTED:
         line = f"RSS 绝对值 {current_mb}MB ≥{effective_hard}MB 硬限"
         findings.append(f"ERROR: {line}")
-        _logger.error("[N6] %s", line)
+        _logger.error("[N9] %s", line)
         _ALERTED.add((key, "hard"))
         _notify(key, "ERROR", f"{line} event={event}")
 
@@ -131,7 +139,7 @@ def _notify(session_id: str, level: str, detail: str) -> None:
             f"level={level} session={session_id} {detail}",
         )
     except Exception:  # noqa: BLE001
-        _logger.warning("[N6] LingBus alert failed", exc_info=True)
+        _logger.warning("[N9] LingBus alert failed", exc_info=True)
 
 
 def check_rss_watchdog(session_id: str, *, event: str = "") -> list[str]:
@@ -142,7 +150,7 @@ def check_rss_watchdog(session_id: str, *, event: str = "") -> list[str]:
     try:
         return check_rss_growth(str(session_id), mb, event=event)
     except Exception:  # noqa: BLE001
-        _logger.debug("[N6] rss check failed", exc_info=True)
+        _logger.debug("[N9] rss check failed", exc_info=True)
         return []
 
 

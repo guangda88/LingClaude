@@ -395,6 +395,8 @@ holder/check_paths 五原语）+ `scripts/worktree_node.py`（代码层 worktree
 | **N5 契约漂移侦测（参考资料增补，配 T3 契约漂移条款）** | 律 | T3 自优化插片的行为指纹 hash（关键路径输入→输出摘要）变化即记 contract_drift；引用 stale 结论的守卫测试标记待重验，不得沿用旧数字背书新行为（证据 `arch_reference/ref-zg-token-saving`：zg 实测 token 省 37.6% 为**单口径快照值**——测量口径直接决定成本，旧口径省的数字可能正是误导口径省出来的，引用须附 as_of） |
 | **N6 口径成本互证（参考资料增补，配 J5 四条件效率层）** | 仪表 | 同一任务在多个测量口径下的成本差（token/延迟/工具调用数）并入 M6 趋势仪表，**只产出线索（单口径结论标记 `unverified`）不直接红**；"单口径结论须附第二口径对照，否则只作线索不作裁定"是**使用方纪律**（引用者遵守），不是仪表的强制动作——仪表自身判"须/不得"违反 M 件套层级语义（仪表不判对错，2026-09-17d 返审修复：原条文把使用方纪律写进了仪表层，已归位） |
 | **N7 修剪执行移交（参考资料增补，配 RSI 缺口）** | 仪表 | 输出"执行层移交进度仪表"（移交次数/结果分布/驳回率），**只观测不裁决**；"规则层人裁决、执行层逐步移交模型自审"是**组织决策**（人随时可否决），不是仪表动作；移交的每次结果入账 arch_audit_task 是铁律 4 既有语法，非 N7 新增强制 |
+| **N8 free-RAM 环境守卫（2026-09-24 主裁 B1 裁决 gov/ 域注册）** | 守卫 | 可用内存（/proc MemAvailable）< 阈值（默认 1024MB，env `LINGCLAUDE_FREE_RAM_GUARD_MIN_MB`）即拒收启动类动作（新会话/优化周期），防 2026-08-21 21GB thrash 复蹈；采样失败 fail-open 放行留痕（守卫失效绝不静默）；实现 `lingclaude/gov/guard/free_ram_gate.py`，接线 `cli/app.py`（run/daemon run）+ `self_optimizer/daemon.py run_once` |
+| **N9 RSS 增长看门狗（2026-09-24 撞号修复注册；ops 实现原误标 N6）** | 仪表 | 长会话 /proc RSS 采样（`lingclaude/ops/rss_watchdog.py`，挂点 `_record_long_task_metrics`）：增长 ≥500MB WARNING、绝对值 ≥ 有效硬限（max(1000MB, 基线+增长线)）ERROR + LingBus 告警，基线重置防稳态泄漏轰炸；**只观测不拒收**——拒收语义归 N8 守卫，二者分层互补 |
 
 > **层级语义修复注（2026-09-17d 返审失锁①）**：M 件套层级定义中"仪表=管趋势不判
 > 对错、不设红线"。N5-N7 初稿把"须附/不得/即记"写进仪表条文，层级列与条文语义脱节——

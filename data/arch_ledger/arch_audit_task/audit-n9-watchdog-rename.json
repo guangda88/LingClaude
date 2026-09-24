@@ -1,0 +1,10 @@
+{
+  "id": "audit-n9-watchdog-rename",
+  "severity": "P2",
+  "state": "resolved",
+  "due": "2026-10-15",
+  "source": "gov-n9-rss-watchdog-project（2026-09-24 主裁 B1 裁决立项）拆单①",
+  "finding": "lingclaude/ops/rss_watchdog.py 代码侧自称 N6（:1 docstring「N6 RSS 增长看门狗」、:56 报警主题「[N6守卫] 会话 RSS 异常」、4 处 _logger 前缀「[N6]」），与铁律注册表撞号——N6=口径成本互证（docs/LINGYUAN_IRON_LAW.md:392，仪表层级）。按 2026-09-24 主裁 B1 裁决改挂 N9（N1-N7 全占、N8 留环境守卫）：N6→N9 全量替换（docstring/报警主题/日志前缀），并在 docstring 补守卫/仪表分层标注（RSS 增长观测=仪表，free-RAM 拒启动门=守卫，守卫实现于 gov/guard/，本模块不以纯仪表身份迁入守卫目录）。他成员代码，走 arch_audit_task 立单留痕后改名。",
+  "resolved_at": "2026-09-24",
+  "resolution": "已执行: rss_watchdog.py N6→N9 全量替换(docstring 分层标注/报警主题 [N9仪表]/4处日志前缀 [N9]); 注册表 N9 行已登记; 测试 13/13 绿。"
+}

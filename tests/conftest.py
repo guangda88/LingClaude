@@ -113,6 +113,8 @@ def _isolate_tool_vocab(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 # 灵克 cli 默认 = 1(生产开),pytest 通过 conftest 设 = 0 防卡死
 # 用户主动 export LINGCLAUDE_BUS_LISTENER=1 可强制开(覆盖 conftest)
 os.environ["LINGCLAUDE_BUS_LISTENER"] = "0"
+# N8 free-RAM 守卫门: 测试进程旁路(守卫拒收启动的语义不适用于 pytest; 需测守卫本身的用例自管 env)
+os.environ["LINGCLAUDE_FREE_RAM_GUARD"] = "0"
 
 
 # 2026-09-06 rm -rf 事故加固：autouse 检测测试对项目 .lingclaude/ 的写污染。

@@ -186,6 +186,16 @@ def _start_tool_plugin_warm(runtime: "CodingRuntime") -> None:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    # N8 free-RAM 守卫门（2026-09-24 主裁 B1 裁决立项）: 内存不足拒收新会话启动,
+    # 防 2026-08-21 21GB thrash 复蹈。采样失败 fail-open 放行(模块内留 WARNING 留痕);
+    # 测试环境经 conftest 置 LINGCLAUDE_FREE_RAM_GUARD=0 旁路。
+    if os.environ.get("LINGCLAUDE_FREE_RAM_GUARD", "1") != "0":
+        from lingclaude.gov.guard.free_ram_gate import check_startup_allowed
+
+        allowed, reason = check_startup_allowed("session-startup")
+        if not allowed:
+            print(f"错误: [N8守卫] {reason}")
+            return 1
     config = load_config(Path(args.config) if args.config else None)
     # 审计#4 修复:--bash-executor 必须在 CodingRuntime 创建前生效
     # （此前先建 runtime 再替换 config 且替换结果没人用 — 参数完全无效）。
@@ -447,6 +457,13 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
             print_kv("最近", f"score={last['best_score']:.2f} "
                   f"violations={last['violations_before']}→{last['violations_after']}")
     elif args.daemon_action == "run":
+        # N8 free-RAM 守卫门: 内存不足拒收优化周期(优化含全量测试, thrash 下必超时白烧)
+        from lingclaude.gov.guard.free_ram_gate import check_startup_allowed
+
+        allowed, reason = check_startup_allowed("daemon-run")
+        if not allowed:
+            print(f"错误: [N8守卫] {reason}")
+            return 1
         cycle = daemon.run_once()
         if cycle:
             print_success(f"Cycle #{cycle.cycle_id}: score={cycle.best_score:.2f}")

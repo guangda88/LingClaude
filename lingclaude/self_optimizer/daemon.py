@@ -583,6 +583,13 @@ class OptimizationDaemon:
 
     def run_once(self) -> Result[OptimizationCycle | None]:
         logger.info("自由化框架单次运行 (target=%s)", self.target)
+        # N8 free-RAM 守卫门: 内存不足拒收优化周期(2026-09-24 主裁 B1 裁决立项)
+        # fail-open: 守卫失效放行, 由 CLI 层留痕; 拒收返回 error Result 不写知识库
+        from lingclaude.gov.guard.free_ram_gate import check_startup_allowed
+
+        allowed, reason = check_startup_allowed("optimizer-cycle")
+        if not allowed:
+            return Result.fail(f"[N8守卫] {reason}", code="N8_FREE_RAM_GUARD")
         cycle_result = self.run_cycle(user_triggered=True)
         if cycle_result.is_ok and cycle_result.data is not None:
             self._write_cycle_to_knowledge(cycle_result.data)

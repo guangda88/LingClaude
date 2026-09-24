@@ -4,6 +4,8 @@
   "reason": "2026-09-24 主裁 B1 通过：gov/ 第六域升格（铁律 7 六域），规划 v0.4 议题 A 同裁批准。N9 立项范围：①代码侧 N6→N9 改名（他成员代码，走 arch_audit_task；现 :1 自述 N6、:56 报警主题 [N6守卫] 与注册表 N6=口径成本互证撞号）；②free-RAM 门（free<1GiB 拒启动）=守卫动作，按新落地规范实现于 gov/guard/，governance.py 留框架单轨；③RSS 增长观测=仪表，与守卫分层标注，不得以纯仪表身份住守卫目录；④注册收口铁律注册表。",
   "due": "2026-10-15",
   "resolve_hint": "先拆 arch_audit_task 改名单；free-RAM 门实现含阈值可配置+触发留痕；完成后跑 security+review-gate 轻门禁（push-gate-xdist-spin 债在案，全量门暂不可用）。",
-  "state": "open",
-  "created": "2026-09-24T07:47:46+00:00"
+  "state": "resolved",
+  "created": "2026-09-24T07:47:46+00:00",
+  "resolved_at": "2026-09-24",
+  "resolution": "范围①②③④全部落地: 改名 N6→N9(arch_audit_task audit-n9-watchdog-rename, resolved); free-RAM 门 lingclaude/gov/guard/free_ram_gate.py(MIN_FREE_MB env 可配+fail-open 留痕+拒收留痕, 6/6 测试绿)+三处接线(cli/app.py run+daemon run, self_optimizer/daemon.py run_once)+conftest 旁路; 仪表/守卫分层(docstring+注册表 N8/N9 行+guard/__init__ 规范); 注册收口铁律注册表(N8 守卫/N9 仪表两行)。"
 }
