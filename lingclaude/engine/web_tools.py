@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
+import socket
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -26,9 +28,63 @@ class WebFetcher:
         self._timeout = timeout
         self._max_size = max_size
 
+    @staticmethod
+    def _is_blocked_ip(ip: str) -> bool:
+        """IP 判定：非全局可达/保留/组播/回环/link-local 一律拒绝（fail-closed）。"""
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return True  # 解析不出合法 IP → 拒绝
+        if addr.is_multicast or addr.is_loopback or addr.is_link_local:
+            return True
+        if addr.is_private or addr.is_reserved or addr.is_unspecified:
+            return True
+        return not addr.is_global
+
+    @classmethod
+    def _ssrf_guard(cls, url: str) -> str | None:
+        """SSRF 门（2026-09-24 V2，灵安交叉审计）：返回拒绝原因，None=放行。
+
+        拒绝面：loopback/RFC1918/link-local（含云 metadata 169.254.169.254）/
+        保留段/ULA(fc00::/7)/组播/未指定地址；hostname 解析出的**全部** IP
+        逐个判定（防"公网+私网双记录"绕过）。
+        残余风险（如实声明）：判定与 urlopen 之间存在 TOCTOU 窗口——攻击者控制
+        的权威 DNS 可做 rebinding（判定时公网、连接时私网）。彻底封闭需
+        连接级 pin（自定义 opener 按 IP 连接），本期先落请求级防线。
+        本机白名单例外：SearxngClient 走独立通道（固定 127.0.0.1:8888），
+        不经过本门；web_fetch 工具面对的是不可信 URL，一律从严。
+        """
+        try:
+            parts = urllib.parse.urlsplit(url)
+        except ValueError:
+            return f"URL parse failed: {url!r}"
+        host = parts.hostname
+        if not host:
+            return f"URL has no hostname: {url!r}"
+        if host.endswith((".localhost", ".local", ".internal")):
+            return f"Blocked internal hostname: {host}"
+        # IP 字面量直接判定；域名则解析出全部记录逐个判定
+        try:
+            ipaddress.ip_address(host)
+            candidates = [host]
+        except ValueError:
+            try:
+                infos = socket.getaddrinfo(host, None)
+                candidates = [i[4][0] for i in infos]
+            except (socket.gaierror, OSError) as e:
+                return f"DNS resolution failed for {host}: {e}"
+        for ip in candidates:
+            if cls._is_blocked_ip(ip):
+                return f"Blocked non-public address: {host} -> {ip}"
+        return None
+
     def fetch(self, url: str) -> Result[str]:
         if not url.startswith(("http://", "https://")):
             return Result.fail(f"Invalid URL scheme: {url}", code="INVALID_URL")
+
+        ssrf_reason = self._ssrf_guard(url)
+        if ssrf_reason:
+            return Result.fail(ssrf_reason, code="SSRF_BLOCKED")
 
         try:
             req = urllib.request.Request(url, headers={

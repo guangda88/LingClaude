@@ -145,6 +145,7 @@ _BLOCKED_DANGER_ANYWHERE = frozenset({
 # P2-1 (灵元): 白名单外置 policies/sandbox_policy.yaml，走 PolicyLoader 热更（mtime watch）。
 
 # ── 网络判定（2026-09-14 灵元：剥离为 bash_network 纯函数模块）──
+from lingclaude.lacp.sandbox_policy import is_safe_writable_dir  # noqa: F401,E402
 from lingclaude.engine.bash_network import (  # noqa: F401,E402
     _network_allowed_commands,
     _NETWORK_ALLOWED_COMMANDS,
@@ -410,11 +411,26 @@ class BashExecutor:
         # 对齐 sandbox_policy.DEFAULT_POLICY.allowed_paths=["/home/ai","/tmp"]——
         # 策略层已声明整个 /home/ai 可信，执行层不应与策略脱节。
         # 可通过环境变量显式覆盖（逗号分隔）；默认注入 /home/ai（用户工作区根）。
+        #
+        # 2026-09-24（V1 修复，灵安交叉审计）：env 覆盖原先仅 strip() 直通——
+        # LINGCLAUDE_EXTRA_WRITABLE_DIRS=/ 或 /etc 会把系统目录挂成沙箱可写
+        # （bwrap --bind / 覆盖 --ro-bind / 只读层；landlock/Seatland 侧更无过滤）。
+        # 现在 env 显式值逐项过 is_safe_writable_dir() 钳制：红线根拒绝、
+        # 必须落在策略可信根（/home/ai、/tmp）内、必须存在的目录。
+        # env 不再是信任根——只是策略允许范围内的选择器。
         extra_dirs: list[str] = []
         env_extra = os.environ.get("LINGCLAUDE_EXTRA_WRITABLE_DIRS", "")
         if env_extra:
-            # 显式设置：全量采用用户指定目录（不隐式加 /home/ai，尊重覆盖意图）
-            extra_dirs = [d.strip() for d in env_extra.split(",") if d.strip()]
+            extra_dirs = [
+                d.strip()
+                for d in env_extra.split(",")
+                if d.strip() and is_safe_writable_dir(d.strip())
+            ]
+            if not extra_dirs:
+                logging.getLogger(__name__).warning(
+                    "LINGCLAUDE_EXTRA_WRITABLE_DIRS 全部被白名单钳制拒绝（红线/越可信根/不存在）: %r",
+                    env_extra,
+                )
         else:
             # 未显式设置：默认对齐策略层 allowed_paths（P2-1: 读 sandbox_policy.yaml
             # 的 default_writable_dirs，热更生效；读失败回退 /home/ai）

@@ -1,0 +1,10 @@
+{
+  "kind": "security_hardening_p3",
+  "location": "~/.lingclaude 目录权限 (session_state.json 0664 / .lingclaude/ 775) + lingclaude/engine/sandbox_provider.py bwrap :177 (仅滤 /) + openrouter_oauth.py:138-141 (tmp 窗口) + scripts/session_liveness.py:40 (os.popen f-string) + scripts/devnull_fallback_plugin.py:15 (/tmp 固定名) + scripts/rescue_yai_jwt.py:190 (pkill -f) + api.py:87 (_WORKING_DIR=cwd)",
+  "reason": "低危卫生项七条（2026-09-24 交叉审计 P3 + 本仓自审合并）：①会话状态/审批留痕 0664 组可读（guard_pending.jsonl params 内嵌完整文件内容，向量存在、今日扫描无实锤密钥）；②bwrap 层 extra_paths 仅滤 /，/etc 等仍可通过——已被本次 V1 入口钳制+纵深修复覆盖主链，此处为残留纵深缺口（extra_paths 循环内无 is_safe_writable_dir）；③oauth 凭据 tmp 先 0664 落盘再 chmod 0600，窗口未消除；④session_liveness os.popen(f'ss ...pid={pid}') 违 SEC-INJ-002（type=int 已挡注入，规范对齐项）；⑤/devnull-fallback /tmp 固定名符号链接攻击面（pytest 插件单用户机，影响小）；⑥rescue 脚本 pkill -f chrome 模式较宽（手动救援脚本，误杀面窄）；⑦api.py _WORKING_DIR=Path(os.getcwd()) 随启动目录漂移",
+  "due": "2026-11-30",
+  "resolve_hint": "①敏感 record_type 落盘 chmod 0600（state_store _atomic_write_json 加 mode 参数）或 umask 0o077 收口；②bwrap extra_paths 循环补 is_safe_writable_dir 过滤（与 landlock/Seatland 对齐）；③os.open(tmp, O_WRONLY|O_CREAT|O_EXCL, 0o600) 替换 write_text+chmod；④subprocess.run(['ss','-tnp']) 列表形态+Python 侧过滤（对齐 health_inspect :47 先例）；⑤tempfile.mkstemp 或 CWD；⑥按记录 PID 精确 kill；⑦固定项目根或配置项",
+  "state": "open",
+  "created": "2026-09-24T09:30:00+00:00",
+  "resolution_note": ""
+}

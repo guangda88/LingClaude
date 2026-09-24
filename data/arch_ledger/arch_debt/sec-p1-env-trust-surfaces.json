@@ -1,0 +1,10 @@
+{
+  "kind": "security_hardening_p1",
+  "location": "lingclaude/engine/web_tools.py:105 (SEARXNG_URL) + lingclaude/cli/_commands_history.py:119-122 (PAGER) + lingclaude/api.py:56-76 (LINGCLAUDE_API_KEYS)",
+  "reason": "三处环境变量信任面过宽（2026-09-24 双报告交叉审计 P1 清单，已逐行核实）：①SEARXNG_URL env 可劫持搜索后端→投毒 prior_verifier 信任链（Agent 决策被带偏）；②PAGER env 经 split() 喂 subprocess.Popen（无 shell 但 .bashrc 注入场景真实，'sh -c xxx' 可整串执行）；③_VALID_API_KEYS 运行时只 update 不 remove——env 撤销的 key 进程存活期内永不失效（比侧信道更实际），且 api_key in set 为非常数时间比较",
+  "due": "2026-10-08",
+  "resolve_hint": "①SEARXNG_URL：移除 env 回退仅留显式参数/配置文件，或加 host 白名单；②PAGER：硬编码 ['less','-R']/['cat'] 白名单，不读 env（对齐 health_inspect 2026-09-11 收编先例）；③API keys：启动时 frozenset(env) 快照并停止运行时 update（key 轮换=重启语义需文档化），比较改 hmac.compare_digest 逐 key",
+  "state": "open",
+  "created": "2026-09-24T09:30:00+00:00",
+  "resolution_note": ""
+}

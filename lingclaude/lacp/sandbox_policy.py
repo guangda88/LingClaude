@@ -23,6 +23,44 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# ---------- 共享过滤原语（2026-09-24 交叉审计 V1/V3 清偿） ----------
+
+# 沙箱可写目录红线：整根/系统目录挂载为可写 = 沙箱形同虚设
+# （bwrap --bind / 会覆盖 --ro-bind / 的只读层；landlock/Seatland 侧直接放行全盘写）。
+_FORBIDDEN_WRITABLE_ROOTS = (
+    "/", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64",
+    "/boot", "/proc", "/sys", "/dev", "/run", "/var", "/etc/opt",
+)
+# 策略层可信根：DEFAULT_POLICY.allowed_paths 与 PARANOID_WHITELIST["paths"] 的并集。
+# 环境变量显式覆盖时仍受此钳制——信任根收敛到策略（代码/yaml），不完全由 env 决定。
+TRUSTED_WRITABLE_ROOTS = ("/home/ai", "/tmp")
+
+
+def is_safe_writable_dir(d: str) -> bool:
+    """沙箱可写目录白名单判定（V1 共享原语，env 覆盖与 provider 纵深共用）。
+
+    规则（全部满足才放行）：
+    1. 绝对路径（bind 目标语义；相对路径一律拒绝）
+    2. resolve 后必须存在且为目录
+    3. 不得命中 _FORBIDDEN_WRITABLE_ROOTS（精确或 前缀+"/"）
+    4. 必须落在 TRUSTED_WRITABLE_ROOTS 之一内部（is_relative_to，可信根本身允许）
+    """
+    if not d or not d.startswith("/"):
+        return False
+    try:
+        rp = Path(d).resolve()
+    except (OSError, ValueError):
+        return False
+    if not rp.is_dir():
+        return False
+    rs = str(rp)
+    for f in _FORBIDDEN_WRITABLE_ROOTS:
+        # "/" 只精确匹配拒绝（否则前缀规则会拒掉一切绝对路径）；其余按 前缀+"/" 判
+        if rs == f or (f != "/" and rs.startswith(f.rstrip("/") + "/")):
+            return False
+    return any(rp == Path(t) or rp.is_relative_to(Path(t)) for t in TRUSTED_WRITABLE_ROOTS)
+
+
 
 class SandboxMode(str, Enum):
     """4 档沙箱策略（灵克建议加 paranoid 档）"""
@@ -42,19 +80,38 @@ class SandboxPolicy:
     env_whitelist: Optional[List[str]] = None     # 允许继承的环境变量
     
     def check_import(self, module_name: str) -> bool:
-        """检查是否允许 import"""
+        """检查是否允许 import
+
+        2026-09-24（V3 修复）：旧实现 startswith 前缀匹配——白名单 "json" 会
+        放过 "jsonx"、"json/tools"；分词边界 + 点段对齐后才语义正确。
+        """
         if self.allowed_imports is None:
             return True  # permissive/restricted 默认允许
-        return any(module_name.startswith(allowed) for allowed in self.allowed_imports)
-    
+        return any(
+            module_name == allowed or module_name.startswith(allowed + ".")
+            for allowed in self.allowed_imports
+        )
+
     def check_path(self, path: str) -> bool:
-        """检查是否允许访问路径"""
+        """检查是否允许访问路径
+
+        2026-09-24（V3 修复）：旧实现 str.startswith(str) 字符串前缀匹配，
+        allowed_paths=["/home/ai"] 时 "/home/aiexploit/secret" 也放行；
+        改用 Path.is_relative_to() 真路径包含判定（与 api.py._validate_path
+        同一正确模式，仓内对齐）。
+        """
         if self.mode == SandboxMode.PERMISSIVE:
             return True
         if self.allowed_paths is None:
             return False  # restricted/strict/paranoid 默认拒绝
-        resolved = Path(path).resolve()
-        return any(str(resolved).startswith(str(Path(p).resolve())) for p in self.allowed_paths)
+        try:
+            resolved = Path(path).resolve()
+        except (OSError, ValueError):
+            return False
+        return any(
+            resolved == Path(p).resolve() or resolved.is_relative_to(Path(p).resolve())
+            for p in self.allowed_paths
+        )
     
     def check_network(self) -> bool:
         """检查是否允许网络访问"""

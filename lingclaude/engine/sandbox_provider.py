@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from lingclaude.core.seam import SeamRegistry, SeamType
+from lingclaude.lacp.sandbox_policy import is_safe_writable_dir
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,11 @@ class LandlockSandboxProvider:
         if not self.available():
             return command
         wd = str(working_dir or Path.cwd())
-        writable = [wd, "/tmp"] + list(extra_writable_dirs or [])
+        # 2026-09-24（V1 纵深，灵安交叉审计）：bwrap 层已滤 "/"，此层（landlock）
+        # 与 Seatland 层原样拼接 extra_writable_dirs——env 驱动的 /、/etc 直通。
+        # 统一过 is_safe_writable_dir 钳制（wd//tmp 是沙箱语义内置可写面，不过滤）。
+        safe_extra = [d for d in (extra_writable_dirs or []) if is_safe_writable_dir(d)]
+        writable = [wd, "/tmp"] + safe_extra
         writable_args = " ".join(shlex.quote(p) for p in writable)
         helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_landlock_helper.py")
         return (
@@ -352,7 +357,9 @@ class SeatlandSandboxProvider:
         if not self.available():
             return command
         wd = str(working_dir or Path.cwd())
-        writable = [wd, "/tmp"] + list(extra_writable_dirs or [])
+        # 2026-09-24（V1 纵深）：同 landlock 层——extra_writable_dirs 过白名单钳制
+        safe_extra = [d for d in (extra_writable_dirs or []) if is_safe_writable_dir(d)]
+        writable = [wd, "/tmp"] + safe_extra
         profile_lines = [
             "(version 1)",
             "(allow default)",

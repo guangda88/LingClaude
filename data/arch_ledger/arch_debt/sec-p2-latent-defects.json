@@ -1,0 +1,10 @@
+{
+  "kind": "security_hardening_p2",
+  "location": "lingclaude/mcp/http_proxy.py:49 (LINGCLAUDE_PROXY_HOST) + lingclaude/engine/plugin_runner.py:229 (python -c 拼接) + webui/src/components/SettingsDialogs.tsx:569 (qr_svg) + lingclaude/lacp/marketplace.py:222 (死代码)",
+  "reason": "潜伏缺陷四项（2026-09-24 交叉审计，全部已核实当前不可利用）：①LINGCLAUDE_PROXY_HOST=0.0.0.0 可外暴含 run_bash/edit_code 的 26 工具 MCP 端点且无鉴权——但 grep 全仓零调用方，孤儿代码（若未来接线=任意命令执行面，必须先修）；②plugin_runner register_plugin_server 用 f-string 拼 python -c，manifest_path 含单引号可注入——死代码（0 生产调用方）但作为公共 API 暴露；③qr_svg 未经 DOMPurify 直接 dangerouslySetInnerHTML——当前 status 端点不返回该字段（前端不可达），实现 tunnel 桥接时必须同步净化或前端自渲染；④marketplace.py:222 'open(' if False else None 语法错误式死分支，误导审计",
+  "due": "2026-10-31",
+  "resolve_hint": "①删除 http_proxy.py 或接线前强制绑定 token+禁 env 覆盖 host；②plugin_runner 两个孤儿函数加 UNUSED 注释或改 argv 传参（sys.executable -c 仅 import，路径经环境变量/argv[1] 传递）；③tunnel 实现前置条件：DOMPurify 净化或 qrcode 库前端自渲染（从 remote_url 生成，不信任服务端 SVG）；④删除死分支",
+  "state": "open",
+  "created": "2026-09-24T09:30:00+00:00",
+  "resolution_note": ""
+}

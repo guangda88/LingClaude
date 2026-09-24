@@ -40,7 +40,8 @@ class TestWebFetcher:
         mock_urlopen.return_value = mock_resp
 
         f = WebFetcher()
-        result = f.fetch("https://api.example.com/data")
+        with patch.object(WebFetcher, "_ssrf_guard", return_value=None):
+            result = f.fetch("https://api.example.com/data")
         assert result.is_ok
         parsed = json.loads(result.data)
         assert parsed["key"] == "value"
@@ -60,7 +61,8 @@ class TestWebFetcher:
     def test_timeout(self, mock_urlopen: MagicMock) -> None:
         mock_urlopen.side_effect = TimeoutError("timed out")
         f = WebFetcher(timeout=1)
-        result = f.fetch("https://slow.example.com")
+        with patch.object(WebFetcher, "_ssrf_guard", return_value=None):
+            result = f.fetch("https://slow.example.com")
         assert result.is_error
         assert "timed out" in result.error
 
@@ -75,7 +77,8 @@ class TestWebFetcher:
         mock_urlopen.return_value = mock_resp
 
         f = WebFetcher(max_size=5 * 1024 * 1024)
-        result = f.fetch("https://big.example.com")
+        with patch.object(WebFetcher, "_ssrf_guard", return_value=None):
+            result = f.fetch("https://big.example.com")
         assert result.is_error
         assert "too large" in result.error
 
