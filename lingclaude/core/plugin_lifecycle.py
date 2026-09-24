@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from enum import Enum
 from typing import Any, Callable, Iterable, Optional
 
@@ -40,6 +41,248 @@ def _epoch_of(impl: Any) -> str:
     否则用 id()（进程内对象身份——register 覆盖产生新对象即新 id）。"""
     marker = getattr(impl, "_seam_epoch", None)
     return str(marker) if marker is not None else f"id:{id(impl)}"
+
+
+def _domain_of(fiber_name: str) -> str:
+    """fiber 的缝域归属：'gov/x' → 'gov'；无前缀 → 'app'。
+    与 seam.DOMAIN_NAMESPACES 的 gov/agent/cap/hw 前缀约定对齐。"""
+    return fiber_name.split("/", 1)[0] if "/" in fiber_name else "app"
+
+
+class BreakerLayer(str, Enum):
+    """熔断三层：per-fiber（隔离单点）→ domain（缝域，防单域风暴）→ global（兜底）。"""
+
+    FIBER = "fiber"
+    DOMAIN = "domain"
+    GLOBAL = "global"
+
+
+class CircuitBreaker:
+    """插片风暴双层→三层熔断闸（外部评审合议定案，synthesis-20260925 #2）。
+
+    确定性判据：计数器 >= threshold 且时间窗口 < window_seconds，拒绝主观判断。
+    - 状态机：CLOSED →（窗口内失败达阈值）→ OPEN →（冷却期满）→ HALF_OPEN
+      →（单探测成功）→ CLOSED；探测失败 → 回 OPEN（冷却重新计时）。
+    - 三层独立计数、独立熔断；低层不能豁免高层（域/全局熔断时单 fiber 探测无效）。
+    - 白名单 fiber 绕过闸（风暴期保留最小可服务子集）。
+    - 熔断事件经 event_sink 外发（后续对接 ly_state_events 落账：重启不丢、绕过风暴）；
+      sink 异常绝不阻断闸本身（best-effort，与 hooks 同纪律）。
+    - 拒绝（denial）不是失败，不计数——只有真实激活异常才计。
+    """
+
+    def __init__(
+        self,
+        fiber_threshold: int = 3,
+        domain_threshold: int = 4,
+        global_threshold: int = 6,
+        window_seconds: float = 60.0,
+        cooldown_seconds: float = 30.0,
+        whitelist: Optional[set] = None,
+        event_sink: Optional[Callable[[dict], None]] = None,
+    ) -> None:
+        self._fiber_threshold = fiber_threshold
+        self._domain_threshold = domain_threshold
+        self._global_threshold = global_threshold
+        self._window = window_seconds
+        self._cooldown = cooldown_seconds
+        self._whitelist = set(whitelist) if whitelist else set()
+        self._sink = event_sink
+        self._lock = threading.Lock()
+        # 滑动窗口：layer/target → 失败时间戳队列
+        self._failures: dict[tuple, deque] = {
+            (BreakerLayer.FIBER, None): deque(),
+        }
+        self._opened_at: dict[tuple, float] = {}   # 触发时刻（OPEN 起点即冷却计时起点）
+        # half-open 探测在途：fiber_name → (探测目标层, 目标)。探测结束（成功/失败）即清除。
+        self._probing: dict[str, tuple] = {}
+
+    # ---- 窗口维护 ----
+
+    def _prune(self, key: tuple, now: float) -> int:
+        """清理窗口外时间戳，返回窗口内失败数。"""
+        dq = self._failures.setdefault(key, deque())
+        horizon = now - self._window
+        while dq and dq[0] < horizon:
+            dq.popleft()
+        return len(dq)
+
+    def _emit(self, event: str, layer: BreakerLayer, target: Optional[str],
+              **detail: Any) -> None:
+        """事件外发（best-effort：sink 异常只记日志，绝不阻断闸）。"""
+        rec = {"event": event, "layer": layer.value, "target": target,
+               "ts": time.time()}
+        rec.update(detail)
+        logger.warning("breaker: %s[%s]%s %s", event, layer.value,
+                       f":{target}" if target else "", detail or "")
+        if self._sink is not None:
+            try:
+                self._sink(rec)
+            except Exception:  # noqa: BLE001
+                logger.exception("breaker: event_sink 异常（忽略）")
+    # ---- 记账 ----
+
+    def record_success(self, fiber_name: str) -> None:
+        """激活成功：清该 fiber 计数。
+
+        half-open 语义（闸的恢复只认探测者的结果）：
+        - 探测者自己成功 → 关闭它探测的层闸；
+        - 非探测者成功 → 只清窗口计数，不动 OPEN 状态（别的 fiber 触发的闸
+          不能被无关 fiber 的成功关闭——half-open 单探测纪律）。
+        """
+        with self._lock:
+            domain = _domain_of(fiber_name)
+            probe = self._probing.pop(fiber_name, None)
+            if probe is not None:
+                probe_layer, probe_target = probe
+                dq = self._failures.get((probe_layer, probe_target))
+                if dq:
+                    dq.clear()
+                if (probe_layer, probe_target) in self._opened_at:
+                    del self._opened_at[(probe_layer, probe_target)]
+                    self._emit("breaker_close", probe_layer, probe_target,
+                               probed_by=fiber_name)
+            else:
+                # 无探测在途时（如 hot_swap 修复通道）：激活成功 = 该 fiber 工厂
+                # 可用的直接证据 → 允许关闭它自己的 fiber 闸；域/全局聚合闸仍守
+                # 探测纪律（单个幸运 fiber 的成功不能关闭聚合闸掩盖风暴）。
+                fiber_key = (BreakerLayer.FIBER, fiber_name)
+                if fiber_key in self._opened_at:
+                    del self._opened_at[fiber_key]
+                    self._emit("breaker_close", BreakerLayer.FIBER, fiber_name,
+                               closed_by=fiber_name)
+            # 非 OPEN 层的计数清理（正常成功即归零）
+            for layer, target in ((BreakerLayer.FIBER, fiber_name),
+                                  (BreakerLayer.DOMAIN, domain),
+                                  (BreakerLayer.GLOBAL, None)):
+                dq = self._failures.get((layer, target))
+                if dq:
+                    dq.clear()
+
+    def record_failure(self, fiber_name: str, error: Optional[str] = None) -> None:
+        """激活失败：三层滑动窗口各记一次；达阈值即熔断（OPEN，冷却起算）。
+
+        half-open 探测失败 → 重开所探测层闸（OPEN 重新计时）并释放探测在途标记；
+        未过阈值的普通失败只记窗口，不触发熔断。
+        """
+        with self._lock:
+            now = time.time()
+            domain = _domain_of(fiber_name)
+            probe = self._probing.pop(fiber_name, None)
+            for layer, target, threshold in (
+                    (BreakerLayer.FIBER, fiber_name, self._fiber_threshold),
+                    (BreakerLayer.DOMAIN, domain, self._domain_threshold),
+                    (BreakerLayer.GLOBAL, None, self._global_threshold)):
+                key = (layer, target)
+                dq = self._failures.setdefault(key, deque())
+                dq.append(now)
+                self._prune(key, now)
+                if probe is not None and (layer, target) == probe:
+                    # 探测失败：重开闸（冷却从现在重新起算）
+                    self._opened_at[key] = now
+                    self._emit("probe_failed", layer, target,
+                               fiber=fiber_name, error=error)
+                    continue
+                if len(dq) >= threshold and key not in self._opened_at:
+                    self._opened_at[key] = now
+                    self._emit("breaker_open", layer, target,
+                               failures=len(dq), threshold=threshold,
+                               fiber=fiber_name)
+
+    # ---- 准入判定 ----
+
+    def allow(self, fiber_name: str) -> tuple[bool, Optional[dict]]:
+        """返回 (是否允许激活, 拒绝详情)。拒绝详情 None=允许。
+
+        half-open 契约：本层 OPEN 且冷却期满 → 允许**单探测**（探测在途标记）；
+        高层（域/全局）OPEN 时低层探测无效——低层不能豁免高层。
+        白名单 fiber 绕过闸。
+        """
+        if fiber_name in self._whitelist:
+            return True, None
+        with self._lock:
+            now = time.time()
+            domain = _domain_of(fiber_name)
+            # 自上而下检查：global → domain → fiber（先硬后软）
+            for layer, target in ((BreakerLayer.GLOBAL, None),
+                                  (BreakerLayer.DOMAIN, domain),
+                                  (BreakerLayer.FIBER, fiber_name)):
+                if (layer, target) not in self._opened_at:
+                    continue
+                opened_at = self._opened_at[(layer, target)]
+                if now - opened_at < self._cooldown:
+                    return False, {"layer": layer.value, "target": target,
+                                   "state": "open",
+                                   "cooldown_remaining": round(
+                                       self._cooldown - (now - opened_at), 3)}
+                # 冷却期满 → half-open：单探测（每个 OPEN 闸同时只允许一个探测者，
+                # 无论探测者是否同一 fiber——防并发探测风暴）
+                probe_holder = next(
+                    (f for f, t in self._probing.items() if t == (layer, target)),
+                    None)
+                if probe_holder is not None:
+                    return False, {"layer": layer.value, "target": target,
+                                   "state": "half_open",
+                                   "reason": "probe_in_flight",
+                                   "probe_holder": probe_holder}
+                self._probing[fiber_name] = (layer, target)
+                self._emit("probe_allowed", layer, target, fiber=fiber_name)
+                return True, None  # 探测放行（成败由 record_success/failure 定）
+            return True, None
+
+    def reset(self, fiber_name: Optional[str] = None) -> None:
+        """运维手动复位：指定 fiber 清该 fiber 及其域计数；None=全清。"""
+        with self._lock:
+            if fiber_name is None:
+                self._failures.clear()
+                self._opened_at.clear()
+                self._probing.clear()
+                self._failures[(BreakerLayer.FIBER, None)] = deque()
+                return
+            domain = _domain_of(fiber_name)
+            for key in ((BreakerLayer.FIBER, fiber_name),
+                        (BreakerLayer.DOMAIN, domain),
+                        (BreakerLayer.GLOBAL, None)):
+                dq = self._failures.get(key)
+                if dq:
+                    dq.clear()
+                self._opened_at.pop(key, None)
+            self._probing.pop(fiber_name, None)
+
+    def snapshot(self) -> dict[str, Any]:
+        """只读投影（status/观测面板数据源）。"""
+        with self._lock:
+            now = time.time()
+            fibers: dict[str, dict] = {}
+            domains: dict[str, dict] = {}
+            global_info = {"failures": self._prune((BreakerLayer.GLOBAL, None), now),
+                           "open": False, "cooldown_remaining": 0.0}
+            if (BreakerLayer.GLOBAL, None) in self._opened_at:
+                opened_at = self._opened_at[(BreakerLayer.GLOBAL, None)]
+                global_info["open"] = True
+                global_info["cooldown_remaining"] = round(
+                    max(0.0, self._cooldown - (now - opened_at)), 3)
+            for (layer, target), dq in self._failures.items():
+                if layer is BreakerLayer.FIBER and target is not None:
+                    open_at = self._opened_at.get((layer, target))
+                    fibers[target] = {
+                        "failures": self._prune((layer, target), now),
+                        "open": open_at is not None,
+                        "cooldown_remaining": round(
+                            max(0.0, self._cooldown - (now - open_at)), 3)
+                            if open_at is not None else 0.0,
+                    }
+                elif layer is BreakerLayer.DOMAIN:
+                    open_at = self._opened_at.get((layer, target))
+                    domains[target] = {
+                        "failures": self._prune((layer, target), now),
+                        "open": open_at is not None,
+                        "cooldown_remaining": round(
+                            max(0.0, self._cooldown - (now - open_at)), 3)
+                            if open_at is not None else 0.0,
+                    }
+            return {"global": global_info, "domains": domains,
+                    "fibers": fibers,
+                    "whitelist": sorted(self._whitelist)}
 
 
 class PluginFiber:
@@ -114,12 +357,15 @@ class LifecycleManager:
     写路径——无锁环。
     """
 
-    def __init__(self, verify_timeout: float = 5.0, hooks: Any = None) -> None:
+    def __init__(self, verify_timeout: float = 5.0, hooks: Any = None,
+                 breaker: Optional["CircuitBreaker"] = None) -> None:
         self._fibers: dict[str, PluginFiber] = {}
         self._lock = threading.RLock()
         self._verify_timeout = verify_timeout
         self._hooks = hooks  # 可选：HookManager（触发 PRE/POST_HOT_SWAP）；None=静默
         self._subscribed = False
+        # 插片风暴熔断闸（外部评审合议 #2）：默认构造即启用；测试可注入紧阈值实例
+        self.breaker = breaker if breaker is not None else CircuitBreaker()
 
     def _fire_hook(self, hook_type_value: str, fiber_name: str,
                    **metadata: Any) -> None:
@@ -200,11 +446,13 @@ class LifecycleManager:
             fiber.activated_at = time.time()
             fiber.state = LifecycleState.ACTIVE
             fiber.epoch = fiber.compute_epoch()
+            self.breaker.record_success(fiber.name)
             logger.info("lifecycle: %s ACTIVE (epoch=%s)", fiber.name, fiber.epoch)
         except Exception as exc:  # noqa: BLE001 激活失败 fail-loud 记录
             fiber.state = LifecycleState.FAILED
             fiber.error = f"{type(exc).__name__}: {exc}"
             fiber.instance = None
+            self.breaker.record_failure(fiber.name, error=fiber.error)
             logger.exception("lifecycle: %s FAILED on activate", fiber.name)
 
     def _unload_fiber(self, fiber: PluginFiber) -> None:
@@ -252,6 +500,17 @@ class LifecycleManager:
                 return fiber.state
             # 依赖齐备：指纹未变且已 ACTIVE → no-op（epoch 语义：没变就什么都不做）
             if fiber.state is LifecycleState.ACTIVE and fiber.epoch == new_epoch:
+                return fiber.state
+            # 熔断准入（评审合议 #2）：闸关着就不动在服实例——卸载旧代之前先问闸，
+            # 拒绝时旧代续服（蓝绿纪律）或保持 INACTIVE（等闸开后再重试）。
+            allowed, denial = self.breaker.allow(fiber.name)
+            if not allowed:
+                if fiber.state is LifecycleState.ACTIVE:
+                    logger.warning("lifecycle: %s 熔断拒绝，旧代续服（denial=%s）",
+                                   fiber.name, denial)
+                else:
+                    fiber.state = LifecycleState.INACTIVE
+                    fiber.error = f"circuit_open: {denial}"
                 return fiber.state
             if fiber.instance is not None or fiber.state is LifecycleState.ACTIVE:
                 self._unload_fiber(fiber)      # 实现被替换 → 先卸旧（自动 reload 前半）
@@ -365,6 +624,7 @@ class LifecycleManager:
                     "error": f.error,
                     "pending_disposers": len(f._disposers),
                 }
+            out["_breaker"] = self.breaker.snapshot()
             return out
 
     def get(self, name: str) -> Any:
