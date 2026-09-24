@@ -1,0 +1,10 @@
+{
+  "kind": "infrastructure_defect",
+  "location": "lefthook.yml pre-push.full-pytest + push 流程（docs/runbooks/PUSH_SOP.md 承接）",
+  "reason": "push-gate-xdist-spin 证伪后保留的真实结构缺口，三点：①full-pytest 无 --timeout 防单测试卡死（pytest-timeout 已装未接线），09-24 三次 push 全部死于门禁阶段；②git_push 工具默认 120s vs 门禁全量 20-40min，timeout 结构性不足，须显式 ≥7200；③宿主资源紧张（committed_AS 超承诺、swap 满、earlyoom -m 20）时 worker 成批死亡/被杀，环境病被误报为代码红（lastfailed 285 条环境依赖型佐证），门禁缺资源可用性预检。",
+  "due": "2026-10-08",
+  "resolve_hint": "①lefthook full-pytest 接 --timeout=300；②把 safe_push.sh 的 MemAvailable<4G 预警机制化进 pre-push 预检（当前仅脚本内提示，钩子自身不检查）；③push 流程纪律以 docs/runbooks/PUSH_SOP.md 为准：timeout≥7200 显式、输出直写文件不走管道、旁路必留痕、远端状态以 ls-remote 实测为准；④端到端验证：钩子链在资源紧张与宽裕两种宿主状态下各真实跑完一次。",
+  "state": "open",
+  "created": "2026-09-24T17:45:00+00:00",
+  "resolution": ""
+}
