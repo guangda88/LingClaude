@@ -97,6 +97,17 @@ class JsonFileBackend:
             logger.warning("JSON 状态读取失败 %s: %s", path, e)
             return None
 
+    def list_keys(self, record_type: str, root: Path | None = None) -> list[str]:
+        """枚举某 record_type 下全部 key（递归，'/' 分隔嵌套），不读 payload。
+
+        对账器（state_reconcile）依赖此原语做两侧 key 空间比对。
+        """
+        base = root if root is not None else self._root
+        d = base / record_type
+        if not d.is_dir():
+            return []
+        return sorted(f.relative_to(d).with_suffix("").as_posix() for f in d.rglob("*.json"))
+
 
 class LingYiBackend:
     """灵忆 2T3A 后端：records upsert + events 追加。
@@ -183,6 +194,15 @@ class LingYiBackend:
             if row:
                 return json.loads(row["data"])
             return None
+
+    async def list_keys(self, record_type: str, root: Path | None = None) -> list[str]:
+        """枚举灵忆侧某 record_type 全部 key（对账器依赖）。"""
+        pool = await self._ensure_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT key FROM ly_state_records WHERE record_type = $1 ORDER BY key",
+                record_type)
+            return [r["key"] for r in rows]
 
     def _path_for(self, record_type: str, key: str, root: Path | None = None) -> Path:
         # LingYiBackend 不使用文件路径，返回占位
