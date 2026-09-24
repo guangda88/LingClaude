@@ -1,0 +1,41 @@
+{
+  "type": "architecture-proposal",
+  "title": "2T3A 极薄主干 × 分形插片架构提案——除主干外一切皆插片（含接缝、含 agent-loop）",
+  "as_of": "2026-09-25",
+  "author": "lingke",
+  "created": "2026-09-25T00:48:47+08:00",
+  "status": "proposed（架构方向经用户 2026-09-25 教义宣告确认；实施三步走待排期裁决）",
+  "head": "fb2bbb0",
+  "key": ["2T3A", "极薄主干", "分形插片", "state_store", "双写迁移", "cordis对标", "一切皆插片"],
+  "findings": {
+    "doctrine": "用户 2026-09-25 宣告：除主干外一切皆为插片——包括接缝、包括 agent-loop。L1 主干 = 2T3A 状态机主架构，三原语 records/events/transition（以用户宣告为准），对标 DSH 的 cordis 微内核，但比它更薄。",
+    "decode_2t3a": "三原语解读：records（状态记录）/ events（状态变迁）/ transition（变迁机制）。注记（实测，供对照不作为定义）：state_store.py:130-152 DDL 恰好两张表（ly_state_records upsert / ly_state_events 追加，含 from_state→to_state+actor+data），lingmemory/distiller.py:37 自述三动作 create/transition/query——「2表+3动作」与三原语相容。",
+    "foundation_in_repo": "主干地基已在仓内且部分投产：lingclaude/core/state_store.py 文件头自述「迁移的第一性接缝——15 个状态模块迁灵忆 2T3A」。（a）StateBackend 协议已定义（:47-56，record_type+key 寻址，后端可插拔）；（b）双后端在位——JsonFileBackend（现状事实标准 ~/.lingclaude/*.json）与 LingYiBackend（2T3A 形态，asyncpg/PostgreSQL，ensure_schema 幂等建表）；（c）双写迁移协议已写明三切片：写双份→读切灵忆+机械核对→移除 json（:10-13）；（d）主干属性已编码：后端故障绝不炸主流程（best-effort，:15-17）；（e）生产消费者实测三点：memory_engine.py:188-207（StateStore 默认注入+save）、task_aggregation.py:125-133（J4 归原语主通道，record_type=task/task_group）、lifecycle_mixin.py:130（接线验证）。口径注意：role_separation.py:462 / governance_verifier.py:294 只借 _atomic_write_json 工具函数，非缝消费，未来统计缝采用率须剔除。",
+    "de_facto_state_machine": "当前系统的「事实上状态机」为三层循环嵌套，均实测：L1 会话循环 cli/repl.py:1354（消费 stop_reason）；L2 轮次生命周期 core/submission.py:45 submit()（前检→生成→终态判定→finalize/checkpoint，:70-79 转移判定散在 if 链）；L3 工具轮循环 core/model_call.py:193 _call_model 内（:425 处理 tool_calls，:69 解析 max_tool_rounds）。显式词表仅有 core/types.py:10-16 StopReason 五态：COMPLETED / MAX_TURNS_REACHED / MAX_BUDGET_REACHED / CONSECUTIVE_FAILURE / ERROR——即 transition 的 to_state 词表；turn 是 record，转移是隐式 if 链，无显式状态机实体。极薄主干提案 = 把既有事实升格为显式三原语主干，非重写。",
+    "cordis_gap": "对标 cordis（vendor/cordis/src/fiber.ts L625-639 + dsh_seam_mapping.md Gap 清单存灵安）差距不在三原语、在两个运行时语义：（1）服务生命周期强一致联动——required service 消失→依赖插件自动 dispose，回归→自动重载，PENDING 为合法常态，事件驱动而非周期探活；我方 events 目前只记日志不触发联动，transition 合法性无 enforcement。（2）模型自省工具族（cordis_inspect/_define/_run/_stop/_undefine）无等价物。「比它更薄」的达成路径：不搬 cordis 的 vendor/service 注册面（60+ 包），只取三原语+挂载器。",
+    "thin_trunk_measure": "按「除主干外皆插片」标尺二分 core 27,964 行：主干候选实测四件（submission.py submit 生命周期 506 行 / model_call.py 循环机制 / types.py StopReason+Result 词表 / hooks.py+seam.py 挂载机制本身），约 1,500 行级；其余 26K+ 全部为插片候选（含 QueryEngine 四件套、session 六件套、memory/governance/l7）。会话循环（REPL）亦插片候选：会话形态可替换（REPL/WebUI/API 三宿主已在），意味着 cli/ 未来缝化，波及面大于 core 内部迁移，单列裁决。",
+    "relation_to_m6": "与 M6 卷宗构成标尺-刻度关系：M6 调用分布量「用不用」，本提案定「一切状态变化的唯一形态」。清账迁移（MEMORY/GOVERNANCE 实体出 core）与 15 状态模块双写迁移是同一动作的两面，合并执行，一套工程。装配欠账口径由此获得出生判据：新插片必须走缝挂载出生，不再入 core。"
+  },
+  "proposal": {
+    "p1_trunk_declaration": "宣布 StateBackend 三原语为 L1 主干：records upsert / events 追加 / create-transition-query 三动词。写「主干必需清单」第一卡，设主干冻结区（只许修 bug 不许加功能）。JsonFileBackend 与 LingYiBackend 双后端可插拔本身即主干属性（best-effort：后端故障绝不炸主流程）。",
+    "p2_migration_route": "15 个状态模块按 state_store.py 已写明的双写三切片推进（写双份→读切灵忆+机械核对→移除 json），与 M6 清账的 MEMORY/GOVERNANCE 实体迁移合并执行——每迁一个 core 薄一分，主干收缩是迁移的副产品，不立独立重写工程。",
+    "p3_new_materials": "从「存储接缝」升格为「内核」需补两块运行时新料（需设计，非搬运）：（1）transition 合法性 enforcement + 生命周期联动事件——PENDING/dispose/reload 作为事件类型，required 缝缺席触发依赖插片自动降级、回归自动重载（对齐 cordis 语义）；（2）state_query 自省插片——模型可查插件树/状态机现状，走 26 工具面注册（对标 cordis_inspect，受限只读版先行）。",
+    "p4_agent_loop_pluginization": "agent-loop 插片化：循环策略 = transition 的一种编排，可换装。单代理循环为默认插片，fan-out 为并行插片——直接化解 M6 卷宗 fan_out_scheduler「启用 or 回收」二选一困境：答案变为两种 loop 插片并存、按任务换装。分形性：插片内部又是「微主干+微插片」，缝经 seam.py:54 域前缀机制分形注册（cap/hw/gov 域已预留）。",
+    "p5_birth_criteria": "插片出生判据（与 M6 辨别框架共用）：新插片注册必须走缝挂载 + 出生登记五件事——职责类型（routine/standby/conditional）、待命事件清单、观察期指标、豁免规则、缝 key。5+1 增量插片（cap_browser/HAL/gov/rss_watchdog 等）即刻按此执行，存量插片一次性标注。",
+    "p6_acceptance": "追认式收敛验收：不设「完成日」，每周期汇报 core 行数曲线与缝挂载率（剔除工具函数借用口径）；主干冻结区任何改动需走独立裁决。"
+  },
+  "user_decision": "2026-09-25 用户宣告教义：「除了主干，一切皆为插片！」（含接缝、含 agent-loop）；L1 主干 = 2T3A 状态机主架构（records/events/transition 三原语），对标 DSH cordis 微内核、比它更薄。2T3A 语义以三原语宣告为准，「2表+3动作」仅为实测注记。提案按教义起草入账；实施三步走（冻结区宣布/双写迁移/两块新料）待排期裁决。",
+  "verification": [
+    "state_store.py:3-17 文件头自述「迁移的第一性接缝——15 个状态模块迁灵忆 2T3A」+ 双写三切片 + best-effort 约束（2026-09-25 实测）",
+    "StateBackend 协议 :47-56；JsonFileBackend 与 LingYiBackend 双后端实现，DDL 两表 ly_state_records/ly_state_events，ensure_schema 幂等（2026-09-25 实测）",
+    "生产消费者三点实测：memory_engine.py:188-207 / task_aggregation.py:125-133 / lifecycle_mixin.py:130；非缝消费剔除样例 role_separation.py:462、governance_verifier.py:294（2026-09-25 实测）",
+    "三层循环与终态词表实测：cli/repl.py:1354 / core/submission.py:45,70-79 / core/model_call.py:193,425,69 / core/types.py:10-16 StopReason 五态（2026-09-25 实测）",
+    "cordis 对标：vendor/cordis/src/fiber.ts L625-639 生命周期联动；Gap 清单存灵安（dsh_seam_mapping.md）；2T3A 字样另见 lingmemory/distiller.py:37 三动作自述（2026-09-25 实测）"
+  ],
+  "related_debts": [
+    "transition enforcement + 生命周期联动事件：需设计，本提案 P3 待排期（cordis Gap 之一）",
+    "state_query 自省插片：需设计并走工具面注册，本提案 P3 待排期（cordis Gap 之二）",
+    "cli/ 缝化（会话循环插片化）：波及面大于 core 内部迁移，单列裁决未排期",
+    "wiring/seam 双体系统一：接缝自身插片化后的终局，迁移期间双轨对账口径已在 M6 记录"
+  ]
+}
