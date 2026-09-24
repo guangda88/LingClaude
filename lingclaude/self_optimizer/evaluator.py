@@ -31,6 +31,12 @@ class StructureEvaluator:
         # 样本）不属被审计代码——rglob 扫到即刷 60+ 条 Cannot parse 噪音，
         # 且 read_text 大文件拖慢 daemon 周期（用户 Ctrl+C 打断处即在此）。
         "bench", ".ling-audit", "archive", ".audit",
+        # 2026-09-24: git worktree 扇出会话目录（.lingclaude/worktrees/）是
+        # 同一提交的历史快照/并行实验现场，非被审计源码。rglob 从仓库根
+        # 扫到会把每个 worktree 里的同名大类重复计数 N 份（实测 12 个
+        # worktree 把 daemon 看到的 large_classes 从 8 虚增到 84 → structure
+        # 触发器长期误触发空转）。worktrees 不属被审计代码，与 bench 同理排除。
+        "worktrees",
     })
 
     def __init__(self, target_path: str = "."):
