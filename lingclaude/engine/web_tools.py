@@ -158,7 +158,45 @@ class WebSearcher:
 
     def __init__(self, backend: str | None = None, searxng_url: str | None = None) -> None:
         self._backend = backend
-        self._searxng_url = (searxng_url or os.environ.get("SEARXNG_URL") or self.DEFAULT_SEARXNG_URL).rstrip("/")
+        requested = (searxng_url or os.environ.get("SEARXNG_URL") or self.DEFAULT_SEARXNG_URL).rstrip("/")
+        self._searxng_url = self._vet_searxng_url(requested)
+
+    @classmethod
+    def _vet_searxng_url(cls, url: str) -> str:
+        """SEARXNG 后端 URL 校验（V4 清偿：env 劫持 → 搜索投毒 prior_verifier 信任链）。
+
+        默认后端本就是 loopback 上的合法 searxng 实例，故防线聚焦三点：
+        - 仅允许 http/https scheme（file/ftp 等一律拒）；
+        - 拒绝 loopback 之外的私网/保留地址段与云 metadata 主机名
+          （复用 WebFetcher._is_blocked_ip，与 web_fetch 同一防线口径）；
+        - 校验失败回退默认本地实例并 warn（fail-visible，不静默吞）。
+        注：SEARXNG 合法部署可在内网（RFC1918），完整白名单需配置文件通道，
+        见债务台账 sec-p1-env-trust-surfaces 缓办记录。
+        """
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            logging.warning("[web_search] SEARXNG_URL 非法（scheme/hostname），回退默认本地实例: %r", url)
+            return cls.DEFAULT_SEARXNG_URL
+        host = parts.hostname
+        loopback = False
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host in ("localhost",) or host.endswith(".localhost")
+        if not loopback:
+            try:
+                infos = socket.getaddrinfo(host, None)
+            except (socket.gaierror, OSError) as exc:
+                logging.warning("[web_search] SEARXNG_URL 主机解析失败，回退默认本地实例: %r (%s)", url, exc)
+                return cls.DEFAULT_SEARXNG_URL
+            for info in infos:
+                if WebFetcher._is_blocked_ip(info[4][0]):
+                    logging.warning(
+                        "[web_search] SEARXNG_URL 指向非公网地址被拒（防搜索投毒），回退默认本地实例: %r -> %s",
+                        url, info[4][0],
+                    )
+                    return cls.DEFAULT_SEARXNG_URL
+        return url
 
     def search(self, query: str, max_results: int = 5) -> Result[list[dict[str, str]]]:
         backend = (self._backend or os.environ.get("LINGCLAUDE_SEARCH_BACKEND") or "auto").lower()

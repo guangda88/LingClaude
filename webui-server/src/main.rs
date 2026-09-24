@@ -81,6 +81,10 @@ pub(crate) fn build_router(state: AppState) -> Router {
             state.clone(),
             auth::auth_middleware,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            auth::host_guard,
+        ))
 }
 
 #[tokio::main]
@@ -304,5 +308,86 @@ mod tests {
     fn cookie_name_is_port_scoped() {
         let state = test_state();
         assert_eq!(state.cookie_name(), "atomcode_webui_13458");
+    }
+
+    // ---- V7/V9 清偿（2026-09-24 双报告交叉审计）----
+
+    #[tokio::test]
+    async fn rebinding_host_gets_403_on_mint() {
+        // DNS rebinding 场景：恶意网页解析到 127.0.0.1 后携带攻击者域 Host 访问。
+        let app = build_router(test_state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/mint")
+                    .header(header::HOST, "evil.example.com")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "非 loopback Host 必须在 /mint 拿不到 token");
+    }
+
+    #[tokio::test]
+    async fn loopback_and_localhost_hosts_allowed() {
+        for host in ["127.0.0.1:13458", "localhost:13458", "[::1]:13458"] {
+            let app = build_router(test_state());
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .uri("/mint")
+                        .header(header::HOST, host)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK, "合法 loopback Host 应放行: {host}");
+        }
+    }
+
+    #[tokio::test]
+    async fn dot_suffix_non_asset_path_requires_auth() {
+        // V9：旧"含点即免鉴权"启发式下 /api/users.json 会被静默放行；
+        // 表驱动白名单后未嵌入路径必须仍走会话校验（401）。
+        let app = build_router(test_state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/users.json")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "非嵌入资源的含点路径不得免鉴权");
+    }
+
+    #[tokio::test]
+    async fn handoff_cookie_carries_secure_flag() {
+        // V8 清偿：走真实 mint→handoff 流验证 Set-Cookie 属性集。
+        let state = test_state();
+        let token = state.tokens.mint_handoff();
+        let app = build_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/?token={token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let set_cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .expect("handoff 必须种会话 cookie")
+            .to_string();
+        assert!(set_cookie.contains("Secure"), "V8 清偿：会话 cookie 必须带 Secure flag: {set_cookie}");
+        assert!(set_cookie.contains("HttpOnly"));
+        assert!(set_cookie.contains("SameSite=Strict"));
     }
 }

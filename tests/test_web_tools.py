@@ -25,7 +25,10 @@ class TestWebFetcher:
         mock_urlopen.return_value = mock_resp
 
         f = WebFetcher()
-        result = f.fetch("https://example.com")
+        # SSRF 门含真实 DNS 解析（fail-closed），单测只验 fetch 管线故打桩跳过
+        # （门自身行为由 test_security_cross_audit_v123.py 覆盖）。
+        with patch.object(WebFetcher, "_ssrf_guard", return_value=None):
+            result = f.fetch("https://example.com")
         assert result.is_ok
         assert "Hello" in result.data
 
@@ -53,7 +56,9 @@ class TestWebFetcher:
             "https://example.com", 404, "Not Found", {}, None,
         )
         f = WebFetcher()
-        result = f.fetch("https://example.com/missing")
+        # 同上：SSRF 门真实 DNS 打桩跳过（门行为由 test_security_cross_audit_v123.py 覆盖）
+        with patch.object(WebFetcher, "_ssrf_guard", return_value=None):
+            result = f.fetch("https://example.com/missing")
         assert result.is_error
         assert "404" in result.error
 

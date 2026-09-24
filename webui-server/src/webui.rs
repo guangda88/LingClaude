@@ -12,6 +12,12 @@ use rust_embed::RustEmbed;
 #[folder = "../webui/dist"]
 struct WebuiAssets;
 
+/// 嵌入资源表查询（免鉴权白名单的数据源，auth::is_static_asset 使用）。
+/// 路径规整对齐 asset_or_index：剥前导 '/'。
+pub(crate) fn is_embedded_asset(path: &str) -> bool {
+    WebuiAssets::get(path.trim_start_matches('/')).is_some()
+}
+
 /// SPA fallback：未知路径回 index.html；带扩展名的未知路径回 404。
 pub(crate) fn asset_or_index(path: &str) -> Option<std::borrow::Cow<'static, [u8]>> {
     let p = path.trim_start_matches('/');

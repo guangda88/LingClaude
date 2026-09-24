@@ -116,10 +116,12 @@ class SlashCommandHistoryMixin:
             if not sys.stdout.isatty():
                 print(body)
                 return
-            pager = os.environ.get("PAGER", "less")
-            cmd = pager.split() if pager != "less" else ["less", "-R"]
+            # PAGER env 信任面收口（V5 清偿 2026-09-24）：不再读 env——
+            # .bashrc/包管理器 post-install 注入 PAGER='sh -c …' 的场景下
+            # 旧实现 split() 后逐词执行注入串。/history 输出为纯文本预览，
+            # 固定 less（-R 保留 ANSI 色）+ 无交互环境直接打印，够用且无攻击面。
             try:
-                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+                proc = subprocess.Popen(["less", "-R"], stdin=subprocess.PIPE)
                 proc.communicate(body.encode("utf-8", errors="replace"))
             except Exception:  # noqa: BLE001 — 分页器缺席直接打印
                 print(body)

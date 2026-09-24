@@ -4,7 +4,8 @@
   "reason": "webui-server 四项（2026-09-24 双报告交叉审计，逐行核实）：①/mint 端点在 enforce_token 中间件白名单内，任何本地进程可 GET 拿一次性 handoff token 换会话 cookie；②build_router 无 Host 头校验——恶意网页经 DNS rebinding 可使 127.0.0.1 请求变同源读响应体（代码推演，未实测）；③is_static_asset 末段含点即免鉴权，未来 /api/foo.json 类路由会静默绕过 auth（rust-embed 404 兜底当前不可利用）；④cookie 无 Secure flag，反代 HTTP 回源场景 24h 会话窗口可被窃取（本机 127.0.0.1 可接受）",
   "due": "2026-10-08",
   "resolve_hint": "①/mint 改 Unix socket 或 CLI 预共享 secret 传递 token（弃 HTTP GET 轮询面）；②router 加 Host 白名单中间件（127.0.0.1:{port}/localhost:{port}/[::1]:{port}），不匹配 403——一行中间件；③is_static_asset 改嵌入资源表白名单；④文档化'反代必须 HTTPS+Secure'+ 代理头检测自动加 Secure",
-  "state": "open",
+  "state": "resolved",
   "created": "2026-09-24T09:30:00+00:00",
-  "resolution_note": ""
+  "resolved": "2026-09-24T12:40:00+00:00",
+  "resolution_note": "②V7：auth.rs 新增 host_guard 中间件（main.rs build_router 外层 layer 先执行），is_allowed_host 白名单 127.0.0.1/localhost/[::1]（剥端口+IPv6 方括号规整）；缺 Host 放行（直连客户端与 oneshot 测试可不带 Host；rebinding 攻击必带恶意域 Host，防御目标不受影响）。③V9：is_static_asset 从'末段含点'启发式改为 crate::webui::is_embedded_asset 嵌入资源表精确匹配（新增 6 行助手，rust-embed WebuiAssets::get）。④V8：handoff_grant 会话 cookie 追加 Secure flag。残留①/mint HTTP GET 轮询面：本批以 host_guard 收紧为 loopback 命名可达，Unix socket/预共享 secret 改造留新债 sec-p2-mint-unix-socket（当前风险=仅本机进程可拿一次性短 TTL token，cap=128 兜底）。验证：cargo test 18/18 全绿（含新增 rebinding_host_gets_403_on_mint / loopback_and_localhost_hosts_allowed / dot_suffix_non_asset_path_requires_auth / handoff_cookie_carries_secure_flag 四守卫；static_asset_detection 单测改用 dist 真实嵌入资源名）。环境备注：rustc LLVM 阶段曾 OOM，CARGO_BUILD_JOBS=1 + RUST_MIN_STACK=4194304 后通过（15Gi swap 高压宿主已知病，非代码问题）"
 }

@@ -140,10 +140,53 @@ fn query_token(query: &str) -> Option<String> {
     None
 }
 
-/// 静态资源路径判定：最后一段含 `.`（如 /assets/index-a1b2.js）。
-/// 这类资源不含秘密，公开；页面与 API 一律要求会话。
+/// 静态资源路径判定：嵌入资源表精确匹配（rust-embed）。
+/// V9 清偿（2026-09-24 双报告交叉审计）：旧启发式"末段含 `.` 即免鉴权"过宽
+/// ——未来新增 /api/foo.json 类路由会被静默放行；现仅 webui/dist 内真实
+/// 嵌入资源免鉴权，未嵌入路径一律走会话校验（404 由 handler 层兜底）。
 fn is_static_asset(path: &str) -> bool {
-    path != "/" && path.rsplit('/').next().is_some_and(|seg| seg.contains('.'))
+    crate::webui::is_embedded_asset(path)
+}
+
+/// Host 头白名单判定（V7 清偿 2026-09-24：堵 DNS rebinding 读响应体）。
+///
+/// 恶意网页经 rebinding 可使 `http://127.0.0.1:{port}/mint` 变同源请求，
+/// 读到 handoff token 响应体。仅放行 loopback 命名；**缺 Host 头放行**——
+/// 直连 TCP 客户端与集成测试 oneshot 请求可不带 Host，而 rebinding 攻击
+/// 必然携带攻击者域名的 Host，防御目标不受影响。
+fn is_allowed_host(host_header: Option<&str>) -> bool {
+    let Some(raw) = host_header else {
+        return true;
+    };
+    // 取 host 段（忽略端口——本服务端口可变，伪造 loopback 命名无收益）。
+    // RFC 3986：IPv6 字面量在 Host 中必须带方括号，故先剥端口再剥括号。
+    let host = match raw.rsplit_once(':') {
+        Some((h, _port)) => h,
+        None => raw,
+    };
+    let host = host.trim_matches(|c| c == '[' || c == ']');
+    matches!(host, "127.0.0.1" | "localhost" | "::1")
+}
+
+/// 鉴权前置守卫 — Host 白名单不匹配 403。
+/// 挂在 auth_middleware 外层（build_router 中后 layer 的先执行）。
+pub(crate) async fn host_guard(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let host_header = req.headers().get(header::HOST).and_then(|v| v.to_str().ok());
+    if !is_allowed_host(host_header) {
+        state.audit.log_request(
+            req.method().as_str(),
+            req.uri().path(),
+            None,
+            403,
+            Some("host not allowed"),
+        );
+        return (StatusCode::FORBIDDEN, "host not allowed\n").into_response();
+    }
+    next.run(req).await
 }
 
 /// handoff 成功：签发会话 cookie + 302 到去参地址。
@@ -156,7 +199,7 @@ fn handoff_grant(state: &AppState, query: &str) -> Response {
         format!("/?{}", rest.join("&"))
     };
     let cookie = format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+        "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}; Secure",
         state.cookie_name(),
         session,
         SESSION_TTL.as_secs(),
@@ -298,8 +341,14 @@ mod tests {
 
     #[test]
     fn static_asset_detection() {
-        assert!(is_static_asset("/assets/index-a1b2.js"));
-        assert!(is_static_asset("/favicon.ico"));
+        // V9 清偿后为嵌入资源表精确匹配：用 dist 内稳定存在的真实资源名
+        // （哈希名资源随构建漂移，不测具体哈希）。
+        assert!(is_static_asset("/index.html"));
+        assert!(is_static_asset("/favicon.png"));
+        // 未嵌入的含点路径不再免鉴权（旧启发式会放行）：
+        assert!(!is_static_asset("/assets/index-a1b2.js"));
+        assert!(!is_static_asset("/favicon.ico"));
+        assert!(!is_static_asset("/api/users.json"));
         assert!(!is_static_asset("/"));
         assert!(!is_static_asset("/chat"));
         assert!(!is_static_asset("/sessions/abc"));

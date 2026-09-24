@@ -9,6 +9,7 @@ import json  # noqa: E402
 import logging  # noqa: E402
 import os  # noqa: E402
 from pathlib import Path  # noqa: E402
+import hmac  # noqa: E402
 from typing import Any  # noqa: E402
 
 from fastapi import FastAPI, HTTPException, Security  # noqa: E402
@@ -58,18 +59,29 @@ _api_keys_env = os.environ.get("LINGCLAUDE_API_KEYS", "")
 if _api_keys_env:
     _VALID_API_KEYS.update(key.strip() for key in _api_keys_env.split(","))
 
+_API_KEYS_FROZEN = False
+
 async def verify_api_key(api_key: str = Security(API_KEY_HEADER)):
     """验证 API Key。
 
     请求时惰性读取环境变量（而非仅导入时快照）：修复非标准测试收集顺序下
     api 模块早于 fixture 设置 LINGCLAUDE_API_KEYS 被导入 → 密钥集缓存为空 →
     全端点 401 的测试污染。生产首次请求代价一次 env 读取，可忽略。
+
+    V6 清偿（2026-09-24 双报告交叉审计）：env 是唯一事实源，每请求整体
+    **替换**而非只增不减的 update——env 中撤销的 key 下一次请求即失效，
+    轮换不需重启进程；env 清空则全 401（fail-closed）。
+    比较改 hmac.compare_digest 逐 key，消除 set 成员判定的时序侧信道。
     """
     env = os.environ.get("LINGCLAUDE_API_KEYS", "")
-    if env:
-        _VALID_API_KEYS.update(k.strip() for k in env.split(",") if k.strip())
-    if api_key and api_key in _VALID_API_KEYS:
-        return api_key
+    keys = {k.strip() for k in env.split(",") if k.strip()}
+    if keys != _VALID_API_KEYS:
+        _VALID_API_KEYS.clear()
+        _VALID_API_KEYS.update(keys)
+    if api_key:
+        for _valid in _VALID_API_KEYS:
+            if hmac.compare_digest(api_key, _valid):
+                return api_key
     raise HTTPException(
         status_code=401,
         detail="无效的 API Key",

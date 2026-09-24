@@ -4,7 +4,8 @@
   "reason": "三处环境变量信任面过宽（2026-09-24 双报告交叉审计 P1 清单，已逐行核实）：①SEARXNG_URL env 可劫持搜索后端→投毒 prior_verifier 信任链（Agent 决策被带偏）；②PAGER env 经 split() 喂 subprocess.Popen（无 shell 但 .bashrc 注入场景真实，'sh -c xxx' 可整串执行）；③_VALID_API_KEYS 运行时只 update 不 remove——env 撤销的 key 进程存活期内永不失效（比侧信道更实际），且 api_key in set 为非常数时间比较",
   "due": "2026-10-08",
   "resolve_hint": "①SEARXNG_URL：移除 env 回退仅留显式参数/配置文件，或加 host 白名单；②PAGER：硬编码 ['less','-R']/['cat'] 白名单，不读 env（对齐 health_inspect 2026-09-11 收编先例）；③API keys：启动时 frozenset(env) 快照并停止运行时 update（key 轮换=重启语义需文档化），比较改 hmac.compare_digest 逐 key",
-  "state": "open",
+  "state": "resolved",
   "created": "2026-09-24T09:30:00+00:00",
-  "resolution_note": ""
+  "resolved": "2026-09-24T12:40:00+00:00",
+  "resolution_note": "①V4：WebSearcher.__init__ 加 _vet_searxng_url 门——scheme 仅 http/https、非 loopback 主机经 getaddrinfo 全记录逐个 WebFetcher._is_blocked_ip 判定（RFC1918/link-local/metadata 拒）、DNS 失败拒；校验失败回退 DEFAULT_SEARXNG_URL 并 logging.warning（fail-visible）。已知取舍：SEARXNG 合法部署可在内网，完整白名单需配置文件通道——env 内网值现被回退，留新债 sec-p3-searxng-config-channel。②V5：/history 分页器固定 [\"less\",\"-R\"]，不再读 PAGER env；源码级守卫断言 env 读取模式消失。③V6：design 迭代两版——首版'首次快照后冻结'被自家冒烟证伪（冻结后撤销仍无效，与债单目标矛盾）；终版=env 唯一事实源每请求整体替换（keys != _VALID_API_KEYS 时 clear+update），撤销下一请求即失效、轮换不需重启、空 env fail-closed 全 401；比较改 hmac.compare_digest 逐 key；test_e2e conftest 依赖的'首个受保护请求前 setenv 即生效'惰性语义保留。验证：test_sec_p1_hardening.py 新增 10 守卫（V4 五场景+V5 源码守卫+V6 五场景）+ test_web_tools/test_sdk 回归（两用例补 _ssrf_guard 打桩——真 DNS 在沙箱 fail-closed，与 P0 批次同型修法）"
 }
