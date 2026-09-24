@@ -100,11 +100,20 @@ class LingMemoryTokenSink:
             raise RuntimeError("lingmemory 模块不可用")  # → 熔断（family 同款）
 
         metadata = usage.get("metadata")
+        # 会话回链（token-schema-legacy-path-ingest 清偿③, 2026-09-24）:
+        # D3 sink 链传 session_id, 此前只读 session_ref → 镜像恒无回链;
+        # 两者兼容读取（session_ref 优先, 兼容旧调用方）。
+        if isinstance(metadata, dict):
+            session_ref = (
+                metadata.get("session_ref")
+                or metadata.get("session_id")
+            )
+        else:
+            session_ref = None
         base = self._clean({
             "model_name": usage.get("model"),
             "task_type": usage.get("task_type"),
-            "session_ref": metadata.get("session_ref")
-            if isinstance(metadata, dict) else None,
+            "session_ref": session_ref,
         })
         for kind, count in (
             ("input", usage.get("input_tokens")),

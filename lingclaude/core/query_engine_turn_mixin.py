@@ -188,6 +188,10 @@ class QueryEngineTurnMixin:
             total_input = abs(total_input)
             self._usage = self._usage.add_usage(total_input, total_output, total_cached)
             self._last_turn_cached = total_cached
+            # token schema 老路径接入 (2026-09-24): 缓存本轮单轮 output——
+            # 此前只存 input/cached，_last_turn_output 全仓无人赋值，老路径
+            # （session_history）读它恒为 0（D3 "占位 0" 复蹈点，本次封堵）。
+            self._last_turn_output = total_output
             # 2026-09-21: 本轮真实 input tokens（toolbar 上下文口径的真实值来源；
             # 负值 = provider 未回传时的估算兜底哨兵，消费方见上注释）
             self._last_model = (

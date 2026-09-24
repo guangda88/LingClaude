@@ -15,6 +15,7 @@ from typing import Any
 from lingclaude.core.intel import DailyDigest, DailyDigestGenerator
 from lingclaude.core.models import PermissionDenial
 from lingclaude.core.redact import redact as _redact_text
+from lingclaude.core.token_pricing import compute_cost_usd as _compute_cost_usd
 from lingclaude.core.types import Result
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,41 @@ class QueryEngineLifecycleMixin:
 
         def set_session_history_path(self, path: Path) -> None:
             self._session_history_path = path
+
+        # ------------------------------------------------------------------
+        # token schema 老路径接入（token-schema-legacy-path-ingest 清偿①②，
+        # 2026-09-24）。值源 = _finalize_turn 缓存的本轮单轮值（_last_turn_*，
+        # 语义见 query_engine_turn_mixin：负值 = provider 未回传的估算哨兵），
+        # 老路径不重复采样，与 sink 链同源避免双轨口径。
+        # ------------------------------------------------------------------
+        def _token_usage_fields(self) -> dict[str, Any]:
+            """session_history 老路径记录的 token/cost 字段组装。
+
+            cost 口径假设：cached_tokens ⊆ input_tokens（OpenAI 系口径），
+            非缓存 input = input_tokens - cached_tokens；单价表外置
+            （LINGCLAUDE_TOKEN_PRICE_TABLE → JSON：{模型子串: {input, output,
+            cached?}}，单位 USD / 1M tokens，命中最长 key）。未配表 / 未登记
+            模型 → cost_usd=None + cost_status="unpriced"（绝不估算、绝不编价）。
+            """
+            fields: dict[str, Any] = {
+                "input_tokens": int(getattr(self, "_last_turn_input", 0) or 0),
+                "output_tokens": int(getattr(self, "_last_turn_output", 0) or 0),
+                "cached_tokens": int(getattr(self, "_last_turn_cached", 0) or 0),
+                "model": getattr(self, "_last_model", None) or "unknown",
+            }
+            cost = _compute_cost_usd(
+                fields["model"],
+                fields["input_tokens"],
+                fields["output_tokens"],
+                fields["cached_tokens"],
+            )
+            if cost is None:
+                fields["cost_usd"] = None
+                fields["cost_status"] = "unpriced"
+            else:
+                fields["cost_usd"] = round(cost, 6)
+                fields["cost_status"] = "priced"
+            return fields
 
         def _append_to_session_history(self, query: str, response: str) -> None:
             try:
@@ -51,6 +87,7 @@ class QueryEngineLifecycleMixin:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "created_at": datetime.now(timezone.utc).isoformat(),
                     "session_id": self.session_id,
+                    **self._token_usage_fields(),
                 })
                 # 原子写入：先写临时文件，再rename，防止进程中断导致损坏
                 import tempfile

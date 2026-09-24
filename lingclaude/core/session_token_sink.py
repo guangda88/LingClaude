@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.token_pricing import compute_cost_usd
+
 logger = logging.getLogger(__name__)
 
 _ENV_TOGGLE = "LINGCLAUDE_SESSION_TOKEN_SINK"
@@ -59,16 +61,25 @@ class SessionTokenSink:
             if not session_id:
                 return  # 无 session 上下文（如单测/后台轮询）不落盘
             round_idx = max(0, int(meta.get("round_idx") or 0))
+            model = usage.get("model") or "unknown"
+            input_tokens = int(usage.get("input_tokens") or 0)
+            output_tokens = int(usage.get("output_tokens") or 0)
+            cached_tokens = int(meta.get("cached_tokens") or 0)
+            # cost 字段（token-schema-legacy-path-ingest 清偿②, 2026-09-24）:
+            # 与老路径 session_history 同 schema; 单价表外置, 未定价 → unpriced
+            cost = compute_cost_usd(model, input_tokens, output_tokens, cached_tokens)
             payload = {
                 "session_id": session_id,
                 "round_idx": round_idx,
-                "input_tokens": int(usage.get("input_tokens") or 0),
-                "output_tokens": int(usage.get("output_tokens") or 0),
-                "cached_tokens": int(meta.get("cached_tokens") or 0),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cached_tokens": cached_tokens,
                 "total_tokens": int(usage.get("total_tokens") or 0),
-                "model": usage.get("model") or "unknown",
+                "model": model,
                 "provider": meta.get("provider") or "unknown",
                 "task_type": usage.get("task_type") or "unknown",
+                "cost_usd": None if cost is None else round(cost, 6),
+                "cost_status": "unpriced" if cost is None else "priced",
                 # legacy 链会重建 payload 丢顶层 timestamp：metadata 优先，兜底 now()
                 "created_at": (
                     meta.get("timestamp")

@@ -209,3 +209,15 @@ class TestBackwardCompat:
         tm = TokenMonitor(db_path=tmp_path / "t.db", legacy_sink=None)
         assert tm._legacy_sink is None
         _record(tm)  # 无 sink 也必须正常走完
+
+
+class TestSessionBacklink:
+    def test_session_id_metadata_backlinks(self, pair):
+        """清偿③: D3 sink 链传 session_id（非 session_ref），镜像须带回链。"""
+        monitor, sink, db = pair
+        _record(monitor, metadata={"session_id": "sess-9"})
+        from lingmemory import LingMemory
+
+        items = _recs(LingMemory(db_path=db))
+        assert items, "镜像应存在"
+        assert all(i["data"].get("session_ref") == "sess-9" for i in items)
