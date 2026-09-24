@@ -1,7 +1,7 @@
 {
-  "head": "6421733",
+  "head": "86a5884",
   "fingerprints": {
-    "docs/LINGYUAN_IRON_LAW.md": "185a85c67ffd",
+    "docs/LINGYUAN_IRON_LAW.md": "9e1841a1d995",
     "tests/test_iron_law_guards.py": "f545695889df",
     "tests/fixtures/core_vocabulary.yaml": "81d01e149d98",
     "scripts/arch_ledger.py": "abf50504cd3c",
@@ -21,7 +21,7 @@
     "arch_debt:core-l7-classifier-circular-import": "021e47bf4694",
     "arch_debt:dual-session-staging-race": "0e75ef0b7f41",
     "arch_debt:fastlane-dead-plugin-review": "e86bd700cc9f",
-    "arch_debt:gov-n9-rss-watchdog-project": "9c67cb9d035e",
+    "arch_debt:gov-n9-rss-watchdog-project": "9c6283ddc09d",
     "arch_debt:governance-export-view-j4-migration": "accd07c3e3be",
     "arch_debt:governance-v2-proposals-j4-migration": "71b7076987bc",
     "arch_debt:governance-verifier-export-view-j4-migration": "94e34a4c497c",
@@ -32,7 +32,8 @@
     "arch_debt:m6-family-carriers-register-hook-broken": "8042819e06ef",
     "arch_debt:meta-cognition-export-view-j4-migration": "a0d20e7ce718",
     "arch_debt:proposal-lifecycle-j4-migration": "5fe88ba71403",
-    "arch_debt:push-gate-xdist-spin": "d4351a6f056a",
+    "arch_debt:push-gate-host-resource-precheck": "16409162e921",
+    "arch_debt:push-gate-xdist-spin": "a2043d9e51a5",
     "arch_debt:reasoning-chain-export-view-j4-migration": "8ec6819215de",
     "arch_debt:regression-preexisting-failures-20260921": "2be6aa943798",
     "arch_debt:seamtype-specialcase-plugin-loader": "691918e5f7e6",
@@ -45,7 +46,7 @@
     "arch_debt:spec-decision-tool-routing-choice": "5dcb850397b1",
     "arch_debt:tests-coding-copy-drift": "2ea5be4c4b30",
     "arch_debt:tests-mcp-server-fixture-git-env": "5d60b857ebdf",
-    "arch_debt:token-schema-legacy-path-ingest": "9541cccf6fb5",
+    "arch_debt:token-schema-legacy-path-ingest": "1d6dcfe34f51",
     "arch_debt:topic-stack-export-view-j4-migration": "bd90a94f8d64",
     "arch_debt:xdist-state-write-race": "0feba70c3ed3",
     "arch_debt:zhibridge-mcp-unbuilt": "90d265374d4b",
@@ -162,5 +163,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-24T08:01:38+00:00"
+  "checked": "2026-09-24T09:41:36+00:00"
 }
