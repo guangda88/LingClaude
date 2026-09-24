@@ -11,6 +11,29 @@ from lingclaude.core.config import lingclaudeConfig, OptimizerConfig, Permission
 from lingclaude.engine.coding import CodingRuntime
 
 
+@pytest.fixture(autouse=True)
+def _pin_permission_auto(monkeypatch):
+    """隔离全局权限态（20260924 tests-coding-copy-drift 清偿）。
+
+    本模块用例断言的是「验证关卡 / 安全限制-危险命令」等门禁层语义，只有
+    permissions 层钉在 auto（全放行）才轮得到它们——宿主进程的 approvals.json
+    若为 ask/strict，写工具与非只读 bash 会被 permissions 提前拦
+    （ask_mode.pending_approval / strict_mode.non_readonly，coding.py
+    _tool_blocked），5 个用例在干净 worktree 也稳定红（存量漂移根因）。
+
+    实现：monkeypatch get_permission_mode（coding.execute_tool 每次调用时
+    函数内 import，patch 即生效；不落盘、不碰宿主 approvals.json，也不会被
+    _maybe_reload_mode 的 mtime 热更回滚）；逐用例 reset_permission_stores
+    （防宿主持久化 always_allow 经 _PERSISTED_TOOLS 污染断言）。
+    """
+    import lingclaude.core.permissions as _perm
+
+    monkeypatch.setattr(_perm, "get_permission_mode", lambda: "auto", raising=True)
+    _perm.reset_permission_stores()
+    yield
+    _perm.reset_permission_stores()
+
+
 class TestCodingRuntimeInit:
     """Test CodingRuntime initialization"""
 

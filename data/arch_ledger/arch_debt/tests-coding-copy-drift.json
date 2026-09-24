@@ -1,9 +1,11 @@
 {
-  "kind": "arch_debt",
-  "location": "tests/test_coding.py（5 个用例：语法门禁×3 + 危险命令×2）",
-  "reason": "20260923 全量回归稳定失败：用例期望输出含「验证关卡」文案，实际被 permissions 层以 'Tool blocked by permissions: write' 提前拦截——测试期望串与 permissions 拦截文案不同步（HEAD 干净 worktree 稳定复现，存量漂移非新增）",
+  "kind": "module_purpose_drift",
+  "location": "tests/test_coding.py（5 用例：语法门禁×3 + 危险命令×2）",
+  "reason": "20260923 全量回归稳定失败：用例断言「验证关卡/安全限制」门禁层文案，但宿主进程 approvals.json 全局 mode=ask 时，写工具与非只读 bash 被 permissions 层提前拦（coding.py _tool_blocked → PERMISSION_DENIED），语法门禁/危险命令检查永远不执行——不是文案漂移，是全局权限态泄漏进测试进程（config.yaml 写 auto 也被 approvals.json 热更覆盖，_maybe_reload_mode）",
   "due": "2026-10-08",
-  "resolve_hint": "先裁决语义：permissions 拦截发生早于语法门禁属预期行为 → 改用例期望与断言点；若门禁本应先于 permissions → 修执行序。勿只改文案糊弄",
-  "state": "open",
+  "resolve_hint": "语义裁决已定（2026-09-24）：permissions 先于门禁是预期安全语义（先拦权限再执行），修法=测试侧隔离而非改断言：module 级 autouse 夹具 patch get_permission_mode→auto（coding.execute_tool 函数内 import，patch 即生效；不落盘）+ reset_permission_stores 防宿主 always_allow 污染；5 用例强断言一字未改",
+  "state": "resolved",
+  "resolved": "2026-09-24T11:55:00+00:00",
+  "resolution": "fixture _pin_permission_auto（tests/test_coding.py:13-36）：monkeypatch get_permission_mode=auto + 逐用例 reset_permission_stores；根因=宿主 approvals.json mode=ask 跨进程泄漏；验证=TestVerificationGate+TestSecurityHardening 后台回归（见 commit）",
   "created": "2026-09-23T16:20:00+00:00"
 }
