@@ -117,11 +117,14 @@ class AuditWatch:
         - F5 挂钩（2026-09-23）：sweep_due 时顺跑 corrections 回填 +
           规则 conf 治理，并对其落账 verify_ledger（脚本失败仅记日志）。
         """
-        exit_code = self.trigger.run_audit()
+        sweep_due = self._sweep_due()
+        # 周期化（P0-B，2026-09-24 audit）：例行核账到期 → 本轮值守强制深审
+        # （时间维度触发，指纹守卫之外的第二条保险；层级2 语义增强）。
+        exit_code = self.trigger.run_audit(force=sweep_due)
 
         sweep_expired: list[str] = []
         f5: dict = {}
-        if self._sweep_due():
+        if sweep_due:
             sweep_expired = self.trigger.sweep_debts()
             self.state.last_full_sweep = datetime.now().isoformat()
             self.state.dump(self.state_path)
@@ -132,6 +135,7 @@ class AuditWatch:
             "exit": exit_code,
             "open_tasks": len(self.trigger.open_tasks()),
             "sweep_expired": sweep_expired,
+            "sweep_due": sweep_due,
         }
         if f5:
             diag["f5"] = f5

@@ -11,6 +11,13 @@
 
 用法:
   python3 scripts/self_audit_trigger.py           # 检查触发，输出报告
+  python3 scripts/self_audit_trigger.py --force   # 跳过触发短路，强制深审
+                                                   # （2026-09-24 周期化：CI schedule/值守例行核账用）
+
+变盘检测外的时间维度（2026-09-24 周期化整改，audit P0-B 欠账）：
+  空转检测：上次深审距今超 36h（24h 周期 ×1.5 错动容差）→ 强制深审一次，
+  防「HEAD 不动 → 审计永不跑」的机制空转（时效债/空转机制只有时间触发才现形）。
+
   python3 scripts/self_audit_trigger.py --tasks   # 仅列未关闭的优化任务
 """
 from __future__ import annotations
@@ -31,6 +38,10 @@ from lingclaude.core.state_store import StateStore  # noqa: E402
 T_POLICY = "arch_audit_policy"
 T_STATE = "arch_audit_state"
 T_TASK = "arch_audit_task"
+
+# 周期化（2026-09-24，audit P0-B）：空转检测阈值（小时）。
+# 24h 周期 ×1.5 容差——超过即视为「审计机制空转」，强制深审一次。
+_STALE_AUDIT_HOURS = 36.0
 
 # 审自身的关键文件（fingerprint 口径：sha256 前 12 位）
 SELF_FILES = [
@@ -157,7 +168,7 @@ def sweep_debts() -> list[str]:
     return expired
 
 
-def run_audit() -> int:
+def run_audit(force: bool = False) -> int:
     pol = _policy()
     last = _last_state()
     fp_now = _fingerprints()
@@ -169,10 +180,23 @@ def run_audit() -> int:
                         and fp_prev.get(k) != fp_now[k]]
     head_changed = head_prev not in (None, head_now)
 
+    # 周期化时间触发（P0-B）：空转检测——上次深审距今超阈值即强制，
+    # 防「HEAD 不动 → 审计永不跑」。时间戳缺失/损坏保守视为空转（宁可多审）。
+    checked = last.get("checked")
+    stale = False
+    if checked:
+        try:
+            _c = datetime.fromisoformat(checked)
+            stale = (datetime.now(timezone.utc) - _c).total_seconds() > _STALE_AUDIT_HOURS * 3600
+        except ValueError:
+            stale = True
+
     print("== 返审触发器 ==")
     print(f"HEAD: {head_prev} → {head_now}" + ("（自身代码变化）" if head_changed else "（未变）"))
     print(f"自身关键文件变化: {self_changed or '无'}")
     print(f"外界（台账）变化: {external_changed or '无'}")
+    if checked:
+        print(f"上次深审: {checked}" + ("（超时，触发空转深审）" if stale else ""))
 
     triggered = bool(self_changed or external_changed or head_changed)
     if not triggered and not last:
@@ -180,11 +204,15 @@ def run_audit() -> int:
         _save_state(fp_now)
         return 0
 
-    if not triggered:
+    if not triggered and not (force or stale):
         print("无触发条件 → 不审查（上次指纹已存档）。")
         return 0
 
-    print("\n触发成立 → 执行返观返审（守卫自检 + 台账核账）：")
+    if triggered:
+        print("\n触发成立 → 执行返观返审（守卫自检 + 台账核账）：")
+    else:
+        why = "--force 指定强制深审" if force else f"空转检测：上次深审超 {_STALE_AUDIT_HOURS:.0f}h"
+        print(f"\n[{why}] → 周期深审（守卫自检 + 台账核账）：")
     # 审自身：守卫自检（守卫即查询的直接执行）
     r = subprocess.run([sys.executable, "-m", "pytest", "tests/test_iron_law_guards.py", "-q"],
                        cwd=ROOT, capture_output=True, text=True, timeout=300)
@@ -215,12 +243,14 @@ def run_audit() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tasks", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="跳过触发短路强制深审（CI schedule / 值守例行核账用）")
     args = ap.parse_args()
     if args.tasks:
         for slug, rec in open_tasks():
             print(f"{rec['severity']}  {slug}: {rec['finding']}")
         return 0
-    return run_audit()
+    return run_audit(force=args.force)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,14 @@
 {
-  "head": "38ecbf0",
+  "head": "a66e04c",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "04f0d46ddb0e",
     "tests/test_iron_law_guards.py": "970706c17bfa",
     "tests/fixtures/core_vocabulary.yaml": "81d01e149d98",
     "scripts/arch_ledger.py": "abf50504cd3c",
-    "scripts/seam_trend_inspect.py": "8e335665ddae",
+    "scripts/seam_trend_inspect.py": "7741c7f52da9",
     "lingclaude/core/state_store.py": "584a3187aecb",
     "lingclaude/core/seam.py": "a7492724230d",
-    ".github/workflows/ci.yml": "dd83e0d9247e",
+    ".github/workflows/ci.yml": "623fb111495d",
     "arch_debt:agent-lingxi-mcp-probe-timeout": "c39e07793d79",
     "arch_debt:arch-m3-dynamic-import-attr-form": "e2018ed1999d",
     "arch_debt:arch-m3-tool-executor-import": "b67836628dea",
@@ -151,5 +151,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-23T22:55:35+00:00"
+  "checked": "2026-09-23T23:57:42+00:00"
 }

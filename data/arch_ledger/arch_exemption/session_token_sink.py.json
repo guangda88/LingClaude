@@ -1,0 +1,20 @@
+{
+  "guard": "M1",
+  "file": "core/session_token_sink.py",
+  "reason": "D3 清偿文件（a66e04c，session 维度真实 token 落盘）：id:model/provider/session 为 token 消耗记录的原生维度字段（会话×模型×供应方），str:model 为 payload 键，属文件自有语义非领域概念泄漏。行级豁免 10 行（58,59,63,69,79,83,97,98,109,117），新增命中仍被 M1 抓到（只缩不放）。灵克代并行会话登记（2026-09-24），待用户追认。",
+  "granted": "2026-09-24",
+  "state": "active",
+  "lines": [
+    58,
+    59,
+    63,
+    69,
+    79,
+    83,
+    97,
+    98,
+    109,
+    117
+  ],
+  "review_due": "2026-10-24"
+}

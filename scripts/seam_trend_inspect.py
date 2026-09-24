@@ -36,6 +36,7 @@ SRC = ROOT / "lingclaude"
 sys.path.insert(0, str(ROOT))
 
 from lingclaude.core.state_store import StateStore  # noqa: E402
+from lingclaude.core.seam import SeamType  # noqa: E402
 
 # 2026-09-23 audit P0 #5：接缝口径独立命名空间。arch_m6_snapshot 被飞轮
 # datalog_aggregator.py 的按日快照占用（7 份 JSON 均为 datalog 维度），本仪表
@@ -148,6 +149,32 @@ def load_last_snapshot() -> dict | None:
     return None
 
 
+def _divergences(dist: dict[str, int], rt_registry: dict[str, list]) -> dict:
+    """双口径显歧（2026-09-24 假阳性整改：键规范统一）。
+
+    静态扫描键 = SeamType 枚举属性名（AGENT/SANDBOX，AST 里拿到的是
+    attr），运行时 snapshot() 键 = 枚举 value（agent/sandbox）——直接比集合
+    会把同一事实劈成 AGENT(static=23,rt=0) + agent(static=0,rt=23) 两条
+    假分歧（2026-09-23T170320Z 快照实测）。统一到规范键 = SeamType.value
+    （与运行时口径同源）；未知键（枚举外字面量）fail-open 原样保留。
+    """
+    def _canon(k: str) -> str:
+        st = getattr(SeamType, k, None)
+        return st.value if isinstance(st, SeamType) else k
+
+    dist_canon: dict[str, int] = {}
+    for k, n in dist.items():
+        ck = _canon(k)
+        dist_canon[ck] = dist_canon.get(ck, 0) + n
+
+    divergences = {}
+    for st in sorted(set(dist_canon) | set(rt_registry)):
+        sc, rc = dist_canon.get(st, 0), len(rt_registry.get(st, []))
+        if sc != rc:
+            divergences[st] = {"static_scan": sc, "runtime_registry": rc}
+    return divergences
+
+
 def runtime_seam_snapshot() -> dict:
     """运行时口径：SeamRegistry 热拔插状态实拍（P0 #5 整改——此前从未调用）。
 
@@ -257,14 +284,8 @@ def main() -> int:
         # 静态结论降级为线索（J5 四条件之 2：单口径不作裁定）。
         "closed_reviews": reviews,
     }
-    # 双口径显歧：静态扫描点 vs 运行时注册数（仪表不裁定，分歧必须可见）
-    rt = report["runtime"]["registry"]
-    divergences = {}
-    for st in sorted(set(dist) | set(rt)):
-        sc, rc = dist.get(st, 0), len(rt.get(st, []))
-        if sc != rc:
-            divergences[st] = {"static_scan": sc, "runtime_registry": rc}
-    report["static_vs_runtime_divergence"] = divergences
+    # 双口径显歧（键规范统一：静态 attr → SeamType.value，见 _divergences）
+    report["static_vs_runtime_divergence"] = _divergences(dist, report["runtime"]["registry"])
     for st in list(single_impl_ages):
         if st in reviews:
             rv = reviews[st]

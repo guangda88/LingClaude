@@ -1,0 +1,158 @@
+{
+  "ts": "2026-09-23T17:03:20+00:00",
+  "seam_impl_distribution": {
+    "AGENT": 23,
+    "MULTIMODAL": 1,
+    "ORCHESTRATOR": 1,
+    "PROVIDER": 2,
+    "RESOURCE": 2,
+    "SANDBOX": 8,
+    "TOOL": 1
+  },
+  "single_impl_seams": {
+    "MULTIMODAL": {
+      "file": "lingclaude/seams/multimodal_lingtong.py",
+      "first_commit": "2026-09-15"
+    },
+    "ORCHESTRATOR": {
+      "file": "lingclaude/seams/research_crew.py",
+      "first_commit": "2026-09-15"
+    },
+    "TOOL": {
+      "file": "lingclaude/engine/tools.py",
+      "first_commit": "2026-04-03",
+      "review_status": "reviewed",
+      "review_case": "first-seam-recycling-review",
+      "review_verdict": "留任（不回收）",
+      "static_count_divergence": "静态=1 但卷宗实测运行时=26，静态口径失真，以卷宗为准（②③联合否决①）"
+    }
+  },
+  "total_specs": 60,
+  "specs_by_file": {
+    "lingclaude/core/wiring.py": 60
+  },
+  "total_specs_delta_vs_last": 0,
+  "runtime": {
+    "registry": {
+      "agent": [
+        "agent/lc-guard",
+        "agent/lingan",
+        "agent/lingcreate",
+        "agent/lingflow",
+        "agent/lingmessage",
+        "agent/lingminopt",
+        "agent/lingresearch",
+        "agent/lingtongask",
+        "agent/lingweb",
+        "agent/lingxi",
+        "agent/lingyang",
+        "agent/lingzhi",
+        "agent/proj-agent-gateway",
+        "agent/proj-lingchu",
+        "agent/proj-lingdai",
+        "agent/proj-lingkang",
+        "agent/proj-linglv",
+        "agent/proj-lingshang",
+        "agent/proj-lingsheng",
+        "agent/proj-lingshi",
+        "agent/proj-lingyi",
+        "agent/zhibridge",
+        "cap/browser"
+      ],
+      "provider": [
+        "cap/infer"
+      ],
+      "resource": [
+        "cap/inspect",
+        "os/resource"
+      ]
+    },
+    "plugins_loaded": {
+      "agents/agent_lingan": "ok",
+      "agents/agent_lingcreate": "ok",
+      "agents/agent_lingflow": "ok",
+      "agents/agent_lingmessage": "ok",
+      "agents/agent_lingminopt": "ok",
+      "agents/agent_lingresearch": "ok",
+      "agents/agent_lingtongask": "ok",
+      "agents/agent_lingweb": "ok",
+      "agents/agent_lingxi": "ok",
+      "agents/agent_lingyang": "ok",
+      "agents/agent_lingzhi": "ok",
+      "agents/agent_zhibridge": "ok",
+      "agents/cap_browser": "ok",
+      "agents/cap_infer": "ok",
+      "agents/cap_inspect": "ok",
+      "agents/lc_mcp_guard": "ok",
+      "agents/os_resource": "ok",
+      "agents/proj_agent_gateway": "ok",
+      "agents/proj_family_meeting": "ok",
+      "agents/proj_lingchu": "ok",
+      "agents/proj_lingdai": "ok",
+      "agents/proj_lingkang": "ok",
+      "agents/proj_linglv": "ok",
+      "agents/proj_lingshang": "ok",
+      "agents/proj_lingsheng": "ok",
+      "agents/proj_lingshi": "ok",
+      "agents/proj_lingyi": "ok",
+      "tools/ast": "ok",
+      "tools/bash": "ok",
+      "tools/file_ops": "ok",
+      "tools/git": "ok",
+      "tools/read": "ok",
+      "tools/web": "ok"
+    },
+    "plugins_failed": []
+  },
+  "closed_reviews": {
+    "TOOL": {
+      "case": "first-seam-recycling-review",
+      "verdict": "留任（不回收）",
+      "opened": "2026-09-17",
+      "static_count_M6": 1,
+      "runtime_count": 26
+    }
+  },
+  "static_vs_runtime_divergence": {
+    "AGENT": {
+      "static_scan": 23,
+      "runtime_registry": 0
+    },
+    "MULTIMODAL": {
+      "static_scan": 1,
+      "runtime_registry": 0
+    },
+    "ORCHESTRATOR": {
+      "static_scan": 1,
+      "runtime_registry": 0
+    },
+    "PROVIDER": {
+      "static_scan": 2,
+      "runtime_registry": 0
+    },
+    "RESOURCE": {
+      "static_scan": 2,
+      "runtime_registry": 0
+    },
+    "SANDBOX": {
+      "static_scan": 8,
+      "runtime_registry": 0
+    },
+    "TOOL": {
+      "static_scan": 1,
+      "runtime_registry": 0
+    },
+    "agent": {
+      "static_scan": 0,
+      "runtime_registry": 23
+    },
+    "provider": {
+      "static_scan": 0,
+      "runtime_registry": 1
+    },
+    "resource": {
+      "static_scan": 0,
+      "runtime_registry": 2
+    }
+  }
+}

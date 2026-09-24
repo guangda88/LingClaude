@@ -13,6 +13,11 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  # 周期化（2026-09-24 audit P0-B）：每日 02:00 UTC（北京 10:00）时间触发。
+  # schedule 事件默认只触发 workflow 文件所在默认分支的运行——本仓 master 即默认分支。
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
 
 jobs:
   compile:
@@ -136,6 +141,36 @@ jobs:
       # 主干装载层零覆盖的历史盲区由此守卫接管）。
       - name: verify family carriers mount
         run: python scripts/verify_family_carriers.py
+
+  # 周期自审 job（2026-09-24 audit P0-B 整改）：变盘触发之外的时间维度。
+  # self_audit_trigger 此前只在 HEAD/指纹变时深审——「文件在≠机制活」的
+  # 姊妹盲区「机制会空转」：HEAD 长期不动 → 审计永不跑 → 时效债/空转机制
+  # 现形不了。schedule + --force 补时间触发；空转检测（36h 阈值）在本地
+  # daemon 值守层（audit_watch）同样生效。
+  periodic-self-audit:
+    name: 周期自审 (self_audit_trigger --force)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: force deep audit
+        run: python scripts/self_audit_trigger.py --force
+      - name: assert staleness contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("data/arch_ledger/arch_audit_state/default.json")
+          rec = json.loads(p.read_text(encoding="utf-8"))
+          assert rec.get("checked"), "arch_audit_state.checked 缺失——深审未刷新状态"
+          print(f"深审状态已刷新: {rec['checked']}")
+          PY
 
   hallucination-gate:
     name: 幻觉治理门禁 (P2-5c, 2026-09-19 调研固化)

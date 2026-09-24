@@ -29,7 +29,7 @@ def watch(tmp_path, monkeypatch):
         kb_path=tmp_path / "kb" / "knowledge.db",
         enable_f5_hooks=False,
     )
-    monkeypatch.setattr(w.trigger, "run_audit", lambda: 0)
+    monkeypatch.setattr(w.trigger, "run_audit", lambda force=False: 0)
     monkeypatch.setattr(w.trigger, "sweep_debts", lambda: [])
     return w
 
@@ -127,7 +127,7 @@ class TestF5Hooks:
             kb_path=tmp_path / "kb" / "knowledge.db",
             enable_f5_hooks=True,
         )
-        monkeypatch.setattr(w.trigger, "run_audit", lambda: 0)
+        monkeypatch.setattr(w.trigger, "run_audit", lambda force=False: 0)
         monkeypatch.setattr(w.trigger, "sweep_debts", lambda: [])
         monkeypatch.setattr(w, "_run_subprocess", runner)
         return w
@@ -171,7 +171,7 @@ class TestF5Hooks:
             kb_path=tmp_path / "kb" / "knowledge.db",
             enable_f5_hooks=False,
         )
-        monkeypatch.setattr(w.trigger, "run_audit", lambda: 0)
+        monkeypatch.setattr(w.trigger, "run_audit", lambda force=False: 0)
         monkeypatch.setattr(w.trigger, "sweep_debts", lambda: calls.append(1) or [])
         monkeypatch.setattr(w, "_run_subprocess", lambda *a, **k: calls.append("SUB"))
         diag = w.run_once()
