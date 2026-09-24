@@ -19,7 +19,8 @@ ac 特判（daemon goal 面 401 阻塞的替代）：ac 的 `agent_invoke` 走 h
 - 铁律 6：trust_level=T3（外部工具只观测）+ plug_level=L2（缺席降级：单 agent 挂了不影响其余）；
 - 铁律 7：缝 key 带域前缀 agent/proj-agent-gateway（N3 守卫消费，外部工程域）；
 - J1 薄壳纪律：每个 agent 只做 subprocess 分发+超时+错误结构化，不实现 agent 自身业务逻辑；
-  各 agent 的调用形态固化在 _AGENTS 表（数据，非结构），改 agent 入口只改表不动代码。
+  各 agent 的调用形态固化在 manifest.agent.json 的 agents 段（L2④ 起单一事实源），
+  _AGENTS 表由该段构建；改 agent 入口/新增 agent 只改 manifest，不动代码。
 
 传输：MCP stdio（FastMCP，python3 直启，避 npx OOM 踩坑 #1/#2）。
 各 agent 子进程超时独立（call_timeout_s 取 _AGENTS[agent].timeout_s）。
@@ -68,16 +69,17 @@ def _worktree_enabled() -> bool:
     return True
 
 
-# ── agent 调用形态表（数据，非结构：改 agent 入口只改这里）─────────────────────
-# 每个 agent：探测命令（可达性）+ 调用构建（agent, prompt, mode → argv）
-# + model/provider 透传拼接形态（quota_args：(argv, model, provider) → 追加的 argv 片段）。
+# ── agent 调用形态表（L2④ 起，单一事实源 = manifest.agent.json 的 agents 段）─────
+# 历史：2026-09-18~24 本区块是四张硬编码表（QUOTA_ARGV/PROFILE_ARGV/DEFAULT_MODEL/
+# _AGENTS）；L2④ manifest 五段结构化把调用形态外移 manifest（数据，非结构），
+# 本文件只留通用解释器：改 agent 入口/新增 agent 只改 manifest，不改代码（J1）。
 # ac 走 headless -p（daemon goal 面 401 阻塞，已改子进程封装，绕开 token 鉴权坑）。
 #
 # 配额耗尽换模型（2026-09-18）：每 agent 声明 model/provider 的 CLI 拼接形态
 # （数据驱动，J1 薄壳只透传不判业务）。默认不强制指定 → 各 agent 走自身默认；
 # 调用方可经 agent_invoke(model=, provider=) 显式指向 lc 套餐模型清单
 # （/home/ai/lingcode/config.json 的 providers，glm/minimax/volcengine/kimi/agnes 等），
-# 绕开单家按量配额墙。各家 CLI 形态不同，拼法固化在 QUOTA_ARGV 表：
+# 绕开单家按量配额墙。各家 CLI 形态见 manifest agents[*].quota_argv：
 #   cc       --model <m>            （provider 走 key/套餐内，CLI 无独立 provider 旗）
 #   codex    -m <m>                 （provider 走 -c model_providers/profile，透传 model 为主）
 #   crush    -m <provider/model>    （provider 编进 model 串消歧）
@@ -85,74 +87,53 @@ def _worktree_enabled() -> bool:
 #   ac       --provider <p> --model <m>  （双旗，最灵活，可整体换计费通道）
 # crush/opencode 的 provider/model 消歧：调用方直接传 "provider/model" 串进 model 参数，
 # 薄壳不代拆（J1）——故 crush/opencode 只透传单占位 {model}（值可含 provider 前缀）。
+_MANIFEST_PATH = Path(__file__).parent / "manifest.agent.json"
+_MANIFEST = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+# 下划线前缀键（_schema_note 等元数据）不是 agent spec，构建前过滤
+_MANIFEST_AGENTS: dict[str, dict] = {
+    a: s for a, s in _MANIFEST.get("agents", {}).items()
+    if not a.startswith("_") and isinstance(s, dict)}
+
+
+def _argv_from(tpl: list[str], *, prompt: str = "", model: str = "",
+               provider: str = "", profile: str = "") -> list[str]:
+    """模板 argv 实例化：占位符逐一 replace（禁 str.format——prompt 含花括号代码
+    时 format 炸 KeyError；replace 只替换声明占位符，prompt 内花括号原样保留）。"""
+    vals = {"{prompt}": prompt, "{model}": model, "{provider}": provider,
+            "{profile}": profile}
+    out: list[str] = []
+    for t in tpl:
+        for k, v in vals.items():
+            t = t.replace(k, v)
+        out.append(t)
+    return out
+
+
+def _invoke_argv(spec: dict, prompt: str, mode: str = "") -> list[str]:
+    """从 manifest spec 构建调用 argv：modes 命中分支优先，否则 invoke_argv（L2④）。"""
+    if mode and mode in spec.get("modes", {}):
+        return _argv_from(spec["modes"][mode], prompt=prompt)
+    return _argv_from(spec["invoke_argv"], prompt=prompt)
+
+
 QUOTA_ARGV: dict[str, list[str]] = {
-    "cc":       ["--model", "{model}"],
-    "codex":    ["-m", "{model}"],
-    "crush":    ["-m", "{model}"],
-    "opencode": ["-m", "{model}"],
-    "ac":       ["--provider", "{provider}", "--model", "{model}"],
-}
-
-# 套餐 profile 透传（2026-09-19）：codex 的 -p <profile> 切换整套套餐
-# （model+provider+reasoning_effort 打包在 ~/.codex/<profile>.config.toml）。
-# 各家 profile 旗形态不同，数据驱动：
-#   codex  -p {profile}  （minimax/minmax/kimi/volc/vol/voc，实测 PONG 通）
-#   其余   无独立 profile 旗（套餐走各自 config/key），透传空
+    a: s["quota_argv"] for a, s in _MANIFEST_AGENTS.items() if "quota_argv" in s}
 PROFILE_ARGV: dict[str, list[str]] = {
-    "codex": ["-p", "{profile}"],
-}
-
-# cc 默认套餐模型（2026-09-19 用户已把 cc 模型切到 M3，配额墙内最优）。
-# 调用方未显式传 model 时，cc 走 M3 而非 cc 自身默认（避按量 Anthropic 配额墙）。
+    a: s["profile_argv"] for a, s in _MANIFEST_AGENTS.items() if "profile_argv" in s}
 DEFAULT_MODEL: dict[str, str] = {
-    "cc": "M3",
-}
+    a: s["default_model"] for a, s in _MANIFEST_AGENTS.items() if "default_model" in s}
+# invoke 保持 (prompt, mode) → argv 旧签名（4 处消费点零改动）；modes 分支在
+# _invoke_argv 内解析（codex review 等），模板实例化走 _argv_from（防 format 注入）。
+def _agents_from_manifest(magents: dict[str, dict]) -> dict[str, dict]:
+    """manifest agents 段 → _AGENTS 运行时表（L2④ 数据驱动核心推导点）：
+    新增/修改 agent = 改 manifest + 重启薄壳进程（import 时重新推导），零代码改动。"""
+    return {
+        a: {**{k: s[k] for k in ("name", "bin", "desc", "timeout_s", "probe") if k in s},
+            "invoke": lambda p, m, _s=s: _invoke_argv(_s, p, m)}
+        for a, s in magents.items()}
 
-_AGENTS: dict[str, dict] = {
-    "cc": {
-        "name": "claude",
-        "bin": "claude",
-        "desc": "Claude Code（cc）非交互 print 模式",
-        "timeout_s": 180,
-        "invoke": lambda p, m: ["claude", "-p", p, "--output-format", "text"],
-        "probe": ["claude", "--version"],
-    },
-    "codex": {
-        "name": "codex",
-        "bin": "codex",
-        "desc": "Codex CLI（exec 单轮 / review 代码审查 / resume 续接）",
-        "timeout_s": 180,
-        "invoke": lambda p, m: (
-            ["codex", "review", p] if m == "review"
-            else ["codex", "exec", p]
-        ),
-        "probe": ["codex", "--version"],
-    },
-    "crush": {
-        "name": "crush",
-        "bin": "crush",
-        "desc": "Crush（run 单轮；server 常驻 unix-socket 会话复用）",
-        "timeout_s": 180,
-        "invoke": lambda p, m: ["crush", "run", p],
-        "probe": ["crush", "--version"],
-    },
-    "opencode": {
-        "name": "opencode",
-        "bin": "opencode",
-        "desc": "OpenCode（run 非交互；serve 常驻 HTTP；acp 双向会话）",
-        "timeout_s": 180,
-        "invoke": lambda p, m: ["opencode", "run", p],
-        "probe": ["opencode", "--version"],
-    },
-    "ac": {
-        "name": "atomcode",
-        "bin": "atomcode",
-        "desc": "AtomCode headless -p（daemon goal 面 401 的替代；返回结论 + resume session id）",
-        "timeout_s": 180,
-        "invoke": lambda p, m: ["atomcode", "-p", p],
-        "probe": ["atomcode", "--version"],
-    },
-}
+
+_AGENTS: dict[str, dict] = _agents_from_manifest(_MANIFEST_AGENTS)
 
 
 def _quota_args(agent: str, model: str = "", provider: str = "") -> list[str]:
@@ -189,10 +170,10 @@ def _profile_args(agent: str, profile: str = "") -> list[str]:
 # 探测：首个到达调用放行探测，并发者仍被拒（防探测风暴——一次真实探测要
 # 60-72s）；探测成功 _mark_ok 全复位，失败沿梯子升级重入。force=True 可强制
 # 重试（绕过一切门禁）。
-_COOLDOWN_BASE: dict[str, int] = {     # per-agent 基准（L2③，2026-09-24）：
-    "cc": 1800,        # 按量配额墙（探测一次烧 60-72s 配额，冷却基数放宽）
-    "opencode": 1800,  # 周限额型，恢复节奏慢
-}                      # 其余缺省 900 —— 梯子与 L2②a 硬编码版完全等价（向后兼容）
+_COOLDOWN_BASE: dict[str, int] = {     # per-agent 基准（L2③→L2④ 收敛 manifest）：
+    a: s["cooldown_base_s"] for a, s in _MANIFEST_AGENTS.items() if "cooldown_base_s" in s}
+# 缺省 900 —— 梯子与 L2②a 硬编码版完全等价（向后兼容）；cc/opencode 1800 的
+# 实战理由（按量配额墙/周限额）随数据迁 manifest agents[*].cooldown_note（L2④）
 _DEGRADED_LIMIT = 3        # degraded 连败阈值：连续 N 次软告警按冷却处理（L2①）
 
 def _ladder_for(agent: str) -> tuple[int, ...]:
@@ -289,8 +270,9 @@ def _classify(res: dict) -> str:
 
 
 def _fallback_of(agent: str) -> str | None:
-    """失败改派链（数据）：opencode→crush（能力重叠，headless 非交互）；其余暂无。"""
-    return {"opencode": "crush"}.get(agent)
+    """失败改派链（数据，L2④ 收敛 manifest agents[*].fallback）：
+    opencode→crush（能力重叠，headless 非交互）；manifest 未声明则无改派。"""
+    return _MANIFEST_AGENTS.get(agent, {}).get("fallback")
 
 
 def _which(agent: str) -> str | None:

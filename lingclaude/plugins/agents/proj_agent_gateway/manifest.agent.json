@@ -2,7 +2,7 @@
   "name": "agent/proj-agent-gateway",
   "target": "agent-gateway-mcp-server",
   "display_name": "外部 Agent 网关 MCP 薄壳（lc 调 cc/codex/crush/opencode/ac）",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "trust_level": "T3",
   "plug_level": "L2",
   "caller": "lingclaude",
@@ -24,7 +24,7 @@
       "agent_tool"
     ],
     "implementations": 1,
-    "note": "薄壳 kernel=协议翻译（MCP tools/call → 各 agent 子进程 argv），子插片接缝=agent_tool（每个 agent 调用形态一个实现，_AGENTS 表数据驱动）；薄壳不判业务，只分发+超时+错误结构化。单 agent 缺席/故障 L2 降级不影响其余。"
+    "note": "薄壳 kernel=协议翻译（MCP tools/call → 各 agent 子进程 argv），子插片接缝=agent_tool（每个 agent 调用形态一个实现，调用形态单一事实源=本 manifest 的 agents 段，L2④ 起 _AGENTS 表由该段构建）；薄壳不判业务，只分发+超时+错误结构化。单 agent 缺席/故障 L2 降级不影响其余。"
   },
   "capabilities": [
     "agent_invoke",
@@ -41,5 +41,65 @@
   },
   "state_record": "agent_run:agent-gateway",
   "federation_pair": "lc-ac",
-  "notes": "第二层试验田（lc 调外部编程 agent 方向，Hermes WebUI/Orca 式的多 agent 聚合在 lc 侧的对应物）：lc 经 .mcp.json 连接本薄壳，调 agent_invoke/agent_batch 驱动 cc/codex/crush/opencode/atomcode 各出一版结论。与 lc-guard（ac 调 lc 守卫面）互为对偶：federation_pair record key=lc-ac，N1 周期对账（缺一/不一致即警）。T3 只观测（外部 agent 非 lc 代码在手，只探活+透传结果，不审计其内部）；L2 缺席降级（单 agent 挂了其余照常，不崩主干）。ac 特判：daemon goal 面 401（外部客户端拿不到 webui token），改 headless atomcode -p 子进程封装，实测 PONG 通。审计权限边界：薄壳只读转发 agent 输出，不写各 agent 仓主干。"
+  "notes": "第二层试验田（lc 调外部编程 agent 方向，Hermes WebUI/Orca 式的多 agent 聚合在 lc 侧的对应物）：lc 经 .mcp.json 连接本薄壳，调 agent_invoke/agent_batch 驱动 cc/codex/crush/opencode/atomcode 各出一版结论。与 lc-guard（ac 调 lc 守卫面）互为对偶：federation_pair record key=lc-ac，N1 周期对账（缺一/不一致即警）。T3 只观测（外部 agent 非 lc 代码在手，只探活+透传结果，不审计其内部）；L2 缺席降级（单 agent 挂了其余照常，不崩主干）。ac 特判：daemon goal 面 401（外部客户端拿不到 webui token），改 headless atomcode -p 子进程封装，实测 PONG 通。审计权限边界：薄壳只读转发 agent 输出，不写各 agent 仓主干。",
+  "agents": {
+    "_schema_note": "L2④（2026-09-24）五段结构化单一事实源：invoke_argv/modes 为声明式 argv 模板，占位符 {prompt}{model}{provider}{profile} 由 server.py 逐一 replace 注入（禁 str.format——prompt 含花括号代码时 format 会炸 KeyError）；quota_argv/profile_argv/default_model/cooldown_base_s/fallback 均可缺省（缺省=无透传/900s/无改派）。新增 agent 只改本段。",
+    "cc": {
+      "name": "claude",
+      "bin": "claude",
+      "desc": "Claude Code（cc）非交互 print 模式",
+      "timeout_s": 180,
+      "invoke_argv": ["claude", "-p", "{prompt}", "--output-format", "text"],
+      "probe": ["claude", "--version"],
+      "quota_argv": ["--model", "{model}"],
+      "default_model": "M3",
+      "default_model_note": "2026-09-19 用户已把 cc 模型切到 M3（配额墙内最优）；调用方未显式传 model 时走 M3，避按量 Anthropic 配额墙",
+      "cooldown_base_s": 1800,
+      "cooldown_note": "按量配额墙：探测一次烧 60-72s 配额，冷却基数放宽（L2③）"
+    },
+    "codex": {
+      "name": "codex",
+      "bin": "codex",
+      "desc": "Codex CLI（exec 单轮 / review 代码审查 / resume 续接）",
+      "timeout_s": 180,
+      "invoke_argv": ["codex", "exec", "{prompt}"],
+      "modes": {
+        "review": ["codex", "review", "{prompt}"]
+      },
+      "probe": ["codex", "--version"],
+      "quota_argv": ["-m", "{model}"],
+      "profile_argv": ["-p", "{profile}"],
+      "profile_note": "-p 切 ~/.codex/<profile>.config.toml 整套套餐（model+provider+reasoning_effort 打包）；minimax/minmax/kimi/volc/vol/voc 实测 PONG 通（2026-09-19）"
+    },
+    "crush": {
+      "name": "crush",
+      "bin": "crush",
+      "desc": "Crush（run 单轮；server 常驻 unix-socket 会话复用）",
+      "timeout_s": 180,
+      "invoke_argv": ["crush", "run", "{prompt}"],
+      "probe": ["crush", "--version"],
+      "quota_argv": ["-m", "{model}"]
+    },
+    "opencode": {
+      "name": "opencode",
+      "bin": "opencode",
+      "desc": "OpenCode（run 非交互；serve 常驻 HTTP；acp 双向会话）",
+      "timeout_s": 180,
+      "invoke_argv": ["opencode", "run", "{prompt}"],
+      "probe": ["opencode", "--version"],
+      "quota_argv": ["-m", "{model}"],
+      "fallback": "crush",
+      "cooldown_base_s": 1800,
+      "cooldown_note": "周限额型（GLM），恢复节奏慢，冷却基数放宽（L2③）"
+    },
+    "ac": {
+      "name": "atomcode",
+      "bin": "atomcode",
+      "desc": "AtomCode headless -p（daemon goal 面 401 的替代；返回结论 + resume session id）",
+      "timeout_s": 180,
+      "invoke_argv": ["atomcode", "-p", "{prompt}"],
+      "probe": ["atomcode", "--version"],
+      "quota_argv": ["--provider", "{provider}", "--model", "{model}"]
+    }
+  }
 }

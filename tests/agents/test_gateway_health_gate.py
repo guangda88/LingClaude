@@ -183,3 +183,48 @@ def test_classify_three_levels():
 def test_reason_truncated_200():
     gw._mark_failed("cc", "x" * 500)
     assert len(gw._health["cc"]["reason"]) == 200
+
+
+def test_l2_4_manifest_driven_equivalence():
+    """L2④ manifest 五段结构化回归：_AGENTS 由 manifest agents 段构建，
+    调用形态与旧硬编码表等价（五家、超时、probe、quota/profile/default_model）。"""
+    assert sorted(gw._AGENTS) == ["ac", "cc", "codex", "crush", "opencode"]
+    assert gw._AGENTS["cc"]["timeout_s"] == 180
+    assert gw._AGENTS["cc"]["probe"] == ["claude", "--version"]
+    assert gw.QUOTA_ARGV["cc"] == ["--model", "{model}"]
+    assert gw.QUOTA_ARGV["ac"] == ["--provider", "{provider}", "--model", "{model}"]
+    assert gw.PROFILE_ARGV == {"codex": ["-p", "{profile}"]}
+    assert gw.DEFAULT_MODEL == {"cc": "M3"}
+    assert gw._COOLDOWN_BASE == {"cc": 1800, "opencode": 1800}
+    assert gw._fallback_of("opencode") == "crush" and gw._fallback_of("cc") is None
+
+
+def test_l2_4_invoke_argv_template_instantiation():
+    """L2④ invoke 模板实例化：占位符 replace 注入；prompt 含花括号代码原样保留
+    （禁 str.format 的理由）；codex modes 分支（review）命中优先。"""
+    argv = gw._AGENTS["cc"]["invoke"]('print({"a": 1}) # {prompt}', "")
+    assert argv == ["claude", "-p", 'print({"a": 1}) # {prompt}',
+                    "--output-format", "text"]
+    assert gw._AGENTS["codex"]["invoke"]("hi", "review") == ["codex", "review", "hi"]
+    assert gw._AGENTS["codex"]["invoke"]("hi", "") == ["codex", "exec", "hi"]
+    assert gw._AGENTS["ac"]["invoke"]("hi", "") == ["atomcode", "-p", "hi"]
+
+
+def test_l2_4_arbitrary_agent_addition_without_code_change():
+    """L2④ J1 数据驱动验收：新增 agent = 纯数据 spec 过推导点即成（生产路径：
+    改 manifest agents 段 + 重启薄壳 import 重推导，零代码改动）。改派链
+    _fallback_of live 读 manifest 段；冷却基准为 import 冻结（重启同批生效）。"""
+    spec = {"name": "mock", "bin": "mockbin", "desc": "test stub", "timeout_s": 5,
+            "invoke_argv": ["mockbin", "{prompt}"], "probe": ["mockbin", "--version"],
+            "quota_argv": ["-m", "{model}"], "fallback": "crush"}
+    gw._MANIFEST_AGENTS["mockagent"] = spec
+    try:
+        a = gw._agents_from_manifest(gw._MANIFEST_AGENTS)["mockagent"]
+        assert a["timeout_s"] == 5 and a["probe"] == ["mockbin", "--version"]
+        assert a["invoke"]("hi", "") == ["mockbin", "hi"]
+        assert a["invoke"]("hi", "review") == ["mockbin", "hi"]  # 未声明 modes → invoke_argv
+        assert gw._fallback_of("mockagent") == "crush"
+        assert gw._fallback_of("mockagent") is None or True  # 清理前 live 读仍成立
+    finally:
+        gw._MANIFEST_AGENTS.pop("mockagent", None)
+    assert gw._fallback_of("mockagent") is None  # 清理后 live 读失效（无残留）
