@@ -6,5 +6,6 @@
   "resolve_hint": "实施优先级（按实战价值/改动面排序）：①(b) degraded 入冷却闭环——改动最小、直击 cc 撞墙实战，degraded 计数满 N 次转 failed 入冷却；②(a) 计数升级+半开探测——连续失败升级冷却时长，冷却到期后半开单次探测成功才复位；③(c) per-agent 配置——_COOLDOWN_S 拆 _AGENT_COOLDOWN dict，per-agent 差异化；④② manifest 五段结构化——_AGENTS 表外移 manifest.agent.json per-agent 段（J1 数据驱动延续，薄壳不抄 agent kernel）；⑤③ quorum 预警——agent_status 加 fleet 健康汇总，活跃 agent 数低于 quorum 阈值即警（阈值建议 3/5）。验收：单测覆盖 degraded 闭环/冷却升级/半开复位路径 + 5 家 PONG 冒烟 + security/review-gate 轻门禁绿（push-gate-xdist-spin 债改判后全量门按 PUSH_SOP 宿主侧跑）。前置：无（独立于 M1/M2 可立即动工；建议独立会话执行）。"
   ,
   "state": "open",
-  "created": "2026-09-24T18:05:00+08:00"
+  "created": "2026-09-24T18:05:00+08:00",
+  "progress": "①degraded分级冷却已落地（2026-09-24：_DEGRADED_LIMIT=3连败入冷却+_mark_ok成功复位+两处调用点接线+tests/agents/test_gateway_health_gate.py 8测试；另勘误：立项时'缺口①b degraded恒不入冷却'系:219陈旧注释误导——21dbf5d(09-19)起degraded已随failed同权入冷却，真实缺口为分级粒度，本提交即修）。②③④⑤待做。"
 }

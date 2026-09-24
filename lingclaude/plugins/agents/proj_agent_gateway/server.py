@@ -180,18 +180,43 @@ def _profile_args(agent: str, profile: str = "") -> list[str]:
     return [t.format(profile=profile) for t in pat]
 
 
-# ── agent 级健康门禁（2026-09-19）：配额/失败冷却缓存 ─────────────────────────
-# 本轮教训：opencode GLM 周限额满，靠 60-72s 超时试错才发现；cc exit=0 但 stderr
-# 带 unrecognized_model 警告（degraded）。失败一次记冷却期，冷却期内 dispatch 直接
-# 跳过（fast-fail，不反复撞墙）。cooldown 期间手动传 force=True 可强制重试。
-_COOLDOWN_S = 900          # 默认冷却 15 分钟（周/日限额级故障，重试无意义）
-_health: dict[str, dict] = {}   # agent → {"failed_until": epoch, "reason": str}
+# ── agent 级健康门禁（2026-09-19；2026-09-24 L2① 分级冷却）──────────────────
+# 教训：opencode GLM 周限额满，靠 60-72s 超时试错才发现；cc exit=0 但 stderr
+# 带 unrecognized_model 警告（degraded）。failed 一次入冷却；degraded 属软失败
+# （exit=0），连续 _DEGRADED_LIMIT 次才入冷却——单次告警可能是瞬时回声，不过度
+# 熔断。冷却期内 dispatch 直接跳过（fast-fail，不撞墙）；force=True 可强制重试。
+_COOLDOWN_S = 900          # 冷却 15 分钟（周/日限额级故障，重试无意义）
+_DEGRADED_LIMIT = 3        # degraded 连败阈值：连续 N 次软告警按冷却处理（L2①）
+_health: dict[str, dict] = {}   # agent → {"failed_until": epoch, "reason": str, "level": str}
+_degraded_streak: dict[str, int] = {}   # agent → 连续 degraded 计数（一次 ok 即清零）
 
 
-def _mark_failed(agent: str, reason: str) -> None:
-    """失败入冷却（J4：如实记因由，不假活）。"""
+def _mark_ok(agent: str) -> None:
+    """成功即复位 degraded 连败计数（半开探测的最小语义：一次成功即清零）。"""
+    _degraded_streak.pop(agent, None)
+
+
+def _mark_failed(agent: str, reason: str, level: str = "failed") -> None:
+    """冷却记入（分级差异化，2026-09-24 L2①）：
+
+    - failed：立即入冷却 _COOLDOWN_S（周/日限额级，重试无意义）；
+    - degraded：exit=0 但有配额/模型告警——软失败，连续 _DEGRADED_LIMIT 次才入
+      冷却（单次告警可能是瞬时回声，避免过度熔断）；计数挂 _degraded_streak，
+      一次 ok（_mark_ok）即清零。
+
+    J4：如实记因由，不假活。
+    """
+    if level == "degraded":
+        streak = _degraded_streak.get(agent, 0) + 1
+        if streak < _DEGRADED_LIMIT:
+            _degraded_streak[agent] = streak
+            return
+        _degraded_streak.pop(agent, None)   # 入冷却即清计数，冷却到期自然复位
+        reason = f"degraded×{streak}: {reason}"
+    else:
+        _degraded_streak.pop(agent, None)   # hard failed 覆盖任何残余计数
     _health[agent] = {"failed_until": time.monotonic() + _COOLDOWN_S,
-                      "reason": reason[:200]}
+                      "reason": reason[:200], "level": level}
 
 
 def _health_check(agent: str, force: bool = False) -> dict | None:
@@ -216,7 +241,7 @@ def _classify(res: dict) -> str:
     if res.get("timed_out") or res.get("exit", 0) != 0:
         return "failed"
     if _QUOTA_PAT.search(res.get("stderr", "") or ""):
-        return "degraded"      # exit=0 但有告警（如 cc unrecognized_model）——降级不入冷却
+        return "degraded"      # exit=0 但有告警（如 cc unrecognized_model）——L2①：连败入冷却
     return "ok"
 
 
@@ -341,8 +366,11 @@ def agent_invoke(agent: str, prompt: str, mode: str = "default",
 
     res = _dispatch(agent)
     res = _enrich(res)
-    if res["health"] in ("failed", "degraded"):
-        _mark_failed(agent, res["stderr"] or f"exit={res['exit']}")
+    if res["health"] == "ok":
+        _mark_ok(agent)
+    elif res["health"] in ("failed", "degraded"):
+        _mark_failed(agent, res["stderr"] or f"exit={res['exit']}",
+                     level=res["health"])
     _record(res)
     # 失败自动改派（一次，不递归）：结果带 via 标注同源，原失败原因保留在 fallback_from
     if res["health"] == "failed" and fallback:
@@ -482,8 +510,11 @@ def agent_batch(agents: list[str], prompt: str,
         res.update({"model": m or None, "provider": provider or None,
                     "profile": profile or None, "scratch": str(cwd),
                     "health": _classify(res)})
-        if res["health"] in ("failed", "degraded"):
-            _mark_failed(a, res["stderr"] or f"exit={res['exit']}")
+        if res["health"] == "ok":
+            _mark_ok(a)
+        elif res["health"] in ("failed", "degraded"):
+            _mark_failed(a, res["stderr"] or f"exit={res['exit']}",
+                         level=res["health"])
         _record(res)
         # 失败自动改派（一次）：替跑结果带 via 标注同源
         if res["health"] == "failed":

@@ -59,7 +59,16 @@ git -c core.sshCommand="ssh -o StrictHostKeyChecking=accept-new" push github mas
   取证沙箱 1GB 污染，非门禁本体缺陷）；门禁补一套"资源预检 + 大 timeout"缓解并
   回归之前，正式 push 按本节执行。
 
-## 四、事故历史 → 条款映射
+## 五、git_push 工具已知缺陷（2026-09-24 实测补注）
+
+- **timeout 参数不生效**：底层硬顶 120s，传 ≥7200 也会被提前杀壳（铁律 2 在
+  工具通道上失效）→ 缓解：费时 push 改走宿主 shell 直推；工具通道仅用于
+  轻量 push（全量门禁必超时）。超时后**进程树不清理**（孤儿钩子链存活），
+  推后必查：`pgrep -f pre-push` / `pgrep -f pytest`，有残留立即清树。
+- **实锤案例**：09-24 晚 L2 立项单推送，timeout=2400/7200 均于 120s 触发
+  timeout+ok 双报，孤儿树带假红全量 pytest 运行，手动清树后按 §三 旁路完成。
+
+## 六、事故历史 → 条款映射
 
 | 日期 | 事故 | 对应条款 |
 |------|------|---------|
