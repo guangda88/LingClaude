@@ -14,6 +14,19 @@ dependencies = [
     "aiohttp>=3.12.14",
     "pyyaml>=6.0",
     "mcp>=1.0",
+    # 2026-09-26 依赖补账（D8，16a）：以下为主包实测 import 面。版本下限
+    # = 当前验证组合实测版本（本机 pip show），未做旧版兼容性验证，故取
+    # 「至少本组合可跑」口径；宽松化需先降版实测。
+    # — 顶层导入（缺失即 ImportError）：
+    "fastapi>=0.128",      # lingclaude/api.py 顶层
+    "pydantic>=2.12",      # lingclaude/api.py 顶层（fastapi 连带）
+    "httpx>=0.28",         # model/llm_proxy/proxy.py + provider_pool.py 顶层
+    # — CLI 必备面（repl/interface/full_tui，CLI 主路径函数内导入）：
+    "prompt_toolkit>=3.0",
+    "rich>=14.3",          # cli/display.py（lazy）
+    # — 服务启动面（api.py / mcp/http_proxy.py lazy，起服务时需要）：
+    "uvicorn>=0.40",
+    "starlette>=0.52",     # mcp/http_proxy.py lazy（fastapi 连带但显式声明）
 ]
 
 [project.optional-dependencies]
@@ -21,10 +34,34 @@ dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-xdist",        # full-pytest pre-push 门禁 -n $(nproc) 使用
 ]
 optimization = [
     "optuna>=3.3.0",
 ]
+# ——— 以下为主包 lazy 导入的可选功能面（2026-09-26 清查，缺包时功能降级不崩）———
+voice = [
+    "openai-whisper>=20250625",  # engine/stt.py（实测 20250625）
+    "sherpa-onnx",               # engine/stt.py alt backend；本机未装，版本未验证
+]
+local-model = [
+    "torch>=2.5",          # model/fast_lane.py + local_provider.py（lazy）
+    "transformers>=5.13",  # model/local_provider.py（lazy）
+]
+db = [
+    "asyncpg>=0.31",       # core/state_store.py + fact_checker.py（lazy PG 后端）
+]
+browser = [
+    "playwright>=1.58",    # plugins/agents/cap_browser（lazy）
+]
+# ——— 跨成员依赖（sibling 仓库，非 pip 包，不进 dependencies）———
+# 主包 import 面实测（2026-09-26，AST 全扫 lingclaude/）：
+#   lingmessage ×9 语句/8 文件（api/coordination/core/wakeup_channel/governance/mcp）
+#   lingyuan    ×7 语句/4 文件
+#   lingminopt  ×3 语句/2 文件
+#   lingflow    ×1 语句/1 文件
+#   lingmemory  ×1 语句/1 文件
+# 这些经宿主环境（sys.path 基线受 G2 守卫管辖）装载，装包口径见灵字辈各仓。
 
 [project.scripts]
 lingclaude = "lingclaude.cli.__main__:main"
