@@ -42,6 +42,7 @@ bash "$(git rev-parse --show-toplevel)/scripts/arch_guard_gate.sh" || exit 1
 bash "$(git rev-parse --show-toplevel)/scripts/smoke_gate.sh" || exit 1
 bash "$(git rev-parse --show-toplevel)/scripts/orphan_gate.sh" || exit 1
 bash "$(git rev-parse --show-toplevel)/scripts/redlist_gate.sh" || exit 1
+bash "$(git rev-parse --show-toplevel)/scripts/tripartite_gate.sh" || exit 1
 # === 直连段结束 ===
 
 """
