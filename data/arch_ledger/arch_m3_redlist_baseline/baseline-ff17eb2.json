@@ -135,5 +135,14 @@
   "stage1": "告警级（本快照）",
   "stage2": "CI 红线（待建闸收口后裁决）",
   "stage3": "import hook 运行时拒绝（待动刀期）"
+ },
+ "exemptions": {
+  "note": "M1 存量红复合处置（a+b）2026-09-25 登记：4 件建闸期新插片豁免垫底 due 2026-11-30（与 J4 同日、no_renewal），红名单在册不减项——豁免登记不豁免迁出义务",
+  "records": [
+   "arch_exemption/M1:core/event_exempt.py.json",
+   "arch_exemption/M1:core/state_reconcile.py.json",
+   "arch_exemption/M1:core/m3_core_coupling.py.json",
+   "arch_exemption/M1:core/token_pricing.py.json"
+  ]
  }
 }
