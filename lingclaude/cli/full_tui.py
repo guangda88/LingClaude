@@ -951,8 +951,15 @@ class FullTuiSession:
         if self._status_cb is not None:
             try:
                 return self._status_cb() or []
-            except Exception:  # noqa: BLE001 — 状态栏异常静默
-                return []
+            except Exception as exc:  # noqa: BLE001 — 状态栏异常不再静默消失
+                # 2026-09-25 修复：原「except: return []」让回调任何一次异常
+                # 表现为状态栏整行空白（用户视角 = toolbar 无声消失，零线索）。
+                # 改为降级行：红字可见异常摘要，渲染仍不反噬主循环 ——
+                # 再炸时用户直接看到炸点，可即时上报修复。
+                msg = f"{type(exc).__name__}: {exc}"
+                if len(msg) > 80:
+                    msg = msg[:79] + "…"
+                return [("class:red", f"⚠ 状态栏异常 {msg} ")]
         return []
 
     def _on_accept(self, buf: Any) -> bool:

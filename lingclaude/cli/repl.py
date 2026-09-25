@@ -211,14 +211,24 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
         now = time.monotonic()
         if now - getattr(_toolbar_snapshot, "_last_heavy", 0.0) >= 1.0:
             _toolbar_snapshot._last_heavy = now  # type: ignore[attr-defined]
-            _refresh_ctx_tokens(ctx)
+            # 2026-09-25: heavy 源逐项独立护栏 —— 此前 _refresh_ctx_tokens /
+            # refresh_cwd 裸奔（perm/todo/plan 均有 try 静默降级，唯独这两处
+            # 无），长跑脏数据一旦触发即整栏炸（full_tui 侧吞为空白）→ 状态栏
+            # 永久消失。逐项包裹后单源炸只丢该源，不拖垮整栏。
+            try:
+                _refresh_ctx_tokens(ctx)
+            except Exception:  # noqa: BLE001 — ctx 源炸静默留旧值
+                pass
             # 2026-09-21: 权限模式上 toolbar（⏵⏵ auto 语义，atomcode 借鉴）
             try:
                 from lingclaude.core.permissions import get_permission_mode
                 status.set_perm_mode(get_permission_mode())
             except Exception:  # noqa: BLE001
                 pass
-            status.refresh_cwd()
+            try:
+                status.refresh_cwd()
+            except Exception:  # noqa: BLE001 — cwd 探测炸静默留旧值
+                pass
         # 2026-09-22: todo panel 明细喂入（常驻 toolbar 上方，对标 atomcode）。
         # TodoStore 用 threading.local 连接（engine/todo.py Bug B 修复），
         # PT 渲染线程查询安全；1s 节流与 token 估算同块，零额外 I/O 顾虑。
