@@ -104,3 +104,20 @@
 - **教训入册**：迁移类 commit 模板新增冒烟项 `python -c "import lingclaude"`，
   语义：迁移完成 = 单测绿 **且** 启动链通，二者缺一不可。
 - **状态**：fixed（修复与本案入账同 commit 闭环）。
+
+## ERR-2026-0925-06：依赖叙事不实——"极简依赖"印象 vs 实测 30+ 包（未核验的乐观声明，轻量级）
+
+- **声称**（隐含/明示）：pyproject 仅 4 项 dependencies；讨论中"显示层唯一依赖是 rich"被泛化理解为 lc 依赖面极简。
+- **实况**（2026-09-25 全仓 AST import 扫描）：30+ 第三方/外部包——
+  ①pyproject 脱节 8 倍：rich/prompt_toolkit/uvicorn/asyncpg/httpx/fastapi/pydantic/starlette/playwright
+  共 9 个生产依赖未声明，pip install lingclaude 装不出可用的 lc（部署可复现性为假）；
+  ②跨成员 import：lingmessage×8/lingyuan×4/laya×3/lingminopt×2/lingflow/lingflow_plus/lingmemory/
+  ling_term_mcp——直接依赖兄弟成员仓（铁律 7 仓内落地缺口），比第三方库更重。
+- **根因**：与前五案同根（未实测即声明）但性质不同——非虚构执行，是**未核验的乐观叙事**：用"极简依赖"
+  的印象替代了依赖清查。另注意："薄主干"只约束 core/ 代码与概念封闭，从未承诺零依赖——依赖多不违规，
+  未声明+跨成员直连才违规（可部署性/联邦自立性）。
+- **处置**：沉淀清单 16a 已立（三小项：跨成员 import 清查 1-2 天/pyproject 补齐半天/信任等级半天，
+  commit 9f28c67）；本条入账闭环"叙事 vs 实测"的误差记录。
+- **教训**：性能/依赖/规模类"形容词声明"（极简/轻量/唯一）与架构声明适用同等核验纪律——
+  形容词也要 as_of 实测锚点。
+- **状态**：fixed（16a 立项 + 本条入账同轮闭环）。
