@@ -1,0 +1,20 @@
+{
+ "type": "arch_seam_recycled",
+ "key": "760-datalog-baseurl-20260925",
+ "as_of": "2026-09-25",
+ "created": "2026-09-26T05:09:22.373987+08:00",
+ "title": "760 口径开账最小切片——model.call 事件落 base_url 路由身份",
+ "what": "datalog.log_model_call 增 base_url 可选入参 + openai_provider 两处调用点透传 cfg.base_url。让每个 model.call 事件自带路由身份（经哪条 base_url 出网），事后按 base_url 聚合出每家 provider 调用量/占比分布账。",
+ "why": [
+  "proxy3 request_log.db 不落盘曾致 760 模型路由分账数据源断供（synthesis-20260925-external-review-evolution.md），调用分布无法归属",
+  "base_url 是 provider 路由身份对之一（TaskRouter.get_provider_name 用 api_key+base_url 反查 provider 名），调用处现成可得",
+  "埋点纯增量、向后兼容（None=不写字段），不反噬主链路"
+ ],
+ "verification": [
+  "_write_event 捕获双向验证：旧式调用无 base_url 字段、新式调用 base_url 正确落事件（实测）",
+  "arch-guard-gate 3 passed",
+  "AST parse + import OK"
+ ],
+ "next_slice": "聚合层（分布账报表）+ _record_provider_outcome 接线路由身份统计（model_call.py:141 现有熔断统计可挂身份维度）",
+ "ledger_ref": "synthesis-20260925-external-review-evolution.md 闭合期④"
+}
