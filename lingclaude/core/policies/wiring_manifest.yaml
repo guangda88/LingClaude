@@ -85,10 +85,7 @@ manifest:
     factory: 
     phase: state
     note: "退化告警累积"
-  - attr: _memory_engine
-    factory: 
-    phase: state
-    note: "T0-4 死接线已移除，槽位保留"
+  # 2026-09-26：_memory_engine 槽位已随本体回收删除（recycled-memory-engine-20260926），出列
   - attr: _l5_orchestrator
     factory: 
     phase: state

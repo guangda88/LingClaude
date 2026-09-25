@@ -329,7 +329,8 @@ J4_MEDIA_OWNERS = {"core/state_store.py"}
 # 「9 处直写盲区」逐行核对后确认清单内 12 处全为豁免导出物，真实盲区仅此一处）
 J4_STATE_MODULES = [
     # 2026-09-20 P3-7：core/handover.py 已迁 lingmemory/handover.py，出列
-    "core/layered_memory.py", "core/memory_engine.py",
+    # 2026-09-26：core/memory_engine.py 已回收（零消费，recycled-memory-engine-20260926），出列
+    "core/layered_memory.py",
     "core/session.py", "core/task_aggregation.py", "core/governance_verifier.py",
     "core/topic_stack.py", "core/reasoning_chain.py", "core/governance.py",
     "core/meta_cognition.py", "core/query_engine.py",
@@ -446,11 +447,11 @@ def test_g10c_no_new_sqlite_direct_states():
         )
     }
     # 基线冻结：当前存量（2026-09-23 实测：layered_memory / memory_engine）。
-    # memory_engine 同日迁 StateStore，import sqlite3 保留为查询导出视图介质；
-    # 迁移彻底后从名单删除，只缩不放。
+    # memory_engine 2026-09-26 已整体回收（非仅迁 StateStore）——零生产消费 +
+    # wiring 死槽位，record=arch_seam_recycled/recycled-memory-engine-20260926，
+    # 从 baseline 摘条（只缩不放）。layered_memory 仍在册。
     baseline = {
         "core/layered_memory.py",
-        "core/memory_engine.py",
     }
     new_hits = existing - baseline
     assert not new_hits, (

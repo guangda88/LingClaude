@@ -1,0 +1,22 @@
+{
+ "type": "arch_seam_recycled",
+ "key": "recycled-memory-engine-20260926",
+ "as_of": "2026-09-26",
+ "title": "memory_engine 回收——787 行休眠件轻回收（MEMORY 域第一决策）",
+ "what": "core/memory_engine.py(787) 本体 + tests/test_memory_engine.py(345) + tests/test_lingmemory_memstore_bridge.py(175) 同批移除；wiring.py:399 _memory_engine 死槽位删除",
+ "why": [
+  "零生产消费：grep -E 实测 import 计数=0（wiring.py:399 死槽位 lambda ctx: None，T0-4 已主动移除接线）",
+  "测试实质消费 520 行但测的是被删件本体能力——同批移除（留则必红）",
+  "787 行为红名单单件大户，M1/J4 债务成本持续计息",
+  "双写前提（真实流量）不成立——migration_registry note 自认，三选一裁决取回收"
+ ],
+ "origin_path": "lingclaude/core/memory_engine.py",
+ "last_commit": "65f37ef",
+ "revival_hint": "若 memory_engine 获得真实上岗任务（有生产调用方需求），从 65f37ef 恢复本体+两测试；schema-first 镜像通路（memstore_bridge 五写点）已验证可独立于本件运转",
+ "verification": [
+  "git rm 3 files 实测（removed 3 files）",
+  "wiring 死槽位行删除实测（断言命中后 replace）",
+  "import 链待冒烟（本 commit 过 smoke-gate）"
+ ],
+ "ledger_ref": "data/ledger/verification-errors-20260925.md（ERR 体系外，正常回收）"
+}

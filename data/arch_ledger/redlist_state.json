@@ -1,93 +1,99 @@
 {
- "type": "arch_redlist_state",
- "key": "redlist-ratchet-state",
- "created": "2026-09-26",
- "design": "单向棘轮状态机（闸门1）：红名单件 stage 只进不退（in_core→migrated→removed）；回退必须挂 ERR 案号（err_case 字段，前缀 ERR-2026-），无案号回退=守卫红。闸门4：clear_deadline 到期且仍有 in_core 即红。",
- "stage_order": [
-  "in_core",
-  "migrated",
-  "removed"
- ],
- "stage_semantics": {
-  "in_core": "仍在 lingclaude/core/（默认态，未登记即此态）",
-  "migrated": "已迁出 core/（模块或其继任者存于别处），core 侧文件必须不存在",
-  "removed": "已轻回收（四判据全绿），core 侧文件必须不存在"
- },
- "clear_deadline": "2026-12-31",
- "deadline_source": "docs/research/self-evolution-assessment-20260925.md §3.2 闸门4（11 族/~13 周）",
- "baseline": "arch_m3_redlist_baseline/baseline-ff17eb2.json",
- "items": {
-  "event_exempt": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:d36e5b9",
-   "note": "→ engine/（守卫件套车，ratchet-001）"
+  "type": "arch_redlist_state",
+  "key": "redlist-ratchet-state",
+  "created": "2026-09-26",
+  "design": "单向棘轮状态机（闸门1）：红名单件 stage 只进不退（in_core→migrated→removed）；回退必须挂 ERR 案号（err_case 字段，前缀 ERR-2026-），无案号回退=守卫红。闸门4：clear_deadline 到期且仍有 in_core 即红。",
+  "stage_order": [
+    "in_core",
+    "migrated",
+    "removed"
+  ],
+  "stage_semantics": {
+    "in_core": "仍在 lingclaude/core/（默认态，未登记即此态）",
+    "migrated": "已迁出 core/（模块或其继任者存于别处），core 侧文件必须不存在",
+    "removed": "已轻回收（四判据全绿），core 侧文件必须不存在"
   },
-  "state_reconcile": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:d36e5b9",
-   "note": "→ engine/（守卫件套车，ratchet-001）"
-  },
-  "m3_core_coupling": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:d36e5b9",
-   "note": "→ engine/（守卫件套车，ratchet-001）"
-  },
-  "token_pricing": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:d36e5b9",
-   "note": "→ model/（模型接入族车，ratchet-001）"
-  },
-  "lingmemory_bridge": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:0990cb2",
-   "note": "五桥恢复方案回收件"
-  },
-  "lingmemory_experience_bridge": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:0990cb2",
-   "note": "五桥恢复方案回收件"
-  },
-  "lingmemory_l7_bridge": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:0990cb2",
-   "note": "五桥恢复方案回收件"
-  },
-  "lingmemory_memstore_bridge": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:0990cb2",
-   "note": "五桥恢复方案回收件"
-  },
-  "lingmemory_token_bridge": {
-   "stage": "removed",
-   "date": "2026-09-25",
-   "evidence": "commit:0990cb2",
-   "note": "五桥恢复方案回收件"
-  },
-  "l7_cognitive_bridge": {
-   "stage": "removed",
-   "date": "2026-09-26",
-   "evidence": "commit:9685af9",
-   "note": "四判据首件全绿（orphan_scan_v2 双向校验后）"
-  },
-  "goal_receipt": {
-   "stage": "removed",
-   "date": "2026-09-26",
-   "evidence": "commit:853a153",
-   "note": "M1 豁免提前到期，五口径零消费"
-  },
-  "manifest_lock": {
-   "stage": "removed",
-   "date": "2026-09-26",
-   "evidence": "commit:853a153",
-   "note": "M1 豁免提前到期，五口径零消费"
+  "clear_deadline": "2026-12-31",
+  "deadline_source": "docs/research/self-evolution-assessment-20260925.md §3.2 闸门4（11 族/~13 周）",
+  "baseline": "arch_m3_redlist_baseline/baseline-ff17eb2.json",
+  "items": {
+    "event_exempt": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:d36e5b9",
+      "note": "→ engine/（守卫件套车，ratchet-001）"
+    },
+    "state_reconcile": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:d36e5b9",
+      "note": "→ engine/（守卫件套车，ratchet-001）"
+    },
+    "m3_core_coupling": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:d36e5b9",
+      "note": "→ engine/（守卫件套车，ratchet-001）"
+    },
+    "token_pricing": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:d36e5b9",
+      "note": "→ model/（模型接入族车，ratchet-001）"
+    },
+    "lingmemory_bridge": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:0990cb2",
+      "note": "五桥恢复方案回收件"
+    },
+    "lingmemory_experience_bridge": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:0990cb2",
+      "note": "五桥恢复方案回收件"
+    },
+    "lingmemory_l7_bridge": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:0990cb2",
+      "note": "五桥恢复方案回收件"
+    },
+    "lingmemory_memstore_bridge": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:0990cb2",
+      "note": "五桥恢复方案回收件"
+    },
+    "lingmemory_token_bridge": {
+      "stage": "removed",
+      "date": "2026-09-25",
+      "evidence": "commit:0990cb2",
+      "note": "五桥恢复方案回收件"
+    },
+    "l7_cognitive_bridge": {
+      "stage": "removed",
+      "date": "2026-09-26",
+      "evidence": "commit:9685af9",
+      "note": "四判据首件全绿（orphan_scan_v2 双向校验后）"
+    },
+    "goal_receipt": {
+      "stage": "removed",
+      "date": "2026-09-26",
+      "evidence": "commit:853a153",
+      "note": "M1 豁免提前到期，五口径零消费"
+    },
+    "manifest_lock": {
+      "stage": "removed",
+      "date": "2026-09-26",
+      "evidence": "commit:853a153",
+      "note": "M1 豁免提前到期，五口径零消费"
+    },
+    "memory_engine": {
+      "stage": "removed",
+      "date": "2026-09-26",
+      "evidence": "commit:memory-engine-recycle + arch_seam_recycled/recycled-memory-engine-20260926.json",
+      "note": "787 行休眠件轻回收（MEMORY 域第一决策）——零生产消费（wiring 死槽位 T0-4）+520 行测试同批移除；恢复指针 origin_path/last_commit=65f37ef 在 record"
+    }
   }
- }
 }

@@ -28,7 +28,7 @@ EXPECTED_ATTRS = {
     "_tool_call_log",
     "_total_messages_sent", "_l1_last_triggered_at", "_l1_handover_checksum",
     "_history_epoch", "_loop_hooks",
-    "_degradation_alerts", "_memory_engine", "_l5_orchestrator",
+    "_degradation_alerts", "_l5_orchestrator",
     "_pinned_model_config", "_pinned_model_expires", "_mv1_violations",
     "_usage", "_write_lock",
     # collaborator (29)  ← P3 新增 state_store
@@ -67,7 +67,7 @@ def _make_ctx(engine):
 
 class TestManifestIntegrity:
     def test_manifest_covers_exactly_55(self):
-        assert len(WIRING_MANIFEST) == 59  # 2026-09-21: +_history_epoch（前缀缓存）+_loop_hooks（第0步 seam 接口化）
+        assert len(WIRING_MANIFEST) == 58  # 2026-09-26: −_memory_engine（回收，recycled-memory-engine-20260926）；2026-09-21: +_history_epoch +_loop_hooks
 
     def test_manifest_attrs_match_frozen_set(self):
         attrs = {spec.attr for spec in WIRING_MANIFEST}
@@ -78,7 +78,7 @@ class TestManifestIntegrity:
         assert len(attrs) == len(set(attrs)), "manifest 存在重复条目"
 
     def test_phase_vocabulary_conserved(self):
-        counts = {"state": 28, "collaborator": 29, "parameterized": 2}  # 2026-09-21: state 26→27(+_history_epoch)→28(+_loop_hooks)
+        counts = {"state": 27, "collaborator": 29, "parameterized": 2}  # 2026-09-26: state 28→27(−_memory_engine)；2026-09-21: +_history_epoch +_loop_hooks
         actual: dict[str, int] = {}
         for spec in WIRING_MANIFEST:
             assert spec.phase in counts, f"未知 phase: {spec.phase}"
@@ -94,7 +94,7 @@ class TestAssembleSemantics:
     def test_assemble_bare_engine_all_attrs_present(self):
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
-        assert len(wired) == 59  # 2026-09-21: +_history_epoch +_loop_hooks
+        assert len(wired) == 58  # 2026-09-26: −_memory_engine；2026-09-21: +_history_epoch +_loop_hooks
         for attr in EXPECTED_ATTRS:
             assert hasattr(engine, attr), f"装配后缺 {attr}"
 
@@ -125,7 +125,8 @@ class TestAssembleSemantics:
         assert engine._l1_last_triggered_at == -1
         assert engine._pinned_model_expires == 0.0
         assert engine._messages == [] and engine._denials == []
-        assert engine._memory_engine is None
+        # 2026-09-26：_memory_engine 槽位随本体回收删除（recycled-memory-engine-20260926），
+        # 原「装配后为 None」断言失去对象，删行。
         from lingclaude.core.models import UsageSummary
         assert isinstance(engine._usage, UsageSummary)
 
@@ -144,7 +145,7 @@ class TestAssembleSemantics:
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
         assert engine.audit_collector is not None
-        assert len(wired) == 59  # 2026-09-21: +_history_epoch +_loop_hooks
+        assert len(wired) == 58  # 2026-09-26: −_memory_engine；2026-09-21: +_history_epoch +_loop_hooks
 
     def test_overrides_state_phase_also_injectable(self):
         """P2.d: overrides 对 state 条目同样生效。

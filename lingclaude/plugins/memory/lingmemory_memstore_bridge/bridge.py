@@ -6,10 +6,12 @@
 - 主路不变：SQLite memory.db（MemoryStore）仍是数据权威
 - 旁路镜像：MemoryStore 五类写点（episode/facet/facet_point/entity/edge）
   → 灵忆 records (type=memory_store_entry，registry P3-12)
-- 无装配点：wiring.py::_memory_engine 是死槽位（T0-4 移除接线，槽位保留），
+- 无装配点：wiring.py::_memory_engine 死槽位已于 2026-09-26 随本体一并回收
+  （record=arch_seam_recycled/recycled-memory-engine-20260926.json），
   本桥不进 wiring——sink 由调用方显式注入 MemoryStore(legacy_sink=...)。
-  这与第一件（layered_memory 有 _make_layered_memory 装配缝）不同，
-  属 schema-first 迁移：先铺镜像通路，待 memory_engine 真正上岗时零改动可用。
+  这与第一件（layered_memory 有 _make_layered_memory 装配缝）不同。
+  schema-first 镜像通路期待对象已改挂 StateStore 主通道
+  （memory_engine 零生产消费被回收，复活须先过 orphan_scan_v2 --selfcheck）。
 
 镜像语义（memory_store_entry registry，2026-09-11 实测定版）：
 - default_state=live；终态 merged_away（event=merge，被更强记忆吸收）
