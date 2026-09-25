@@ -396,7 +396,6 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     # 测试 / headless / 未来热更可注入 fake 钩子全离线驱动同一循环体。
     WiringSpec("_loop_hooks", lambda ctx: None, phase="state", note="第0步（2026-09-21）：循环体治理钩子注入面（loop_seam.LoopHooks）；默认 None → 惰性 DefaultLoopHooks(self)，行为零变化"),
     WiringSpec("_degradation_alerts", lambda ctx: [], phase="state", note="退化告警累积"),
-    WiringSpec("_memory_engine", lambda ctx: None, phase="state", note="T0-4 死接线已移除，槽位保留"),
     WiringSpec("_l5_orchestrator", lambda ctx: None, phase="state", note="L5 编排器 lazy init 槽"),
     WiringSpec("_pinned_model_config", lambda ctx: None, phase="state", note="钉定模型槽"),
     WiringSpec("_pinned_model_expires", lambda ctx: 0.0, phase="state", note="钉定模型过期时间戳"),
