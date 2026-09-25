@@ -389,6 +389,7 @@ class OpenAIProvider(ModelProvider):
                 latency_ms=(time.monotonic() - _t0) * 1000,
                 path="stream",
                 cached_tokens=usage.cached_tokens,
+                base_url=cfg.base_url,
             )
         except http.client.HTTPException as e:
             yield {"type": "error", "error": f"HTTP 错误: {e}"}
@@ -517,7 +518,7 @@ class OpenAIProvider(ModelProvider):
         except urllib.error.URLError as e:
             return Result.fail(f"网络错误: {e.reason}。请检查网络连接")
 
-        return self._parse_response(data, cfg.model, latency_ms=(time.monotonic() - _t0) * 1000)
+        return self._parse_response(data, cfg.model, base_url=cfg.base_url, latency_ms=(time.monotonic() - _t0) * 1000)
 
     async def _call_api_async(
         self, messages: tuple[ModelMessage, ...], cfg: ModelConfig,
@@ -540,10 +541,11 @@ class OpenAIProvider(ModelProvider):
                     return Result.fail(f"OpenAI API 返回 HTTP {resp.status}: {text}")
                 data = await resp.json()
 
-        return self._parse_response(data, cfg.model, latency_ms=(time.monotonic() - _t0) * 1000)
+        return self._parse_response(data, cfg.model, base_url=cfg.base_url, latency_ms=(time.monotonic() - _t0) * 1000)
 
     def _parse_response(
-        self, data: dict[str, Any], model: str, latency_ms: float = 0.0
+        self, data: dict[str, Any], model: str, latency_ms: float = 0.0,
+        base_url: str | None = None,
     ) -> Result[ModelResponse]:
         choices = data.get("choices", [])
         if not choices:
@@ -582,6 +584,7 @@ class OpenAIProvider(ModelProvider):
             latency_ms=latency_ms,
             path="complete",
             cached_tokens=usage.cached_tokens,
+            base_url=base_url,
         )
 
         return Result.ok(

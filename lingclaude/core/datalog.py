@@ -115,6 +115,7 @@ def log_model_call(
     latency_ms: float,
     path: str = "stream",
     cached_tokens: int = 0,
+    base_url: str | None = None,
 ) -> None:
     """记录一次模型调用（stream/complete 统一埋点）。
 
@@ -123,6 +124,11 @@ def log_model_call(
     只做纯接缝写入：事件落 JSONL，异常静默（不干扰主链路）。
     2026-09-22: cached_tokens 可选入参（0=未回传），>0 时事件携带
     cost.cached —— 历史数据自此可回溯缓存命中。
+    2026-09-25 闭合期④ 760 口径开账最小切片：base_url 可选入参（None=未回传）。
+    760 模型路由的分账数据源曾断供（proxy3 request_log 不落盘），调用分布
+    无法归属——本字段让每个 model.call 事件自带路由身份（经哪条 base_url
+    出网），事后可按 base_url 聚合出「每家 provider 调用量/占比」分布账。
+    埋点纯增量、向后兼容（旧调用不传 = None 不写字段），不反噬主链路。
     """
     cost: dict[str, int] = {
         "in": int(input_tokens),
@@ -139,6 +145,8 @@ def log_model_call(
         "latency_ms": round(latency_ms, 1),
         "path": path,
     }
+    if base_url:
+        event["base_url"] = base_url
     try:
         _write_event(event)
     except Exception as e:  # noqa: BLE001 — 遥测绝不反噬主链路
