@@ -50,7 +50,8 @@ def _epoch_of(impl: Any) -> str:
 
 def _domain_of(fiber_name: str) -> str:
     """fiber 的缝域归属：'gov/x' → 'gov'；无前缀 → 'app'。
-    与 seam.DOMAIN_NAMESPACES 的 gov/agent/cap/hw 前缀约定对齐。"""
+    缝域前缀取自 seam.DOMAIN_NAMESPACES 运行时注册表（不在此列举，
+    避免主干注释复述插片域词汇，随注册表演进自动对齐）。"""
     return fiber_name.split("/", 1)[0] if "/" in fiber_name else "app"
 
 
