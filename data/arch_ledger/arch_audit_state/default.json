@@ -1,5 +1,5 @@
 {
-  "head": "c32a6fc",
+  "head": "9b058f0",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "9e1841a1d995",
     "tests/test_iron_law_guards.py": "f545695889df",
@@ -94,11 +94,11 @@
     "arch_exemption:l7_session.py": "e8ef26daa71a",
     "arch_exemption:l7_types.py": "38c72f89ada8",
     "arch_exemption:layered_memory.py": "f13c7188e1d8",
-    "arch_exemption:lingmemory_bridge.py": "b9fc227f036d",
-    "arch_exemption:lingmemory_experience_bridge.py": "2352221f1e7c",
-    "arch_exemption:lingmemory_l7_bridge.py": "f4b908a033c3",
-    "arch_exemption:lingmemory_memstore_bridge.py": "f534079acc66",
-    "arch_exemption:lingmemory_token_bridge.py": "1ce4e7504aa7",
+    "arch_exemption:lingmemory_bridge.py": "aecf0d468681",
+    "arch_exemption:lingmemory_experience_bridge.py": "f7fa6ff718da",
+    "arch_exemption:lingmemory_l7_bridge.py": "6d5457f643c1",
+    "arch_exemption:lingmemory_memstore_bridge.py": "25c0e29edcea",
+    "arch_exemption:lingmemory_token_bridge.py": "5d499a2a61f6",
     "arch_exemption:llm_probe.py": "e69d7044d1f0",
     "arch_exemption:lm_quick.py": "447bf40094aa",
     "arch_exemption:loop_seam.py": "796318bd54da",
@@ -169,5 +169,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-25T03:12:15+00:00"
+  "checked": "2026-09-25T06:54:17+00:00"
 }
