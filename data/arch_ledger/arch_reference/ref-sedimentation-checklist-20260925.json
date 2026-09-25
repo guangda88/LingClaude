@@ -1,0 +1,17 @@
+{
+ "type": "arch_reference",
+ "key": "ref-sedimentation-checklist-20260925",
+ "title": "本轮讨论沉淀清单（四层：用/做/等/裁）",
+ "as_of": "2026-09-25",
+ "created": "2026-09-25T14:30:00+00:00",
+ "doc": "docs/research/sedimentation-checklist-20260925.md",
+ "snapshot": {
+  "layers": {
+   "installed": "10 件（ERR 台账/M3 基线/首例回收/M1 范式/棘轮/tripartite/冒烟纪律/notes 纪律/净减判据/自进化评估）",
+   "ready_to_build": "6 件（绞杀者四闸门/cycle_report 对账/五条业界借鉴）",
+   "awaiting_trigger": "3 件（豁免收割 2026-11-30/M3 阶段 2/处置权下放——数据触发）",
+   "user_decisions": "3 件（借鉴②③④⑤顺序/plugins 五桥副本/联邦自报账）"
+  },
+  "usage": "自驱会话唤醒时检查基准；随 pruning cycle 周期重放；四层分界即三机制咬合在待办管理上的应用"
+ }
+}
