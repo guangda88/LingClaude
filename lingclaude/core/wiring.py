@@ -22,9 +22,9 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
-from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled  # P3.2
-from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink  # P3.3 模块级（g3 守卫基线 351 内化，勿放函数内）
-from lingclaude.core.lingmemory_token_bridge import LingMemoryTokenSink  # P3.4 模块级（g3 基线内化，勿放函数内）
+from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled  # P3.2（ERR-05 回溯：迁移撤回，M3 合规）
+from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink  # P3.3 模块级（g3 基线内化，勿放函数内；ERR-05 回溯）
+from lingclaude.core.lingmemory_token_bridge import LingMemoryTokenSink  # P3.4 模块级（g3 基线内化，勿放函数内；ERR-05 回溯）
 
 logger = logging.getLogger(__name__)
 

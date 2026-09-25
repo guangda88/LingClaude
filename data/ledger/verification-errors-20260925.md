@@ -82,3 +82,25 @@
   真实生成——cycle_report {recycled:3, migrated:4, observing:102, pending:0}、coverage 1.0、dedup 113→109
   （归一键=文件基名，ratchet 裸名/exemption 全路径双源防双计）。重建过程中新抓两处数据质量 bug：
   removed 状态被映射成伪 pending、多源双计 migrated 8→4，均为真实记录驱动修正，非设计稿断言）。
+
+## ERR-2026-0925-05：d36e5b9 迁移质量事故——本体误删致启动崩溃（重级，非虚构类）
+
+- **性质**：与 ERR-01/03/04（虚构类）不同——这是**真实执行了但做坏了**的迁移事故。
+- **实况**：`d36e5b9`（M3 棘轮首格）迁出 4 件时，`session_token_sink.py` **本体被删**
+  （不在迁移清单 4 件内，diff 中无 rename 记录，仅剩 .bak）；
+  且 `wiring.py:24-26` 三行 lingmemory import 未随 `plugins/memory/` 迁移改向，
+  `query_engine_turn_mixin.py:27` 仍指向已删的 core.session_token_sink。
+- **后果**：`lingclaude run -i` / `import lingclaude` 全链崩溃（ModuleNotFoundError），
+  **CLI 完全不可用**——若非用户当场实测发现，启动死亡会静默存在。
+- **根因**：迁移提交的验证面只有"pytest 28 passed"（单元级），**无冒烟级 import 链/CLI 入口验证**
+  ——「四道门全过」不等于「系统还能启动」。迁移类操作的验收必须含启动链冒烟。
+- **修复**（本轮实测，v2 方案——v1 被 M3 守卫正确拦截）：
+  v1（wiring→plugins/memory import）触发 M3 依赖方向违规 3 处（core 不得 import plugins/），
+  守卫门禁拦截——拦截正确，方案本身违规。v2：五桥本体自 d36e5b9^ 恢复回 core/
+  （lingmemory_bridge 207/experience 141/token 132/l7 110/memstore 137），
+  wiring.py 三行还原 core 路径；session_token_sink.py 本体恢复 + token_pricing
+  import 改 model/。plugins/memory/ 下未入库的薄壳/manifest 目录撤销。
+  验证：M3 违规 0 + import OK + CLI OK（均实测）。
+- **教训入册**：迁移类 commit 模板新增冒烟项 `python -c "import lingclaude"`，
+  语义：迁移完成 = 单测绿 **且** 启动链通，二者缺一不可。
+- **状态**：fixed（修复与本案入账同 commit 闭环）。
