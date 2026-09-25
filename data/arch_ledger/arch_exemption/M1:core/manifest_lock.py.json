@@ -1,16 +1,21 @@
 {
-  "guard": "M1",
-  "file": "core/manifest_lock.py",
-  "reason": "P0-P2 治理层插片（2026-09-21）: manifest单源锁/不可变会话/工作树扇出，agent/session/消息/任务等为其固有概念语义，非领域概念泄漏。行级豁免6行，后续新增命中仍被M1抓到（只缩不放）。用户2026-09-21确认。",
-  "granted": "2026-09-21",
-  "state": "active",
-  "lines": [
-    2,
-    44,
-    84,
-    102,
-    112,
-    160
-  ],
-  "review_due": "2026-10-21"
+ "guard": "M1",
+ "file": "core/manifest_lock.py",
+ "reason": "P0-P2 治理层插片（2026-09-21）: manifest单源锁/不可变会话/工作树扇出，agent/session/消息/任务等为其固有概念语义，非领域概念泄漏。行级豁免6行，后续新增命中仍被M1抓到（只缩不放）。用户2026-09-21确认。",
+ "granted": "2026-09-21",
+ "state": "recycled",
+ "lines": [
+  2,
+  44,
+  84,
+  102,
+  112,
+  160
+ ],
+ "review_due": "2026-10-21",
+ "type": "arch_exemption",
+ "state_changed": "2026-09-26T04:53:57.204035+08:00",
+ "recycled_record": "arch_seam_recycled/recycled-manifest-lock-20260925.json",
+ "recycle_reason": "五口径零消费双重确认（灵克本轮 AST/字符串/动态装配/入口点全扫 + atomcode 独立核实结论一致）：生产代码 0 import、0 字符串装配、0 动态加载、0 入口点；唯一测试消费是 test_wiring_gate.py 的已知核心件名单登记（定性为登记存在而非消费）；M1 词汇豁免原覆盖的缝域词随本体删除一并消解。",
+ "manifest_system_check": "plugin_loader.py 动态加载走 manifest.entry 路径（spec_from_file_location），从不按模块名拼 manifest_lock——字符串级动态引用专项确认零命中。"
 }

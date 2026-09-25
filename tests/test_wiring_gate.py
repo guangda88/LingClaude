@@ -191,13 +191,16 @@ class TestNoDeadModules:
         # 治理/协议预留模块（2026-09-22 A组清偿③ 归因）：动态消费或预留 API 面——
         # evidence_protocol(EvidenceLedger 经 model_call:127 函数内 import)、
         # rollout(RolloutRecorder 经 submission:345 函数内 import)、
-        # approval_matrix/goal_receipt/manifest_lock/verify_ledger/worktree
-        # 为验证台账/审批/worktree 扇出预留面（record_verify 等经测试消费，
-        # 生产接线随 arch_debt B 组推进），不列死码。
+        # approval_matrix/verify_ledger/worktree 为验证台账/审批/worktree
+        # 扇出预留面（record_verify 等经测试消费，生产接线随 arch_debt
+        # B 组推进），不列死码。evidence_protocol/rollout 经函数内 lazy
+        # import 动态消费（见上）。
+        # goal_receipt/manifest_lock 已轻回收（2026-09-25，五口径零消费
+        # 双重确认 + M1 豁免转 recycled）——record:
+        # arch_seam_recycled/recycled-goal-receipt-20260925.json /
+        # arch_seam_recycled/recycled-manifest-lock-20260925.json
         "approval_matrix.py",
         "evidence_protocol.py",
-        "goal_receipt.py",
-        "manifest_lock.py",
         "rollout.py",
         "verify_ledger.py",
         "worktree.py",
