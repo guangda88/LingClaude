@@ -52,6 +52,9 @@
     "不变量守护框架：已落地 2aed076（建闸期③，2026-09-25）——TransitionTable 合法边表+三值分类（legal/illegal/unclassified，表未覆盖≠非法待人工裁决）+strict/observe 双模式+PLUGIN_LIFECYCLE_TABLE（边表严格来自 8 处实测赋值点）；property 冒烟固定种子替代（hypothesis 未安装，安装后无缝换 @given）；测试 7/7 全绿",
     "events 表 kind 字段（command/event/query 分层）：codex 轻方案，解决重放语义膨胀，与 LingYiBackend schema 演进一并设计",
     "plugin_lifecycle 通电核验：LifecycleManager 实例直接装配点未找到（机制深度在产：seam 钩子/hooks 蓝绿钩子/TUI 渲染对位），是未接线还是被绕过待核",
-    "多线路冗余：codex/opencode 共用 ZAI 配额单点（2026-09-29 重置），volcengine 备用线路已验证可用；模型路由韧性应作为插片化一部分"
+    "多线路冗余：codex/opencode 共用 ZAI 配额单点（2026-09-29 重置），volcengine 备用线路已验证可用；模型路由韧性应作为插片化一部分",
+    "M3 机械强制升格：告警 → CI 红线 + import hook 运行时拒绝（K8s feature gate 三段收紧模式：阶段1告警+113文件红名单基线 → 阶段2红线递进随迁缝九族递减 → 阶段3锁死新文件无权进core/；证据：industry-benchmark-verification-20260925.md §三/§七；待裁决：与动刀期合并，避免与迁移期临时双轨打架）",
+    "25K 迁移硬期限：K8s in-tree 迁出 4 年跳票 + Fuchsia 无期限即并行宇宙，双先例支撑——9族迁移按族排期各设 due 日期，数值待裁决；防止迁缝期无限拖延（证据：industry-benchmark-verification-20260925.md §三/§五）",
+    "L1 兑现分两步：先一层硬边界（主干↔插片异常域），后 N7 插片间隔离（VSCode 一层进程边界即解决最痛问题的精确中间态参照；先兑现 L1 最痛承诺，插片间隔离可后置到插片隔离期单独裁决）（证据：industry-benchmark-verification-20260925.md §四）"
   ]
 }
