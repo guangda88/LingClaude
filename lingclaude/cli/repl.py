@@ -215,20 +215,24 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
             # refresh_cwd 裸奔（perm/todo/plan 均有 try 静默降级，唯独这两处
             # 无），长跑脏数据一旦触发即整栏炸（full_tui 侧吞为空白）→ 状态栏
             # 永久消失。逐项包裹后单源炸只丢该源，不拖垮整栏。
+            # 2026-09-25 P0 普查推广：单源失败不再纯静默，登记 degraded 由
+            # toolbar 红字可见（成功喂入即清除），证据不再被销毁。
             try:
                 _refresh_ctx_tokens(ctx)
             except Exception:  # noqa: BLE001 — ctx 源炸静默留旧值
-                pass
+                status.mark_degraded("ctx")
             # 2026-09-21: 权限模式上 toolbar（⏵⏵ auto 语义，atomcode 借鉴）
             try:
                 from lingclaude.core.permissions import get_permission_mode
                 status.set_perm_mode(get_permission_mode())
+                status.clear_degraded("perm")
             except Exception:  # noqa: BLE001
-                pass
+                status.mark_degraded("perm")
             try:
                 status.refresh_cwd()
+                status.clear_degraded("cwd")
             except Exception:  # noqa: BLE001 — cwd 探测炸静默留旧值
-                pass
+                status.mark_degraded("cwd")
         # 2026-09-22: todo panel 明细喂入（常驻 toolbar 上方，对标 atomcode）。
         # TodoStore 用 threading.local 连接（engine/todo.py Bug B 修复），
         # PT 渲染线程查询安全；1s 节流与 token 估算同块，零额外 I/O 顾虑。
@@ -242,8 +246,11 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
                 status.set_todo_items(
                     [(i.status.value, i.content) for i in _items if i.status.value in ("in_progress", "pending")]
                 )
+                status.clear_degraded("todo")
+            else:
+                status.clear_degraded("todo")
         except Exception:  # noqa: BLE001 — 面板刷新失败不阻塞渲染
-            pass
+            status.mark_degraded("todo")
         # 2026-09-22: plan 叠加态喂入（⏸ plan 段）——读 runtime.plan_mode.is_active，
         # 与 todo 面板同一 1s 节流块；失败静默保留原值，不反噬渲染。
         try:
@@ -251,8 +258,9 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
                 getattr(ctx.engine, "_runtime", None), "plan_mode", None
             )
             status.set_plan_active(bool(getattr(_pm, "is_active", False)))
+            status.clear_degraded("plan")
         except Exception:  # noqa: BLE001 — plan 指示失败不阻塞渲染
-            pass
+            status.mark_degraded("plan")
         # 2026-09-22: 状态球判定（对标 atomcode）——纯只读探测运行时信号，
         # 零新增状态机：blocked（interrupt 置位）> busy（streaming 或活跃任务）
         # > idle。会话对象可能无对应属性（fallback/测试桩），逐一 getattr 兜 None，
@@ -271,15 +279,20 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
             else:
                 _level = "idle"
             status.set_state_level(_level)
+            status.clear_degraded("state")
         except Exception:  # noqa: BLE001 — 状态球判定失败不阻塞渲染
-            pass
+            status.mark_degraded("state")
         pending = ctx.input_queue.pending() if ctx.input_queue is not None else 0
         full_tui = getattr(ctx.session, "pending_submissions", None)
         if callable(full_tui):
             pending += full_tui()
         status.set_pending(pending)
-    except Exception:  # noqa: BLE001 — 状态刷新失败不阻塞渲染
-        pass
+    except Exception as _snap_err:  # noqa: BLE001 — 快照总闸：单源已降级登记，此处兜住漏网
+        status.mark_degraded("snapshot")
+        try:  # 2026-09-25 P0: 可见降级——原始 fd 直写 stderr，绕过可能已损坏的 PT 流
+            os.write(2, f"\n⚠ 状态快照失败[{type(_snap_err).__name__}]: {_snap_err}\n".encode("utf-8", "replace"))
+        except Exception:
+            pass
     return status.snapshot()
 
 
@@ -323,7 +336,7 @@ def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
                     _win,
                 )
     except Exception:  # noqa: BLE001
-        pass
+        status.mark_degraded("ctx")  # 2026-09-25 P0: 失败登记，toolbar 红字可见
 
 
 def _is_full_tui_session(session: Any) -> bool:
@@ -904,7 +917,7 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                     if _rc and getattr(_rc, "model", ""):
                         status.set_model(str(_rc.model))
                 except Exception:  # noqa: BLE001 — 名字刷新失败不阻塞轮循环
-                    pass
+                    status.mark_degraded("model")  # 2026-09-25 P0: 可见降级
                 # 2026-09-15（会话问题重构 P1-1）: round 边界消费挂起队列。
                 # 斜杠命令立即执行；普通文本插队（queued_next，turn 结束后
                 # 直接作为下一轮输入）；EOF/quit 中止当前 turn。
@@ -1011,8 +1024,9 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                         len(_pd),
                         _ip[0].content if _ip else "",
                     )
+                    status.clear_degraded("task")
                 except Exception:  # noqa: BLE001 — 面板刷新失败不影响主循环
-                    pass
+                    status.mark_degraded("task")  # 2026-09-25 P0: 可见降级
         # P0-1 收尾：先摘桥（后续输出回裸写），再退出 patch_stdout
         # （恢复 sys.stdout/sys.stderr 原对象）。必须在 finally —— 异常路径
         # 不还原会让退出统计/下一轮 prompt 输出全部消失进 PT 代理。
@@ -1068,8 +1082,9 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
             # toolbar 缓存命中率同步
             if _cpct >= 0:
                 status.set_cache_pct(_cpct)
+                status.clear_degraded("cache")
     except Exception:  # noqa: BLE001 — 摘要行失败不阻塞收尾
-        pass
+        status.mark_degraded("cache")  # 2026-09-25 P0: 可见降级
     _record_long_task_metrics(
         engine,
         event="interrupted_turn" if interrupted else "turn_complete",

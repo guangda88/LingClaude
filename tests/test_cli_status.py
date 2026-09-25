@@ -379,3 +379,57 @@ class TestToolbarTips:
         text = "".join(t for _, t in frag if isinstance(t, str))
         assert f"│ {toolbar_tip(5)} " in text
         assert "Esc+Enter" not in text  # 5 轮后键位提示已轮换出
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-25 P0 普查（toolbar 事故教训制度化）：状态源降级通道
+# 状态链喂入失败不得纯静默——mark_degraded 登记 → toolbar 红字可见；
+# 成功喂入 clear_degraded 清除。渲染层对 degraded 空值/缺字段免疫。
+# ---------------------------------------------------------------------------
+class TestDegradedChannel:
+    def _text(self, s) -> str:
+        return "".join(t for _, t in toolbar_fragments(s) if isinstance(t, str))
+
+    def test_mark_degraded_registers_source(self) -> None:
+        s = StatusModel()
+        s.mark_degraded("ctx")
+        s.mark_degraded("ctx")  # 幂等：同名源不重复登记
+        assert s.degraded == ("ctx",)
+
+    def test_clear_degraded_removes_source(self) -> None:
+        s = StatusModel()
+        s.mark_degraded("ctx")
+        s.mark_degraded("cwd")
+        s.clear_degraded("ctx")
+        assert s.degraded == ("cwd",)
+        s.clear_degraded("notexist")  # 清除未登记源不炸
+        assert s.degraded == ("cwd",)
+
+    def test_snapshot_carries_degraded(self) -> None:
+        s = StatusModel()
+        s.mark_degraded("perm")
+        assert s.snapshot().degraded == ("perm",)
+
+    def test_toolbar_renders_degraded_banner(self) -> None:
+        s = StatusModel()
+        s.mark_degraded("ctx")
+        text = self._text(s.snapshot())
+        assert "状态源降级" in text
+        assert "ctx" in text
+
+    def test_toolbar_clean_when_no_degradation(self) -> None:
+        text = self._text(StatusModel().snapshot())
+        assert "状态源降级" not in text
+
+    def test_legacy_snapshot_without_degraded_field(self) -> None:
+        # 旧版快照/测试桩对象缺 degraded 字段 → 渲染 getattr 兜空，不炸
+        class Legacy:
+            pass
+        assert self._text(Legacy()) == self._text(Legacy())
+
+    def test_render_immunity_none_fields(self) -> None:
+        # toolbar 事故 8 炸点 fuzz 回归：None 字段快照渲染永不炸
+        dirty = StatusModel(cwd=None, ctx_tokens=None, ctx_window=None,
+                            turns=None, task=None, pending=None,
+                            task_pending=None, cache_pct=None)
+        assert toolbar_fragments(dirty)

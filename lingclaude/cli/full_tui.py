@@ -33,9 +33,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any, Callable
@@ -125,6 +127,25 @@ if _HAS_PROMPT_TOOLKIT:
             return super().mouse_handler(mouse_event)
 
 
+def _warn_raw(msg: str) -> None:
+    """P0 普查（2026-09-25）：模块级原始 fd 预警，60s 节流。
+
+    供渲染/刷新回调链使用——这些链路外层已有「吞异常保 UI」护栏，纯静默
+    会让故障既不可见也无证据（toolbar 事故教训）。预警炸则彻底放弃。
+    """
+    now = time.monotonic()
+    if now - getattr(_warn_raw, "_last", 0.0) < 60.0:
+        return
+    _warn_raw._last = now  # type: ignore[attr-defined]
+    try:
+        os.write(2, msg.encode("utf-8", "replace"))
+    except Exception:  # noqa: BLE001 — 预警失败即放弃
+        pass
+
+
+_warn_raw._last = 0.0  # type: ignore[attr-defined]
+
+
 class _StdoutProxy:
     """stdout 代理 — 按行累积写入全屏输出窗（线程安全）。
 
@@ -139,6 +160,10 @@ class _StdoutProxy:
         self._frag: list[str] = []
         # P1-3（2026-09-20）: 跨 write 调用的不完整转义序列尾部（拆片拼接）
         self._esc_hold = b""
+        # 2026-09-25 P0 普查（toolbar 事故教训推广）：输出静默丢失预警节流游标。
+        # write 炸 = 输出无声消失（最危险的静默 except），改为 os.write(2)
+        # 原始 fd 提示（绕过可能已损坏的流对象），60s 节流防刷屏。
+        self._last_write_err = 0.0
 
     def write(self, s: str) -> int:
         if not s:
@@ -162,9 +187,24 @@ class _StdoutProxy:
                     self._frag.append(ch)
                     if len(self._frag) > 4096:  # 超长无换行防御
                         self._flush_line()
-        except Exception:  # noqa: BLE001 — 输出代理异常不反噬调用方
-            pass
+        except Exception as _proxy_err:  # noqa: BLE001 — 输出代理异常不反噬调用方
+            self._warn_output_loss(_proxy_err)  # 2026-09-25 P0: 可见降级
         return len(s)
+
+    def _warn_output_loss(self, err: Exception) -> None:
+        """输出丢失预警：原始 fd 直写 stderr，60s 节流。
+
+        P0 普查（2026-09-25）：write/flush 炸曾静默 pass——流式输出无声消失
+        且零证据。预警本身再炸（stderr 坏）则彻底放弃，绝不反噬输出调用方。
+        """
+        now = time.monotonic()
+        if now - self._last_write_err < 60.0:
+            return
+        self._last_write_err = now
+        try:
+            os.write(2, f"\n⚠ 输出窗写入异常[{type(err).__name__}]：近 60s 输出可能丢失\n".encode("utf-8", "replace"))
+        except Exception:  # noqa: BLE001 — 预警失败即放弃
+            pass
 
     def _flush_line(self) -> None:
         line = "".join(self._frag)
@@ -176,8 +216,8 @@ class _StdoutProxy:
         # 半行也落窗（流式中途停滞时内容可见）
         try:
             self._flush_line()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as _flush_err:  # noqa: BLE001
+            self._warn_output_loss(_flush_err)  # 2026-09-25 P0: 可见降级
         if self._esc_hold:
             # P1-3: flush 时仍扣着的不完整序列 = 无终结字节的残骸，丢弃
             self._esc_hold = b""
@@ -933,8 +973,9 @@ class FullTuiSession:
                 follow_now = buf.document.is_cursor_at_the_end
             self._follow_output = follow_now
             self._invalidate()
-        except Exception:  # noqa: BLE001 — 输出窗异常不反噬生成主线程
-            pass
+        except Exception as _buf_err:  # noqa: BLE001 — 输出窗异常不反噬生成主线程
+            # 2026-09-25 P0: 可见降级——刷窗失败曾静默 pass（输出窗停更无证据）
+            _warn_raw("\n⚠ 输出窗刷新异常：" + repr(_buf_err) + "\n")
 
     def _sep_fragments(self) -> list[tuple[str, str]]:
         """分隔线片段：回看模式时在行内提示（含恢复跟随的键位）。"""

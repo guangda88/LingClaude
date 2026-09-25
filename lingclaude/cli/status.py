@@ -48,6 +48,10 @@ class StatusModel:
     # （不落盘、不覆盖权限模式），由 _toolbar_snapshot 每秒从
     # engine._runtime.plan_mode.is_active 读入；true 时状态行追加 ⏸ plan 段。
     plan_active: bool = False
+    # 2026-09-25 P0 普查（toolbar 事故教训推广）：状态源降级通道——状态链喂入
+    # try 块失败时在此登记源名，渲染层点亮红字降级行，替代原「静默 pass」
+    # （静默吞 = 状态字段无声消失 + 证据销毁，full_tui.py 旧 950 行事故同款）。
+    degraded: tuple[str, ...] = ()
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> "StatusModel":
@@ -73,6 +77,8 @@ class StatusModel:
                 state_level=self.state_level,
                 # 2026-09-22: plan 叠加态透传（bool 不可变，浅拷贝安全）
                 plan_active=self.plan_active,
+                # 2026-09-25: 状态源降级清单透传（元组不可变，浅拷贝安全）
+                degraded=self.degraded,
             )
 
     # ---- 更新方法（主循环调用） ----
@@ -131,6 +137,17 @@ class StatusModel:
     def set_perm_mode(self, mode: str) -> None:
         with self._lock:
             self.perm_mode = mode
+
+    # 2026-09-25 P0 普查：状态源降级登记——feed 失败记名，成功喂入即清除。
+    # 渲染层见非空 degraded 即点亮红字降级行（可见降级，替代静默 pass）。
+    def mark_degraded(self, source: str) -> None:
+        with self._lock:
+            if source not in self.degraded:
+                self.degraded = self.degraded + (source,)
+
+    def clear_degraded(self, source: str) -> None:
+        with self._lock:
+            self.degraded = tuple(x for x in self.degraded if x != source)
 
     # 2026-09-22: plan 叠加态喂入（_toolbar_snapshot 每秒读
     # runtime.plan_mode.is_active 同步）；无 runtime/查询失败静默保留原值。
@@ -194,19 +211,31 @@ def toolbar_fragments(s: StatusModel):
     # 同源镜像腐坏病灶）会让下方任意比较/len 炸 → 全屏 TUI 整栏空白。渲染层
     # 逐字段兜默认，脏快照永不再炸渲染。8 个 fuzz 实证炸点全覆盖。
     # 位置敏感：必须在 todo 循环与所有 len()/比较之前（首版插晚被 fuzz 当场抓回）。
-    if s.todo_items is None:
+    # 2026-09-25 P0: getattr 兜底替换直接访问——快照对象缺字段（旧版/测试桩
+    # 构造）时整函数曾炸 AttributeError，违背「渲染层永不因脏快照炸」原则。
+    _todo_items = getattr(s, "todo_items", None)
+    if _todo_items is None:
         s.todo_items = ()
-    if s.ctx_window is None:
+    if getattr(s, "ctx_window", None) is None:
         s.ctx_window = 0
-    if s.pending is None:
+    if getattr(s, "pending", None) is None:
         s.pending = 0
-    if s.task_pending is None:
+    if getattr(s, "task_pending", None) is None:
         s.task_pending = 0
-    if s.cache_pct is None:
+    if getattr(s, "cache_pct", None) is None:
         s.cache_pct = -1
-    s.cwd = s.cwd or ""
-    s.task = s.task or "空闲"
-    s.turns = s.turns or 0
+    s.cwd = getattr(s, "cwd", None) or ""
+    s.task = getattr(s, "task", None) or "空闲"
+    s.turns = getattr(s, "turns", None) or 0
+    # 2026-09-25 P0: 二批补齐——model/pinned/ctx_tokens/task_active 同属裸访问
+    if getattr(s, "ctx_tokens", None) is None:
+        s.ctx_tokens = 0
+    if getattr(s, "model", None) is None:
+        s.model = "?"
+    if getattr(s, "pinned", None) is None:
+        s.pinned = False
+    if getattr(s, "task_active", None) is None:
+        s.task_active = ""
     # 每项一行：⚙ in_progress / · pending / ✓ completed / ✗ cancelled。
     # 有未完成项时先渲染清单行再渲染状态行（bottom_toolbar 多行片段 PT 原生支持，
     # 全屏 TUI _status_win 高度自适应配套）；无任务时零行，不占版面。
@@ -235,6 +264,11 @@ def toolbar_fragments(s: StatusModel):
     # 权限模式段，两段可同时点亮；快照无字段时静默跳过（向后兼容）。
     if getattr(s, "plan_active", False):
         frag.append(("class:accent", " ⏸ plan │"))
+    # 2026-09-25 P0 普查：状态源降级行——任何喂入源 try 失败即在此红字可见，
+    # 替代旧行为「字段无声消失、外层 except 吞为空白」（toolbar 事故教训）。
+    _deg = getattr(s, "degraded", ()) or ()
+    if _deg:
+        frag.append(("class:red", f" ⚠状态源降级:{'+'.join(_deg[:3])}{'…' if len(_deg) > 3 else ''} │"))
     cwd_display = s.cwd
     if len(cwd_display) > 28:
         cwd_display = "…" + cwd_display[-27:]
