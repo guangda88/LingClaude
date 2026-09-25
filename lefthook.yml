@@ -33,6 +33,13 @@ pre-commit:
     smoke-gate:
       run: bash scripts/smoke_gate.sh
       stage_fixed: false
+    # 2026-09-26: 孤儿扫描守卫（A2）。双触发（仅 staged 触碰 core/ 时）：
+    # 双向校验锚点（l5_audit 有消费 / l7_cognitive_bridge 无消费）+ 增量漂移
+    # 对比（新零消费件 vs 入库基线）。红线机检化：锚点未过禁写任何回收 record。
+    # 同时被 .git/hooks/pre-commit 直连（repair_hook_direct_chain.sh）。
+    orphan-gate:
+      run: bash scripts/orphan_gate.sh
+      stage_fixed: false
     # C1 (2026-09-13): secret 扫描已直接接入 .git/hooks/pre-commit（绕过崩溃的
     # lefthook 直接调用 scripts/secret_scan_hook.sh，见 hooks/pre-commit）。
     # lefthook 在 ulimit -v 512MB 下必然崩溃(Go runtime 虚拟内存不足, exit 0)，

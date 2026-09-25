@@ -101,3 +101,5 @@ run_verify.sh
 # 此处再写 data/ 会按「最后匹配生效」重盖例外（2026-09-17 提交前踩坑），
 # 故运行时忽略也用 data/* 形式且不再重复——以 L30-34 的唯一规则组为准。
 lingclaude/data/
+# 2026-09-26: orphan 扫描器每次运行重写，机器生成噪音不入库（交接文档 §五.3）
+.atomcode/orphan_scan_v2_result.json

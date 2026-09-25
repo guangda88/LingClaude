@@ -35,6 +35,15 @@ echo "[smoke-gate] staged 删除 core/ 件（迁移类 commit，触发三验）�
 echo "$DELETED" | sed 's/^/  - /'
 echo "[smoke-gate] 启动链冒烟三验开始……"
 
+# 双路去重（与 arch_guard_gate 同款：staged 内容哈希锁；三验含 76s pytest，
+# 无锁则直连+lefthook 双路各跑一遍，迁移类提交白等两分半）
+KEY="$( (git rev-parse HEAD 2>/dev/null; git diff --cached --no-ext-diff 2>/dev/null) | md5sum | cut -d' ' -f1)"
+LOCK="/tmp/.smoke_gate_${KEY:0:12}"
+if [ -f "$LOCK" ]; then
+  echo "[smoke-gate] same staged content already gated, skip duplicate"
+  exit 0
+fi
+
 FAIL=0
 
 # ── 一验：import 链 ──
@@ -82,4 +91,5 @@ if [ $FAIL -ne 0 ]; then
 fi
 
 echo "[smoke-gate] 三验全绿，放行迁移类 commit"
+touch "$LOCK"
 exit 0

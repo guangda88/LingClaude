@@ -219,7 +219,7 @@ def main():
         print(json.dumps({name: d}, ensure_ascii=False, indent=2))
         return
     # 全量输出
-    selfcheck(table)
+    ok = selfcheck(table)
     print()
     orphans = [m for m, d in sorted(table.items()) if d["prod_count"] == 0]
     print(f"=== 零生产消费候选（{len(orphans)} 件，候选≠可回收，需逐件四判据）===")
@@ -231,6 +231,10 @@ def main():
     print(f"\n=== 有生产消费 {len(alive)} 件（不可误杀）===")
     json.dump(table, open(ROOT / ".atomcode" / "orphan_scan_v2_result.json", "w"), ensure_ascii=False, indent=1)
     print("\n明细已落：.atomcode/orphan_scan_v2_result.json")
+    # 2026-09-26: 全量模式同样把 selfcheck 结果反映到退出码——
+    # CI 消费方（orphan_gate.sh）按退出码分流锚点红/漂移红，恒 0 会让锚点分支变死代码
+    if not ok:
+        sys.exit(2)
 
 if __name__ == "__main__":
     main()

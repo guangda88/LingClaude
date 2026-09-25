@@ -1,0 +1,6729 @@
+{
+ "approval_matrix": {
+  "prod_count": 2,
+  "test_count": 3,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/permissions.py",
+    263,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/permissions.py",
+    478,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/conftest.py",
+    72,
+    "⑤test①"
+   ],
+   [
+    "tests/test_energize_defaults_20260923.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_mode_cycle.py",
+    236,
+    "⑤test②"
+   ]
+  ]
+ },
+ "audit_collector": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/wiring.py",
+    157,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_audit_collector.py",
+    5,
+    "⑤test②"
+   ]
+  ]
+ },
+ "behavior": {
+  "prod_count": 8,
+  "test_count": 8,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/model_call.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    14,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    376,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    201,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    1,
+    "prod③str"
+   ],
+   [
+    "lingclaude/model/behavior_aware_router.py",
+    19,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_adaptive.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_adaptive.py",
+    216,
+    "⑤test②"
+   ],
+   [
+    "tests/test_adaptive.py",
+    231,
+    "⑤test②"
+   ],
+   [
+    "tests/test_behavior.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_behavior_aware_router.py",
+    5,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p9_policy_consumers_hotupdate.py",
+    212,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    50,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r9_decomposition.py",
+    56,
+    "⑤test②"
+   ]
+  ]
+ },
+ "behavior_check": {
+  "prod_count": 2,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    56,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/l5_audit.py",
+    273,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_behavior_check.py",
+    4,
+    "⑤test②"
+   ]
+  ]
+ },
+ "bounded_compaction": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/context_compression.py",
+    342,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "cognitive_rhythm": {
+  "prod_count": 4,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    62,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    40,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    14,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    324,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_cognitive_rhythm.py",
+    4,
+    "⑤test②"
+   ]
+  ]
+ },
+ "comfort_zone": {
+  "prod_count": 1,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    65,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_comfort_zone.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_comfort_zone.py",
+    1,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "config": {
+  "prod_count": 17,
+  "test_count": 33,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/__init__.py",
+    5,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    47,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    338,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    665,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl_turn.py",
+    21,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl_turn.py",
+    28,
+    "prod②"
+   ],
+   [
+    "lingclaude/coordination/bus_responder.py",
+    146,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    4,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/model_call.py",
+    50,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    230,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/token_monitor.py",
+    40,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/git.py",
+    265,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/verification_gate.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/seams/external_query.py",
+    112,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/trigger.py",
+    7,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_adaptive.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_behavior_trigger.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_coding.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_coding.py",
+    464,
+    "⑤test②"
+   ],
+   [
+    "tests/test_coding.py",
+    637,
+    "⑤test②"
+   ],
+   [
+    "tests/test_coding.py",
+    653,
+    "⑤test②"
+   ],
+   [
+    "tests/test_config_hot_reload.py",
+    52,
+    "⑤test①"
+   ],
+   [
+    "tests/test_config_hot_reload.py",
+    80,
+    "⑤test①"
+   ],
+   [
+    "tests/test_config_hot_reload.py",
+    90,
+    "⑤test①"
+   ],
+   [
+    "tests/test_core.py",
+    7,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon.py",
+    161,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon.py",
+    217,
+    "⑤test②"
+   ],
+   [
+    "tests/test_git_probe_and_log.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_git_push_tool.py",
+    205,
+    "⑤test①"
+   ],
+   [
+    "tests/test_git_push_tool.py",
+    206,
+    "⑤test②"
+   ],
+   [
+    "tests/test_gray_zone.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_seam.py",
+    56,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p01_config_key.py",
+    11,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p02_denial_circuit_breaker.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p0_config_wiring.py",
+    4,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p0_p2_roadmap.py",
+    41,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r10_recurrence_rotation.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    20,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    28,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    35,
+    "⑤test②"
+   ],
+   [
+    "tests/test_request_user_input.py",
+    13,
+    "⑤test②"
+   ],
+   [
+    "tests/test_strict.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_strict.py",
+    61,
+    "⑤test①"
+   ],
+   [
+    "tests/test_t0_wiring.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    459,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w5p1_dynamic_llm.py",
+    32,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w5p1_dynamic_llm.py",
+    64,
+    "⑤test①"
+   ]
+  ]
+ },
+ "context_cache": {
+  "prod_count": 2,
+  "test_count": 3,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    25,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    238,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_context_cache.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lingmemory_bridge.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_optimization_integration.py",
+    9,
+    "⑤test②"
+   ]
+  ]
+ },
+ "context_compression": {
+  "prod_count": 2,
+  "test_count": 6,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    48,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    9,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_context_compression.py",
+    3,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    307,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    316,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    323,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    331,
+    "⑤test②"
+   ]
+  ]
+ },
+ "context_engine": {
+  "prod_count": 0,
+  "test_count": 2,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_plan_c_v4.py",
+    33,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plan_c_v4_contract.py",
+    23,
+    "⑤test②"
+   ]
+  ]
+ },
+ "data_flywheel": {
+  "prod_count": 8,
+  "test_count": 13,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_lifecycle_mixin.py",
+    129,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    265,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_runtime.py",
+    40,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/system_prompt_builder.py",
+    265,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/system_prompt_builder.py",
+    300,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_call_executor.py",
+    38,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/turn_learner.py",
+    91,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_data_flywheel.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_data_flywheel.py",
+    206,
+    "⑤test②"
+   ],
+   [
+    "tests/test_data_flywheel.py",
+    227,
+    "⑤test②"
+   ],
+   [
+    "tests/test_data_flywheel.py",
+    212,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_data_flywheel.py",
+    220,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_experiments.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p02_denial_circuit_breaker.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r10_recurrence_rotation.py",
+    16,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r10_recurrence_rotation.py",
+    135,
+    "⑤test②"
+   ],
+   [
+    "tests/test_system_prompt_builder.py",
+    210,
+    "⑤test①"
+   ],
+   [
+    "tests/test_system_prompt_builder.py",
+    249,
+    "⑤test①"
+   ],
+   [
+    "tests/test_turn_learner.py",
+    19,
+    "⑤test①"
+   ],
+   [
+    "tests/test_turn_learner.py",
+    22,
+    "⑤test②"
+   ]
+  ]
+ },
+ "datalog": {
+  "prod_count": 1,
+  "test_count": 4,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/model/openai_provider.py",
+    16,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_cache_pct_fix.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cache_pct_fix.py",
+    207,
+    "⑤test①"
+   ],
+   [
+    "tests/test_cache_pct_fix.py",
+    216,
+    "⑤test①"
+   ],
+   [
+    "tests/test_datalog.py",
+    6,
+    "⑤test②"
+   ]
+  ]
+ },
+ "degradation_detector": {
+  "prod_count": 4,
+  "test_count": 3,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/l5_audit.py",
+    8,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_projection.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    336,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_degradation_detector.py",
+    3,
+    "⑤test②"
+   ],
+   [
+    "tests/test_query_engine_l5_integration.py",
+    51,
+    "⑤test②"
+   ],
+   [
+    "tests/test_query_engine_l5_integration.py",
+    86,
+    "⑤test②"
+   ]
+  ]
+ },
+ "dementia_detector": {
+  "prod_count": 3,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    53,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    318,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_dementia_detector.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r9_decomposition.py",
+    74,
+    "⑤test②"
+   ]
+  ]
+ },
+ "devnull_compat": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod①"
+  ],
+  "channels_test": [
+   "⑤test①"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/app.py",
+    5,
+    "prod①"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/conftest.py",
+    6,
+    "⑤test①"
+   ]
+  ]
+ },
+ "evidence_protocol": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/model_call.py",
+    127,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "fact_checker": {
+  "prod_count": 3,
+  "test_count": 7,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    219,
+    "prod③str"
+   ],
+   [
+    "lingclaude/core/datalog.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/l5_audit.py",
+    194,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_fact_checker.py",
+    5,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s5_cross_reference_claims.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_fact_check_e2e.py",
+    5,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    77,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    82,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    92,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    116,
+    "⑤test②"
+   ]
+  ]
+ },
+ "file_history": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    814,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_p0_p2_roadmap.py",
+    10,
+    "⑤test②"
+   ]
+  ]
+ },
+ "file_lock": {
+  "prod_count": 2,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    774,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    919,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_session_safety.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_safety.py",
+    35,
+    "⑤test①"
+   ]
+  ]
+ },
+ "governance": {
+  "prod_count": 2,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    42,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/governance_integration.py",
+    3,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_governance.py",
+    7,
+    "⑤test②"
+   ]
+  ]
+ },
+ "governance_integration": {
+  "prod_count": 3,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/api.py",
+    634,
+    "prod②"
+   ],
+   [
+    "lingclaude/coordination/bus_responder.py",
+    215,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    47,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_governance_integration.py",
+    5,
+    "⑤test②"
+   ]
+  ]
+ },
+ "governance_verifier": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/app.py",
+    655,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_governance_verifier.py",
+    3,
+    "⑤test②"
+   ]
+  ]
+ },
+ "gray_zone": {
+  "prod_count": 1,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/engine/coding.py",
+    8,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_gray_zone.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_gray_zone.py",
+    40,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "guard": {
+  "prod_count": 0,
+  "test_count": 1,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_guard_wiring.py",
+    9,
+    "⑤test②"
+   ]
+  ]
+ },
+ "hallucination_guard": {
+  "prod_count": 1,
+  "test_count": 4,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    238,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_hallucination_guard_t9_t10.py",
+    25,
+    "⑤test②"
+   ],
+   [
+    "tests/test_host_root_logfix.py",
+    1,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_host_root_logfix.py",
+    76,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_host_root_logfix.py",
+    86,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "hooks": {
+  "prod_count": 9,
+  "test_count": 7,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/_commands_session.py",
+    139,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    59,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/cognitive_rhythm.py",
+    340,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/comfort_zone.py",
+    159,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/plugin_lifecycle.py",
+    394,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    39,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    8,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    330,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_cognitive_rhythm.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_comfort_zone.py",
+    80,
+    "⑤test②"
+   ],
+   [
+    "tests/test_comfort_zone.py",
+    91,
+    "⑤test②"
+   ],
+   [
+    "tests/test_hooks.py",
+    5,
+    "⑤test②"
+   ],
+   [
+    "tests/test_long_session_stress.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plan_c_v4.py",
+    48,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t0_wiring.py",
+    301,
+    "⑤test②"
+   ]
+  ]
+ },
+ "image_content": {
+  "prod_count": 3,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    35,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    36,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_call_executor.py",
+    18,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_t1_wiring.py",
+    29,
+    "⑤test②"
+   ]
+  ]
+ },
+ "intel": {
+  "prod_count": 4,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_lifecycle_mixin.py",
+    15,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    195,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_intel.py",
+    9,
+    "⑤test②"
+   ]
+  ]
+ },
+ "invariants": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/plugin_lifecycle.py",
+    23,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_invariants.py",
+    12,
+    "⑤test②"
+   ]
+  ]
+ },
+ "l10_a_post_audit": {
+  "prod_count": 0,
+  "test_count": 6,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_l10_a_post_audit.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_l10_a_post_audit.py",
+    327,
+    "⑤test②"
+   ],
+   [
+    "tests/test_l10_a_post_audit.py",
+    453,
+    "⑤test②"
+   ],
+   [
+    "tests/test_l10_a_post_audit.py",
+    482,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p9_policy_consumers_hotupdate.py",
+    25,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p9_policy_consumers_hotupdate.py",
+    264,
+    "⑤test②"
+   ]
+  ]
+ },
+ "l5_audit": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    129,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "l7_classifier": {
+  "prod_count": 2,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/l7_cognitive.py",
+    168,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/l7_types.py",
+    1,
+    "prod③str"
+   ]
+  ],
+  "hits_test": []
+ },
+ "l7_cognitive": {
+  "prod_count": 4,
+  "test_count": 5,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/l7_cognitive_facade.py",
+    16,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/l7_cognitive_facade.py",
+    1,
+    "prod③str"
+   ],
+   [
+    "lingclaude/core/l7_cognitive_facade.py",
+    29,
+    "prod③str"
+   ],
+   [
+    "lingclaude/core/l7_session.py",
+    13,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_l7_cognitive.py",
+    5,
+    "⑤test②"
+   ],
+   [
+    "tests/test_l7_cognitive.py",
+    283,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lingmemory_l7_bridge.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    126,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    171,
+    "⑤test②"
+   ]
+  ]
+ },
+ "l7_cognitive_facade": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/l7_cognitive.py",
+    602,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    129,
+    "⑤test②"
+   ]
+  ]
+ },
+ "l7_session": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/l7_cognitive.py",
+    597,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "l7_types": {
+  "prod_count": 2,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/l7_classifier.py",
+    16,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/l7_cognitive.py",
+    39,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "layered_memory": {
+  "prod_count": 5,
+  "test_count": 4,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    25,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    23,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    305,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_intelligence.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_layered_memory.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_ling_memory_closed_loop.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lingmemory_experience_bridge.py",
+    20,
+    "⑤test②"
+   ]
+  ]
+ },
+ "llm_probe": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    68,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "lm_quick": {
+  "prod_count": 1,
+  "test_count": 3,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    40,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_lm_quick.py",
+    17,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_lm_quick.py",
+    34,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_lm_quick.py",
+    18,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "mailbox_notify": {
+  "prod_count": 2,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    16,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    354,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "mcp_tools": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    37,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_schema_passthrough.py",
+    56,
+    "⑤test②"
+   ]
+  ]
+ },
+ "memory_engine": {
+  "prod_count": 0,
+  "test_count": 3,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_lingmemory_memstore_bridge.py",
+    16,
+    "⑤test②"
+   ],
+   [
+    "tests/test_memory_engine.py",
+    7,
+    "⑤test②"
+   ],
+   [
+    "tests/test_memory_engine.py",
+    1,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "message_builder": {
+  "prod_count": 0,
+  "test_count": 2,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_message_builder.py",
+    13,
+    "⑤test②"
+   ],
+   [
+    "tests/test_system_prompt_builder.py",
+    198,
+    "⑤test②"
+   ]
+  ]
+ },
+ "meta_cognition": {
+  "prod_count": 5,
+  "test_count": 4,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    23,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_runtime.py",
+    131,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    299,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_intelligence.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_meta_cognition.py",
+    7,
+    "⑤test②"
+   ],
+   [
+    "tests/test_meta_cognition.py",
+    1,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_r9_decomposition.py",
+    73,
+    "⑤test②"
+   ]
+  ]
+ },
+ "metrics": {
+  "prod_count": 2,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/app.py",
+    584,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    1152,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_metrics.py",
+    7,
+    "⑤test②"
+   ]
+  ]
+ },
+ "model_adapter": {
+  "prod_count": 3,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/context_compression.py",
+    390,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    338,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    151,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_model_adapter.py",
+    7,
+    "⑤test②"
+   ]
+  ]
+ },
+ "model_call": {
+  "prod_count": 3,
+  "test_count": 4,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    34,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    15,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    170,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_config_hot_reload.py",
+    12,
+    "⑤test②"
+   ],
+   [
+    "tests/test_full_tui.py",
+    1093,
+    "⑤test②"
+   ],
+   [
+    "tests/test_full_tui.py",
+    1148,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_unification_acceptance_20260923.py",
+    173,
+    "⑤test②"
+   ]
+  ]
+ },
+ "model_request_log": {
+  "prod_count": 3,
+  "test_count": 3,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/model_call.py",
+    237,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/model_call.py",
+    267,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    163,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_d8_mv1b.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_d8_mv1b.py",
+    179,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_model_request_log.py",
+    5,
+    "⑤test②"
+   ]
+  ]
+ },
+ "model_types": {
+  "prod_count": 19,
+  "test_count": 10,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/model_call.py",
+    14,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/model_call.py",
+    372,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    86,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_model_mixin.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_model_mixin.py",
+    32,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_model_mixin.py",
+    114,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    26,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    145,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_store.py",
+    71,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    375,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_call_executor.py",
+    58,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_call_executor.py",
+    100,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_call_executor.py",
+    151,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    360,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    1,
+    "prod③str"
+   ],
+   [
+    "lingclaude/model/types.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/types.py",
+    1,
+    "prod③str"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/hallucination_bench.py",
+    217,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cache_pct_fix.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cache_pct_fix.py",
+    29,
+    "⑤test②"
+   ],
+   [
+    "tests/test_golden_loop_master.py",
+    30,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_seam.py",
+    57,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_seam.py",
+    80,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_unification_acceptance_20260923.py",
+    29,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_unification.py",
+    75,
+    "⑤test②"
+   ],
+   [
+    "tests/test_truncation_guard.py",
+    26,
+    "⑤test②"
+   ],
+   [
+    "tests/test_truncation_guard.py",
+    94,
+    "⑤test②"
+   ]
+  ]
+ },
+ "models": {
+  "prod_count": 8,
+  "test_count": 7,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/__init__.py",
+    6,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    5,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_lifecycle_mixin.py",
+    16,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    21,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    443,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_daemon_extras.py",
+    179,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon_extras.py",
+    189,
+    "⑤test②"
+   ],
+   [
+    "tests/test_denial_logging.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    129,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_denial_circuit_breaker.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_denial_circuit_breaker.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_persist_atomic.py",
+    7,
+    "⑤test②"
+   ]
+  ]
+ },
+ "permissions": {
+  "prod_count": 25,
+  "test_count": 35,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/__init__.py",
+    8,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    23,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    518,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    528,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/mode_cycle.py",
+    21,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl.py",
+    226,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/approval_matrix.py",
+    41,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/approval_matrix.py",
+    161,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/gray_zone.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/guard.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/guard.py",
+    50,
+    "prod③str"
+   ],
+   [
+    "lingclaude/core/skill_parser.py",
+    238,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    398,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    318,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    329,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    426,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    487,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    563,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    377,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding_wiring.py",
+    102,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    747,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    853,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    914,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/conftest.py",
+    73,
+    "⑤test①"
+   ],
+   [
+    "tests/test_coding.py",
+    29,
+    "⑤test①"
+   ],
+   [
+    "tests/test_core.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_energize_defaults_20260923.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/test_gray_zone.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_gray_zone.py",
+    146,
+    "⑤test②"
+   ],
+   [
+    "tests/test_guard_wiring.py",
+    122,
+    "⑤test②"
+   ],
+   [
+    "tests/test_guard_wiring.py",
+    129,
+    "⑤test②"
+   ],
+   [
+    "tests/test_guard_wiring.py",
+    139,
+    "⑤test②"
+   ],
+   [
+    "tests/test_guard_wiring.py",
+    145,
+    "⑤test②"
+   ],
+   [
+    "tests/test_mode_cycle.py",
+    20,
+    "⑤test①"
+   ],
+   [
+    "tests/test_mode_cycle.py",
+    235,
+    "⑤test①"
+   ],
+   [
+    "tests/test_p02_denial_circuit_breaker.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p02_denial_circuit_breaker.py",
+    25,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_denial_circuit_breaker.py",
+    33,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_denial_circuit_breaker.py",
+    41,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_denial_circuit_breaker.py",
+    51,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_denial_circuit_breaker.py",
+    60,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_denial_circuit_breaker.py",
+    70,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    31,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    38,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    73,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    83,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    103,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    111,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    122,
+    "⑤test②"
+   ],
+   [
+    "tests/test_replay_objective.py",
+    309,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_replay_objective.py",
+    320,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_skill_parser.py",
+    232,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t0_wiring.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    30,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    120,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    131,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "plugin_lifecycle": {
+  "prod_count": 0,
+  "test_count": 3,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_plan_c_v4.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plan_c_v4_contract.py",
+    29,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plugin_storm_breaker.py",
+    12,
+    "⑤test②"
+   ]
+  ]
+ },
+ "plugin_loader": {
+  "prod_count": 3,
+  "test_count": 10,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/wiring.py",
+    508,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding_wiring.py",
+    213,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tools.py",
+    52,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    45,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    59,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    73,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    115,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    163,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    98,
+    "⑤test②"
+   ],
+   [
+    "tests/test_seam_plugin.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_plugins_p0.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_plugins_p1_p2.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_plugins_p1_p2_warm.py",
+    14,
+    "⑤test②"
+   ]
+  ]
+ },
+ "plugin_manifest": {
+  "prod_count": 1,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/plugin_loader.py",
+    27,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    164,
+    "⑤test②"
+   ],
+   [
+    "tests/test_seam_plugin.py",
+    16,
+    "⑤test②"
+   ]
+  ]
+ },
+ "policy_loader": {
+  "prod_count": 26,
+  "test_count": 9,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/behavior_check.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/cognitive_rhythm.py",
+    26,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/evidence_protocol.py",
+    292,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/l10_a_post_audit.py",
+    36,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/success_gate.py",
+    130,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    94,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/bash.py",
+    437,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/bash_network.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/failure_triage.py",
+    188,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/injection_screen.py",
+    112,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/fan_out_scheduler.py",
+    151,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/fan_out_scheduler.py",
+    168,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/fan_out_scheduler.py",
+    199,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/fan_out_scheduler.py",
+    234,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/fan_out_scheduler.py",
+    269,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/fan_out_scheduler.py",
+    292,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/risk_gate.py",
+    205,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/behavior_aware_router.py",
+    31,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/fast_lane.py",
+    61,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/fast_lane.py",
+    102,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/intelligent_router.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/openai_provider.py",
+    48,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/task_router.py",
+    55,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/task_router.py",
+    452,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    909,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    478,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_daemon.py",
+    243,
+    "⑤test②"
+   ],
+   [
+    "tests/test_intelligent_router_hotupdate.py",
+    26,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest_hotupdate.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p7_policy_loader_ns.py",
+    21,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p9_policy_consumers_hotupdate.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/test_policy_loader.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_replay_objective.py",
+    283,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_sandbox_policy_hotupdate.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_task_routing_hotupdate.py",
+    14,
+    "⑤test②"
+   ]
+  ]
+ },
+ "prior_verifier": {
+  "prod_count": 7,
+  "test_count": 11,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/hallucination_guard.py",
+    66,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/hallucination_guard.py",
+    1,
+    "prod③str"
+   ],
+   [
+    "lingclaude/core/model_call.py",
+    390,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/model_call.py",
+    321,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    21,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    293,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/hallucination_bench.py",
+    129,
+    "⑤test②"
+   ],
+   [
+    "tests/test_hallucination_guard_t9_t10.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_intelligence.py",
+    5,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p17_cross_reference.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p17_cross_reference.py",
+    79,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p17_cross_reference.py",
+    98,
+    "⑤test②"
+   ],
+   [
+    "tests/test_prior_verifier.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_prior_verifier.py",
+    1,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_prior_verifier_regression.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_prior_verifier_span_tags.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_prior_verifier_span_tags.py",
+    49,
+    "⑤test②"
+   ]
+  ]
+ },
+ "query_engine": {
+  "prod_count": 10,
+  "test_count": 66,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/__init__.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    410,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    48,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    506,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl.py",
+    58,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl_turn.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl_turn.py",
+    305,
+    "prod②"
+   ],
+   [
+    "lingclaude/coordination/bus_responder.py",
+    147,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    215,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_adaptive.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    402,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    447,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    497,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    584,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    624,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_ctx_gauge_fix.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/test_d8_mv1b.py",
+    21,
+    "⑤test②"
+   ],
+   [
+    "tests/test_denial_logging.py",
+    16,
+    "⑤test②"
+   ],
+   [
+    "tests/test_golden_loop_master.py",
+    39,
+    "⑤test②"
+   ],
+   [
+    "tests/test_governance_integration.py",
+    119,
+    "⑤test②"
+   ],
+   [
+    "tests/test_governance_integration.py",
+    124,
+    "⑤test②"
+   ],
+   [
+    "tests/test_intel.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_intelligence.py",
+    464,
+    "⑤test②"
+   ],
+   [
+    "tests/test_intelligence.py",
+    472,
+    "⑤test②"
+   ],
+   [
+    "tests/test_intelligence.py",
+    480,
+    "⑤test②"
+   ],
+   [
+    "tests/test_long_session_stress.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_seam.py",
+    55,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_warn_visible.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model.py",
+    1138,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model.py",
+    1156,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model.py",
+    1168,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model.py",
+    1178,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model.py",
+    1188,
+    "⑤test②"
+   ],
+   [
+    "tests/test_mv1_wiring.py",
+    11,
+    "⑤test②"
+   ],
+   [
+    "tests/test_n5_done_usage.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/test_optimization_integration.py",
+    7,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p0_config_wiring.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    50,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    168,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    178,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest_hotupdate.py",
+    95,
+    "⑤test②"
+   ],
+   [
+    "tests/test_protocol.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_query_engine_l5_integration.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    83,
+    "⑤test②"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    129,
+    "⑤test②"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    161,
+    "⑤test②"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    82,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    128,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    160,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_round_end_event.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_capability_balance.py",
+    210,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_capability_balance.py",
+    234,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    156,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    180,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    211,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    242,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    155,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_session_journal.py",
+    179,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_session_journal.py",
+    209,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_session_journal.py",
+    240,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_strict.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t0_wiring.py",
+    339,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_fact_check_e2e.py",
+    34,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    143,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    150,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    157,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    166,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    366,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    377,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    388,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    465,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    477,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    491,
+    "⑤test②"
+   ]
+  ]
+ },
+ "query_engine_lifecycle_mixin": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    50,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_token_schema_legacy_ingest.py",
+    14,
+    "⑤test②"
+   ]
+  ]
+ },
+ "query_engine_model_mixin": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    49,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_hallucination_p1p2.py",
+    135,
+    "⑤test②"
+   ]
+  ]
+ },
+ "query_engine_turn_mixin": {
+  "prod_count": 1,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    48,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_ctx_gauge_fix.py",
+    89,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r9_decomposition.py",
+    130,
+    "⑤test②"
+   ]
+  ]
+ },
+ "rate_limiter": {
+  "prod_count": 2,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/model/llm_proxy/rate_gate.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/task_router.py",
+    24,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_rate_limiter.py",
+    7,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rate_limiter.py",
+    1,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "reasoning_chain": {
+  "prod_count": 2,
+  "test_count": 4,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    44,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/governance_integration.py",
+    4,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_governance.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_governance_integration.py",
+    6,
+    "⑤test②"
+   ],
+   [
+    "tests/test_reasoning_chain.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_reasoning_chain.py",
+    1,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "redact": {
+  "prod_count": 9,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/_commands_checkpoint.py",
+    172,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    15,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_lifecycle_mixin.py",
+    17,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_journal.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_store.py",
+    26,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/openai_provider.py",
+    100,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_security_capability_balance.py",
+    11,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_capability_balance.py",
+    253,
+    "⑤test②"
+   ]
+  ]
+ },
+ "repair_card": {
+  "prod_count": 0,
+  "test_count": 2,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_plan_c_v4.py",
+    41,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plan_c_v4_contract.py",
+    34,
+    "⑤test②"
+   ]
+  ]
+ },
+ "role_separation": {
+  "prod_count": 2,
+  "test_count": 3,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    44,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    207,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_coordination.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_role_separation.py",
+    3,
+    "⑤test②"
+   ],
+   [
+    "tests/test_role_separation_v2.py",
+    7,
+    "⑤test②"
+   ]
+  ]
+ },
+ "rollout": {
+  "prod_count": 7,
+  "test_count": 7,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/_commands_checkpoint.py",
+    143,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/_commands_checkpoint.py",
+    173,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    82,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    185,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    116,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_store.py",
+    309,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    351,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_rollout_rebuild.py",
+    21,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    52,
+    "⑤test①"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    90,
+    "⑤test①"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    120,
+    "⑤test①"
+   ],
+   [
+    "tests/test_rollout_unification.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_unification.py",
+    149,
+    "⑤test①"
+   ],
+   [
+    "tests/test_rollout_unification.py",
+    156,
+    "⑤test①"
+   ]
+  ]
+ },
+ "safe_db": {
+  "prod_count": 13,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    43,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/context_cache.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/data_flywheel.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/l7_cognitive.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/layered_memory.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/metrics.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/reasoning_chain.py",
+    208,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/sqlite_store_base.py",
+    18,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/task_aggregation.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/token_monitor.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/token_reports.py",
+    17,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/learner/knowledge.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/state_store_ext.py",
+    28,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "scheduler": {
+  "prod_count": 1,
+  "test_count": 8,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/commands.py",
+    421,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_t3_wiring.py",
+    98,
+    "⑤test①"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    103,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    109,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    120,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    129,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    137,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    148,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    160,
+    "⑤test②"
+   ]
+  ]
+ },
+ "seam": {
+  "prod_count": 47,
+  "test_count": 23,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/plugin_lifecycle.py",
+    28,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/plugin_loader.py",
+    28,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/plugin_manifest.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/bash.py",
+    352,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding_wiring.py",
+    185,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/sandbox_provider.py",
+    27,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tools.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/provider_registry.py",
+    21,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingan/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingcreate/plugin.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingflow/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingmessage/plugin.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingminopt/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingresearch/plugin.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingtongask/plugin.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingweb/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingxi/plugin.py",
+    270,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingyang/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingzhi/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_zhibridge/plugin.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_browser/plugin.py",
+    263,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_infer/plugin.py",
+    281,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_inspect/plugin.py",
+    191,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_inspect/plugin.py",
+    60,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_inspect/plugin.py",
+    96,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/lc_mcp_guard/plugin.py",
+    213,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/os_resource/plugin.py",
+    195,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_agent_gateway/plugin.py",
+    212,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_lingchu/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_lingdai/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_lingkang/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_linglv/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_lingshang/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_lingsheng/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_lingshi/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_lingyi/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/memory/lingmemory_bridge/plugin.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/memory/lingmemory_experience_bridge/plugin.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/memory/lingmemory_l7_bridge/plugin.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/memory/lingmemory_memstore_bridge/plugin.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/memory/lingmemory_token_bridge/plugin.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/tools/bash/plugin.py",
+    15,
+    "prod③str"
+   ],
+   [
+    "lingclaude/seams/multimodal_lingtong.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/seams/research_crew.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/webui_seam.py",
+    118,
+    "prod②"
+   ],
+   [
+    "lingclaude/webui_seam.py",
+    119,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/agents/test_cap_browser.py",
+    28,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_cap_infer.py",
+    32,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_os_resource.py",
+    29,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_seam_protocols.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_iron_law_guards.py",
+    554,
+    "⑤test②"
+   ],
+   [
+    "tests/test_iron_law_guards.py",
+    343,
+    "⑤test②"
+   ],
+   [
+    "tests/test_mcp_subagent_backend.py",
+    12,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p12_sandbox_seam_unified.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p4_p5_consumer_seam.py",
+    20,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p8_webui_seam_unified.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_phase3_ling_family.py",
+    29,
+    "⑤test②"
+   ],
+   [
+    "tests/test_phase3_ling_family.py",
+    58,
+    "⑤test②"
+   ],
+   [
+    "tests/test_phase3_ling_family.py",
+    154,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plan_c_v4.py",
+    21,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plan_c_v4_contract.py",
+    39,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plugin_storm_breaker.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/test_q1_tool_seam_consumption.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s2_s3_seam_consumers_hotplug.py",
+    21,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    13,
+    "⑤test②"
+   ],
+   [
+    "tests/test_seam_plugin.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_plugins_p0.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_plugins_p1_p2.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_plugins_p1_p2_warm.py",
+    15,
+    "⑤test②"
+   ]
+  ]
+ },
+ "session": {
+  "prod_count": 15,
+  "test_count": 18,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/__init__.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    259,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    269,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    281,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    297,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    312,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/_commands_history.py",
+    63,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    383,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    8,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    14,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_projection.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_store.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/mcp/server.py",
+    462,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    26,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/e2e/conftest.py",
+    57,
+    "⑤test②"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_core.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_full_tui.py",
+    735,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_governance_integration.py",
+    120,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    51,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest_hotupdate.py",
+    96,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_unification.py",
+    90,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_persist_atomic.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_project_isolation.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_project_isolation.py",
+    71,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_session_projection.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_rewind.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_store.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_strict.py",
+    113,
+    "⑤test②"
+   ],
+   [
+    "tests/test_strict.py",
+    313,
+    "⑤test②"
+   ],
+   [
+    "tests/test_strict.py",
+    321,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    8,
+    "⑤test②"
+   ]
+  ]
+ },
+ "session_journal": {
+  "prod_count": 2,
+  "test_count": 12,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/model_call.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    35,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_denial_logging.py",
+    11,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    49,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    94,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    110,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r5_pending_side_effects.py",
+    121,
+    "⑤test②"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    11,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_capability_balance.py",
+    12,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    212,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    243,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    210,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_session_journal.py",
+    241,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "session_persist": {
+  "prod_count": 2,
+  "test_count": 10,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    17,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    181,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_rollout_rebuild.py",
+    89,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    119,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    252,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    270,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    294,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_unification.py",
+    76,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_persist_atomic.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_project_isolation.py",
+    25,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_rewind.py",
+    108,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_rewind.py",
+    154,
+    "⑤test②"
+   ]
+  ]
+ },
+ "session_projection": {
+  "prod_count": 2,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/api.py",
+    313,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    82,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_session_projection.py",
+    9,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t3_wiring.py",
+    9,
+    "⑤test②"
+   ]
+  ]
+ },
+ "session_runtime": {
+  "prod_count": 3,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    18,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    187,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/coding.py",
+    12,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_state_store.py",
+    111,
+    "⑤test②"
+   ]
+  ]
+ },
+ "session_store": {
+  "prod_count": 2,
+  "test_count": 5,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/submission.py",
+    352,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    145,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    191,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_unification.py",
+    77,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_rewind.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_store.py",
+    11,
+    "⑤test②"
+   ]
+  ]
+ },
+ "session_token_sink": {
+  "prod_count": 2,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    27,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    258,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_session_token_sink.py",
+    15,
+    "⑤test②"
+   ]
+  ]
+ },
+ "skill_index": {
+  "prod_count": 2,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    43,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    348,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "skill_parser": {
+  "prod_count": 0,
+  "test_count": 1,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_skill_parser.py",
+    5,
+    "⑤test②"
+   ]
+  ]
+ },
+ "sqlite_store_base": {
+  "prod_count": 3,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/l7_cognitive.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/layered_memory.py",
+    25,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/memory_engine.py",
+    27,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "state_store": {
+  "prod_count": 43,
+  "test_count": 36,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/coordination/bus_responder.py",
+    108,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    78,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/approval_matrix.py",
+    262,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/governance.py",
+    444,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/governance_verifier.py",
+    294,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/layered_memory.py",
+    507,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/memory_engine.py",
+    195,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/meta_cognition.py",
+    268,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/meta_cognition.py",
+    161,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    31,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_lifecycle_mixin.py",
+    130,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/reasoning_chain.py",
+    122,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/role_separation.py",
+    462,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/scheduler.py",
+    96,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session.py",
+    112,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session.py",
+    190,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session.py",
+    76,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_runtime.py",
+    24,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_runtime.py",
+    113,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_token_sink.py",
+    95,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/task_aggregation.py",
+    142,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wakeup_channel.py",
+    79,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    360,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/event_exempt.py",
+    34,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/state_query.py",
+    26,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/state_reconcile.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/governance/governance_v2.py",
+    169,
+    "prod②"
+   ],
+   [
+    "lingclaude/governance/proposal_lifecycle.py",
+    654,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/intelligent_router.py",
+    301,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_family.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_lingxi/plugin.py",
+    32,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/bus_bridge.py",
+    17,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_browser/plugin.py",
+    34,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_browser/plugin.py",
+    182,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/cap_infer/plugin.py",
+    39,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/lc_mcp_guard/plugin.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/lc_mcp_guard/server.py",
+    173,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/os_resource/plugin.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/proj_agent_gateway/plugin.py",
+    31,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/work_claim.py",
+    23,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/tools/git/plugin.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/tools/git/remote_probe.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    1124,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/agents/conftest.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_family.py",
+    18,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_lingxi.py",
+    53,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_lingxi.py",
+    73,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_lingxi.py",
+    94,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_lingxi.py",
+    175,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_lingxi.py",
+    191,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_lingxi.py",
+    215,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_agent_lingxi.py",
+    275,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_batch2_n5_n1_m6.py",
+    42,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_batch2_n5_n1_m6.py",
+    104,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_batch2_n5_n1_m6.py",
+    272,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_batch2_n5_n1_m6.py",
+    230,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_bus_bridge.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_cap_browser.py",
+    29,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_cap_infer.py",
+    33,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_iron_law_5_8.py",
+    21,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_os_resource.py",
+    30,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_periodic_audit.py",
+    91,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_work_claim.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/agents/test_worktree_node.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/fixtures/m4_synthetic_suite.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_event_exempt.py",
+    31,
+    "⑤test②"
+   ],
+   [
+    "tests/test_git_probe_and_log.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_handover.py",
+    173,
+    "⑤test②"
+   ],
+   [
+    "tests/test_handover.py",
+    250,
+    "⑤test②"
+   ],
+   [
+    "tests/test_iron_law_guards.py",
+    155,
+    "⑤test②"
+   ],
+   [
+    "tests/test_iron_law_guards.py",
+    495,
+    "⑤test②"
+   ],
+   [
+    "tests/test_layered_memory.py",
+    662,
+    "⑤test②"
+   ],
+   [
+    "tests/test_layered_memory.py",
+    675,
+    "⑤test②"
+   ],
+   [
+    "tests/test_optimization_integration.py",
+    199,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_persist_atomic.py",
+    81,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_token_sink.py",
+    20,
+    "⑤test②"
+   ],
+   [
+    "tests/test_state_reconcile.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_state_store.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_state_store.py",
+    112,
+    "⑤test①"
+   ]
+  ]
+ },
+ "submission": {
+  "prod_count": 1,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    38,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_rollout_rebuild.py",
+    88,
+    "⑤test②"
+   ],
+   [
+    "tests/test_rollout_rebuild.py",
+    118,
+    "⑤test②"
+   ]
+  ]
+ },
+ "success_gate": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/tool_executor.py",
+    124,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "system_prompt_builder": {
+  "prod_count": 4,
+  "test_count": 20,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/message_builder.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/message_builder.py",
+    23,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_model_mixin.py",
+    206,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    104,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/hallucination_bench.py",
+    177,
+    "⑤test②"
+   ],
+   [
+    "tests/test_hallucination_p1p2.py",
+    153,
+    "⑤test②"
+   ],
+   [
+    "tests/test_hallucination_p1p2.py",
+    195,
+    "⑤test②"
+   ],
+   [
+    "tests/test_hallucination_p1p2.py",
+    209,
+    "⑤test②"
+   ],
+   [
+    "tests/test_hallucination_p1p2.py",
+    219,
+    "⑤test②"
+   ],
+   [
+    "tests/test_message_builder.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_prefix_cache_boundary.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_prefix_cache_boundary.py",
+    24,
+    "⑤test②"
+   ],
+   [
+    "tests/test_q3_session_context_sanitize.py",
+    16,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    81,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    88,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    98,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    122,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    134,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r8_sub_agent.py",
+    147,
+    "⑤test②"
+   ],
+   [
+    "tests/test_r9_decomposition.py",
+    72,
+    "⑤test②"
+   ],
+   [
+    "tests/test_system_prompt_builder.py",
+    13,
+    "⑤test②"
+   ],
+   [
+    "tests/test_system_prompt_builder.py",
+    175,
+    "⑤test①"
+   ],
+   [
+    "tests/test_system_prompt_builder.py",
+    211,
+    "⑤test①"
+   ],
+   [
+    "tests/test_system_prompt_builder.py",
+    250,
+    "⑤test①"
+   ]
+  ]
+ },
+ "task_aggregation": {
+  "prod_count": 2,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/tool_executor.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    250,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_optimization_integration.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_q2_taskstatus_disambiguation.py",
+    16,
+    "⑤test②"
+   ]
+  ]
+ },
+ "task_manager": {
+  "prod_count": 3,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    41,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    42,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    342,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "task_scheduler": {
+  "prod_count": 1,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/scheduler.py",
+    29,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_q2_taskstatus_disambiguation.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_task_scheduler.py",
+    7,
+    "⑤test②"
+   ]
+  ]
+ },
+ "token_monitor": {
+  "prod_count": 3,
+  "test_count": 12,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    28,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/token_reports.py",
+    18,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    259,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_lingmemory_token_bridge.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_optimization_integration.py",
+    11,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    169,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_token_sink.py",
+    159,
+    "⑤test②"
+   ],
+   [
+    "tests/test_token_monitor.py",
+    12,
+    "⑤test②"
+   ],
+   [
+    "tests/test_token_monitor.py",
+    314,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    180,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    185,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w20260911_audit_fixes.py",
+    197,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w5p1_dynamic_llm.py",
+    138,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w5p1_dynamic_llm.py",
+    151,
+    "⑤test②"
+   ],
+   [
+    "tests/test_w5p1_dynamic_llm.py",
+    162,
+    "⑤test②"
+   ]
+  ]
+ },
+ "token_reports": {
+  "prod_count": 2,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/token_monitor.py",
+    403,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/token_monitor.py",
+    414,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "tool_call_executor": {
+  "prod_count": 2,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    32,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    175,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_t1_wiring.py",
+    167,
+    "⑤test②"
+   ]
+  ]
+ },
+ "tool_executor": {
+  "prod_count": 4,
+  "test_count": 9,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/commands.py",
+    240,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl.py",
+    1274,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl.py",
+    325,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/wiring.py",
+    169,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_n5_done_usage.py",
+    262,
+    "⑤test②"
+   ],
+   [
+    "tests/test_t1_wiring.py",
+    525,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    232,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    242,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    272,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    283,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    331,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    351,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    376,
+    "⑤test②"
+   ]
+  ]
+ },
+ "topic_drift_detector": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    33,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_topic_drift_detector.py",
+    7,
+    "⑤test②"
+   ]
+  ]
+ },
+ "topic_stack": {
+  "prod_count": 2,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/__init__.py",
+    30,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session.py",
+    12,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_topic_stack.py",
+    8,
+    "⑤test②"
+   ]
+  ]
+ },
+ "turn_learner": {
+  "prod_count": 1,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine_lifecycle_mixin.py",
+    112,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_turn_learner.py",
+    13,
+    "⑤test②"
+   ]
+  ]
+ },
+ "types": {
+  "prod_count": 58,
+  "test_count": 85,
+  "channels_prod": [
+   "prod②",
+   "prod③str"
+  ],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/__init__.py",
+    4,
+    "prod②"
+   ],
+   [
+    "lingclaude/coordination/bus_responder.py",
+    29,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/__init__.py",
+    3,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/data_flywheel.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/intel.py",
+    17,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/mcp_tools.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/metrics.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/model_adapter.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/model_call.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/model_types.py",
+    18,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    33,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine.py",
+    88,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_lifecycle_mixin.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_model_mixin.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    25,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_persist.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_store.py",
+    25,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/skill_parser.py",
+    21,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    308,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_call_executor.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_call_executor.py",
+    101,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/tool_executor.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/ast_edit.py",
+    20,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/file_edit.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/file_ops.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/file_read.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/git.py",
+    18,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/grep.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/indexer.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    19,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    1,
+    "prod③str"
+   ],
+   [
+    "lingclaude/engine/loop/sub_agent.py",
+    181,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/mcp_client.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/mcp_proxy.py",
+    15,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/background_tools.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/bash_tools.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/file_tools.py",
+    8,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/git_tools.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/lsp_tools.py",
+    25,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/plan_tools.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/search_tools.py",
+    7,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/subagent_tools.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/todo_tools.py",
+    14,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/web_tools.py",
+    10,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_pipeline.py",
+    26,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_router.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tools.py",
+    23,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/verification_gate.py",
+    14,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/web_tools.py",
+    13,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/anthropic_provider.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/factory.py",
+    6,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/local_provider.py",
+    9,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/openai_provider.py",
+    15,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/provider_registry.py",
+    22,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/daemon.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/learner/knowledge.py",
+    12,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/e2e/test_lingbus_responder.py",
+    65,
+    "⑤test②"
+   ],
+   [
+    "tests/e2e/test_lingbus_responder.py",
+    83,
+    "⑤test②"
+   ],
+   [
+    "tests/e2e/test_lingbus_responder.py",
+    101,
+    "⑤test②"
+   ],
+   [
+    "tests/test_adaptive.py",
+    33,
+    "⑤test②"
+   ],
+   [
+    "tests/test_adaptive.py",
+    43,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    32,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    47,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    673,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    682,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    695,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    713,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    305,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    309,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    333,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    337,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    358,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    372,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    409,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    426,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    454,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    478,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    534,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    543,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    567,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    571,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    591,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    605,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    649,
+    "⑤test②"
+   ],
+   [
+    "tests/test_agent_loop.py",
+    653,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cli_status.py",
+    135,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cli_status.py",
+    145,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cli_status.py",
+    157,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cli_status.py",
+    170,
+    "⑤test②"
+   ],
+   [
+    "tests/test_cli_status.py",
+    191,
+    "⑤test②"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    41,
+    "⑤test②"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    46,
+    "⑤test②"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    258,
+    "⑤test②"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    262,
+    "⑤test②"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    592,
+    "⑤test②"
+   ],
+   [
+    "tests/test_complex_problems.py",
+    596,
+    "⑤test②"
+   ],
+   [
+    "tests/test_core.py",
+    10,
+    "⑤test②"
+   ],
+   [
+    "tests/test_ctx_gauge_fix.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/test_ctx_gauge_fix.py",
+    44,
+    "⑤test②"
+   ],
+   [
+    "tests/test_d8_mv1b.py",
+    42,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon.py",
+    355,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon.py",
+    372,
+    "⑤test②"
+   ],
+   [
+    "tests/test_experiments.py",
+    20,
+    "⑤test②"
+   ],
+   [
+    "tests/test_golden_loop_master.py",
+    38,
+    "⑤test②"
+   ],
+   [
+    "tests/test_local_model.py",
+    23,
+    "⑤test②"
+   ],
+   [
+    "tests/test_local_model.py",
+    27,
+    "⑤test②"
+   ],
+   [
+    "tests/test_long_session_stress.py",
+    37,
+    "⑤test②"
+   ],
+   [
+    "tests/test_long_session_stress.py",
+    48,
+    "⑤test②"
+   ],
+   [
+    "tests/test_long_session_stress.py",
+    177,
+    "⑤test②"
+   ],
+   [
+    "tests/test_long_session_stress.py",
+    275,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_unification_acceptance_20260923.py",
+    19,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_warn_visible.py",
+    31,
+    "⑤test②"
+   ],
+   [
+    "tests/test_loop_warn_visible.py",
+    37,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lsp_ab_gate.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_mcp_provider_manager.py",
+    63,
+    "⑤test②"
+   ],
+   [
+    "tests/test_mcp_provider_manager.py",
+    49,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model_adapter.py",
+    8,
+    "⑤test②"
+   ],
+   [
+    "tests/test_mv1_wiring.py",
+    32,
+    "⑤test②"
+   ],
+   [
+    "tests/test_n5_done_usage.py",
+    46,
+    "⑤test②"
+   ],
+   [
+    "tests/test_n5_done_usage.py",
+    50,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p4_p5_consumer_seam.py",
+    177,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p4_p5_consumer_seam.py",
+    182,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p4_p5_consumer_seam.py",
+    200,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p4_p5_consumer_seam.py",
+    205,
+    "⑤test②"
+   ],
+   [
+    "tests/test_push_pipeline.py",
+    459,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_push_pipeline.py",
+    463,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    47,
+    "⑤test②"
+   ],
+   [
+    "tests/test_resume_idempotency.py",
+    69,
+    "⑤test②"
+   ],
+   [
+    "tests/test_round_end_event.py",
+    30,
+    "⑤test②"
+   ],
+   [
+    "tests/test_round_end_event.py",
+    36,
+    "⑤test②"
+   ],
+   [
+    "tests/test_round_end_event.py",
+    104,
+    "⑤test②"
+   ],
+   [
+    "tests/test_round_end_event.py",
+    108,
+    "⑤test②"
+   ],
+   [
+    "tests/test_schema_passthrough.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    121,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_journal.py",
+    134,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_rewind.py",
+    195,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_rewind.py",
+    222,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tool_result_protocol.py",
+    17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_tools_v2.py",
+    12,
+    "⑤test②"
+   ],
+   [
+    "tests/test_truncation_guard.py",
+    11,
+    "⑤test②"
+   ]
+  ]
+ },
+ "verify_ledger": {
+  "prod_count": 2,
+  "test_count": 6,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/_commands_session.py",
+    155,
+    "prod②"
+   ],
+   [
+    "lingclaude/self_optimizer/audit_watch.py",
+    181,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_audit_watch.py",
+    145,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_resume_anchor_injection.py",
+    14,
+    "⑤test①"
+   ],
+   [
+    "tests/test_resume_anchor_injection.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_verify_ledger.py",
+    12,
+    "⑤test②"
+   ],
+   [
+    "tests/test_verify_ledger.py",
+    172,
+    "⑤test①"
+   ],
+   [
+    "tests/test_verify_ledger.py",
+    182,
+    "⑤test①"
+   ]
+  ]
+ },
+ "wakeup_channel": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/core/scheduler.py",
+    30,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ },
+ "wiring": {
+  "prod_count": 1,
+  "test_count": 11,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test①",
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine.py",
+    45,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_governance_integration.py",
+    121,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lingmemory_bridge.py",
+    185,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lingmemory_bridge.py",
+    195,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lingmemory_experience_bridge.py",
+    168,
+    "⑤test②"
+   ],
+   [
+    "tests/test_lingmemory_experience_bridge.py",
+    177,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest.py",
+    15,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest_hotupdate.py",
+    16,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p2a_wiring_manifest_hotupdate.py",
+    97,
+    "⑤test②"
+   ],
+   [
+    "tests/test_s4_plugin_loader_mechanism.py",
+    89,
+    "⑤test①"
+   ],
+   [
+    "tests/test_session_token_sink.py",
+    103,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_token_sink.py",
+    122,
+    "⑤test②"
+   ]
+  ]
+ },
+ "worktree": {
+  "prod_count": 1,
+  "test_count": 0,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [],
+  "hits_prod": [
+   [
+    "lingclaude/plugins/agents/proj_agent_gateway/server.py",
+    498,
+    "prod②"
+   ]
+  ],
+  "hits_test": []
+ }
+}

@@ -19,9 +19,9 @@ MARKER="=== 直连段（repair_hook_direct_chain.sh 维护，勿手改）"
 
 [ -f "$HOOK" ] || { echo "✗ $HOOK 不存在（未 init？）"; exit 1; }
 
-if grep -qF "$MARKER" "$HOOK"; then
-  echo "✓ 直连段已存在，无需修复"
-  exit 0
+if [ -f "$HOOK" ] && grep -qF "$MARKER" "$HOOK"; then
+  echo "→ 直连段已存在，重建（段内容可能已更新）"
+  REBUILD=1
 fi
 
 cp "$HOOK" "$HOOK.bak.direct_chain.$(date +%Y%m%d_%H%M%S)"
@@ -31,7 +31,7 @@ cp "$HOOK" "$HOOK.bak.direct_chain.$(date +%Y%m%d_%H%M%S)"
 # patch 文本直接放 python heredoc 内（<<'PYEOF' 引号定界，零展开；
 # 经 shell 变量中转会在 $(cat <<EOF) 尾换行/引号配对上踩坑，2026-09-26 实测）。
 python3 - "$HOOK" <<'PYEOF'
-import sys
+import re, sys
 
 hook = sys.argv[1]
 patch = """# === 直连段（repair_hook_direct_chain.sh 维护，勿手改）===
@@ -40,6 +40,7 @@ patch = """# === 直连段（repair_hook_direct_chain.sh 维护，勿手改）==
 bash "$(git rev-parse --show-toplevel)/scripts/secret_scan_hook.sh" || exit 1
 bash "$(git rev-parse --show-toplevel)/scripts/arch_guard_gate.sh" || exit 1
 bash "$(git rev-parse --show-toplevel)/scripts/smoke_gate.sh" || exit 1
+bash "$(git rev-parse --show-toplevel)/scripts/orphan_gate.sh" || exit 1
 # === 直连段结束 ===
 
 """
@@ -48,6 +49,13 @@ needle = 'call_lefthook run "pre-commit"'
 if needle not in src:
     print("✗ shim 中找不到 lefthook 调用点，中止", file=sys.stderr)
     sys.exit(1)
+# 重建式：先剥掉旧直连段（marker 行到结束标记行含尾空行），再插入新段
+src = re.sub(
+    r"# === 直连段（.*?# === 直连段结束 ===\n\n",
+    "",
+    src,
+    flags=re.S,
+)
 open(hook, "w").write(src.replace(needle, patch + needle, 1))
 print("✓ 直连段已写入")
 PYEOF
