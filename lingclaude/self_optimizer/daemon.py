@@ -13,7 +13,11 @@ from lingclaude.core.config import lingclaudeConfig, load_config
 from lingclaude.self_optimizer.advisor import OptimizationAdvisor
 from lingclaude.self_optimizer.audit_watch import AuditWatch  # F4 值守
 from lingclaude.self_optimizer.evaluator import StructureEvaluator
-from lingclaude.self_optimizer.experiments import ExperimentLedger
+from lingclaude.self_optimizer.experiments import (
+    ExperimentLedger,
+    FROZEN_MAX_BACKOFF_CYCLES,
+    FROZEN_ROLLBACK_STREAK_THRESHOLD,
+)
 from lingclaude.self_optimizer.optimizer import (
     OptimizationRequest,
     SynchronousOptimizer,
@@ -27,6 +31,12 @@ from datetime import datetime, timezone
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_DIR = Path(".lingclaude")
+
+# F7 (2026-09-25): frozen zone（死循环熔断闸）——同参数组合连续 rolled_back
+# 达阈值即冻结优化循环（跳轮+指数退避），防止优化器在永远赢不了历史
+# 最优的参数上空转烧预算。语义对齐「插片风暴三层熔断闸」。
+# 达阈值判定同 lingminopt 最佳基线持续回滚守卫（rollouts/ 目录无该单
+# 测，2026-09-25 主会话补测）。
 
 # 行为快照滚动窗口上限 — 见 save_behavior_history 内注释（存量/流量修正）
 _BEHAVIOR_SNAPSHOT_CAP = 200
@@ -75,6 +85,15 @@ class DaemonState:
     # R10-4 (2026-09-23): 停滞轮换——连续零改进圈数（goal=structure 收敛后
     # 自动切 behavior；behavior 停滞则降频省预算）。None = 旧状态文件无字段。
     stall_count: int = 0
+    # F7 (2026-09-25): frozen zone（死循环熔断闸）——同参数+同因回滚连击
+    # 达阈值即置 frozen=True，优化循环跳轮并按指数退避（2^n 轮跳一轮）。
+    # frozen_since_cycle 记录冻结起点，供退出冻结的进度核查。旧状态文件
+    # 无字段 → 默认未冻结（向后兼容）。
+    frozen: bool = False
+    frozen_since_cycle: int | None = None
+    frozen_params: dict[str, Any] = field(default_factory=dict)
+    frozen_reason: str = ""
+    frozen_skipped: int = 0  #: 冻结期间已跳过的轮数（退避计数用）
 
     @classmethod
     def load(cls, path: Path) -> DaemonState:
@@ -93,6 +112,11 @@ class DaemonState:
                     best_ever_goal=raw.get("best_ever_goal"),
                     benchmark_baseline=raw.get("benchmark_baseline"),
                     stall_count=raw.get("stall_count", 0),
+                    frozen=raw.get("frozen", False),
+                    frozen_since_cycle=raw.get("frozen_since_cycle"),
+                    frozen_params=raw.get("frozen_params", {}),
+                    frozen_reason=raw.get("frozen_reason", ""),
+                    frozen_skipped=raw.get("frozen_skipped", 0),
                 )
             except (json.JSONDecodeError, KeyError):
                 logger.warning("状态文件损坏，使用默认状态")
@@ -285,12 +309,105 @@ class OptimizationDaemon:
             )
         self.state.save(self.state_path)
 
+    # ------------------------------------------------------------------ #
+    # F7 (2026-09-25): frozen zone（死循环熔断闸）
+    # ------------------------------------------------------------------ #
+    def _check_frozen_zone(
+        self, params: dict[str, Any], rollback_reason: str
+    ) -> tuple[bool, int]:
+        """进入 frozen zone（同参数+同因回滚连击达阈值）判定。
+
+        Returns (frozen, streak)。frozen=True 时 run_cycle 应跳轮并按
+        指数退避（2^n 轮跳一轮）。连击由 ledger.recent_rollbacks 判定，
+        任何 accepted/rejected 单都会打断 streak（优化已转向）。
+        """
+        try:
+            streak = self.experiments.rollback_streak(params, rollback_reason)
+        except Exception:  # noqa: BLE001 — 熔断闸故障不得阻断优化主循环
+            logger.warning("[F7] 回滚连击查询失败（fail-open 放行）", exc_info=True)
+            return False, 0
+        if streak < FROZEN_ROLLBACK_STREAK_THRESHOLD:
+            return False, streak
+        logger.warning(
+            "[F7熔断] 同参数组合 %s 连续 %d 次回滚（原因=%s）→ 进入 frozen zone，"
+            "优化循环暂停并按指数退避（2^n 轮跳一轮）",
+            json.dumps(params, ensure_ascii=False, sort_keys=True),
+            streak,
+            rollback_reason,
+        )
+        self.state.frozen = True
+        self.state.frozen_since_cycle = self.state.total_cycles + 1
+        self.state.frozen_params = dict(params)
+        self.state.frozen_reason = rollback_reason
+        self.state.frozen_skipped = 0
+        self.state.save(self.state_path)
+        return True, streak
+
+    def _frozen_zone_skip(self) -> bool | None:
+        """frozen zone 期间的跳轮+退避。返回 True 表示本轮跳过，None 表示未冻结/已退出。
+
+        每 _watch_interval 巡检一次：冻结期间若出现新的 accepted/rejected
+        单（优化已转向），则告警退出冻结并重置 best_ever（结构性修复
+        后旧基线已过时，防止继续误杀）。
+        """
+        if not getattr(self.state, "frozen", False):
+            return None
+        self.state.frozen_skipped = getattr(self.state, "frozen_skipped", 0) + 1
+        self.state.save(self.state_path)
+        # 冻结期间新进展探测：若出现新的 accepted/rejected 单，说明优化
+        # 已转向，应重新评估（如目标-手段错配已通过结构性修复解决）。
+        try:
+            progress_cycle = max(
+                self.experiments.latest_verdict_cycle("accepted"),
+                self.experiments.latest_verdict_cycle("rejected"),
+            )
+        except Exception:  # noqa: BLE001 — 探测失败按无进展处理
+            progress_cycle = 0
+        if progress_cycle > (self.state.frozen_since_cycle or 0):
+            logger.warning(
+                "[F7熔断] 冻结期间出现新的 accepted/rejected 单（cycle=%s）"
+                "→ 退出 frozen zone（优化已转向，重置 best_ever 防误杀）",
+                progress_cycle,
+            )
+            self.state.frozen = False
+            self.state.frozen_since_cycle = None
+            self.state.frozen_params = {}
+            self.state.frozen_reason = ""
+            self.state.frozen_skipped = 0
+            self.state.best_ever_score = None
+            self.state.best_ever_params = {}
+            self.state.best_ever_cycle_id = None
+            self.state.best_ever_goal = None
+            self.state.save(self.state_path)
+            return None
+        backoff = min(
+            2 ** getattr(self.state, "frozen_skipped", 0), FROZEN_MAX_BACKOFF_CYCLES
+        )
+        if self.state.frozen_skipped % backoff != 0:
+            return True
+        logger.warning(
+            "[F7熔断] frozen zone：已跳过 %d 轮（退避=%d 轮/跳），"
+            "同参数组合 %s 回滚连击原因=%s。本轮继续跳过。",
+            self.state.frozen_skipped,
+            backoff,
+            json.dumps(self.state.frozen_params, ensure_ascii=False, sort_keys=True),
+            self.state.frozen_reason,
+        )
+        return True
+
     def run_cycle(self, user_triggered: bool = False) -> Result[OptimizationCycle | None]:
         metrics_result = self.collect_metrics()
         if metrics_result.is_error:
             return metrics_result  # type: ignore[return-value]
         metrics = metrics_result.data
         context = self.build_context(metrics, user_triggered=user_triggered)
+
+        # F7 (2026-09-25): frozen zone（死循环熔断闸）——冻结期间跳轮并按
+        # 指数退避巡检。user_triggered（人工单跑）不受熔断影响（人明确要跑）。
+        if not user_triggered:
+            frozen_skip = self._frozen_zone_skip()
+            if frozen_skip:
+                return Result.ok(None)
 
         should_trigger, trigger_info = self.trigger.check_all_conditions(context)
         if not should_trigger:
@@ -448,6 +565,9 @@ class OptimizationDaemon:
                 score_after=result.best_score,
                 reason="p1_worse_than_best_ever",
             )
+            # F7 (2026-09-25): 回滚结算后判定是否进入 frozen zone（死循环
+            # 熔断闸）——同参数+同因回滚连击达阈值即冻结优化循环。
+            self._check_frozen_zone(result.best_params, "p1_worse_than_best_ever")
         else:
             self._apply_params(result.best_params)
             self.experiments.settle(

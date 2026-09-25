@@ -35,6 +35,11 @@ logger = logging.getLogger(__name__)
 #: pending 状态容忍时长——超过即视为「结果未知」，清扫为 rolled_back。
 #: 24h ≈ daemon 正常节奏下两轮周期间隔的上界。
 PENDING_TTL_HOURS = 24
+#: F7 (2026-09-25): frozen zone（死循环熔断闸）——同参数组合连续 rolled_back
+#: 达到阈值即冻结优化（跳轮+指数退避），防止优化器在永远赢不了历史最优
+#: 的参数上空转烧预算。语义对齐「插片风暴三层熔断闸」。
+FROZEN_ROLLBACK_STREAK_THRESHOLD = 5  #: 同参数+同因连续回滚达此数即冻结
+FROZEN_MAX_BACKOFF_CYCLES = 3         #: 指数退避上限（2^n 轮跳一轮）
 
 #: verdict 终态白名单（settle 校验，防拼写漂移进库）
 VERDICTS = ("accepted", "rejected", "rolled_back")
@@ -249,3 +254,59 @@ class ExperimentLedger:
         except Exception:
             logger.warning("[F2] 台账查询失败", exc_info=True)
             return []
+
+    # ------------------------------------------------------------------ #
+    # F7 (2026-09-25): frozen zone（死循环熔断闸）查询 API
+    # ------------------------------------------------------------------ #
+    def recent_rollbacks(self, limit: int = 50) -> list[dict]:
+        """最近 settled 的 rolled_back 单（新→旧）。熔断判据数据源。"""
+        try:
+            rows = self._get_connection().execute(
+                """
+                SELECT * FROM experiments
+                 WHERE verdict = 'rolled_back'
+                 ORDER BY created_at DESC, rowid DESC LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception:
+            logger.warning("[F7] 回滚查询失败", exc_info=True)
+            return []
+
+    def rollback_streak(self, params: dict, reason: str) -> int:
+        """同参数组合+同因 rolled_back 的**连续**条数（新→旧遇到第一条
+        不匹配即停）。staleness 语义：任何 accepted/rejected 单都会打断
+        streak——优化已转向，旧回滚不再算「重复撞墙」。"""
+        try:
+            canonical = json.dumps(params, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            return 0
+        streak = 0
+        for rec in self.recent_rollbacks(limit=100):
+            if rec.get("reason") != reason:
+                continue
+            try:
+                if json.loads(rec.get("params_json") or "{}") != json.loads(canonical):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            streak += 1
+        return streak
+
+    def latest_verdict_cycle(self, verdict: str) -> int:
+        """指定 verdict 的最新 cycle_id（无则 0）。用于冻结期间的
+        新进展探测——若该 verdict 有新单落库，说明状态有变，应重新评估。"""
+        try:
+            row = self._get_connection().execute(
+                """
+                SELECT cycle_id FROM experiments
+                 WHERE verdict = ? AND cycle_id IS NOT NULL
+                 ORDER BY rowid DESC LIMIT 1
+                """,
+                (verdict,),
+            ).fetchone()
+            return int(row["cycle_id"]) if row and row["cycle_id"] is not None else 0
+        except Exception:
+            logger.warning("[F7] 最新结算查询失败", exc_info=True)
+            return 0
