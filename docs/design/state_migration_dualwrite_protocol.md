@@ -68,4 +68,8 @@ register → double-write → read-source → read-target → drop
 
 ## 6. 迁移清单（15 模块，来源：V3 重构计划 §五 P3）
 
-待迁缝期盘点补齐（与 2T3A 卷宗迁缝期任务书共用清单，此处不重复维护）。
+已开账：`data/arch_ledger/migration_registry.json`（2026-09-26，全部 stage=register 起步）。
+J4 清单 15 模块实测现状：13 件在 core/，handover / behavior_aware_router 已不在
+（去向待核查），session_state 唯一已收编（stage=done）。
+首刀前置裁决：memory_engine（wiring.py:399 死槽位 + 零生产流量）与 layered_memory
+（合并迁移评估）的「双写 or 回收 or 保槽等岗」——见 review-20260926-dgroup-deferral-recheck。

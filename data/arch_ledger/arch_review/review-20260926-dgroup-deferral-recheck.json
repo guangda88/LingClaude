@@ -1,0 +1,62 @@
+{
+ "type": "arch_review",
+ "key": "review-20260926-dgroup-deferral-recheck",
+ "title": "暂缓件 D 组到期复核——12 件零消费候选「一杀四免七缓」之七缓现状裁决",
+ "as_of": "2026-09-26",
+ "head": "c6d5ce9",
+ "source": "data/arch_ledger/arch_seam_recycled/recycled-l7-bridge-20260925.json batch_context（2026-09-25 暂缓决策）",
+ "method": "逐件实测：orphan_scan_v2 --module 消费口径 + wiring/manifest 接线证据 + git log 龄期",
+ "findings": [
+  {
+   "item": "goal_receipt / manifest_lock",
+   "verdict": "已处置",
+   "detail": "2026-09-26 853a153 轻回收（M1 豁免提前到期 + 五口径零消费 + record 三字段恢复指针）——七缓中 2 件已消化，本复核覆盖余 5 件"
+  },
+  {
+   "item": "invariants",
+   "verdict": "消费兑现（暂缓解除转正）",
+   "detail": "2026-09-25 龄期 0 天在建 → 现有生产消费 1 处（lingclaude/core/plugin_lifecycle.py:23 prod②，PLUGIN_LIFECYCLE_TABLE + StateInvariantGuard + TransitionTable import）——建闸期在建件已上岗",
+   "followup": "链式孤儿信号：invariants 唯一消费者 plugin_lifecycle 自身 prod_count=0（仅 test:3）——若 plugin_lifecycle 未来被回收，invariants 将重新归零，迁移/回收决策须两件联动评估"
+  },
+  {
+   "item": "plugin_lifecycle",
+   "verdict": "继续暂缓（活性证据链变化）",
+   "detail": "prod_count=0 未变，但它是 invariants 唯一生产消费者（快照法 13 天前 D2 复核同款信号），且 M1 词汇守卫 13ed888 刚改写收口（未登记豁免的真阳性改写）——核心生命周期件，处置权重高于普通孤儿",
+   "followup": "建议随「递归治理三件套」裁决：core 生命周期机制是否应属主干九件（trunk 修订案），或随插件族迁 plugins/"
+  },
+  {
+   "item": "context_engine",
+   "verdict": "继续暂缓，暂缓理由失效需重立",
+   "detail": "prod_count=0（test:2）不变；P2 预置 4 天龄期已到（现龄 33 天）——原「在建太新不判死」理由自然失效；但豁免台账（arch_exemption/ 120 条）与 ERR 案文均无其到期条款记录，暂缓决策散落在 record batch_context 字段里无独立台账条目",
+   "followup": "双写裁决关联：context_engine 属协议 §6 认知/上下文族迁移对象，与 memory_engine 同批裁决（双写 or 回收）"
+  },
+  {
+   "item": "repair_card",
+   "verdict": "继续暂缓，同上",
+   "detail": "prod_count=0（test:2）不变；审计/证据族（evidence_protocol/fact_checker/prior_verifier/verify_ledger/repair_card/metrics）整体归并方案在 m6-usage-distribution-proposal——单件处置应随族裁决，不宜单杀",
+   "followup": "归并审查完成后（并入 gov 或回收）随族定论"
+  },
+  {
+   "item": "l10_a_post_audit",
+   "verdict": "继续暂缓（测试锚定最强）",
+   "detail": "prod_count=0 但 test_count=6（12 件候选中测试消费最多）——测试锚定密集说明设计意图仍在（post-audit 挂点待 L10 接线），杀之废 6 处测试资产",
+   "followup": "L10 层接线计划落定后同步裁决"
+  }
+ ],
+ "conclusions": [
+  "七缓现状：2 件已回收（goal_receipt/manifest_lock）、1 件消费兑现转正（invariants）、4 件继续暂缓（plugin_lifecycle/context_engine/repair_card/l10_a_post_audit）",
+  "机制缺口：暂缓决策无独立台账条目（散落 batch_context），到期条件未结构化——建议暂缓件复用 arch_debt 台账（含到期日），本 record 为存量补登",
+  "双写前提裁决前置：memory_engine（死槽位+零流量）与 layered_memory（合并迁移评估）的双写迁移前提不成立，须先裁决「双写 or 回收 or 保槽等岗」——这是 MEMORY 首刀真正的第一决策，登记表已开账（migration_registry.json）"
+ ],
+ "verification": [
+  "orphan_scan_v2 --module 逐件实测消费口径（本轮）",
+  "wiring.py:399 死槽位注记实测（T0-4 移除接线，槽位保留）",
+  "plugin_lifecycle.py:23 invariants 消费点实测",
+  "J4 清单 15 模块 core/ 存在性逐一实测（handover/behavior_aware_router 已不在）"
+ ],
+ "ledger_ref": [
+  "docs/design/state_migration_dualwrite_protocol.md §5/§6",
+  "data/arch_ledger/migration_registry.json（本轮开账）",
+  "docs/AUDIT_20260915_J1J5.md J4 表"
+ ]
+}

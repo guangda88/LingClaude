@@ -1,0 +1,29 @@
+{
+ "type": "arch_migration_registry",
+ "record_type": "migration",
+ "key": "migration-registry-2t3a",
+ "created": "2026-09-26",
+ "protocol": "docs/design/state_migration_dualwrite_protocol.md（五阶段状态机 register→double-write→read-source→read-target→drop）",
+ "purpose": "双写协议 §5 待建件①：全局迁移进度表。首刀落账对象 = MEMORY/状态域 15 模块（J4 收编目标，V3 重构计划 §五 P3）。",
+ "stage": "register",
+ "items": [
+  {"module": "handover", "stage": "register", "note": "2026-09-26 实测已不在 core/（J4 旧清单 P1 最厚件，去向待核查：迁出或回收）"},
+  {"module": "layered_memory", "stage": "register", "note": "在 core/ 620 行；J4 P1；orphan_scan_v2 零消费候选（test:3）——与 memory_engine 合并迁移评估（memstore bridge docstring 口径）"},
+  {"module": "memory_engine", "stage": "register", "note": "在 core/ 787 行；J4 P1 但 orphan_scan_v2 prod_count=0（wiring.py:399 死槽位 T0-4）；C 组豁免理由「待上岗基座」——双写前提（真实流量）不成立，裁决待下"},
+  {"module": "session", "stage": "register", "note": "在 core/ 347 行；J4 P2 部分已走 StateStore；session 族另有 runtime/store/journal/persist 四件在 core/"},
+  {"module": "task_aggregation", "stage": "register", "note": "在 core/；J4 P1 两处直连"},
+  {"module": "governance_verifier", "stage": "register", "note": "在 core/；J4 P1 两处直连；GOVERNANCE 实体迁缝主对象"},
+  {"module": "topic_stack", "stage": "register", "note": "在 core/ 202 行；J4 P2"},
+  {"module": "reasoning_chain", "stage": "register", "note": "在 core/；J4 P2；已有 export-view-j4 迁移债务挂账（arch_debt/reasoning-chain-export-view-j4-migration.json）"},
+  {"module": "governance", "stage": "register", "note": "在 core/；J4 P2"},
+  {"module": "meta_cognition", "stage": "register", "note": "在 core/；J4 P2；已有 export-view-j4 迁移债务挂账"},
+  {"module": "cognitive_rhythm", "stage": "register", "note": "在 core/；J4 记 0 处直连（死活甄别类）"},
+  {"module": "skill_parser", "stage": "register", "note": "在 core/；J4 记 0 处直连；C 组豁免（兼容层活性）"},
+  {"module": "behavior_aware_router", "stage": "register", "note": "2026-09-26 实测已不在 core/（J4 旧清单 0 直连类）"},
+  {"module": "context_cache", "stage": "register", "note": "在 core/；J4 记 0 处直连（死活甄别类）"},
+  {"module": "session_state", "stage": "done", "note": "J4 口径唯一已收编件（StateStore 消费点 5 处），无需双写迁移"}
+ ],
+ "frozen": false,
+ "reconciler": "StateReconciler（lingclaude/core/state_store.py，ef23407）三值判定 consistent/drift/error",
+ "next": "逐件过五阶段：先裁决 memory_engine 双写前提（零流量件走双写还是走轻回收——见 review-20260926-dgroup-deferral-recheck），再对有流量件开 double-write"
+}
