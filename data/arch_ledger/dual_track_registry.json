@@ -1,0 +1,18 @@
+{
+ "type": "arch_dual_track_registry",
+ "key": "dual-track-registry",
+ "created": "2026-09-26",
+ "design": "双轨互斥显式化（闸门2）：同一符号在 core/ 与 plugins|engine/ 双存时，必须在此注册并声明 serving_side，禁隐式双活（ERR-05 期间五桥双副本反面教材）。判据为 AST 顶层符号（类/函数）重叠，非文件同名——同名不重叠（如 core/hooks.py 的 HookManager 系 vs engine/loop/hooks.py 的 LoopHooks 系）不算双轨。",
+ "schema": {
+  "overlaps": [
+   {
+    "symbol": "符号名",
+    "core_file": "lingclaude/core/X.py",
+    "other_file": "lingclaude/plugins/.../Y.py",
+    "serving_side": "core | other",
+    "superseded_note": "非服务侧定性（superseded/staging/legacy），登记日期与案号"
+   }
+  ]
+ },
+ "overlaps": []
+}

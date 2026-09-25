@@ -40,6 +40,12 @@ pre-commit:
     orphan-gate:
       run: bash scripts/orphan_gate.sh
       stage_fixed: false
+    # 2026-09-26: 红名单棘轮守卫（C5，闸门1/2/4）。触发：staged 触碰
+    # core/plugins/engine。闸门1 状态机（stage 只进不退+迁移记账强制）/
+    # 闸门2 双轨符号级互斥（AST 判据+注册表）/ 闸门4 清零期限 2026-12-31。
+    redlist-gate:
+      run: bash scripts/redlist_gate.sh
+      stage_fixed: false
     # C1 (2026-09-13): secret 扫描已直接接入 .git/hooks/pre-commit（绕过崩溃的
     # lefthook 直接调用 scripts/secret_scan_hook.sh，见 hooks/pre-commit）。
     # lefthook 在 ulimit -v 512MB 下必然崩溃(Go runtime 虚拟内存不足, exit 0)，
