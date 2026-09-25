@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lingclaude.core.m3_core_coupling import check  # noqa: E402
+from lingclaude.engine.m3_core_coupling import check  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "data" / "arch_ledger" / "arch_m3_redlist_baseline"

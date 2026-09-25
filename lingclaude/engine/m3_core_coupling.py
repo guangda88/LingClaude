@@ -73,8 +73,13 @@ def check(core_dir: Path | None = None) -> dict:
     """M3 阶段 1 检查：红名单清单 + 告警（不拒绝）。
 
     返回 dict：trunk / redlist / counts / meta——供快照脚本与 pytest 双消费。
+
+    迁移注记（2026-09-25 棘轮首格）：本模块随守卫件套迁出 core/ 至 engine/
+    （红名单 103→99），默认 core_dir 不得再用 Path(__file__).parent 解析，
+    改为从仓库根定位——被检对象（core/）与本检查器物理分离后，
+    自指路径即失效。
     """
-    core_dir = core_dir or Path(__file__).parent
+    core_dir = core_dir or Path(__file__).resolve().parents[2] / "lingclaude" / "core"
     trunk, redlist = list_core_modules(core_dir)
     result = {
         "trunk": trunk,

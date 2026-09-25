@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from lingclaude.core.query_engine_lifecycle_mixin import QueryEngineLifecycleMixin
-from lingclaude.core.token_pricing import compute_cost_usd, pricing_status
+from lingclaude.model.token_pricing import compute_cost_usd, pricing_status
 
 
 def _engine_stub() -> QueryEngineLifecycleMixin:

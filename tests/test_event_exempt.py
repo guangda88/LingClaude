@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from lingclaude.core.event_exempt import (
+from lingclaude.engine.event_exempt import (
     EVENT_EXEMPT_RECORD_KEY,
     EVENT_EXEMPT_RECORD_TYPE,
     PHASE_ENTER,

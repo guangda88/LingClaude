@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from lingclaude.core.state_reconcile import (
+from lingclaude.engine.state_reconcile import (
     VERDICT_CONSISTENT,
     VERDICT_DRIFT,
     VERDICT_ERROR,

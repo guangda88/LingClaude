@@ -15,7 +15,7 @@ from typing import Any
 from lingclaude.core.intel import DailyDigest, DailyDigestGenerator
 from lingclaude.core.models import PermissionDenial
 from lingclaude.core.redact import redact as _redact_text
-from lingclaude.core.token_pricing import compute_cost_usd as _compute_cost_usd
+from lingclaude.model.token_pricing import compute_cost_usd as _compute_cost_usd
 from lingclaude.core.types import Result
 
 logger = logging.getLogger(__name__)

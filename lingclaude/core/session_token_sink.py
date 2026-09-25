@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from lingclaude.core.token_pricing import compute_cost_usd
+from lingclaude.model.token_pricing import compute_cost_usd
 
 logger = logging.getLogger(__name__)
 

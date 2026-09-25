@@ -1,0 +1,34 @@
+{
+ "type": "arch_m3_ratchet_event",
+ "key": "ratchet-001-four-buildgate-plugins",
+ "created": "2026-09-25T02:43:30.800029+00:00",
+ "direction": "only-shrink（只缩不放棘轮首格）",
+ "baseline": "arch_m3_redlist_baseline/baseline-ff17eb2.json",
+ "redlist_before": 103,
+ "redlist_after": 99,
+ "moved": {
+  "event_exempt": "core/ → engine/（守卫件套车）",
+  "state_reconcile": "core/ → engine/（守卫件套车）",
+  "m3_core_coupling": "core/ → engine/（守卫件套车）",
+  "token_pricing": "core/ → model/（模型接入族车）"
+ },
+ "import_points_fixed": 6,
+ "import_points_detail": [
+  "tests/test_event_exempt.py",
+  "tests/test_state_reconcile.py",
+  "tests/test_token_schema_legacy_ingest.py",
+  "scripts/snapshot_m3_baseline.py",
+  "core/query_engine_lifecycle_mixin.py（core 内消费方）",
+  "core/session_token_sink.py（core 内消费方）"
+ ],
+ "self_check_fix": "m3_core_coupling.check() 默认 core_dir 从 Path(__file__).parent 改为 parents[2]/lingclaude/core——检查器与被检对象物理分离后自指路径失效，已修并验证",
+ "exemptions_closed": [
+  "arch_exemption/M1:core/event_exempt.py.json",
+  "arch_exemption/M1:core/state_reconcile.py.json",
+  "arch_exemption/M1:core/m3_core_coupling.py.json",
+  "arch_exemption/M1:core/token_pricing.py.json"
+ ],
+ "no_renewal_note": "豁免销账方式为迁出完成（migrated），非到期作废——no_renewal 条款未触发即自然履行",
+ "verification": "py_compile 4件 OK + 裸check() redlist=99 断言 PASS + pytest 回归见提交前验证",
+ "next": "红名单余 99 件按第三批主体迁移排期推进；M1 豁免余量 0（4/4 已销）"
+}
