@@ -1,0 +1,25 @@
+{
+ "type": "arch_reference",
+ "key": "ref-self-evolution-benchmark-20260925",
+ "title": "AI 自进化业界动态与 lc 适配度评估（本轮讨论落盘）",
+ "as_of": "2026-09-25",
+ "created": "2026-09-25T14:00:00+00:00",
+ "doc": "docs/research/self-evolution-assessment-20260925.md",
+ "snapshot": {
+  "sources": [
+   "arXiv 2508.07407（Self-Evolving AI Agents survey，四组件框架：Inputs/AgentSystem/Environment/Optimisers）",
+   "Darwin Gödel Machine（Sakana AI：开放式探索+archive 劣解 stepping stone，SWE-bench 20→50）",
+   "AlphaEvolve（DeepMind：MAP-Elites+岛屿模型+EVOLVE-BLOCK 圈定+确定性 evaluator）",
+   "SRE Error Budget Policy（sre.google：超线自动执法+postmortem 强制回写）"
+  ],
+  "drift_note": "各系统 benchmark 数字/论文结论会随版本漂移，引用须附 as_of；本轮为 2026-09-25 快照",
+  "borrowables": [
+   "轻回收/archive 休眠（DGM stepping stone——回收分轻/重两档，默认轻回收保期权）",
+   "显式 fitness 字段（AlphaEvolve evaluator——M6 快照加 fitness，第三类判定分数化）",
+   "EVOLVE-BLOCK 圈定（文件内进化边界，M1 粒度细化到块级）",
+   "观察期多样性保留（任务分布漂移→观察期重置，防误杀未到期期权）",
+   "自进化变更强制走 worktree（守卫规则一条，机制已有）"
+  ],
+  "lc_final_stance": "任务导向进化：任务召唤生长+四判据修剪+守卫执法+自核验纠错+L0 可变（唯一不变量=2T3A 主干）；处置自主化按纠错史可信度自然下放"
+ }
+}
