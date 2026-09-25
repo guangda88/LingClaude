@@ -1,9 +1,9 @@
 {
   "generated": "2026-09-26",
-  "total_active": 104,
+  "total_active": 103,
   "windows": {
     "30d": {
-      "count": 96
+      "count": 95
     },
     "60d": {
       "count": 103
@@ -14,7 +14,7 @@
   },
   "by_due_date": {
     "2026-10-17": {
-      "count": 88,
+      "count": 87,
       "files": [
         "__init__.py",
         "audit_collector.py",
@@ -54,7 +54,6 @@
         "llm_probe.py",
         "lm_quick.py",
         "mcp_tools.py",
-        "memory_engine.py",
         "message_builder.py",
         "meta_cognition.py",
         "metrics.py",
@@ -148,5 +147,5 @@
       ]
     }
   },
-  "note": "2026-11-30 到期的 4 份豁免（event_exempt/m3_core_coupling/state_reconcile/token_pricing）已全部 state=migrated，非 active。收割日 2026-11-30 实际 active 到期件 = 0。atomcode 建议二.5 的判断部分正确。"
+  "note": "2026-11-30 到期的 4 份豁免（event_exempt/m3_core_coupling/state_reconcile/token_pricing）已全部 state=migrated，非 active。收割日 2026-11-30 实际 active 到期件 = 0。atomcode 建议二.5 的判断部分正确。 | 2026-09-26 增补：memory_engine 当日回收（6b706b2），豁免同日收账 removed，total_active 104→103，10-17 到期 88→87，30d 96→95。"
 }

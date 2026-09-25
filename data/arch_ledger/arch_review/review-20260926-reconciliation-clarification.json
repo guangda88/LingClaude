@@ -1,0 +1,18 @@
+{
+  "type": "arch_review",
+  "review_id": "review-20260926-reconciliation-clarification",
+  "date": "2026-09-26",
+  "trigger": "atomcode 对账报告称两项裁决已给可执行——与账本事实核查存在出入，须澄清固化",
+  "findings": [
+    "memory_engine「已裁决回收」：6b706b2 时点前无落盘裁决记录（migration_registry 原文『裁决待下』）；回收实际由 6b706b2 执行（redlist_state v2 键名修正口径），事后账本三处（redlist_state/migration_registry/test_p2a_wiring_manifest:58）一致闭环",
+    "plugin_lifecycle 豁免 record：带 decided_by=用户裁决(2026-09-26 lc 会话) + evidence 5 消费文件，本会话逐一 grep 复核为真（full_tui 2/seam 1/hooks 2/invariants 5/m3_core_coupling 2），口径为 trunk 不扩容+豁免登记非冻结区扩容 → 采信入库（583da99）",
+    "memory_engine 豁免 record active 陈旧（本体已回收文件不存在）→ 按官方 exemption_remove 语义收账 removed（本件随附）；exemption_review_calendar 三处数字同步（104→103/96→95/88→87）",
+    "N7 既有红（与本轮无关，stash 验证 HEAD 原生）：四桥（experience/l7/memstore/token）import lingmemory_bridge 内部模块被判横向耦合——共享应提升至 plugins/memory/ 直下公共接缝模块；修复需动 memstore_bridge.py（工作区有并行会话改动）故不在本批次动刀，留 MEMORY 域动刀期；自批 N7 豁免违反「无裁决不豁免」原则，未登记"
+  ],
+  "conclusions": [
+    "口头主张≠落盘裁决的区分标准维持：decided_by+evidence 可独立复核的 record 才可入库",
+    "wiring.py _memory_engine 死槽位删除（f706194）为 6b706b2 回收批次收尾，干净单 hunk 实测无并行改动混入；HEAD 测试口径 58 随之自洽",
+    "memory_engine 原 2026-10-17 裁决截止点随回收闭环自然解除；10-17 到期件余 87 份（日历 by_due_date 现成可查）",
+    "N7 四桥互连为独立悬案，解锁条件=并行会话批次收口后择机处理（公共接缝提升 or 域级豁免裁决）"
+  ]
+}

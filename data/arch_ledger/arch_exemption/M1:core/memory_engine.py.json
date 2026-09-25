@@ -3,6 +3,8 @@
   "file": "core/memory_engine.py",
   "reason": "存量基线(2026-09-17首扫)，只缩不放",
   "granted": "2026-09-17",
-  "state": "active",
-  "review_due": "2026-10-17"
+  "state": "removed",
+  "review_due": "2026-10-17",
+  "removed_at": "2026-09-25T23:45:14.434871+00:00",
+  "removal_note": "2026-09-26 本体随 6b706b2 回收（零生产消费，wiring 死槽位 T0-4；wiring 槽位删除见 f706194）——文件不存在后 active 状态陈旧，按官方 exemption_remove 语义收账；原 2026-10-17 到期点随回收闭环自然解除。回收 record: arch_seam_recycled/recycled-memory-engine-20260926.json"
 }
