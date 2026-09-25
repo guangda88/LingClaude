@@ -31,6 +31,7 @@
 | 14 | 闸门 4：红名单清零硬期限（2026-12-31+完成即 M3 阶段 3 启用） | Fuchsia/K8s 先例 | 2 小时 |
 | 15 | cycle_report 对账实装（候选归宿覆盖率<100% 即红） | survey/GitLab 月报 | 半天 |
 | 16 | 五条业界借鉴：轻回收 archive 休眠（优先）/fitness 字段/EVOLVE-BLOCK/观察期多样性/自变更强制 worktree | DGM/AlphaEvolve | 各半天~1 天 |
+| 16a | **依赖清查专项**：①跨成员 import 清查（最高优先——lingmessage×8/lingyuan×4/laya×3 等直接 import 兄弟成员仓，铁律 7 仓内落地缺口，对方重构即崩）；②pyproject 补齐 9 个未声明生产依赖（rich/prompt_toolkit/uvicorn/asyncpg/httpx/fastapi/pydantic/starlette/playwright——现状"pip install 装不出可用 lc"）；③第三方库过铁律 6 信任等级（T1/T2/T3，为显示缝 L2 降级供清单） | 全仓 AST import 实扫（2026-09-25，30+ 包 vs pyproject 声明 4 个） | ①1-2 天（8+ 引用点逐个判定）②半天③半天 |
 
 ## 第三层：已裁决、待到期触发（无需行动，等时间）
 
