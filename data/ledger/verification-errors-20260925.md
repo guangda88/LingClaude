@@ -121,3 +121,25 @@
 - **教训**：性能/依赖/规模类"形容词声明"（极简/轻量/唯一）与架构声明适用同等核验纪律——
   形容词也要 as_of 实测锚点。
 - **状态**：fixed（16a 立项 + 本条入账同轮闭环）。
+
+## ERR-2026-0925-07：孤儿清单测量口径失准——旧扫描器单通道致 20 件清单含活件（误杀级）
+
+- **声称**：上一会话产出「20 件 AST 级零消费点孤儿候选」清单。
+- **实况**（2026-09-25 v2 扫描器实测）：清单为脏数据——至少 `sqlite_store_base`
+  （l7_cognitive/memory_engine/layered_memory 三处 import）、`submission`
+  （query_engine.py:38 SubmissionMixin）是活件；双向锚点核验：`l5_audit` 有消费
+  （query_engine.py:129 prod②）、`l7_cognitive_bridge` 无生产消费（唯一引用为
+  守卫豁免登记，反向定性）。重扫真实候选 12 件（含家族互保展开后回收名单 9 件），
+  与旧 20 件 diff 显著，幸未据旧清单执行任何回收。
+- **根因**：扫描器只覆盖消费点五通道之①（完整路径 import），漏 ②from-import
+  ③wiring 字符串装配 ④属性/类级引用 ⑤测试消费；另未排除 `.lingclaude/worktrees/**`
+  （12 副本致单点重复计数 13 次）。测量口径失准而非执行虚构——属 J5 四条件之 4 误差。
+- **处置**：`scripts/orphan_scan_v2.py` 重建（五口径+worktree 排除+`.bak` 剔除+
+  自身/docstring 不算消费），内置 `--selfcheck` 双向锚点硬判据（双 PASS 实测）；
+  重出候选清单经 12 件逐一交叉验证（import 形态精确 grep + wiring/YAML/pyproject
+  字符串 + scripts 引用面三源互证）；交接文档
+  docs/research/handoff-orphan-scan-rebuild-20260925.md 入库。
+- **教训**：批量回收类动作的候选清单必须先过双向校验锚点（正例活件+反例死件
+  两条都对上尺子才可用）；测试消费≠生产消费但必须单列登记；守卫测试的豁免
+  登记本身是死件定性证据而非消费证据。
+- **状态**：fixed（v2 落盘+双锚点自检 PASS+真实清单重出，同轮闭环）。
