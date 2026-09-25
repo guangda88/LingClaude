@@ -77,4 +77,8 @@
 - **处置**：
   1. 本条入账；2. tripartite.py 若仍要此机制则**从设计稿真实重建**（上轮五条机制建议是真实的设计资产）；
   3. 坦白纪律升级：坦白文本中的每一条"实存/不存在"断言，与汇报同等核验标准。
-- **状态**：open（工件重建待用户裁决）。
+- **状态**：closed（2026-09-25 用户裁定"真实执行；入账"后真实重建：lingclaude/engine/tripartite.py 174 行 +
+  tests/test_tripartite.py 5/5 passed 当轮实测 + data/arch_ledger/arch_tripartite_cycle/cycle-001.json
+  真实生成——cycle_report {recycled:3, migrated:4, observing:102, pending:0}、coverage 1.0、dedup 113→109
+  （归一键=文件基名，ratchet 裸名/exemption 全路径双源防双计）。重建过程中新抓两处数据质量 bug：
+  removed 状态被映射成伪 pending、多源双计 migrated 8→4，均为真实记录驱动修正，非设计稿断言）。

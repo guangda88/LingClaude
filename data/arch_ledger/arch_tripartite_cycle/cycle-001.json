@@ -1,0 +1,685 @@
+{
+ "type": "arch_tripartite_cycle",
+ "key": "cycle-001",
+ "as_of": "2026-09-25",
+ "created": "2026-09-25T11:22:37",
+ "design_source": "2026-09-25 五条机制设计（ERR-04 后从设计稿真实重建）",
+ "cycle": {
+  "cycle_id": "001",
+  "as_of": "2026-09-25",
+  "identified_by": "arch_m3_redlist_baseline(877f000)+M6辨别框架",
+  "enforced_by": "d36e5b9(棘轮首格迁移)+4b9149a(TRANSPORT撤缝)",
+  "corrected_by": "ERR台账(b59c1a1..c32a6fc)+arch_law_revision",
+  "candidates": [
+   {
+    "item": "SeamType.TRANSPORT",
+    "disposition": "recycled",
+    "evidence": "data/arch_ledger/arch_seam_recycled/recycled-transport-seam-20260925.json"
+   },
+   {
+    "item": "event_exempt",
+    "disposition": "migrated",
+    "evidence": "data/arch_ledger/arch_m3_redlist_baseline/ratchet-001-four-buildgate-plugins.json"
+   },
+   {
+    "item": "state_reconcile",
+    "disposition": "migrated",
+    "evidence": "data/arch_ledger/arch_m3_redlist_baseline/ratchet-001-four-buildgate-plugins.json"
+   },
+   {
+    "item": "m3_core_coupling",
+    "disposition": "migrated",
+    "evidence": "data/arch_ledger/arch_m3_redlist_baseline/ratchet-001-four-buildgate-plugins.json"
+   },
+   {
+    "item": "token_pricing",
+    "disposition": "migrated",
+    "evidence": "data/arch_ledger/arch_m3_redlist_baseline/ratchet-001-four-buildgate-plugins.json"
+   },
+   {
+    "item": "__init__",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/__init__.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "approval_matrix",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/approval_matrix.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "audit_collector",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/audit_collector.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "behavior",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/behavior.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "behavior_check",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/behavior_check.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "bounded_compaction",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/bounded_compaction.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "cognitive_rhythm",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/cognitive_rhythm.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "comfort_zone",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/comfort_zone.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "config",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/config.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "context_cache",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/context_cache.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "context_compression",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/context_compression.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "data_flywheel",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/data_flywheel.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "datalog",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/datalog.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "degradation_detector",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/degradation_detector.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "dementia_detector",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/dementia_detector.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "devnull_compat",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/devnull_compat.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "evidence_protocol",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/evidence_protocol.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "fact_checker",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/fact_checker.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "file_history",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/file_history.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "file_lock",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/file_lock.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "goal_receipt",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/goal_receipt.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "governance",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/governance.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "governance_integration",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/governance_integration.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "governance_verifier",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/governance_verifier.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "gray_zone",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/gray_zone.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "guard",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/guard.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "hallucination_guard",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/hallucination_guard.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "handover",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/handover.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "hooks",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/hooks.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "image_content",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/image_content.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "intel",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/intel.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l10_a_post_audit",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l10_a_post_audit.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l5_audit",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l5_audit.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l5_conversation_loop",
+    "disposition": "recycled",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l5_conversation_loop.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l7_classifier",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l7_classifier.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l7_cognitive",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l7_cognitive.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l7_cognitive_bridge",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l7_cognitive_bridge.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l7_cognitive_facade",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l7_cognitive_facade.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l7_session",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l7_session.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "l7_types",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/l7_types.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "layered_memory",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/layered_memory.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "lingmemory_bridge",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/lingmemory_bridge.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "lingmemory_experience_bridge",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/lingmemory_experience_bridge.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "lingmemory_l7_bridge",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/lingmemory_l7_bridge.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "lingmemory_memstore_bridge",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/lingmemory_memstore_bridge.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "lingmemory_token_bridge",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/lingmemory_token_bridge.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "llm_probe",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/llm_probe.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "lm_quick",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/lm_quick.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "loop_seam",
+    "disposition": "recycled",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/loop_seam.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "manifest_lock",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/manifest_lock.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "mcp_tools",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/mcp_tools.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "memory_engine",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/memory_engine.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "message_builder",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/message_builder.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "meta_cognition",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/meta_cognition.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "metrics",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/metrics.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "model_adapter",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/model_adapter.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "model_call",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/model_call.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "model_request_log",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/model_request_log.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "model_types",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/model_types.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "models",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/models.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "permissions",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/permissions.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "plugin_loader",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/plugin_loader.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "plugin_manifest",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/plugin_manifest.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "policy_loader",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/policy_loader.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "prior_verifier",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/prior_verifier.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "query_engine",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/query_engine.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "query_engine_lifecycle_mixin",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/query_engine_lifecycle_mixin.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "query_engine_model_mixin",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/query_engine_model_mixin.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "query_engine_turn_mixin",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/query_engine_turn_mixin.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "rate_limiter",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/rate_limiter.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "reasoning_chain",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/reasoning_chain.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "redact",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/redact.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "role_separation",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/role_separation.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "rollout",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/rollout.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "safe_db",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/safe_db.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "scheduler",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/scheduler.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "seam",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/seam.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "session",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/session.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "session_journal",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/session_journal.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "session_persist",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/session_persist.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "session_projection",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/session_projection.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "session_runtime",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/session_runtime.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "session_store",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/session_store.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "skill_index",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/skill_index.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "skill_parser",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/skill_parser.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "sqlite_store_base",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/sqlite_store_base.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "state_store",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/state_store.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "submission",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/submission.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "success_gate",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/success_gate.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "system_prompt_builder",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/system_prompt_builder.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "task_aggregation",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/task_aggregation.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "task_manager",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/task_manager.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "task_scheduler",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/task_scheduler.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "token_monitor",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/token_monitor.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "token_reports",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/token_reports.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "tool_call_executor",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/tool_call_executor.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "tool_executor",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/tool_executor.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "topic_drift_detector",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/topic_drift_detector.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "topic_stack",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/topic_stack.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "turn_learner",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/turn_learner.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "types",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/types.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "wakeup_channel",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/wakeup_channel.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "wiring",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/wiring.py.json",
+    "guard": "M1"
+   },
+   {
+    "item": "worktree",
+    "disposition": "observing",
+    "evidence": "data/arch_ledger/arch_exemption/M1:core/worktree.py.json",
+    "guard": "M1"
+   }
+  ],
+  "cycle_report": {
+   "recycled": 3,
+   "migrated": 4,
+   "observing": 102,
+   "reverted": 0,
+   "pending": 0
+  }
+ },
+ "metrics": {
+  "freshness_hours": 2.16,
+  "disposition_coverage": 1.0,
+  "same_actor_violations": [],
+  "cycle_report": {
+   "recycled": 3,
+   "migrated": 4,
+   "observing": 102,
+   "reverted": 0,
+   "pending": 0
+  },
+  "red_flags": []
+ }
+}
