@@ -25,10 +25,21 @@ pre-commit:
     arch-guard-gate:
       run: bash scripts/arch_guard_gate.sh
       stage_fixed: false
+    # 2026-09-26: 闸门3冒烟三验（迁移类 commit 强制）。触发条件：staged 删除
+    # lingclaude/core/ 文件（回收/迁移动作），非迁移类提交零开销放行。
+    # ERR-05 教训机检化：import 链 + CLI 入口 + 族内回归三验。
+    # 同时被 .git/hooks/pre-commit 直连（经 scripts/repair_hook_direct_chain.sh，
+    # 防 lefthook 低 ulimit 崩溃 exit 0 静默放行）。
+    smoke-gate:
+      run: bash scripts/smoke_gate.sh
+      stage_fixed: false
     # C1 (2026-09-13): secret 扫描已直接接入 .git/hooks/pre-commit（绕过崩溃的
     # lefthook 直接调用 scripts/secret_scan_hook.sh，见 hooks/pre-commit）。
     # lefthook 在 ulimit -v 512MB 下必然崩溃(Go runtime 虚拟内存不足, exit 0)，
     # 配置在此处的命令实际从未执行——故不在此重复配置，避免将来修复后双重执行。
+    # ⚠ 2026-09-26 实测：lefthook install(09-23) 已把直连段冲掉，现由
+    # scripts/repair_hook_direct_chain.sh 幂等重放恢复（secret_scan +
+    # arch_guard_gate + smoke_gate 三段直连，跑在 lefthook 之前）。
 
 pre-push:
   commands:
