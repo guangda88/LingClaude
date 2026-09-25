@@ -694,3 +694,63 @@ def test_g14_plugin_loader_dirs_under_plugins():
                 dirs.add(v)
     bad = [d for d in sorted(dirs) if not d.endswith("plugins") and "plugins" not in d.split("/")[-2:-1]]
     assert not bad, f"G14 违规（插件加载目录必须位于 plugins/ 下）: {bad}"
+
+
+# ── G15 自进化写码现状锁（2026-09-25，借鉴⑤ docs/research/self-evolution-assessment-20260925.md §四.4）──
+# 现状实测：self_optimizer 六个写点全部写数据/配置/报告工件（JSON/YAML/MD），无一写 .py 源码。
+# 本守卫把该现状锁死：未来任何自动改码路径引入（如 daemon 补丁执行器），测试红逼其先接
+# worktree.py 沙箱——「自进化变更强制走 worktree」从纪律升为机检的回归锁（非预浇筑死件）。
+
+# G15 写点白名单：file → 写点数上限（G1 换代同款计数制，行号不参与判定；只缩不放）
+G15_WRITE_COUNT_CAPS = {
+    "self_optimizer/advisor.py": 1,      # :197 优化报告 md
+    "self_optimizer/audit_watch.py": 1,  # :38 值守状态 json
+    "self_optimizer/daemon.py": 4,       # :130 state json / :837 patch json / :842 config yaml / :951 policy yaml
+}
+
+
+def test_g15_self_optimizer_no_source_writes():
+    """G15：self_optimizer 只准写数据工件，禁止写 .py 源码（现状锁 + 未来闸）。
+
+    三重判定：(a) 白名单外文件出现写点即红；(b) 白名单文件写点数超上限即红；
+    (c) 任何写调用行含 .py 字面量（直接以源码文件为写目标）即红。处置路径：
+    接 lingclaude/core/worktree.py 沙箱后再按台账纪律扩充白名单（只紧不松）。
+    """
+    so_dir = SRC / "self_optimizer"
+    if not so_dir.is_dir():
+        return
+    per_file: dict[str, list[str]] = {}
+    for f in sorted(so_dir.rglob("*.py")):
+        rel = f.relative_to(SRC).as_posix()
+        for i, line in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            if re.search(r"\.write_text\(|\.write_bytes\(|open\([^)]*[\"']w[b]?", line):
+                per_file.setdefault(rel, []).append(f"{rel}:{i}: {line.strip()}")
+    outside = {k: v for k, v in per_file.items() if k not in G15_WRITE_COUNT_CAPS}
+    assert not outside, (
+        "G15 违规：self_optimizer 白名单外文件出现写点——自动改码必须先接 worktree 沙箱：\n  "
+        + "\n  ".join(x for v in outside.values() for x in v))
+    over = {k: (len(v), G15_WRITE_COUNT_CAPS[k]) for k, v in per_file.items()
+            if len(v) > G15_WRITE_COUNT_CAPS.get(k, 0)}
+    assert not over, f"G15 违规：写点数超上限（只缩不放）: {over}"
+    # 行字符串自带 "<file>.py:行号:" 前缀，故只认带引号的 .py 字面量（写目标为源码文件）
+    py_writes = [x for v in per_file.values() for x in v if '".py"' in x or '".py' in x]
+    assert not py_writes, f"G15 违规：写目标含 .py 源码语义:\n  " + "\n  ".join(py_writes)
+
+
+def test_evolve_block_paired():
+    """借鉴③：EVOLVE-BLOCK 锚点必须成对（begin/end 各恰一次且顺序正确）。
+
+    AlphaEvolve 对标：block 内可自改、block 外冻结执法。首锚点 = cli/status.py
+    toolbar_tips 池（数据池可自改，轮换逻辑/防虚构守卫冻结）。新增锚点时同步
+    在 evolve_blocks 登记（只增不改语义）。
+    """
+    evolve_blocks = {
+        "cli/status.py": ("EVOLVE-BLOCK: toolbar_tips begin", "EVOLVE-BLOCK: toolbar_tips end"),
+    }
+    for rel, (b, e) in evolve_blocks.items():
+        f = SRC / rel
+        assert f.is_file(), f"EVOLVE-BLOCK 载体缺失: {rel}"
+        text = f.read_text(encoding="utf-8")
+        nb, ne = text.count(b), text.count(e)
+        assert nb == ne == 1, f"EVOLVE-BLOCK 锚点未成对或重复: {rel} begin={nb} end={ne}"
+        assert text.index(b) < text.index(e), f"EVOLVE-BLOCK 顺序颠倒: {rel}"

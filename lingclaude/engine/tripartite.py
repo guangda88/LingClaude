@@ -20,6 +20,29 @@ ERR_LEDGER = Path("data/ledger/verification-errors-20260925.md")
 STALE_AFTER_HOURS = 168  # 7d：账本死掉的前兆（proxy3 断供前科）
 COVERAGE_RED_BELOW = 1.0  # 候选归宿覆盖率 <100% 即红（候选消失即红）
 
+# ── 借鉴①（docs/research/self-evolution-assessment-20260925.md §四.4）：回收档位化 ──
+# DGM stepping-stone 对标：劣解是垫脚石永不真丢。轻回收=撤运行时+归档可复活（有
+# revival_clause 即 light）；重回收=彻底删除须技术债理由。仪表层只透传档位，不裁决。
+RECYLE_TIERS = {
+    "light": "轻回收——撤运行时+归档可复活（record 须带 revival_clause）",
+    "heavy": "重回收——彻底删除，须技术债理由入账",
+}
+
+# ── 借鉴②：显式 fitness（AlphaEvolve evaluator 对标）——归宿的分数化，防「有辨别无执法」 ──
+# 迁移/回收为正贡献；观察期弱正（期权保留，DGM 开放式探索）；翻案负分（机制自我修正成本）；
+# pending 无分。只观测不裁决：分数低于阈值仅入仪表，不触发自动处置。
+FITNESS_WEIGHTS = {
+    "migrated": 1.0,
+    "recycled": 0.8,
+    "observing": 0.3,
+    "reverted": -1.0,
+    "pending": 0.0,
+}
+
+# ── 借鉴④：观察期多样性保留（任务类型分布漂移 → 观察期重置信号，只观测）──
+M6_SNAPSHOT_DIR = LEDGER / "arch_m6_snapshot"
+DRIFT_RESET_THRESHOLD = 0.35  # 相邻快照归一化分布差超此值 → reset_recommended=True
+
 
 @dataclass
 class CycleRecord:
@@ -36,12 +59,14 @@ class CycleRecord:
 
 @dataclass
 class MetricsRecord:
-    """健康度四指标——只观测不裁决。"""
+    """健康度四指标——只观测不裁决。fitness/task_drift 为借鉴②④的扩展指标。"""
     freshness_hours: float
     disposition_coverage: float
     same_actor_violations: list[str] = field(default_factory=list)
     cycle_report: dict[str, int] = field(default_factory=dict)
     red_flags: list[str] = field(default_factory=list)
+    fitness: dict[str, Any] = field(default_factory=dict)
+    task_drift: dict[str, Any] = field(default_factory=dict)
 
 
 def _mtime_hours(p: Path, now: _dt.datetime) -> float:
@@ -59,8 +84,11 @@ def collect_cycle001_inputs() -> dict[str, Any]:
 
     seam_recycled = LEDGER / "arch_seam_recycled" / "recycled-transport-seam-20260925.json"
     if seam_recycled.exists():
+        d_rec = _load_json(seam_recycled)
+        # 档位优先读 record 固化字段（recycle_tier），缺字段时按 revival_clause 兜底推断
+        tier = d_rec.get("recycle_tier") or ("light" if d_rec.get("revival_clause") else "heavy")
         candidates.append({"item": "SeamType.TRANSPORT", "disposition": "recycled",
-                           "evidence": str(seam_recycled)})
+                           "evidence": str(seam_recycled), "tier": tier})
         report["recycled"] += 1
 
     ratchet = LEDGER / "arch_m3_redlist_baseline" / "ratchet-001-four-buildgate-plugins.json"
@@ -85,8 +113,15 @@ def collect_cycle001_inputs() -> dict[str, Any]:
     # 去重：同一 item 可能被多源记录（ratchet 用裸名如 event_exempt，exemption 用 core/X.py 全路径），
     # 归一键 = 文件基名（去 core/ 前缀与 .py 后缀）；保留更强归宿（recycled/migrated > observing > pending），
     # removed 状态 = 回收（recycled），证据路径合并——防双计、防状态映射盲区伪 pending。
+    # 2026-09-25 棘轮二格（9666f90）暴露的碰撞 bug：五桥 file=plugins/memory/<桥>/bridge.py，
+    # 裸 basename 全撞成 bridge（5 件并 1）——通用载体文件名改用父目录名做归一键。
+    _generic = {"bridge.py", "plugin.py", "__init__.py", "main.py"}
+
     def _norm(item: str) -> str:
-        base = item.rsplit("/", 1)[-1]
+        parts = item.split("/")
+        base = parts[-1]
+        if base in _generic and len(parts) >= 2:
+            return parts[-2].removesuffix(".py")
         return base.removesuffix(".py")
 
     strength = {"migrated": 2, "recycled": 2, "observing": 1, "pending": 0}
@@ -110,6 +145,62 @@ def collect_cycle001_inputs() -> dict[str, Any]:
     return {"candidates": dedup, "cycle_report": fixed,
             "dedup_note": f"{len(candidates)} entries -> {len(dedup)} unique items"}
 
+
+
+def fitness_for_candidate(c: dict[str, Any]) -> float:
+    """借鉴②：单候选显式 fitness（AlphaEvolve evaluator 对标）。只算分不裁决。"""
+    return FITNESS_WEIGHTS.get(c.get("disposition", "pending"), 0.0)
+
+
+def fitness_summary(candidates: list[dict[str, Any]], cycle_report: dict[str, int]) -> dict[str, Any]:
+    """候选 fitness 总分 + 与 cycle_report 的互证（防台账口径漂移）。
+
+    互证规则：按 cycle_report 计数的加权期望必须等于逐候选求和——两者不等说明
+    candidates 与 report 脱钩（台账口径漂移），返回 mismatch=True 供上层亮红。
+    """
+    total = sum(fitness_for_candidate(c) for c in candidates)
+    expected = sum(n * FITNESS_WEIGHTS[k] for k, n in cycle_report.items())
+    return {
+        "score": round(total, 2),
+        "expected_from_report": round(expected, 2),
+        "mismatch": abs(total - expected) > 1e-6,
+        "weights": dict(FITNESS_WEIGHTS),
+    }
+
+
+def task_type_drift(snap_dir: Path | None = None, threshold: float | None = None) -> dict[str, Any]:
+    """借鉴④：任务类型分布漂移观测（DGM 开放式探索对标）。
+
+    数据源 = arch_m6_snapshot 的 all_events（datalog 聚合，4 类事件）。
+    相邻两份快照 L1 归一化差超阈值 → 观察期重置建议（只观测不裁决，不自动重置）。
+    快照不足两份 → observed=False（如实：无数据不是零漂移）。
+    """
+    snap_dir = snap_dir or M6_SNAPSHOT_DIR
+    threshold = DRIFT_RESET_THRESHOLD if threshold is None else threshold
+    out: dict[str, Any] = {"observed": False, "reset_recommended": False}
+    if not snap_dir.exists():
+        out["note"] = f"snapshot dir missing: {snap_dir}"
+        return out
+    snaps = sorted(snap_dir.glob("*.json"))
+    if len(snaps) < 2:
+        out["note"] = f"insufficient snapshots: {len(snaps)}"
+        return out
+    dists = []
+    for p in snaps[-2:]:
+        try:
+            ev = _load_json(p).get("all_events") or {}
+        except (json.JSONDecodeError, OSError):
+            out["note"] = f"unreadable snapshot: {p.name}"
+            return out
+        total = sum(ev.values())
+        dists.append({k: v / total for k, v in ev.items()} if total else {})
+    a, b = dists
+    keys = set(a) | set(b)
+    l1 = sum(abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in keys)
+    out.update(observed=True, l1_distance=round(l1, 4), threshold=threshold,
+               old=snaps[-2].name, new=snaps[-1].name,
+               reset_recommended=bool(l1 > threshold))
+    return out
 
 def snap_tripartite_health(now: _dt.datetime | None = None) -> MetricsRecord:
     """健康度四指标：新鲜度 / 归宿覆盖率 / 同体违规 / 四态分布。缺源如实计红，不静默。
@@ -154,8 +245,13 @@ def snap_tripartite_health(now: _dt.datetime | None = None) -> MetricsRecord:
         red.append("coverage<1.0(candidates-vanished)")
     if violations:
         red.append(";".join(violations))
+    fit = fitness_summary(inputs["candidates"], report)
+    if fit["mismatch"]:
+        red.append("fitness-mismatch(candidates-vs-report)")
+    drift = task_type_drift()
     return MetricsRecord(freshness_hours=round(freshness, 2), disposition_coverage=round(coverage, 4),
-                         same_actor_violations=violations, cycle_report=report, red_flags=red)
+                         same_actor_violations=violations, cycle_report=report, red_flags=red,
+                         fitness=fit, task_drift=drift)
 
 
 def save_tripartite_cycle(out_dir: Path | None = None, now: _dt.datetime | None = None) -> Path:

@@ -13,6 +13,8 @@
  ],
  "blast_radius": "零（全仓无运行时引用；测试断言同批换载体）",
  "revival_clause": "若未来 LACP/mcp 需要统一传输缝，按铁律 7 以 {ns}/transport 域前缀重新入册（N3 守卫拒收裸 key）",
+ "recycle_tier": "light",
+ "recycle_tier_note": "2026-09-25 档位化回填（借鉴① DGM stepping-stone 对标）：有 revival_clause 即轻回收，可复活",
  "verification": [
   "python -c 'from lingclaude.core.seam import SeamType; hasattr(SeamType,\"TRANSPORT\")==False 实测 True（已不在）'",
   "pytest tests/test_seam_plugin.py::test_protocol_check 修复后重跑（见本轮回归）",

@@ -154,6 +154,10 @@ class StatusModel:
 # 2026-09-25 二期：键位/操作类也入池（全部实测验证，见 repl.py:1193 启动横幅与
 # interface.py:311-312 chord 表——Ctrl+Enter/Shift+Enter 同为换行）。
 _TOOLBAR_TIPS: tuple[str, ...] = (
+    # ── EVOLVE-BLOCK: toolbar_tips begin（借鉴③，AlphaEvolve 对标）──────────
+    # 可自改区：本块内 tips 条目可由自进化机制增删改；块外（_TIP_EVERY_TURNS、
+    # toolbar_tip 轮换逻辑、防虚构守卫）冻结执法。锚点成对性由
+    # test_p04_arch_guards::test_evolve_block_paired 锁死。
     "Esc+Enter 换行 · Ctrl+Enter/Shift+Enter 亦然 · /multi 多行",
     "/compact 压缩上下文",
     "/tasks 看任务面板",
@@ -164,6 +168,7 @@ _TOOLBAR_TIPS: tuple[str, ...] = (
     "/help 全部命令 · /history 会话回看",
     "Tab 补全命令 · 上箭头翻历史",
     "/resync 重绘界面",
+    # ── EVOLVE-BLOCK: toolbar_tips end ─────────────────────────────────────
 )
 _TIP_EVERY_TURNS = 5
 
@@ -185,6 +190,23 @@ def toolbar_fragments(s: StatusModel):
     """
     frag = []
     # 2026-09-22: 任务清单面板（todo panel，常驻状态栏上方，对标 atomcode）——
+    # 2026-09-25 渲染防腐：长跑进程历史脏 set 喂 None（interface.py:133 记录过
+    # 同源镜像腐坏病灶）会让下方任意比较/len 炸 → 全屏 TUI 整栏空白。渲染层
+    # 逐字段兜默认，脏快照永不再炸渲染。8 个 fuzz 实证炸点全覆盖。
+    # 位置敏感：必须在 todo 循环与所有 len()/比较之前（首版插晚被 fuzz 当场抓回）。
+    if s.todo_items is None:
+        s.todo_items = ()
+    if s.ctx_window is None:
+        s.ctx_window = 0
+    if s.pending is None:
+        s.pending = 0
+    if s.task_pending is None:
+        s.task_pending = 0
+    if s.cache_pct is None:
+        s.cache_pct = -1
+    s.cwd = s.cwd or ""
+    s.task = s.task or "空闲"
+    s.turns = s.turns or 0
     # 每项一行：⚙ in_progress / · pending / ✓ completed / ✗ cancelled。
     # 有未完成项时先渲染清单行再渲染状态行（bottom_toolbar 多行片段 PT 原生支持，
     # 全屏 TUI _status_win 高度自适应配套）；无任务时零行，不占版面。
@@ -202,6 +224,7 @@ def toolbar_fragments(s: StatusModel):
     # 一眼标定运行状态：idle=绿 / busy=黄 / blocked=红。优先级 blocked > busy > idle，
     # 由 _toolbar_snapshot 每秒判定 state_level 喂入；未知值兜绿。
     _STATE_STYLE = {"idle": "class:green", "busy": "class:yellow", "blocked": "class:red"}
+    # 2026-09-25 渲染防腐：长跑进程历史脏 set 喂 None（interface.py:133 记录过
     _sl = getattr(s, "state_level", "idle")
     frag.append((_STATE_STYLE.get(_sl, "class:green"), "●"))
     # 权限模式前缀（atomcode 的 ⏵⏵ auto 语义）——读运行时实际模式，未知则不显示
