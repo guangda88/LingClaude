@@ -189,9 +189,14 @@ def selfcheck(table: dict[str, dict]) -> bool:
     else:
         print("[FAIL] l5_audit 未报生产消费 —— 尺子仍有口径漏洞")
         ok = False
-    # 锚点2：l7_cognitive_bridge 必须无生产消费（测试豁免登记不算）
+    # 锚点2：l7_cognitive_bridge 必须无生产消费（测试豁免登记不算）。
+    # 2026-09-25 起该模块已轻回收（record: recycled-l7-bridge-20260925.json），
+    # 模块消失即最强「无生产消费」——扫描器查不到它 = PASS（拆了锚不能拆尺）。
     if b.get("prod_count", 0) == 0:
-        print(f"[PASS] l7_cognitive_bridge 无生产消费（测试侧登记 {b.get('test_count', 0)} 处，为守卫豁免定性，不算消费）")
+        if not b:
+            print("[PASS] l7_cognitive_bridge 无生产消费（模块已回收不在 core，天然 PASS）")
+        else:
+            print(f"[PASS] l7_cognitive_bridge 无生产消费（测试侧登记 {b.get('test_count', 0)} 处，为守卫豁免定性，不算消费）")
     else:
         print(f"[FAIL] l7_cognitive_bridge 报出 {b['prod_count']} 处生产消费 —— 需人工复核是否真消费")
         for t in b["hits_prod"]:

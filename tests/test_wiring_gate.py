@@ -185,7 +185,8 @@ class TestNoDeadModules:
         "skill_parser.py",
         # L7 cognitive layer - standalone, not wired into query_engine
         "l7_cognitive.py",
-        "l7_cognitive_bridge.py",
+        # l7_cognitive_bridge.py 已回收（2026-09-25，零装配零测试零运行痕迹，
+        # 64 天孤儿链末梢）——record: arch_seam_recycled/recycled-l7-bridge-20260925.json
         "l10_a_post_audit.py",
         # 治理/协议预留模块（2026-09-22 A组清偿③ 归因）：动态消费或预留 API 面——
         # evidence_protocol(EvidenceLedger 经 model_call:127 函数内 import)、
