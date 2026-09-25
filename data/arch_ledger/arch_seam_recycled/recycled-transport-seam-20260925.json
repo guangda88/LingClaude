@@ -1,0 +1,23 @@
+{
+ "type": "arch_seam_recycled",
+ "key": "recycled-transport-seam-20260925",
+ "as_of": "2026-09-25",
+ "created": "2026-09-25T09:00:00+00:00",
+ "title": "TRANSPORT 缝回收——铁律 4 修剪语法首例真实回收（撤缝侧）",
+ "what": "SeamType.TRANSPORT 枚举 + PLUG_LEVELS L1 声明 + _EXPECTED_PROTOCOL 映射三处全删（seam.py）；tests/test_seam_plugin.py 同步换 None-protocol 断言载体（TRANSPORT→MEMORY）",
+ "why": [
+  "零装配实测：seam.py _EXPECTED_PROTOCOL 映射 None、全仓 SeamType.TRANSPORT 引用仅 seam.py 自身（2026-09-25 grep 实测）",
+  "零 core 实体：传输实现在 lingclaude/lacp/（插片区，无需迁移），core/ 侧无任何传输实现",
+  "L1 承诺从未兑现：'传输实现可互换'自 2026-09-15 入册起无任何 register/测试/调用佐证",
+  "龄期 10 天+ 且无扩展意图声明——四条回收判据（辨别框架第三类）全部成立"
+ ],
+ "blast_radius": "零（全仓无运行时引用；测试断言同批换载体）",
+ "revival_clause": "若未来 LACP/mcp 需要统一传输缝，按铁律 7 以 {ns}/transport 域前缀重新入册（N3 守卫拒收裸 key）",
+ "verification": [
+  "python -c 'from lingclaude.core.seam import SeamType; hasattr(SeamType,\"TRANSPORT\")==False 实测 True（已不在）'",
+  "pytest tests/test_seam_plugin.py::test_protocol_check 修复后重跑（见本轮回归）",
+  "回归基线：2 failed（1 撤缝连带已修 + 1 M1 存量红与本次无关）→ 修后 31+1 passed 预期"
+ ],
+ "m1_incident_note": "同轮回归暴露 M1 概念清白存量违规（event_exempt/state_reconcile/m3_core_coupling/token_pricing 的 policy/lingyi/model 词汇）——与本次撤缝无关，系建闸期新插片住 core/ 的真阳性，按守卫纪律待用户裁决豁免登记或迁出，不在本 record 处置范围",
+ "ledger_ref": "data/ledger/verification-errors-20260925.md（ERR-2026-0925-01 积压件 #4）"
+}

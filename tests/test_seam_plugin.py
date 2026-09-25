@@ -85,8 +85,8 @@ def test_protocol_check():
 
     assert SeamRegistry.check_protocol(SeamType.SANDBOX, GoodSandbox()) == []
     assert set(SeamRegistry.check_protocol(SeamType.SANDBOX, BadSandbox())) == {"available", "wrap"}
-    # None 协议类型不检查
-    assert SeamRegistry.check_protocol(SeamType.TRANSPORT, object()) == []
+    # None 协议类型不检查（TRANSPORT 缝已于 2026-09-25 回收，见 arch_seam_recycled）
+    assert SeamRegistry.check_protocol(SeamType.MEMORY, object()) == []
 
 
 # ---------------------------------------------------------------------------

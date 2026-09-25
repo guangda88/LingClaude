@@ -38,7 +38,6 @@ class SeamType(str, Enum):
     PROVIDER = "provider"        # 模型 provider（openai/anthropic/local/...）
     TOOL = "tool"                # 工具（bash/read/write/...）
     SANDBOX = "sandbox"          # 沙箱后端（bwrap/noop/firejail/...）
-    TRANSPORT = "transport"      # 传输（LACP/mcp/...）
     MEMORY = "memory"            # 记忆策略层
     GOVERNANCE = "governance"    # 治理插片
     SELF_OPT = "self_opt"        # 自优化插片
@@ -92,7 +91,6 @@ PLUG_LEVELS: dict[SeamType, str] = {
     SeamType.PROVIDER: "L1",      # provider 可替换（openai/anthropic/local 互换，接口一致）
     SeamType.TOOL: "L3",          # 工具缺席 = 少一个功能，主干不崩
     SeamType.SANDBOX: "L2",       # NoopSandboxProvider 缺席降级范式（J2 实测在册）
-    SeamType.TRANSPORT: "L1",     # 传输实现可互换（LACP/mcp）
     SeamType.MEMORY: "L1",        # 记忆策略可替换
     SeamType.GOVERNANCE: "L1",    # 治理插片可替换
     SeamType.SELF_OPT: "L1",      # 自优化插片可替换
@@ -203,7 +201,6 @@ _EXPECTED_PROTOCOL: dict[SeamType, type[Protocol] | None] = {
     SeamType.PROVIDER: ProviderPlugin,
     SeamType.TOOL: ToolPlugin,
     SeamType.SANDBOX: SandboxPlugin,
-    SeamType.TRANSPORT: None,
     SeamType.MEMORY: None,
     SeamType.GOVERNANCE: None,
     SeamType.SELF_OPT: None,
