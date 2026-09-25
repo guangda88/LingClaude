@@ -85,14 +85,19 @@ class TestFullTuiSession:
         assert isinstance(frags, list)
         assert "".join(x[1] for x in frags) == "model-x│ /tmp"
 
-    def test_status_callback_error_silent(self, _pt_available: None, tmp_path: Path) -> None:
+    def test_status_callback_error_downgrade(self, _pt_available: None, tmp_path: Path) -> None:
         s = FullTuiSession(history_file=str(tmp_path / "h"))
 
         def _boom() -> list[tuple[str, str]]:
             raise RuntimeError("boom")
 
         s.install_bottom_toolbar(_boom)
-        assert s._status_fragments() == []  # noqa: SLF001
+        # 2026-09-25 契约升级：异常不再静默吞成 []（整栏空白零线索），
+        # 而是红字降级行——用户直接看到炸点。渲染仍不反噬主循环。
+        frags = s._status_fragments()  # noqa: SLF001
+        assert isinstance(frags, list) and frags
+        text = "".join(x[1] for x in frags)
+        assert "状态栏异常" in text and "RuntimeError" in text
 
     def test_output_source_exception_silent(self, _pt_available: None, tmp_path: Path) -> None:
         s = FullTuiSession(history_file=str(tmp_path / "h"))
