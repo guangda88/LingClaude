@@ -49,6 +49,9 @@ SLASH_COMPLETER_WORDS = [
     "/openrouter",
     # 2026-09-20: P3 全量重绘输出窗（atomcode invalidate 借鉴）
     "/resync",
+    # 2026-09-25: /multi 补登——handler 一直在（_cmd_multi，commands.py:88/160），
+    # 但从未进补全清单；tips 守卫收紧为「任意 /token 必须注册」后此处为准入点
+    "/multi",
 ]
 
 
