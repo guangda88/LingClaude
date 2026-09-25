@@ -22,11 +22,25 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
-from lingclaude.core.lingmemory_bridge import LingMemoryCacheBridge, dualwrite_enabled  # P3.2（ERR-05 回溯：迁移撤回，M3 合规）
-from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink  # P3.3 模块级（g3 基线内化，勿放函数内；ERR-05 回溯）
-from lingclaude.core.lingmemory_token_bridge import LingMemoryTokenSink  # P3.4 模块级（g3 基线内化，勿放函数内；ERR-05 回溯）
+# 2026-09-25 M3 第二批（迁移缝装配）：lingmemory 五桥迁出 core/ → plugins/memory/，
+# 本体注册进 SeamType.MEMORY 缝（各桥 plugin.py register()），wiring 经 get_optional 装配——
+# 满足 G11（core 不 import plugins，plugins→core 单向）；消费点仍被 dualwrite_enabled() 门控
+# （主路默认零依赖，仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时 Option 命中）。ERR-05 教训：迁移验收含启动链冒烟。
+from lingclaude.core.seam import SeamRegistry, SeamType
 
 logger = logging.getLogger(__name__)
+
+
+def dualwrite_enabled() -> bool:
+    """灵忆双写开关：仅显式 LINGCLAUDE_MEMORY_DUALWRITE=1 时激活。
+
+    M3 第二批：开关判断原是 lingmemory_bridge（已迁出 core/ → plugins/memory/）。
+    装配器自管开关——读同一 env 判断，不 import 插件（G11：core 禁 import
+    lingclaude.plugins，只能经 PluginLoader / SeamRegistry）。开关语义与
+    插件侧 dualwrite_enabled 逐字一致（同 env 名、同 ==\"1\" 判据）。
+    """
+    import os
+    return os.environ.get("LINGCLAUDE_MEMORY_DUALWRITE", "").strip() == "1"
 
 
 @dataclass(frozen=True)
@@ -224,9 +238,10 @@ def _make_cache(ctx: WiringContext) -> Any:
     from lingclaude.core.context_cache import ContextCache
 
     # P3.2 双写试点：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
-    # （桥接器在模块级 import：其依赖链指向外部 lingmemory 包，无 core 内循环）
+    # （M3 第二批：经 MEMORY 缝 Optional 装配，桥本体在 plugins/memory/lingmemory_bridge）
     sink = (
-        LingMemoryCacheBridge() if dualwrite_enabled() else None
+        SeamRegistry.get_optional(SeamType.MEMORY, "lingmemory_cache")
+        if dualwrite_enabled() else None
     )
     return ContextCache(cache_size=100, ttl_hours=24, memory_sink=sink)
 
@@ -245,8 +260,11 @@ def _make_monitor(ctx: WiringContext) -> Any:
 
     # P3.4 双写：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
     # （与 P3.2/P3.3 同一开关、同一纪律；主路默认零依赖）
-    # LingMemoryTokenSink 已在模块级导入（g3 纪律）
-    lingyi_sink = LingMemoryTokenSink() if dualwrite_enabled() else None
+    # M3 第二批：经 MEMORY 缝 Optional 装配（桥本体在 plugins/memory/lingmemory_token_bridge）
+    lingyi_sink = (
+        SeamRegistry.get_optional(SeamType.MEMORY, "lingmemory_token")
+        if dualwrite_enabled() else None
+    )
     # D3 清偿 (2026-09-24): session 维度真实 token 落盘（arch_review
     # review-20260923-jev-laya-24h-consumption.json D3：117,421 sessions
     # 0 含 token 字段的 schema 盲区）。默认开，LINGCLAUDE_SESSION_TOKEN_SINK=off
@@ -288,8 +306,11 @@ def _make_layered_memory(ctx: WiringContext) -> Any:
 
     # P3.3 双写：仅 LINGCLAUDE_MEMORY_DUALWRITE=1 时挂灵忆旁观者
     # （与 P3.2 context_cache 同一开关、同一纪律；主路默认零依赖）
-    # dualwrite_enabled / LingMemoryExperienceSink 已在模块级导入（g3 纪律）
-    sink = LingMemoryExperienceSink() if dualwrite_enabled() else None
+    # M3 第二批：经 MEMORY 缝 Optional 装配（桥本体在 plugins/memory/lingmemory_experience_bridge）
+    sink = (
+        SeamRegistry.get_optional(SeamType.MEMORY, "lingmemory_experience")
+        if dualwrite_enabled() else None
+    )
     return LayeredMemory(memory_sink=sink)
 
 

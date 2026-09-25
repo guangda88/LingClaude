@@ -27,8 +27,8 @@ from lingclaude.core.layered_memory import (
     InMemoryExperienceStore,
     LayeredMemory,
 )
-from lingclaude.core.lingmemory_bridge import dualwrite_enabled
-from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink
+from lingclaude.plugins.memory.lingmemory_bridge.bridge import dualwrite_enabled
+from lingclaude.plugins.memory.lingmemory_experience_bridge.bridge import LingMemoryExperienceSink
 
 
 def _mk_exp(**kw) -> Experience:
@@ -191,7 +191,7 @@ class TestReadClosedLoop:
         """灵忆不可用时，读出闭环仍成立（主路权威）。"""
         monkeypatch.delenv("LINGCLAUDE_MEMORY_DUALWRITE", raising=False)
         monkeypatch.setattr(
-            "lingclaude.core.lingmemory_bridge._get_lingmemory",
+            "lingclaude.plugins.memory.lingmemory_bridge.bridge._get_lingmemory",
             lambda: None,
         )
         lm = LayeredMemory(
@@ -217,7 +217,7 @@ class TestDegradePath:
         monkeypatch.setenv("LINGCLAUDE_MEMORY_DUALWRITE", "1")
         # _get_lingmemory 返回 None 模拟"灵忆不可用"（绕过懒加载缓存）
         monkeypatch.setattr(
-            "lingclaude.core.lingmemory_bridge._get_lingmemory",
+            "lingclaude.plugins.memory.lingmemory_bridge.bridge._get_lingmemory",
             lambda: None,
         )
 
@@ -235,7 +235,7 @@ class TestDegradePath:
         """降级路径：灵忆不可用 → 熔断（旁路纪律），但主路不崩。"""
         monkeypatch.setenv("LINGCLAUDE_MEMORY_DUALWRITE", "1")
         monkeypatch.setattr(
-            "lingclaude.core.lingmemory_bridge._get_lingmemory",
+            "lingclaude.plugins.memory.lingmemory_bridge.bridge._get_lingmemory",
             lambda: None,
         )
         sink = LingMemoryExperienceSink(db_path=":memory:")
@@ -256,12 +256,12 @@ class TestDegradePath:
         验证调用方拿到 None 时不崩。
         """
         monkeypatch.setattr(
-            "lingclaude.core.lingmemory_bridge._get_lingmemory",
+            "lingclaude.plugins.memory.lingmemory_bridge.bridge._get_lingmemory",
             lambda: None,
         )
-        from lingclaude.core import lingmemory_bridge
+        import lingclaude.plugins.memory.lingmemory_bridge.bridge as lb
 
-        assert lingmemory_bridge._get_lingmemory() is None
+        assert lb._get_lingmemory() is None
 
 
 # ---------------------------------------------------------------------------

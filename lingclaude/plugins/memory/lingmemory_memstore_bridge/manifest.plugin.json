@@ -1,0 +1,24 @@
+{
+  "name": "lingmemory_memstore",
+  "version": "1.0.0",
+  "type": "memory",
+  "entry": "lingclaude/plugins/memory/lingmemory_memstore_bridge/plugin.py:Plugin",
+  "description": "MemoryStore → 灵忆 records 旁路镜像桥（M1 豁免销账对象，core 零消费点）（注册进 SeamRegistry.MEMORY 缝）",
+  "requires": [],
+  "provides": [
+    "memory",
+    "lingmemory_memstore"
+  ],
+  "enabled": true,
+  "stop_layer": {
+    "kernel": "bridge.py::LingMemoryStoreSink 灵忆桥本体",
+    "sub_seams": {
+      "seams": [
+        "lingclaude.plugins.memory.lingmemory_bridge.bridge"
+      ],
+      "implementations": 1,
+      "note": "依赖共享基座 lingmemory_bridge（_get_lingmemory/dualwrite_enabled）"
+    },
+    "note": "M3 第二批记忆缝插片：lingmemory_memstore_bridge"
+  }
+}

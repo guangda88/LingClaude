@@ -23,8 +23,8 @@ from lingclaude.core.memory_engine import (
     FacetPoint,
     MemoryStore,
 )
-from lingclaude.core.lingmemory_bridge import dualwrite_enabled
-from lingclaude.core.lingmemory_memstore_bridge import (
+from lingclaude.plugins.memory.lingmemory_bridge.bridge import dualwrite_enabled
+from lingclaude.plugins.memory.lingmemory_memstore_bridge.bridge import (
     LingMemoryStoreSink,
     edge_key,
 )

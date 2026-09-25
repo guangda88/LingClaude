@@ -1,8 +1,9 @@
 {
   "guard": "M1",
-  "file": "core/lingmemory_memstore_bridge.py",
+  "file": "plugins/memory/lingmemory_memstore_bridge/bridge.py",
   "reason": "存量基线(2026-09-17首扫)，只缩不放",
   "granted": "2026-09-17",
-  "state": "active",
-  "review_due": "2026-10-17"
+  "state": "migrated",
+  "review_due": "2026-10-17",
+  "migration_note": "M3 第二批 2026-09-25：迁出 core/ → plugins/memory/lingmemory_memstore_bridge/bridge.py（LingMemoryStoreSink），wiring 改 SeamRegistry.get_optional(MEMORY) 缝装配；原豁免提前销账（原 due 2026-10-17）"
 }

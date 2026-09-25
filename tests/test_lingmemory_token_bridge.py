@@ -17,8 +17,8 @@ import threading
 
 import pytest
 
-from lingclaude.core.lingmemory_bridge import dualwrite_enabled
-from lingclaude.core.lingmemory_token_bridge import LingMemoryTokenSink
+from lingclaude.plugins.memory.lingmemory_bridge.bridge import dualwrite_enabled
+from lingclaude.plugins.memory.lingmemory_token_bridge.bridge import LingMemoryTokenSink
 from lingclaude.core.token_monitor import TokenMonitor
 
 
@@ -115,7 +115,7 @@ class TestBypassDiscipline:
 
     def test_bridge_fuse_on_unavailable_lingmemory(self, tmp_path, monkeypatch):
         monkeypatch.setenv("LINGCLAUDE_MEMORY_DUALWRITE", "1")
-        import lingclaude.core.lingmemory_bridge as lb
+        import lingclaude.plugins.memory.lingmemory_bridge.bridge as lb
 
         monkeypatch.setattr(lb, "_get_lingmemory", lambda: None)
         sink = LingMemoryTokenSink(db_path=tmp_path / "unused.db")

@@ -1,0 +1,24 @@
+{
+  "name": "lingmemory_l7",
+  "version": "1.0.0",
+  "type": "memory",
+  "entry": "lingclaude/plugins/memory/lingmemory_l7_bridge/plugin.py:Plugin",
+  "description": "L7 认知缝 → 灵忆 边写桥（M1 豁免销账对象，core 零消费点）（注册进 SeamRegistry.MEMORY 缝）",
+  "requires": [],
+  "provides": [
+    "memory",
+    "lingmemory_l7"
+  ],
+  "enabled": true,
+  "stop_layer": {
+    "kernel": "bridge.py::LingMemoryL7Sink 灵忆桥本体",
+    "sub_seams": {
+      "seams": [
+        "lingclaude.plugins.memory.lingmemory_bridge.bridge"
+      ],
+      "implementations": 1,
+      "note": "依赖共享基座 lingmemory_bridge（_get_lingmemory/dualwrite_enabled）"
+    },
+    "note": "M3 第二批记忆缝插片：lingmemory_l7_bridge"
+  }
+}

@@ -22,7 +22,7 @@ from lingclaude.core.l7_cognitive import (
     GraphEdge,
     L7Cognitive,
 )
-from lingclaude.core.lingmemory_l7_bridge import LingMemoryL7Sink, l7_edge_key
+from lingclaude.plugins.memory.lingmemory_l7_bridge.bridge import LingMemoryL7Sink, l7_edge_key
 
 
 # ---------------------------------------------------------------------------

@@ -22,8 +22,8 @@ from lingclaude.core.layered_memory import (
     ExperienceStore,
     InMemoryExperienceStore,
 )
-from lingclaude.core.lingmemory_bridge import dualwrite_enabled
-from lingclaude.core.lingmemory_experience_bridge import LingMemoryExperienceSink
+from lingclaude.plugins.memory.lingmemory_bridge.bridge import dualwrite_enabled
+from lingclaude.plugins.memory.lingmemory_experience_bridge.bridge import LingMemoryExperienceSink
 
 
 def _mk_exp(**kw) -> Experience:

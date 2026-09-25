@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from lingclaude.core.context_cache import ContextCache
-from lingclaude.core.lingmemory_bridge import (
+from lingclaude.plugins.memory.lingmemory_bridge.bridge import (
     LingMemoryCacheBridge,
     dualwrite_enabled,
 )
@@ -123,7 +123,7 @@ class TestSwitchOff:
     def test_no_sink_when_disabled(self, monkeypatch):
         """开关关闭：装配层不建桥实例"""
         monkeypatch.delenv("LINGCLAUDE_MEMORY_DUALWRITE", raising=False)
-        from lingclaude.core.lingmemory_bridge import dualwrite_enabled as dw
+        from lingclaude.plugins.memory.lingmemory_bridge.bridge import dualwrite_enabled as dw
         assert dw() is False
 
     def test_sink_events_ignored_when_disabled(self, lm_pair, tmp_path, monkeypatch):
