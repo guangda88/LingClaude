@@ -1,5 +1,5 @@
 {
-  "head": "46fbbac",
+  "head": "9685af9",
   "fingerprints": {
     "docs/LINGYUAN_IRON_LAW.md": "9e1841a1d995",
     "tests/test_iron_law_guards.py": "f545695889df",
@@ -169,5 +169,5 @@
     "arch_m6_snapshot:20260921": "5084006e784c",
     "arch_m6_snapshot:20260922": "e6e9f84ceaff"
   },
-  "checked": "2026-09-25T08:10:38+00:00"
+  "checked": "2026-09-25T11:59:54+00:00"
 }

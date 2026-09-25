@@ -45,7 +45,11 @@ def _build_plugin_lifecycle_table() -> dict[Optional[str], set[str]]:
         # 均走 _unload_fiber（:463 无前置状态过滤）——实测合法边。
         "PENDING": {"LOADING", "UNLOADING", "INACTIVE"},
         "LOADING": {"ACTIVE", "FAILED"},
-        "ACTIVE": {"UNLOADING"},
+        # ACTIVE→FAILED 补边（2026-09-25 读证）：_activate 中赋 ACTIVE(:447)
+        # 之后 compute_epoch(:448)/record_success(:449) 仍在同一 try 窗口，
+        # 抛异常走 except 落 FAILED(:452)——except 窗口可达的结构事实边。
+        # 另 refresh(:508-509) 语义：ACTIVE 再激活必先 UNLOADING（与下边一致）。
+        "ACTIVE": {"UNLOADING", "FAILED"},
         "UNLOADING": {"INACTIVE"},
         # 注意：不存在 INACTIVE/FAILED→ACTIVE 直跳边——真实代码 _activate
         # 先赋 LOADING（:435）再赋 ACTIVE（:447），观察者按赋值粒度必然

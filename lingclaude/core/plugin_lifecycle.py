@@ -20,6 +20,11 @@ from collections import deque
 from enum import Enum
 from typing import Any, Callable, Iterable, Optional
 
+from lingclaude.core.invariants import (
+    PLUGIN_LIFECYCLE_TABLE,
+    StateInvariantGuard,
+    TransitionTable,
+)
 from lingclaude.core.seam import SeamRegistry, SeamType
 
 logger = logging.getLogger(__name__)
@@ -366,6 +371,14 @@ class LifecycleManager:
         self._subscribed = False
         # 插片风暴熔断闸（外部评审合议 #2）：默认构造即启用；测试可注入紧阈值实例
         self.breaker = breaker if breaker is not None else CircuitBreaker()
+        # 状态不变量守卫（建闸期③接线，2026-09-25）：observe 模式挂每 fiber 的
+        # 状态赋值点——三值语义（legal/illegal/unclassified），observe 只记录
+        # 告警不阻断；strict 化（UndefinedTransitionError 拒绝转换）待观察期
+        # 补表后另行裁决。fail-open：守卫自身故障不阻断生命周期主路径。
+        self._invariant_guard = StateInvariantGuard(
+            table=TransitionTable(edges=PLUGIN_LIFECYCLE_TABLE, name="plugin_lifecycle"),
+            mode="observe",
+        )
 
     def _fire_hook(self, hook_type_value: str, fiber_name: str,
                    **metadata: Any) -> None:
@@ -416,6 +429,7 @@ class LifecycleManager:
                 del self._fibers[name]
             fiber = PluginFiber(name, factory, inject)
             self._fibers[name] = fiber
+            self._observe_state(fiber, LifecycleState.PENDING, frm=None)
             logger.debug("lifecycle: attach %s (inject=%s)", name, fiber.inject)
             return fiber
 
@@ -428,10 +442,32 @@ class LifecycleManager:
         self._unload_fiber(fiber)
         return True
 
+    _UNSET_FRM = object()
+
+    def _observe_state(self, fiber: "PluginFiber", to: "LifecycleState",
+                       frm: Any = _UNSET_FRM) -> None:
+        """状态赋值点观察（建闸期③接线，2026-09-25）：每次赋值前向不变量
+        守卫上报一次转换。观察粒度 = 赋值粒度（与 tests/test_invariants
+        property 模型一致）。frm 显式传 None 表示出生转换（None→PENDING），
+        缺省读 fiber.state 当前值。fail-open：守卫异常只告警，不阻断主路径。
+        """
+        try:
+            self._invariant_guard.observe_transition(
+                fiber.name,
+                fiber.state.name if frm is self._UNSET_FRM else frm,
+                to.name)
+        except Exception:  # noqa: BLE001
+            logger.warning("lifecycle: invariant guard 失联（fiber=%s）",
+                           fiber.name, exc_info=True)
+
     # ---- 状态机核心 ----
 
     def _activate(self, fiber: PluginFiber) -> None:
-        """PENDING/INACTIVE → LOADING → ACTIVE。factory 可返回实例或 (实例, disposer)。"""
+        """PENDING/INACTIVE → LOADING → ACTIVE。factory 可返回实例或 (实例, disposer)。
+
+        状态赋值点均先向不变量守卫上报（观察粒度=赋值粒度，建闸期③接线）。
+        """
+        self._observe_state(fiber, LifecycleState.LOADING)
         fiber.state = LifecycleState.LOADING
         fiber.error = None
         try:
@@ -444,11 +480,16 @@ class LifecycleManager:
                 instance = result
             fiber.instance = instance
             fiber.activated_at = time.time()
+            self._observe_state(fiber, LifecycleState.ACTIVE)
             fiber.state = LifecycleState.ACTIVE
             fiber.epoch = fiber.compute_epoch()
             self.breaker.record_success(fiber.name)
             logger.info("lifecycle: %s ACTIVE (epoch=%s)", fiber.name, fiber.epoch)
         except Exception as exc:  # noqa: BLE001 激活失败 fail-loud 记录
+            # 观察语义：try 窗口内赋 ACTIVE 后的 compute_epoch/record_success
+            # 抛异常仍会走到此处——此时 frm=ACTIVE（表内合法边 ACTIVE→FAILED）；
+            # 其余进入路径 frm=LOADING。三值守卫按实际 frm 判定，无需二分。
+            self._observe_state(fiber, LifecycleState.FAILED)
             fiber.state = LifecycleState.FAILED
             fiber.error = f"{type(exc).__name__}: {exc}"
             fiber.instance = None
@@ -460,6 +501,7 @@ class LifecycleManager:
         if fiber.state is LifecycleState.INACTIVE and fiber.instance is None:
             return
         prev = fiber.state
+        self._observe_state(fiber, LifecycleState.UNLOADING)
         fiber.state = LifecycleState.UNLOADING
         try:
             # 声明式 disposer：实例自带 dispose/close/stop 时自动回收（鸭子类型）
@@ -477,6 +519,7 @@ class LifecycleManager:
             failed = fiber.run_disposers_reversed()
             fiber.instance = None
             fiber.epoch = None
+            self._observe_state(fiber, LifecycleState.INACTIVE)
             fiber.state = LifecycleState.INACTIVE
             logger.info("lifecycle: %s UNLOADING→INACTIVE (from=%s failed_disposers=%s)",
                         fiber.name, prev.value, failed)
@@ -496,6 +539,7 @@ class LifecycleManager:
                     logger.warning("lifecycle: %s 依赖缺失，自动卸载", fiber.name)
                     self._unload_fiber(fiber)
                 elif fiber.state is not LifecycleState.FAILED:
+                    self._observe_state(fiber, LifecycleState.INACTIVE)
                     fiber.state = LifecycleState.INACTIVE
                 return fiber.state
             # 依赖齐备：指纹未变且已 ACTIVE → no-op（epoch 语义：没变就什么都不做）
@@ -509,6 +553,7 @@ class LifecycleManager:
                     logger.warning("lifecycle: %s 熔断拒绝，旧代续服（denial=%s）",
                                    fiber.name, denial)
                 else:
+                    self._observe_state(fiber, LifecycleState.INACTIVE)
                     fiber.state = LifecycleState.INACTIVE
                     fiber.error = f"circuit_open: {denial}"
                 return fiber.state
