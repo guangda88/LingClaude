@@ -1,28 +1,31 @@
 {
- "type": "arch_seam_recycled",
- "key": "recycled-manifest-lock-20260925",
- "as_of": "2026-09-25",
- "created": "2026-09-26T04:54:20.196086+08:00",
- "title": "manifest_lock 轻回收——manifest 单源锁预留面，五口径 + plugin 体系专项双重确认零消费",
- "what": "删除 lingclaude/core/manifest_lock.py（221 行，manifest 单源锁/漂移校验 DriftReport 预留面）；tests/test_wiring_gate.py EXEMPT 名单同步摘条目并留回收指路注释；M1 豁免 record 转 recycled。",
- "why": [
-  "零装配：全仓生产代码 0 import（AST 全扫）",
-  "零字符串装配：wiring_manifest/policy/yaml/json/toml 零引用（pyproject 仅 ruff per-file-ignore，非装配）",
-  "零动态加载：importlib/__import__/getattr 补查零命中",
-  "零测试消费（除守卫名单登记）：test_wiring_gate.py 唯一引用是「已知核心件」名单行（与 approval_matrix/verify_ledger/worktree 并列），定性为登记存在而非消费",
-  "零入口点：console_scripts/entry_points 零注册",
-  "M1 豁免原登记为 P0-P2 治理层预留面（2026-09-21 用户确认），review_due 2026-10-21——本轮双重确认（灵克五口径 + atomcode 独立核实）零消费，豁免目的（预留接线）经 4 天未兑现，提前到期回收",
-  "manifest 名字疑点专项：plugin_loader.py 动态加载全走 manifest.entry 路径（spec_from_file_location，plugin_loader.py:224），从不按模块名拼 manifest_lock——字符串级动态引用零命中，排除误杀。"
- ],
- "blast_radius": "零（manifest 漂移校验能力未接线，CI 漂移前置拦截未启用，无运行链经过它）",
- "revival_clause": "若未来 27 插片 manifest + 24 org 账本漂移需 CI 前置拦截，按 git 历史恢复 manifest_lock.py，接线 CI check_drift + 补真实消费测试 + 重登记 M1 豁免后摘除本 record；恢复时须先过 orphan_scan_v2 --selfcheck。",
- "recycle_tier": "light",
- "recycle_tier_note": "有 revival_clause 即轻回收可复活（代码在 git 历史随时可取回）。",
- "verification": [
-  "删除后 grep -rn goal_receipt/manifest_lock lingclaude/**.py 零残留（实测）",
-  "python3 scripts/orphan_scan_v2.py --selfcheck 双向校验 PASS（删除后复跑）",
-  "tests/test_wiring_gate.py 重跑（EXEMPT 摘条后守卫语义不变）",
-  "启动链冒烟：import lingclaude.core.wiring + lingclaude CLI --help（ERR-05 红线）"
- ],
- "ledger_ref": "docs/research/handoff-orphan-scan-rebuild-20260925.md §四执行序 + M1 豁免 record（本record同车转 recycled）"
+  "type": "arch_seam_recycled",
+  "key": "recycled-manifest-lock-20260925",
+  "as_of": "2026-09-25",
+  "created": "2026-09-26T04:54:20.196086+08:00",
+  "title": "manifest_lock 轻回收——manifest 单源锁预留面，五口径 + plugin 体系专项双重确认零消费",
+  "what": "删除 lingclaude/core/manifest_lock.py（221 行，manifest 单源锁/漂移校验 DriftReport 预留面）；tests/test_wiring_gate.py EXEMPT 名单同步摘条目并留回收指路注释；M1 豁免 record 转 recycled。",
+  "why": [
+    "零装配：全仓生产代码 0 import（AST 全扫）",
+    "零字符串装配：wiring_manifest/policy/yaml/json/toml 零引用（pyproject 仅 ruff per-file-ignore，非装配）",
+    "零动态加载：importlib/__import__/getattr 补查零命中",
+    "零测试消费（除守卫名单登记）：test_wiring_gate.py 唯一引用是「已知核心件」名单行（与 approval_matrix/verify_ledger/worktree 并列），定性为登记存在而非消费",
+    "零入口点：console_scripts/entry_points 零注册",
+    "M1 豁免原登记为 P0-P2 治理层预留面（2026-09-21 用户确认），review_due 2026-10-21——本轮双重确认（灵克五口径 + atomcode 独立核实）零消费，豁免目的（预留接线）经 4 天未兑现，提前到期回收",
+    "manifest 名字疑点专项：plugin_loader.py 动态加载全走 manifest.entry 路径（spec_from_file_location，plugin_loader.py:224），从不按模块名拼 manifest_lock——字符串级动态引用零命中，排除误杀。"
+  ],
+  "blast_radius": "零（manifest 漂移校验能力未接线，CI 漂移前置拦截未启用，无运行链经过它）",
+  "revival_clause": "若未来 27 插片 manifest + 24 org 账本漂移需 CI 前置拦截，按 git 历史恢复 manifest_lock.py，接线 CI check_drift + 补真实消费测试 + 重登记 M1 豁免后摘除本 record；恢复时须先过 orphan_scan_v2 --selfcheck。",
+  "recycle_tier": "light",
+  "recycle_tier_note": "有 revival_clause 即轻回收可复活（代码在 git 历史随时可取回）。",
+  "verification": [
+    "删除后 grep -rn goal_receipt/manifest_lock lingclaude/**.py 零残留（实测）",
+    "python3 scripts/orphan_scan_v2.py --selfcheck 双向校验 PASS（删除后复跑）",
+    "tests/test_wiring_gate.py 重跑（EXEMPT 摘条后守卫语义不变）",
+    "启动链冒烟：import lingclaude.core.wiring + lingclaude CLI --help（ERR-05 红线）"
+  ],
+  "ledger_ref": "docs/research/handoff-orphan-scan-rebuild-20260925.md §四执行序 + M1 豁免 record（本record同车转 recycled）",
+  "origin_path": "lingclaude/core/manifest_lock.py",
+  "last_commit": "853a153",
+  "revival_hint": "若 StateReconciler 扩展 manifest 漂移校验，本件是现成轮子（DriftReport 预留面），从 last_commit^ 恢复"
 }

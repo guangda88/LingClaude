@@ -1,29 +1,32 @@
 {
- "type": "arch_seam_recycled",
- "key": "recycled-l7-bridge-20260925",
- "as_of": "2026-09-25",
- "created": "2026-09-25T08:40:00+00:00",
- "title": "l7_cognitive_bridge 轻回收——孤儿扫描器 v2 双向校验后首件四判据全绿件",
- "what": "删除 lingclaude/core/l7_cognitive_bridge.py（140 行，L7Cognitive 的 LingBus 侧适配桥：消息分类→认知层存储→成员上下文）；tests/test_wiring_gate.py EXEMPT 清单同步摘条目并留回收指路注释（测试换载）；scripts/orphan_scan_v2.py selfcheck 锚点2 适配「模块消失=天然 PASS」",
- "why": [
-  "零装配：全仓（lingclaude/** 336 文件 + tests + plugins/sdk/hooks/scripts/core 外补扫）生产代码 0 import；唯一命中是自身 docstring 用法示例（l7_cognitive_bridge.py:9），非消费",
-  "零测试：tests/ 0 命中；tests/test_wiring_gate.py:188 唯一引用是守卫 EXEMPT 豁免登记（「standalone, not wired into query_engine」）——守卫反向证实其无生产消费的定性证据，本身不是消费",
-  "零运行痕迹：.lingclaude/ 运行时目录无任何 bridge 产物",
-  "零动态装配：importlib/__import__/getattr 补查零命中；非 py 配置文件零引用",
-  "龄期 64 天（2026-07-23 生成即零接线，无任何后续提交）且 docs/proposals 无扩展意图——四判据（装配/字符串/测试/龄期）全绿",
-  "孤立性交叉验证：扫描结果显示 l7 全家（l7_cognitive prod=5/facade=1/session=1/types=2/classifier=2）均有消费，bridge 是唯一全零件，为孤儿链末梢（bridge→l7_cognitive 方向下游）——回收它不影响家族其余 5 件"
- ],
- "blast_radius": "零（删除后 grep 零残留；l7_cognitive 其余 4 处生产消费不经过 bridge 通道）",
- "revival_clause": "若未来灵信 LingBus 消息需自动入认知层，按 git 历史（本 record 同车提交的父提交）恢复 l7_cognitive_bridge.py 并在 wiring 显式装配 + 补真实消费测试后摘除本 record；恢复时须先过 orphan_scan_v2 --selfcheck",
- "recycle_tier": "light",
- "recycle_tier_note": "有 revival_clause 即轻回收可复活（代码在 git 历史随时可取回，attic 休眠档未占用）",
- "selfcheck_adaptation": "锚点2 原语义「模块必须无生产消费」在模块删除后升级为「模块消失=天然 PASS」——拆锚不拆尺，双向校验通道保持可用",
- "verification": [
-  "删除后 grep -rn l7_cognitive_bridge lingclaude/**.py 零残留（实测）",
-  "python3 scripts/orphan_scan_v2.py --selfcheck 双锚点 PASS（本轮实测，删除后复跑）",
-  "启动链冒烟：import lingclaude.core.wiring + CLI --help（ERR-05 红线，本轮实测）",
-  "tests/test_wiring_gate.py 重跑（EXEMPT 摘条后守卫语义不变）"
- ],
- "batch_context": "本件是 orphan_scan_v2 重出 12 件零生产消费候选中唯一四判据全绿件；其余 11 件分两组处置：C 组豁免 4 件（memory_engine 待上岗基座/guard 活跃运行链/skill_parser·message_builder 兼容层，有真实运行或装配意图证据）、D 组暂缓 7 件（invariants·plugin_lifecycle 建闸期在建龄期 0 天 + goal_receipt·manifest_lock·context_engine·repair_card P2 预置龄期 4 天 + l10_a_post_audit 测试锚定 6 处）——旧清单预期「批量回收」不成立，实测修正为一杀四免七缓",
- "ledger_ref": "docs/research/handoff-orphan-scan-rebuild-20260925.md §四执行序 + ERR-2026-0925-07（旧 20 件单通道脏数据）"
+  "type": "arch_seam_recycled",
+  "key": "recycled-l7-bridge-20260925",
+  "as_of": "2026-09-25",
+  "created": "2026-09-25T08:40:00+00:00",
+  "title": "l7_cognitive_bridge 轻回收——孤儿扫描器 v2 双向校验后首件四判据全绿件",
+  "what": "删除 lingclaude/core/l7_cognitive_bridge.py（140 行，L7Cognitive 的 LingBus 侧适配桥：消息分类→认知层存储→成员上下文）；tests/test_wiring_gate.py EXEMPT 清单同步摘条目并留回收指路注释（测试换载）；scripts/orphan_scan_v2.py selfcheck 锚点2 适配「模块消失=天然 PASS」",
+  "why": [
+    "零装配：全仓（lingclaude/** 336 文件 + tests + plugins/sdk/hooks/scripts/core 外补扫）生产代码 0 import；唯一命中是自身 docstring 用法示例（l7_cognitive_bridge.py:9），非消费",
+    "零测试：tests/ 0 命中；tests/test_wiring_gate.py:188 唯一引用是守卫 EXEMPT 豁免登记（「standalone, not wired into query_engine」）——守卫反向证实其无生产消费的定性证据，本身不是消费",
+    "零运行痕迹：.lingclaude/ 运行时目录无任何 bridge 产物",
+    "零动态装配：importlib/__import__/getattr 补查零命中；非 py 配置文件零引用",
+    "龄期 64 天（2026-07-23 生成即零接线，无任何后续提交）且 docs/proposals 无扩展意图——四判据（装配/字符串/测试/龄期）全绿",
+    "孤立性交叉验证：扫描结果显示 l7 全家（l7_cognitive prod=5/facade=1/session=1/types=2/classifier=2）均有消费，bridge 是唯一全零件，为孤儿链末梢（bridge→l7_cognitive 方向下游）——回收它不影响家族其余 5 件"
+  ],
+  "blast_radius": "零（删除后 grep 零残留；l7_cognitive 其余 4 处生产消费不经过 bridge 通道）",
+  "revival_clause": "若未来灵信 LingBus 消息需自动入认知层，按 git 历史（本 record 同车提交的父提交）恢复 l7_cognitive_bridge.py 并在 wiring 显式装配 + 补真实消费测试后摘除本 record；恢复时须先过 orphan_scan_v2 --selfcheck",
+  "recycle_tier": "light",
+  "recycle_tier_note": "有 revival_clause 即轻回收可复活（代码在 git 历史随时可取回，attic 休眠档未占用）",
+  "selfcheck_adaptation": "锚点2 原语义「模块必须无生产消费」在模块删除后升级为「模块消失=天然 PASS」——拆锚不拆尺，双向校验通道保持可用",
+  "verification": [
+    "删除后 grep -rn l7_cognitive_bridge lingclaude/**.py 零残留（实测）",
+    "python3 scripts/orphan_scan_v2.py --selfcheck 双锚点 PASS（本轮实测，删除后复跑）",
+    "启动链冒烟：import lingclaude.core.wiring + CLI --help（ERR-05 红线，本轮实测）",
+    "tests/test_wiring_gate.py 重跑（EXEMPT 摘条后守卫语义不变）"
+  ],
+  "batch_context": "本件是 orphan_scan_v2 重出 12 件零生产消费候选中唯一四判据全绿件；其余 11 件分两组处置：C 组豁免 4 件（memory_engine 待上岗基座/guard 活跃运行链/skill_parser·message_builder 兼容层，有真实运行或装配意图证据）、D 组暂缓 7 件（invariants·plugin_lifecycle 建闸期在建龄期 0 天 + goal_receipt·manifest_lock·context_engine·repair_card P2 预置龄期 4 天 + l10_a_post_audit 测试锚定 6 处）——旧清单预期「批量回收」不成立，实测修正为一杀四免七缓",
+  "ledger_ref": "docs/research/handoff-orphan-scan-rebuild-20260925.md §四执行序 + ERR-2026-0925-07（旧 20 件单通道脏数据）",
+  "origin_path": "lingclaude/core/l7_cognitive_bridge.py",
+  "last_commit": "9685af9",
+  "revival_hint": "若 L7 认知层重启 LingBus 侧桥，从 last_commit^ 恢复；注意 l7_cognitive 主件回收状态联动"
 }
