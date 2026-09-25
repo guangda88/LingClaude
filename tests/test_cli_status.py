@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import threading
 
-from lingclaude.cli.status import StatusModel, toolbar_fragments
+from lingclaude.cli.status import (
+    _TOOLBAR_TIPS,
+    StatusModel,
+    toolbar_fragments,
+    toolbar_tip,
+)
 
 
 class TestStatusModel:
@@ -327,3 +332,50 @@ class TestStateBall:
         assert snap.state_level == "blocked"
         frag = toolbar_fragments(snap)
         assert frag[0][0] == "class:red"
+
+
+class TestToolbarTips:
+    """P1-4 常驻提示 → tips 轮换池（2026-09-25）。
+
+    防虚构守卫：池内斜杠命令必须 ∈ SLASH_COMPLETER_WORDS 真实注册清单
+    （F2 教训：handler 缺失的命令不得在任何用户可见面出现，如 /undo）。
+    """
+
+    def test_turn0_shows_keybinding_tip(self) -> None:
+        # 键位兜底保住：0 轮（会话开始）必显示 Esc+Enter 提示
+        assert "Esc+Enter" in toolbar_tip(0)
+
+    def test_rotates_every_5_turns(self) -> None:
+        assert toolbar_tip(4) == toolbar_tip(0)   # 未满 5 轮不变
+        assert toolbar_tip(5) != toolbar_tip(0)   # 满 5 轮换下一条
+
+    def test_wraps_around(self) -> None:
+        # 10 条池 × 每 5 轮 = turns=50 回绕到首条
+        assert toolbar_tip(50) == toolbar_tip(0)
+        assert toolbar_tip(49) != toolbar_tip(0)
+
+    def test_keybinding_tips_in_pool(self) -> None:
+        # 2026-09-25 二期：键位/操作类入池（chord 事实源自 interface.py:311-312
+        # 与 repl.py:1193 启动横幅，禁止未实测键位入池）
+        joined = " ".join(_TOOLBAR_TIPS)
+        for key in ("Esc+Enter", "Ctrl+Enter", "Ctrl+C", "Ctrl+D", "Tab"):
+            assert key in joined, f"键位 {key} 缺席 tips 池"
+
+    def test_all_slash_tokens_are_registered(self) -> None:
+        from lingclaude.cli.commands import SLASH_COMPLETER_WORDS
+        # 2026-09-25 收紧：任意 /token 都必须注册，不再只查行首——
+        # /multi 曾因藏在行中漏网（handler 真实存在但补全清单漏登，已补登）
+        for tip in _TOOLBAR_TIPS:
+            for token in tip.split():
+                if token.startswith("/"):
+                    assert token in SLASH_COMPLETER_WORDS, (
+                        f"tips 池出现未注册命令 {token}（handler 缺失不得推广）")
+
+    def test_toolbar_renders_rotating_tip(self) -> None:
+        s = StatusModel()
+        for _ in range(5):
+            s.bump_turns()
+        frag = toolbar_fragments(s.snapshot())
+        text = "".join(t for _, t in frag if isinstance(t, str))
+        assert f"│ {toolbar_tip(5)} " in text
+        assert "Esc+Enter" not in text  # 5 轮后键位提示已轮换出

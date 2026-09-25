@@ -147,6 +147,34 @@ class StatusModel:
             self.cwd = cwd
 
 
+# 2026-09-25: P1-4 常驻提示升级为 tips 轮换池——原「Esc+Enter 换行 · /multi 多行」
+# 会话全程不变，右侧挤占挂起数/任务面板宽度；熟手早已无需。改为每 5 轮轮换一条
+# 精选提示（turn 结束才变，不闪屏），键位兜底保住（首条），其余只推广真实注册的
+# 斜杠命令（防虚构守卫见 test_cli_status.py：池内命令必须 ∈ SLASH_COMPLETER_WORDS）。
+# 2026-09-25 二期：键位/操作类也入池（全部实测验证，见 repl.py:1193 启动横幅与
+# interface.py:311-312 chord 表——Ctrl+Enter/Shift+Enter 同为换行）。
+_TOOLBAR_TIPS: tuple[str, ...] = (
+    "Esc+Enter 换行 · Ctrl+Enter/Shift+Enter 亦然 · /multi 多行",
+    "/compact 压缩上下文",
+    "/tasks 看任务面板",
+    "/checkpoint 快照存档",
+    "/fork 分叉会话",
+    "/model 换模型",
+    "Ctrl+C 中断/清行 · Ctrl+D 退出",
+    "/help 全部命令 · /history 会话回看",
+    "Tab 补全命令 · 上箭头翻历史",
+    "/resync 重绘界面",
+)
+_TIP_EVERY_TURNS = 5
+
+
+def toolbar_tip(turns: int) -> str:
+    """按轮数轮换的 toolbar 提示：每 5 轮换一条，纯函数零状态。"""
+    if turns <= 0:
+        return _TOOLBAR_TIPS[0]
+    return _TOOLBAR_TIPS[(turns // _TIP_EVERY_TURNS) % len(_TOOLBAR_TIPS)]
+
+
 def toolbar_fragments(s: StatusModel):
     """bottom_toolbar 回调 — 返回 (style, text) 片段列表。
 
@@ -217,8 +245,9 @@ def toolbar_fragments(s: StatusModel):
         frag.append((_cs, f"│ cache {_cp}% "))
     task_display = s.task if len(s.task) <= 40 else s.task[:39] + "…"
     frag.append(("", f"│ {s.turns}轮 │ {task_display}"))
-    # P1-4（2026-09-20）: 多行输入常驻提示（问题 3 的交互侧防线——键位记忆兜底）
-    frag.append(("", "│ Esc+Enter 换行 · /multi 多行 "))
+    # P1-4（2026-09-20）→ 2026-09-25 升级：常驻提示改 tips 轮换池
+    # （每 5 轮换一条，首条保留键位兜底；见 _TOOLBAR_TIPS 注释）
+    frag.append(("", f"│ {toolbar_tip(s.turns)} "))
     if s.pending > 0:
         frag.append(("class:accent", f" │ 挂起×{s.pending}"))
     # 2026-09-17 第3级b: 任务面板角落常驻 — 有活跃任务时右下角显示
