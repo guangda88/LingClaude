@@ -39,6 +39,32 @@ class AcpConfig:
     # 是否对结果做截断, 防止超长输出撑爆上下文
     max_output_chars: int = 8000
 
+    @classmethod
+    def from_env(cls) -> "AcpConfig":
+        """E6: env 接线 — SubagentManager 默认注册本后端时无参构造,
+        原 __init__ 只能拿到空 config, 导致 provider='acp' 恒被 fail-closed
+        拒绝(端点永远无法注入, 接缝形同虚设)。现从环境读取:
+
+        - LINGCLAUDE_ACP_ENDPOINT  (必填, 缺省时保持空端点=fail-closed 不变)
+        - LINGCLAUDE_ACP_API_KEY   (可选, 映射为 Bearer)
+        - LINGCLAUDE_ACP_TIMEOUT_S (可选, 非法值静默回退 60)
+        """
+        import os
+
+        endpoint = os.environ.get("LINGCLAUDE_ACP_ENDPOINT", "").strip()
+        if not endpoint:
+            return cls()
+        timeout_raw = os.environ.get("LINGCLAUDE_ACP_TIMEOUT_S", "").strip()
+        try:
+            timeout_s = int(timeout_raw) if timeout_raw else 60
+        except ValueError:
+            timeout_s = 60
+        return cls(
+            endpoint=endpoint,
+            api_key=os.environ.get("LINGCLAUDE_ACP_API_KEY") or None,
+            timeout_s=timeout_s,
+        )
+
 
 class AcpSubagentBackend(SubagentBackend):
     """External agent backend via Agent Client Protocol."""
@@ -46,7 +72,8 @@ class AcpSubagentBackend(SubagentBackend):
     name = "acp"
 
     def __init__(self, config: AcpConfig | None = None) -> None:
-        self._config = config or AcpConfig()
+        # E6: 未显式注入 config 时从 env 接线; 无 env 仍为空端点(fail-closed)。
+        self._config = config or AcpConfig.from_env()
         # T1-6: 控制通道
         self._running: dict[str, dict] = {}
         self._lock = threading.Lock()
