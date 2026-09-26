@@ -209,7 +209,19 @@ class InputPump:
         if not isinstance(_collect, types.MethodType):
             _collect = None
         while not self._stop.is_set() and not self.dead:
-            _msg = self._prompt_text() if callable(self._prompt_text) else self._prompt_text
+            try:
+                # 2026-09-26 假死根治：_prompt_text（_status_prompt 渲染）失败
+                # 不杀泵 —— 此前它在 try 外，一次瞬时异常即整泵静默死亡，随后
+                # 主循环降级直读（full-tui 下与活 app 构成双读者）。降级为空
+                # 提示符继续读输入（提示符是纯装饰，输入链路不依赖它）。
+                _msg = (
+                    self._prompt_text()
+                    if callable(self._prompt_text)
+                    else self._prompt_text
+                )
+            except Exception:  # noqa: BLE001 — 渲染异常不传染到输入链路
+                _msg = ""
+                print("[输入泵] 提示符渲染失败，本轮用空提示符", file=sys.stderr)
             try:
                 text = _collect(_msg) if _collect is not None else self._session.prompt(_msg)
             except EOFError:

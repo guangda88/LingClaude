@@ -83,6 +83,14 @@ DEFAULT_HISTORY_FILE = ".lingclaude/history"
 # 5000 行约 0.5MB 内存，代价可忽略。
 MAX_OUTPUT_LINES = 5000
 
+# B(2026-09-26): 输入框**显示**行数硬上限（atomcode retained.rs 借鉴）。
+# 场景：无占位符的长粘贴（< _PASTE_FOLD_MIN_LINES 的多次短粘贴累积、
+# 或占位符被还原态编辑）把输入框撑成几十行，输出窗被挤到只剩一两行。
+# 显示封顶 6 行：超出部分 prompt_toolkit 输入窗内部滚动；buffer 文本
+# 完整保留，提交原文不截断（与 atomcode「display capped, content intact」
+# 语义一致）。
+INPUT_DISPLAY_MAX_LINES = 6
+
 # ---------------------------------------------------------------------------
 # 长文本粘贴折叠（2026-09-21）：
 # P2 全屏输入框粘贴多行长文本时逐行平铺——占满视口、淹没正在编辑的短行，
@@ -97,6 +105,10 @@ _PASTE_FOLD_MIN_LINES = 6
 # 用户手打的同形字面串若编号从未登记过，不会被误还原。
 _PLACEHOLDER_FMT = "[文本块 #{n} · {lines}行 · {chars}字符]"
 _PLACEHOLDER_RE = re.compile(r"\[文本块 #(\d+) · \d+行 · \d+字符\]")
+
+# C(2026-09-26): 粘贴注册表持久化条目上限（超出丢最旧——防注册表
+# 无限增长把 pastes.json 撑爆；单条 1MiB 上限见 _load_paste_store）。
+_PASTE_STORE_MAX = 200
 
 
 if _HAS_PROMPT_TOOLKIT:
@@ -275,8 +287,19 @@ class FullTuiSession:
         # _paste_seq 占位符编号单调递增；_paste_registry 编号 → (全文, 行数)。
         # 生命周期：全会话累计、不随提交清空——已消费占位符的残留条目无害
         # （还原只发生在提交瞬间，按当前 buffer 文本里出现的编号命中）。
+        # C(2026-09-26) 富历史：注册表落盘 .lingclaude/pastes.json，会话
+        # 启动时回灌——修复「上键召回含占位符的旧条目，提交后占位符字面
+        # 发给模型」缺陷（_paste_registry 纯内存，重启即空；而 FileHistory
+        # 里的历史行原样含占位符）。
         self._paste_seq = 0
         self._paste_registry: dict[int, tuple[str, int]] = {}
+        self._paste_store_path = history_path.parent / "pastes.json"
+        self._load_paste_store()
+
+        # C(2026-09-26): _paste_seq 续接已持久化最大编号（回灌的条目占据
+        # 编号段，新粘贴不得与之冲突）
+        if self._paste_registry:
+            self._paste_seq = max(self._paste_registry)
 
         # 常驻运行状态
         self._submit_q: deque[str] = deque()
@@ -294,6 +317,10 @@ class FullTuiSession:
         self._out_lock = threading.Lock()
         self._pending_lines: list[str] = []
         self._area_lock = threading.Lock()
+        # Raw 看门狗节流游标（2026-09-26 假死根治）：见 _check_tty_raw_drift。
+        # app 活着但终端被外部踩回 canonical 时，PT 逐键读者收不到任何事件，
+        # 表现为整屏假死（19:20-19:45 事故）——等待循环每轮顺带检测自愈。
+        self._raw_guard_last = 0.0
 
         # 控件（常驻复用）。输出窗 = Buffer + BufferControl子类 + Window 手工
         # 组合（TextArea 不支持传 key_bindings/自定义控件；见模块 docstring）。
@@ -324,6 +351,10 @@ class FullTuiSession:
         self._input_area = TextArea(
             text="",
             multiline=True,
+            wrap_lines=True,
+            # B(2026-09-26): 输入框显示行数封顶（防长粘贴撑爆布局），
+            # 见 INPUT_DISPLAY_MAX_LINES 注释。内部滚动，内容不截断。
+            height=Dimension(min=1, max=INPUT_DISPLAY_MAX_LINES),
             completer=self._completer,
             history=self._history,
             accept_handler=self._on_accept,
@@ -553,6 +584,19 @@ class FullTuiSession:
         if old_thread is not None and old_thread.is_alive():
             old_thread.join(timeout=3.0)
 
+        # 3a') 双代互斥门（2026-09-26 假死根治）：旧代未退不得起新代 ——
+        # 两个 PT Application 并存会争抢同一 pts 的 termios/渲染，是 raw
+        # 失同步与键盘事件分裂的第二窗口。join 超时 = 旧代卡死，宁可保持
+        # 旧代（用户仍有可用界面）也不强行并立；候选弃置（未 run 过，
+        # 无终端副作用，交给 GC）。
+        if old_thread is not None and old_thread.is_alive():
+            self._app = old_app
+            logger.error(
+                "cutover_generation: 旧代线程 join(3s) 未退出，放弃切换（保留旧代，"
+                "禁止双 PT Application 并存）"
+            )
+            return False
+
         # 3b) 起新代线程（接管 stdout 代理与事件循环）
         if self._running or (old_thread is not None):
             self._app_thread = threading.Thread(
@@ -636,6 +680,54 @@ class FullTuiSession:
         except Exception:  # noqa: BLE001 — 增强路径，绝不反噬退出流程
             pass
 
+    def _check_tty_raw_drift(self) -> None:
+        """Raw 失同步检测与自愈（2026-09-26 假死根治，节流 0.5s）。
+
+        病灶：全屏 Application 必须持有 raw 模式才能逐键收输入；外部路径
+        （repl 失活门的 _reset_tty_now / 降级直读）用启动时的 canonical
+        快照 tcsetattr，把活 app 脚下的终端踩回 cooked 态 → 按键被内核
+        行规程按行缓冲，PT 逐键读者永远收不到 → 无法输入/翻页/提交，
+        而进程、事件循环、pump 三者全部健康（19:20-19:45 整屏假死）。
+
+        自愈：检测 ICANON 置位即 tty.setraw(TCSADRAIN) 恢复 + resync 重绘。
+        只在「已经坏」时才写终端（健康路径零触碰）；与 PT 内部 attrs 的
+        竞争窗口仅 tcsetattr 几微秒，且 PT 的 raw_mode 上下文退出时按其
+        进场快照还原，本恢复不破坏该语义。本方法在 pump 线程执行（等待
+        提交队列期间），resync 跨线程调用本身幂等（见 resync docstring）。
+        非 TTY / termios 缺失 / fd 不可用一律静默跳过——看门狗永不反噬输入。
+        """
+        import time as _time
+
+        now = _time.monotonic()
+        if now - self._raw_guard_last < 0.5:
+            return
+        self._raw_guard_last = now
+        try:
+            import termios as _termios
+        except ImportError:
+            return
+        try:
+            fd = sys.stdin.fileno()
+            attrs = _termios.tcgetattr(fd)
+        except Exception:  # noqa: BLE001 — 非 TTY/管道/fd 关闭：跳过
+            return
+        if not (attrs[3] & _termios.ICANON):
+            return  # raw 态健康，零触碰
+        try:
+            import tty as _tty
+
+            _tty.setraw(fd, when=_termios.TCSADRAIN)
+        except Exception:  # noqa: BLE001 — 恢复失败下轮重试
+            return
+        try:
+            logger.warning(
+                "raw_guard: 检测到终端被踩回 canonical（app 活着但按键失联），"
+                "已恢复 raw 模式并 resync —— 2026-09-26 假死根治自愈"
+            )
+            self.resync()
+        except Exception:  # noqa: BLE001 — 重绘失败不影响终端恢复本身
+            pass
+
     def _run_app(self) -> None:
         try:
             # PT3: output 已在构造期注入（start()），run() 不得再传 —— 会
@@ -654,6 +746,50 @@ class FullTuiSession:
                     pass
                 self._stdout_proxy = None
 
+    def _load_paste_store(self) -> None:
+        """C(2026-09-26): 启动时回灌粘贴注册表（富历史重水化）。
+
+        文件格式：{"max_seq": N, "pastes": {"1": [text, lines], ...}}。
+        文件缺失/损坏静默跳过——增强路径，绝不反噬输入。条目上限
+        _PASTE_STORE_MAX 条（超出丢最旧），单条全文超 1MiB 丢弃（防病态）。
+        """
+        try:
+            import json as _json
+
+            raw = self._paste_store_path.read_text(encoding="utf-8")
+            data = _json.loads(raw)
+            pastes = data.get("pastes") or {}
+            for k, v in list(pastes.items())[-_PASTE_STORE_MAX:]:
+                n = int(k)
+                text, lines = v[0], int(v[1])
+                if len(text) > 1_048_576 or lines < 1:
+                    continue
+                self._paste_registry[n] = (text, lines)
+        except (OSError, ValueError, TypeError, IndexError):
+            pass  # 缺失/损坏 → 空注册表（占位符不还原，行为同修复前）
+
+    def _save_paste_store(self) -> None:
+        """C(2026-09-26): 粘贴注册表落盘（_register_paste 达到折叠阈值时调用）。
+
+        只保留最新 _PASTE_STORE_MAX 条；写失败静默（增强路径不反噬）。
+        """
+        try:
+            import json as _json
+
+            items = sorted(self._paste_registry.items())[-_PASTE_STORE_MAX:]
+            data = {
+                "max_seq": self._paste_seq,
+                "pastes": {str(n): [text, lines] for n, (text, lines) in items},
+            }
+            self._paste_store_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self._paste_store_path.with_suffix(".json.tmp")
+            tmp.write_text(
+                _json.dumps(data, ensure_ascii=False), encoding="utf-8"
+            )
+            tmp.replace(self._paste_store_path)
+        except (OSError, ValueError, TypeError):
+            pass  # 写盘失败 → 内存注册表仍有效（本会话内还原不受影响）
+
     def _register_paste(self, data: str) -> tuple[str, int]:
         """登记一次粘贴：返回（插入物, 行数）。
 
@@ -669,6 +805,8 @@ class FullTuiSession:
         self._paste_seq += 1
         n = self._paste_seq
         self._paste_registry[n] = (data, lines)
+        # C(2026-09-26): 立即落盘（进程随时可能被杀，不能等会话结束）
+        self._save_paste_store()
         placeholder = _PLACEHOLDER_FMT.format(n=n, lines=lines, chars=len(data))
         return placeholder, lines
 
@@ -818,6 +956,14 @@ class FullTuiSession:
             with self._submit_cond:
                 while not self._submit_q:
                     self._submit_cond.wait(timeout=0.2)
+                    # Raw 看门狗（2026-09-26 假死根治）：等待循环每 ≤0.2s 醒来
+                    # 一次，顺带检测终端 raw 失同步并自愈（内部 0.5s 节流）。
+                    # pump 阻塞在此期间覆盖了空闲/生成两态，检测永不反噬
+                    # （详见 _check_tty_raw_drift）。
+                    try:
+                        self._check_tty_raw_drift()
+                    except Exception:  # noqa: BLE001 — 看门狗异常绝不阻塞取输入
+                        pass
                     # 注意：流式标志必须每轮实时读 —— pump 线程是长驻阻塞的
                     # （生成开始前就进入 prompt 等下一轮输入），快照会永远
                     # 停在进入时刻 → 流式期 Ctrl+C 仍被 pump 消费 → 打断失效。

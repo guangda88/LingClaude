@@ -164,7 +164,29 @@ def _reset_tty_now(ctx: _ReplCtx) -> None:
     —— 降级瞬间吞掉用户半行，是「打字被吞需重输」的另一来源。半行抢救
     已由 InputPump.stop() 的 buffer 抢救 + 降级读的转义序列消费兜住；
     此处只恢复 termios 模式，不清输入队列。
+
+    2026-09-26 假死根治（full-tui 守卫）：全屏 Application 常驻期间终端
+    必须保持 raw 态 —— 此处的 canonical 快照 tcsetattr 若在活 app 脚下
+    执行，等于把 raw 踩回 cooked：按键被内核行规程缓冲，PT 逐键读者收
+    不到任何事件，整屏假死（19:20-19:45 事故根因）。故 FullTuiSession
+    且 app 仍在运行时**拒绝重置**，改道 raw 看门狗自愈
+    （FullTuiSession._check_tty_raw_drift）。非全屏路径行为不变。
     """
+    # full-tui 守卫：活 app 脚下禁止 canonical 还原（防止 raw 被踩）
+    if _is_full_tui_session(getattr(ctx, "session", None)):
+        _tui = ctx.session
+        if getattr(_tui, "_running", False) and getattr(_tui, "_app", None) is not None:
+            try:
+                _logger.warning(
+                    "reset_tty_now: full-tui app 运行中，跳过 canonical 还原"
+                    "（防止踩掉 raw 模式），交由 raw 看门狗自愈"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        # app 已死/未运行：termios 已由 PT 退出时还原，canonical 快照重放
+        # 无害但也无必要 —— 同样跳过，保持单一行为便于测试与归因。
+        return
     # getattr 防御：测试 _make_ctx 为 SimpleNamespace 无此字段，非 TTY 场景
     # 也从未写入 → 一律按「无 known-good 基线」处理（不重置，等同跳过）。
     _saved_termios = getattr(ctx, "saved_termios", None)
@@ -675,6 +697,11 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
     # 永久降级裸 input()（绕开损坏的 PT session，见 _read_input 的隔离读），
     # 不再反复 churn。
     if beat_idle >= _stall_rebuild_threshold():
+        # 注（2026-09-26 假死根治）：真 FullTuiSession 到不了这里 —— 主循环
+        # `_next_input` 的 `elif not _is_full_tui_session(ctx.session)` 已把
+        # 常驻全屏挡在失活探测外（2026-09-16 设计：pump 阻塞在内部提交队列，
+        # 心跳停滞非病态）。full-tui 形态的泵死亡/降级防护在 _next_input
+        # 死亡分支（复活泵 + 终端守卫），不在本门。
         # 二次触发：上次重建后仍无心跳 → 重建无效，永久降级（不再次重建）
         if ctx.stall_rebuilds >= 1:
             input_pump.dead = True
@@ -750,7 +777,46 @@ def _next_input(ctx: _ReplCtx) -> str:
     _stall_check_t = -1.0
     _idle_loops = 0
     _seen_degraded = False  # P1-Interrupt 残留修复:避免重复 stop() 自残
+    _tui_revives = 0  # full-tui 泵复活计数（上限 3，防无限 churn）
     while True:
+        # ── full-tui 泵死亡改道（2026-09-26 假死根治）────────────────────
+        # 常驻全屏形态下泵线程死亡 ≠ 降级直读：app 线程仍持有 raw 模式且
+        # 独占 stdin，主线程裸 input() 读不到字节还搅乱 PT 状态机（双读者
+        # + termios 竞争，19:20-19:45 假死同族）。app 活着 → 复活泵继续
+        # 队列模式；app 已死 → 走下方原有降级路径（PT 退出时已还原
+        # canonical，裸读安全）。复活 3 次仍死 → 结束会话（逐轮落盘兜底）。
+        if _pump_mode and input_pump.dead and _is_full_tui_session(ctx.session):
+            _tui = ctx.session
+            _app_alive = bool(
+                getattr(_tui, "_running", False)
+                and getattr(_tui, "_app_thread", None) is not None
+                and _tui._app_thread.is_alive()
+            )
+            if _app_alive and _tui_revives < 3:
+                _tui_revives += 1
+                _logger.warning(
+                    "input_pump_dead_fulltui: 复活输入泵（第 %d 次，死因=%s；"
+                    "app 存活，禁止降级直读构成双读者）",
+                    _tui_revives,
+                    input_pump.death_reason or "?",
+                )
+                try:
+                    input_pump.stop()
+                except Exception:  # noqa: BLE001 — 线程已死，stop 仅清理状态
+                    pass
+                input_pump.dead = False
+                try:
+                    input_pump.start()
+                    continue
+                except Exception:  # noqa: BLE001 — 复活失败 → 落回降级判定
+                    input_pump.dead = True
+            elif _app_alive:
+                print(
+                    "\n[输入泵] 复活 3 次仍异常死亡（全屏界面存活），结束会话以防"
+                    "输入失联（会话已逐轮落盘，可 /resume 恢复）",
+                    file=sys.stderr,
+                )
+                raise EOFError
         if input_pump.dead or not _pump_mode:
             # 失活/死亡降级为阻塞直读前，必须先 stop() 停掉 pump 线程
             # （set _stop + interrupt_event 唤醒阻塞 read + join 2s 兜底）。
@@ -1171,6 +1237,39 @@ def _requeue_extras(ctx: _ReplCtx, extras: list[str]) -> None:
         ctx.input_queue.put(_x)
 
 
+def _run_bang_shell(ctx: "_ReplCtx", line: str) -> None:
+    """A(2026-09-26): `!` bash 直通（atomcode/cc 同款）——行首 ! 后的文本
+    作为 bash 命令直接执行，不过 LLM（零 token 运维操作）。
+
+    安全性：走 engine.execute_tool("bash")，与模型工具调用完全同一条
+    5 段流水线（敏感路径 gate / plan_mode 拦截 / 权限闸 / rate limit）——
+    `!` 只是入口形状不同，不新增任何绕过面。`!` 单独一行 = 用法提示。
+    """
+    command = line[1:].strip()
+    if not command:
+        print("[用法] !<命令>  直通 bash（如 !git status）；不过 LLM")
+        return
+    engine = ctx.engine
+    execute = getattr(engine, "execute_tool", None)
+    if not callable(execute):
+        print("[!] bash 直通不可用（engine 无 execute_tool）")
+        return
+    result = execute("bash", command=command)
+    data = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(data, dict):
+        err = result.get("error") if isinstance(result, dict) else result
+        print(f"[!] 执行被拦截: {err}")
+        return
+    out = str(data.get("stdout", "") or "")
+    err_out = str(data.get("stderr", "") or "")
+    code = data.get("exit_code", "?")
+    if out:
+        print(out, end="" if out.endswith("\n") else "\n")
+    if err_out:
+        print(err_out, end="" if err_out.endswith("\n") else "\n")
+    print(f"[exit {code}]")
+
+
 def _consume_queue_round(ctx: _ReplCtx, round_idx: int) -> None:
     """2026-09-15（会话问题重构 P1-1）: round 边界消费挂起队列。
 
@@ -1198,6 +1297,9 @@ def _consume_queue_round(ctx: _ReplCtx, round_idx: int) -> None:
             _requeue_extras(ctx, extras)
             processor.quit_requested = True
             return
+        if item.startswith("!") and not item.startswith("!!"):
+            _run_bang_shell(ctx, item)
+            continue
         if processor.handle(item):
             if processor.quit_requested:
                 _requeue_extras(ctx, extras)
@@ -1239,6 +1341,9 @@ def _consume_queue(ctx: _ReplCtx) -> str:
         if InputQueue.is_eof(item):
             _requeue_extras(ctx, extras)
             return _TURN_QUIT
+        if item.startswith("!") and not item.startswith("!!"):
+            _run_bang_shell(ctx, item)
+            continue
         if processor.handle(item):
             if processor.quit_requested:
                 _requeue_extras(ctx, extras)
@@ -1413,6 +1518,13 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             break
         if not prompt:
             continue
+        # A(2026-09-26): `!` bash 直通（先于斜杠命令；`!!` 转义发模型）
+        if prompt.startswith("!") and not prompt.startswith("!!"):
+            _run_bang_shell(ctx, prompt)
+            prompt = ""
+            continue
+        if prompt.startswith("!!"):
+            prompt = prompt[1:]
         # T1-7: 斜杠命令优先消费
         if ctx.processor.handle(prompt):
             if ctx.processor.quit_requested:
