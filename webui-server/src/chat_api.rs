@@ -76,6 +76,39 @@ pub(crate) async fn chat_sse(State(state): State<AppState>, body: axum::body::By
         question: req.message.clone(),
         context: None, // 见 ChatRequest.session_id 注释
     };
+
+    // ── daemon 化（2026-09-27）：会话解析/创建 + 持久化 + 活跃标记 ──
+    // 前端 session_id 语义从「接受不消费」升级为真实会话续接：
+    // 有 id → 全库解析续接；无 id → 以消息首行片段命名新建。
+    // done 事件回写本服务会话 id（引擎的 done.session_id 为空串）。
+    let working_dir = state.proc.current_project().working_dir;
+    let (session_hash, session_id) = match req.session_id.as_deref().filter(|s| !s.is_empty()) {
+        Some(id) => match crate::sessions_store::resolve_session(&state.store_root, id)
+            .ok()
+            .flatten()
+        {
+            Some(m) => (m.project_hash, m.meta.id),
+            None => match crate::sessions_store::create_session(&state.store_root, &working_dir, None) {
+                Ok(d) => (crate::sessions_store::project_hash(&working_dir), d.id),
+                Err(_) => (String::new(), String::new()), // 存储失败 → 退化为纯桥接
+            },
+        },
+        None => {
+            let title = req.message.lines().next().unwrap_or("").chars().take(40).collect::<String>();
+            let title = if title.is_empty() { None } else { Some(title) };
+            match crate::sessions_store::create_session(&state.store_root, &working_dir, title) {
+                Ok(d) => (crate::sessions_store::project_hash(&working_dir), d.id),
+                Err(_) => (String::new(), String::new()),
+            }
+        }
+    };
+    if !session_id.is_empty() {
+        let _ = crate::sessions_store::append_message(&state.store_root, &session_hash, &session_id, "user", &req.message, None);
+        state.proc.mark_active(&session_id);
+        state.proc.publish(serde_json::json!({"type": "user", "text": req.message, "session_id": session_id}));
+    }
+    let sid_for_stream = session_id.clone();
+    let hash_for_stream = session_hash.clone();
     let url = format!("{}/ask/stream", state.lingclaude_base);
 
     let mut builder = state
@@ -87,6 +120,8 @@ pub(crate) async fn chat_sse(State(state): State<AppState>, body: axum::body::By
     }
 
     let stream = async_stream::stream! {
+        // daemon 化：assistant 全文累积器（done 时落盘）
+        let mut text_acc = String::new();
         match builder.json(&ask_body).send().await {
             Ok(resp) if resp.status().is_success() => {
                 use futures_util::StreamExt;
@@ -108,7 +143,44 @@ pub(crate) async fn chat_sse(State(state): State<AppState>, body: axum::body::By
                                 if data_line.is_empty() {
                                     continue;
                                 }
-                                let ev = Event::default().event("message").data(data_line);
+                                // ── daemon 化：事件改写 + 持久化 + 广播 ──
+                                let mut payload = data_line.clone();
+                                if let Ok(mut v) = serde_json::from_str::<serde_json::Value>(&data_line) {
+                                    let etype = v["type"].as_str().unwrap_or("").to_string();
+                                    match etype.as_str() {
+                                        "text" => {
+                                            if let Some(c) = v["content"].as_str() {
+                                                text_acc.push_str(c);
+                                            }
+                                        }
+                                        "done" => {
+                                            // 引擎 done.session_id 为空 — 回写本服务会话 id
+                                            if let Some(obj) = v.as_object_mut() {
+                                                obj.insert("session_id".into(), serde_json::Value::String(sid_for_stream.clone()));
+                                            }
+                                            payload = serde_json::to_string(&v).unwrap_or(data_line);
+                                        }
+                                        _ => {}
+                                    }
+                                    // 广播非心跳事件（跨标签页同步；done 在落盘后广播）
+                                    if etype != "done" {
+                                        state.proc.publish(v.clone());
+                                    }
+                                    // done 落盘 assistant 全文 + 结算活跃
+                                    if etype == "done" && !sid_for_stream.is_empty() {
+                                        let _ = crate::sessions_store::append_message(
+                                            &state.store_root,
+                                            &hash_for_stream,
+                                            &sid_for_stream,
+                                            "assistant",
+                                            &text_acc,
+                                            None,
+                                        );
+                                        state.proc.clear_active(&sid_for_stream);
+                                        state.proc.publish(v);
+                                    }
+                                }
+                                let ev = Event::default().event("message").data(payload);
                                 yield Ok::<Event, std::convert::Infallible>(ev);
                             }
                         }

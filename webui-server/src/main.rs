@@ -11,10 +11,12 @@
 mod audit;
 mod auth;
 mod chat_api;
+mod daemon_api;
 mod live_api;
+mod sessions_store;
 mod webui;
 
-use axum::{extract::State, http::{header, StatusCode}, response::{IntoResponse, Response}, routing::{get, post}, Router};
+use axum::{extract::State, http::{header, StatusCode}, response::{IntoResponse, Response}, routing::{get, post, delete}, Router};
 use std::sync::Arc;
 
 use auth::TokenStore;
@@ -44,6 +46,10 @@ pub(crate) struct AppState {
     /// `None` 为默认：二进制自带契约，不依赖进程 cwd（部署坑：spec 落盘仓内，
     /// 而运行时 cwd 是别处 → /openapi.json 500）。
     pub(crate) spec_path: Option<std::path::PathBuf>,
+    /// daemon 化进程级状态（审批模式/当前项目/活跃会话/广播总线/bind）。
+    pub(crate) proc: Arc<daemon_api::ProcessState>,
+    /// 会话存储根目录 — 显式注入（测试用独立 tmp 目录，零全局竞态）。
+    pub(crate) store_root: std::path::PathBuf,
     pub(crate) client: reqwest::Client,
 }
 
@@ -97,8 +103,9 @@ async fn health(State(state): State<AppState>) -> Response {
         .into_response()
 }
 
-/// 构建期嵌入的 OpenAPI 规格 — /openapi.json 的最终回退来源（磁盘不可达时）。
-/// include_str! 保证二进制自带契约，部署不依赖 cwd 与外部文件。
+// 构建期嵌入的 OpenAPI 规格 — /openapi.json 的最终回退来源（磁盘不可达时）。
+// include_str! 保证二进制自带契约，部署不依赖 cwd 与外部文件。
+// （不能用 /// — rustdoc 不为 const include_str! 生成文档，报 unused_doc_comment）
 const EMBEDDED_OPENAPI_JSON: &str = include_str!("../openapi.json");
 
 /// `/openapi.json` — 机器可读契约（手维护规格，路由覆盖测试钉住不漂移）。
@@ -115,7 +122,6 @@ async fn openapi_spec(State(state): State<AppState>) -> Response {
             }
             Err(e) => {
                 // 磁盘 spec 不可达时回退嵌入副本 — 契约永不 500。
-/// 构建期嵌入的 OpenAPI 规格 — /openapi.json 的最终回退来源（磁盘不可达时）。
                 eprintln!("spec file {} unreadable ({}), falling back to embedded", body.display(), e);
             }
         }
@@ -140,6 +146,37 @@ fn routes() -> Vec<(&'static str, axum::routing::MethodRouter<AppState>)> {
         ("/chat/stop", post(chat_api::chat_stop)),
         ("/chat/permission", post(chat_api::chat_permission)),
         ("/live", get(live_api::live_sse)),
+        // ── daemon 化端点（AtomCode webUI 模式，2026-09-27）──
+        ("/sessions", get(daemon_api::sessions_get).post(daemon_api::sessions_post)),
+        ("/sessions/search", get(daemon_api::sessions_search)),
+        ("/sessions/resolve/:id", get(daemon_api::sessions_resolve)),
+        ("/chat/active", get(daemon_api::chat_active_get)),
+        ("/project", get(daemon_api::project_get)),
+        ("/cd", post(daemon_api::cd_post)),
+        ("/projects", get(daemon_api::projects_get)),
+        ("/projects/:hash", delete(daemon_api::project_delete)),
+        ("/projects/:hash/sessions", get(daemon_api::project_sessions_get)),
+        ("/projects/:hash/sessions/:id", get(daemon_api::project_session_detail_get).patch(daemon_api::project_session_patch).delete(daemon_api::project_session_delete)),
+        ("/approval_mode", get(daemon_api::approval_mode_get).post(daemon_api::approval_mode_post)),
+        ("/permission/mode", get(daemon_api::permission_mode_get).post(daemon_api::permission_mode_post)),
+        ("/config", get(daemon_api::config_get)),
+        ("/config/reload", post(daemon_api::config_reload_post)),
+        ("/models", get(daemon_api::models_get)),
+        ("/skills", get(daemon_api::skills_get)),
+        ("/mcp/status", get(daemon_api::mcp_status_get)),
+        ("/tunnel/status", get(daemon_api::tunnel_status_get)),
+        ("/fs/list", get(daemon_api::fs_list)),
+        ("/fs/mkdir", post(daemon_api::fs_mkdir)),
+        ("/command", post(daemon_api::command_post)),
+        ("/live/message", post(daemon_api::live_message_post)),
+        ("/live/stop", post(daemon_api::live_stop_post)),
+        ("/live/permission", post(daemon_api::live_permission_post)),
+        ("/live/user-input", post(daemon_api::live_user_input_post)),
+        ("/live/provider", post(daemon_api::live_provider_post)),
+        ("/live/compact", post(daemon_api::live_compact_post)),
+        ("/live/reasoning_effort", post(daemon_api::live_reasoning_effort_post)),
+        ("/live/switch_session", post(daemon_api::live_switch_session_post)),
+        ("/live/mcp/trust", post(daemon_api::live_mcp_trust_post)),
     ]
 }
 
@@ -189,6 +226,10 @@ async fn main() {
         .map(|s| s.split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect())
         .unwrap_or_default();
 
+    // 绑定地址：默认 127.0.0.1（安全基线，远程访问必须显式开启）。
+    // LINGCLAUDE_WEBUI_BIND=0.0.0.0 → 监听全部网卡（远程可访问，配合 host_guard 白名单）。
+    let bind_host = std::env::var("LINGCLAUDE_WEBUI_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+
     let state = AppState {
         tokens: Arc::new(TokenStore::default()),
         audit: Arc::new(audit::AuditLogger::new(audit_path)),
@@ -210,10 +251,12 @@ async fn main() {
             .read_timeout(std::time::Duration::from_secs(60))
             .build()
             .expect("reqwest client build"),
+        proc: Arc::new(daemon_api::ProcessState::new(bind_host.clone())),
+        store_root: sessions_store::sessions_root(),
     };
 
     let app = build_router(state);
-    let addr = format!("127.0.0.1:{port}");
+    let addr = format!("{bind_host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     println!("lingclaude-webui listening on http://{addr}");
     axum::serve(listener, app).await.unwrap();
@@ -235,6 +278,8 @@ mod tests {
             lingclaude_base: "http://127.0.0.1:1".to_string(), // 测试中不应被真实访问
             lingclaude_api_key: None,
             spec_path: None, // 嵌入回退路径：测试同时验证 include_str! 副本可用
+            proc: Arc::new(daemon_api::ProcessState::new("127.0.0.1".into())),
+            store_root: std::env::temp_dir().join("lc-webui-main-test-store"),
             client: reqwest::Client::new(),
         }
     }

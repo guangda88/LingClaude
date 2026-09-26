@@ -6,7 +6,10 @@
     "description": "LingClaude webUI server — 无头 webUI 桥接层（axum），桥接 lingclaude 引擎 (api.py, 默认 http://127.0.0.1:8700)。\n\n认证流（auth.rs）：CLI 调 GET /mint 得到一次性 handoff URL → 浏览器访问消费 token（5min TTL）→ 种下 24h 会话 cookie（HttpOnly/SameSite=Strict，port-scoped 名）→ 之后所有非静态请求要求该 cookie。\n\nSSE 说明：`/chat` 与 `/live` 响应为 text/event-stream；事件名在 `event:` 字段，负载在 `data:` 字段。桥接层产生的错误事件统一为 `event: error` + 合法 JSON {\"type\":\"error\",\"message\":...}（fail-closed，不静默）。\n\n引擎鉴权：webUI 以 X-API-Key 头访问引擎（LINGCLAUDE_API_KEYS 注入），该头不出现在本 API 的客户端契约中。"
   },
   "servers": [
-    { "url": "http://127.0.0.1:13458", "description": "本机默认（注意：13458 同时是 trae_proxy 硬编码端口，共存时须改用其他端口，如 23458）" }
+    {
+      "url": "http://127.0.0.1:13458",
+      "description": "本机默认（注意：13458 同时是 trae_proxy 硬编码端口，共存时须改用其他端口，如 23458）"
+    }
   ],
   "components": {
     "securitySchemes": {
@@ -20,138 +23,288 @@
     "schemas": {
       "ChatRequest": {
         "type": "object",
-        "required": ["message"],
+        "required": [
+          "message"
+        ],
         "properties": {
           "session_id": {
             "type": "string",
             "description": "前端自身生成的 requestId。诚实契约：引擎当前无会话存储，本字段被接受但不消费（chat_api.rs ChatRequest.session_id）"
           },
-          "message": { "type": "string", "description": "用户消息文本，桥接为引擎 /ask/stream 的 question" },
+          "message": {
+            "type": "string",
+            "description": "用户消息文本，桥接为引擎 /ask/stream 的 question"
+          },
           "images": {
             "type": "array",
-            "items": { "type": "object" },
+            "items": {
+              "type": "object"
+            },
             "description": "附件对象数组。桥接层当前不消费；类型放宽为任意对象以避免旧版 Vec<String> 遇对象必 400"
           },
-          "model": { "type": "string" },
-          "mode": { "type": "string", "default": "" }
+          "model": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "default": ""
+          }
         }
       },
       "StopRequest": {
         "type": "object",
         "properties": {
-          "session_id": { "type": "string", "description": "缺省或空串返回 400 session_id is required" }
+          "session_id": {
+            "type": "string",
+            "description": "缺省或空串返回 400 session_id is required"
+          }
         }
       },
       "StopResponse": {
         "type": "object",
-        "required": ["stopped", "session_id"],
+        "required": [
+          "stopped",
+          "session_id"
+        ],
         "properties": {
           "stopped": {
             "type": "boolean",
             "description": "诚实语义（chat_api.rs 契约现状）：前端传的 session_id 是自身 requestId，引擎不认识 ⇒ 引擎 404 ⇒ stopped:false。真实终止语义待引擎侧会话注册表（协议文档 §8.2）"
           },
-          "session_id": { "type": "string" },
-          "engine": { "description": "2xx 时原样透传引擎响应（Session redacted dict）供排查", "type": ["object", "null"] },
-          "reason": { "type": "string", "description": "stopped=false 时给出原因" }
+          "session_id": {
+            "type": "string"
+          },
+          "engine": {
+            "description": "2xx 时原样透传引擎响应（Session redacted dict）供排查",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "stopped=false 时给出原因"
+          }
         }
       },
       "PermissionRequest": {
         "type": "object",
-        "required": ["session_id", "decision", "tool_name"],
+        "required": [
+          "session_id",
+          "decision",
+          "tool_name"
+        ],
         "properties": {
-          "session_id": { "type": "string" },
-          "decision": { "type": "string" },
-          "tool_name": { "type": "string" },
-          "reason": { "type": "string", "description": "可选；前端 respondPermission 当前不发送" }
+          "session_id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "可选；前端 respondPermission 当前不发送"
+          }
         }
       },
       "PermissionResponse": {
         "type": "object",
-        "required": ["success", "decision"],
+        "required": [
+          "success",
+          "decision"
+        ],
         "properties": {
-          "success": { "type": "boolean" },
-          "decision": { "type": "string" }
+          "success": {
+            "type": "boolean"
+          },
+          "decision": {
+            "type": "string"
+          }
         }
       },
       "ProjectEntry": {
         "type": "object",
         "properties": {
-          "name": { "type": "string" },
-          "path": { "type": "string" },
-          "exists": { "type": "boolean", "default": false }
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean",
+            "default": false
+          }
         }
       },
       "EngineStatus": {
         "type": "object",
         "properties": {
-          "status": { "type": "string" },
-          "version": { "type": ["string", "null"] },
-          "projects": { "type": "array", "items": { "$ref": "#/components/schemas/ProjectEntry" } },
-          "auth_required": { "type": "boolean" }
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectEntry"
+            }
+          },
+          "auth_required": {
+            "type": "boolean"
+          }
         }
       },
       "SnapshotEvent": {
         "type": "object",
         "description": "/live 首事件。引擎不可达/解码失败时首事件改发 event:error，负载形状为 SseErrorEvent",
         "properties": {
-          "type": { "const": "snapshot" },
-          "messages": { "type": "array", "items": {}, "description": "当前恒为空数组（引擎无会话存储）" },
-          "session_id": { "type": "string", "description": "回显查询参数" },
-          "project_hash": { "type": "string" },
-          "provider": { "type": "string" },
-          "mode": { "type": "string" },
-          "engine": { "$ref": "#/components/schemas/EngineStatus" }
+          "type": {
+            "const": "snapshot"
+          },
+          "messages": {
+            "type": "array",
+            "items": {},
+            "description": "当前恒为空数组（引擎无会话存储）"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "回显查询参数"
+          },
+          "project_hash": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/EngineStatus"
+          }
         }
       },
       "SseErrorEvent": {
         "type": "object",
         "properties": {
-          "type": { "const": "error" },
-          "message": { "type": "string" }
+          "type": {
+            "const": "error"
+          },
+          "message": {
+            "type": "string"
+          }
         }
       },
       "StatusResponse": {
         "type": "object",
         "properties": {
-          "service": { "const": "lingclaude-webui" },
-          "port": { "type": "integer" },
-          "enforce_token": { "type": "boolean" },
-          "cookie": { "type": "string", "description": "port-scoped cookie 名" },
-          "sse": { "type": "array", "items": { "type": "string" } },
-          "post": { "type": "array", "items": { "type": "string" } },
+          "service": {
+            "const": "lingclaude-webui"
+          },
+          "port": {
+            "type": "integer"
+          },
+          "enforce_token": {
+            "type": "boolean"
+          },
+          "cookie": {
+            "type": "string",
+            "description": "port-scoped cookie 名"
+          },
+          "sse": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "post": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "audit": {
             "type": "object",
             "description": "审计日志健康（P3 清偿：降级可观测，不再静默）",
             "properties": {
-              "opened": { "type": "boolean", "description": "false = 日志文件打开失败，审计处于丢弃状态" },
-              "requests_logged": { "type": "integer", "description": "累计成功写入的请求审计条数" },
-              "events_logged": { "type": "integer", "description": "累计成功写入的 SSE 事件审计条数" },
-              "write_errors": { "type": "integer", "description": "写入失败计数" }
+              "opened": {
+                "type": "boolean",
+                "description": "false = 日志文件打开失败，审计处于丢弃状态"
+              },
+              "requests_logged": {
+                "type": "integer",
+                "description": "累计成功写入的请求审计条数"
+              },
+              "events_logged": {
+                "type": "integer",
+                "description": "累计成功写入的 SSE 事件审计条数"
+              },
+              "write_errors": {
+                "type": "integer",
+                "description": "写入失败计数"
+              }
             }
           },
-          "spec": { "type": "string", "description": "OpenAPI 规格路径" },
-          "spec_path": { "type": "string", "description": "服务端 openapi.json 文件路径" }
+          "spec": {
+            "type": "string",
+            "description": "OpenAPI 规格路径"
+          },
+          "spec_path": {
+            "type": "string",
+            "description": "服务端 openapi.json 文件路径"
+          }
         }
       },
       "HealthResponse": {
         "type": "object",
         "properties": {
-          "ok": { "const": true },
-          "audit_opened": { "type": "boolean" },
-          "audit_write_errors": { "type": "integer" },
-          "audit_requests_logged": { "type": "integer" },
-          "audit_events_logged": { "type": "integer" }
+          "ok": {
+            "const": true
+          },
+          "audit_opened": {
+            "type": "boolean"
+          },
+          "audit_write_errors": {
+            "type": "integer"
+          },
+          "audit_requests_logged": {
+            "type": "integer"
+          },
+          "audit_events_logged": {
+            "type": "integer"
+          }
         }
       }
     },
     "responses": {
       "Unauthorized": {
         "description": "缺/坏会话 cookie（auth_middleware fail-closed）",
-        "content": { "text/plain": { "schema": { "type": "string" } } }
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
       },
       "HostForbidden": {
         "description": "Host 头不在白名单（DNS rebinding 防护；loopback 恒放行，远程需 LINGCLAUDE_WEBUI_ALLOWED_HOSTS）",
-        "content": { "text/plain": { "schema": { "type": "string" } } }
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
       }
     }
   },
@@ -164,7 +317,11 @@
           "200": {
             "description": "进程存活；audit_opened=false 表示审计降级为丢弃",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/HealthResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
             }
           }
         }
@@ -178,7 +335,11 @@
           "200": {
             "description": "OpenAPI 3.1 规格 JSON",
             "content": {
-              "application/json": { "schema": { "type": "object" } }
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
             }
           }
         }
@@ -190,12 +351,44 @@
         "summary": "SPA 入口（消费一次性 handoff token 或校验会话 cookie）",
         "description": "带 ?token=<有效一次性 token> 时在中间件单点消费并 302 签发会话 cookie（去参跳转）；否则要求 cookie 或回静态 fallback",
         "parameters": [
-          { "name": "token", "in": "query", "schema": { "type": "string" }, "description": "一次性 handoff token（TTL 5min，消费即焚）" }
+          {
+            "name": "token",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "一次性 handoff token（TTL 5min，消费即焚）"
+          }
         ],
         "responses": {
-          "200": { "description": "SPA HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
-          "302": { "description": "handoff 成功，种 cookie 后跳去参地址", "headers": { "Location": { "schema": { "type": "string" } }, "Set-Cookie": { "schema": { "type": "string" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
+          "200": {
+            "description": "SPA HTML",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "302": {
+            "description": "handoff 成功，种 cookie 后跳去参地址",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
         }
       }
     },
@@ -203,16 +396,28 @@
       "get": {
         "operationId": "getStatus",
         "summary": "webui-server 自身状态（含审计健康）",
-        "security": [{ "cookieAuth": [] }],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "状态 JSON",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/HostForbidden" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/HostForbidden"
+          }
         }
       }
     },
@@ -223,7 +428,13 @@
         "responses": {
           "200": {
             "description": "形如 http://127.0.0.1:{port}/?token=<uuid> 的 URL 文本",
-            "content": { "text/plain": { "schema": { "type": "string" } } }
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       }
@@ -232,11 +443,19 @@
       "post": {
         "operationId": "postChat",
         "summary": "流式对话（SSE）— 桥接引擎 /ask/stream",
-        "security": [{ "cookieAuth": [] }],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/ChatRequest" } }
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
           }
         },
         "responses": {
@@ -246,16 +465,34 @@
               "text/event-stream": {
                 "schema": {
                   "oneOf": [
-                    { "type": "string", "description": "event:message 的 data 负载（引擎事件原样）" },
-                    { "$ref": "#/components/schemas/SseErrorEvent" }
+                    {
+                      "type": "string",
+                      "description": "event:message 的 data 负载（引擎事件原样）"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SseErrorEvent"
+                    }
                   ]
                 }
               }
             }
           },
-          "400": { "description": "请求体非法", "content": { "text/plain": { "schema": { "type": "string" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/HostForbidden" }
+          "400": {
+            "description": "请求体非法",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/HostForbidden"
+          }
         }
       }
     },
@@ -263,24 +500,58 @@
       "post": {
         "operationId": "postChatStop",
         "summary": "停止会话（诚实语义：引擎侧无该会话时 stopped=false）",
-        "security": [{ "cookieAuth": [] }],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/StopRequest" } }
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopRequest"
+              }
+            }
           }
         },
         "responses": {
           "200": {
             "description": "停止结果（200 不必然等于真的停了，看 stopped 字段）",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/StopResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopResponse"
+                }
+              }
             }
           },
-          "400": { "description": "session_id 缺失/空", "content": { "text/plain": { "schema": { "type": "string" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/HostForbidden" },
-          "502": { "description": "引擎不可达或非 2xx/404 响应（fail-closed）", "content": { "text/plain": { "schema": { "type": "string" } } } }
+          "400": {
+            "description": "session_id 缺失/空",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/HostForbidden"
+          },
+          "502": {
+            "description": "引擎不可达或非 2xx/404 响应（fail-closed）",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -288,24 +559,58 @@
       "post": {
         "operationId": "postChatPermission",
         "summary": "工具审批决策 — 桥接引擎 /permission（fail-closed：桥接失败 502，不静默放行）",
-        "security": [{ "cookieAuth": [] }],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/PermissionRequest" } }
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PermissionRequest"
+              }
+            }
           }
         },
         "responses": {
           "200": {
             "description": "决策回执",
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/PermissionResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionResponse"
+                }
+              }
             }
           },
-          "400": { "description": "请求体非法", "content": { "text/plain": { "schema": { "type": "string" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/HostForbidden" },
-          "502": { "description": "引擎不可达或响应解析失败", "content": { "text/plain": { "schema": { "type": "string" } } } }
+          "400": {
+            "description": "请求体非法",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/HostForbidden"
+          },
+          "502": {
+            "description": "引擎不可达或响应解析失败",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -313,9 +618,20 @@
       "get": {
         "operationId": "getLive",
         "summary": "实时状态同步（SSE）— 桥接引擎 /status + /live/events",
-        "security": [{ "cookieAuth": [] }],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
         "parameters": [
-          { "name": "session_id", "in": "query", "schema": { "type": "string" }, "description": "可选；回显进 snapshot" }
+          {
+            "name": "session_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "可选；回显进 snapshot"
+          }
         ],
         "responses": {
           "200": {
@@ -324,25 +640,528 @@
               "text/event-stream": {
                 "schema": {
                   "oneOf": [
-                    { "$ref": "#/components/schemas/SnapshotEvent" },
-                    { "$ref": "#/components/schemas/SseErrorEvent" },
-                    { "type": "string", "description": "heartbeat 文本 / tool 事件负载" }
+                    {
+                      "$ref": "#/components/schemas/SnapshotEvent"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SseErrorEvent"
+                    },
+                    {
+                      "type": "string",
+                      "description": "heartbeat 文本 / tool 事件负载"
+                    }
                   ]
                 }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/HostForbidden" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/HostForbidden"
+          }
         }
+      }
+    },
+    "/sessions": {
+      "get": {
+        "summary": "会话列表 / 新建",
+        "description": "列出会话（最近 50 条跨项目，updated_at 降序）。响应为 SessionMetaWithProject[]：{project_hash, id, name, working_dir, created_at(秒), updated_at(秒), message_count, file_size}",
+        "responses": {
+          "200": {
+            "description": "SessionMetaWithProject[]"
+          }
+        },
+        "tags": [
+          "sessions"
+        ]
+      },
+      "post": {
+        "summary": "会话列表 / 新建",
+        "description": "新建会话。请求 {working_dir?, title?}；working_dir 缺省用当前项目。响应 {id, name, working_dir, project_hash, created_at}",
+        "responses": {
+          "200": {
+            "description": "CreateSessionResponse"
+          }
+        },
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/search": {
+      "get": {
+        "summary": "会话搜索",
+        "description": "按名称跨项目模糊搜索（?q=，空 q 400）。响应 SessionMetaWithProject[]",
+        "responses": {
+          "200": {
+            "description": "SessionMetaWithProject[]"
+          }
+        },
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/sessions/resolve/:id": {
+      "get": {
+        "summary": "会话解析",
+        "description": "短 ID 前缀解析（URL 恢复用）。无匹配 404（前端 404→null）",
+        "responses": {
+          "200": {
+            "description": "SessionMetaWithProject"
+          }
+        },
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/chat/active": {
+      "get": {
+        "summary": "活跃会话",
+        "description": "活跃会话 id 列表（/chat 请求中→done 结束）。响应 string[]",
+        "responses": {
+          "200": {
+            "description": "string[]"
+          }
+        },
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/project": {
+      "get": {
+        "summary": "当前项目",
+        "description": "当前项目状态 {working_dir, previous_dir?, recent_dirs[], name, project_hash}",
+        "responses": {
+          "200": {
+            "description": "ProjectState"
+          }
+        },
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/cd": {
+      "post": {
+        "summary": "切换目录",
+        "description": "切换 daemon 工作目录 {path}。目录不存在返回 200+success:false（契约内失败）。响应 {success, message, current_dir, project_hash}",
+        "responses": {
+          "200": {
+            "description": "CdResponse"
+          }
+        },
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects": {
+      "get": {
+        "summary": "项目列表",
+        "description": "项目聚合（会话目录扫描，last_updated 降序）。响应 ProjectInfo[]",
+        "responses": {
+          "200": {
+            "description": "ProjectInfo[]"
+          }
+        },
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/:hash": {
+      "delete": {
+        "summary": "删除项目",
+        "description": "删除项目桶（含全部会话文件）。响应 {ok}",
+        "responses": {
+          "200": {
+            "description": "OkResponse"
+          }
+        },
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/:hash/sessions": {
+      "get": {
+        "summary": "项目会话列表",
+        "description": "单桶会话全量（裸 SessionMeta[]，无 project_hash 字段）",
+        "responses": {
+          "200": {
+            "description": "SessionMeta[]"
+          }
+        },
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/projects/:hash/sessions/:id": {
+      "get": {
+        "summary": "会话详情/重命名/删除",
+        "description": "会话详情（含 messages 数组）。无匹配 404",
+        "responses": {
+          "200": {
+            "description": "SessionDetail"
+          }
+        },
+        "tags": [
+          "sessions"
+        ]
+      },
+      "patch": {
+        "summary": "会话详情/重命名/删除",
+        "description": "重命名 {name}。响应 {ok}",
+        "responses": {
+          "200": {
+            "description": "OkResponse"
+          }
+        },
+        "tags": [
+          "sessions"
+        ]
+      },
+      "delete": {
+        "summary": "会话详情/重命名/删除",
+        "description": "删除会话。响应 {ok}",
+        "responses": {
+          "200": {
+            "description": "OkResponse"
+          }
+        },
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/approval_mode": {
+      "get": {
+        "summary": "审批模式",
+        "description": "webui 审批模式 {ok, mode}（build/accept_edits/plan/bypass，进程态）",
+        "responses": {
+          "200": {
+            "description": "ApprovalModeResponse"
+          }
+        },
+        "tags": [
+          "chat"
+        ]
+      },
+      "post": {
+        "summary": "审批模式",
+        "description": "设置审批模式 {mode}。非法模式 200+ok:false（前端 throw 语义）",
+        "responses": {
+          "200": {
+            "description": "ApprovalModeResponse"
+          }
+        },
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/permission/mode": {
+      "get": {
+        "summary": "引擎权限模式",
+        "description": "引擎全局权限模式桥接（8700 /permission/mode，auto/ask/strict）。引擎不可达 502",
+        "responses": {
+          "200": {
+            "description": "EngineModeResponse"
+          }
+        },
+        "tags": [
+          "chat"
+        ]
+      },
+      "post": {
+        "summary": "引擎权限模式",
+        "description": "设置引擎全局权限模式 {mode}，桥接 8700",
+        "responses": {
+          "200": {
+            "description": "EngineModeResponse"
+          }
+        },
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/config": {
+      "get": {
+        "summary": "配置视图",
+        "description": "ConfigInfo 契约：{path, default_provider, providers:[{name,type,model,base_url,has_api_key,is_default}]}。has_api_key 恒为布尔，绝不返回密钥。数据源：cli 启动注入的 LINGCLAUDE_WEBUI_MODEL env",
+        "responses": {
+          "200": {
+            "description": "ConfigInfo"
+          }
+        },
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/config/reload": {
+      "post": {
+        "summary": "配置热重载",
+        "description": "配置每次请求现读（无缓存），此端点为语义 no-op。响应 {ok, reloaded}",
+        "responses": {
+          "200": {
+            "description": "OkResponse"
+          }
+        },
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/models": {
+      "get": {
+        "summary": "模型目录",
+        "description": "模型目录 ModelInfo[]：{provider, model, provider_type, is_default, effort_applicable}。effort_applicable 恒 false（lc 无 DeepSeek effort 语义）",
+        "responses": {
+          "200": {
+            "description": "ModelInfo[]"
+          }
+        },
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/skills": {
+      "get": {
+        "summary": "技能列表",
+        "description": "技能列表 [{name, description}]，扫描 ~/.lingclaude/skills/*/ 目录名",
+        "responses": {
+          "200": {
+            "description": "SkillInfo[]"
+          }
+        },
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/mcp/status": {
+      "get": {
+        "summary": "MCP 状态",
+        "description": "MCP 状态 {servers:[], trusted:true, blocked:[]} — webui 桥不管理 MCP 进程，恒空集+默认信任",
+        "responses": {
+          "200": {
+            "description": "McpStatusInfo"
+          }
+        },
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/tunnel/status": {
+      "get": {
+        "summary": "远程访问状态",
+        "description": "隧道状态 {bind_host, port, reachable, pgy:{installed,ipv4}, remote_url, qr_svg}。reachable = bind 非 loopback；remote_url 复用请求 token 拼接（loopback 时 null）",
+        "responses": {
+          "200": {
+            "description": "TunnelStatus"
+          }
+        },
+        "tags": [
+          "config"
+        ]
+      }
+    },
+    "/fs/list": {
+      "get": {
+        "summary": "目录列举",
+        "description": "目录列举 ?path=（~ 展开，跳过隐藏项）。响应 {path, dirs:[], files:[]}",
+        "responses": {
+          "200": {
+            "description": "FsListResult"
+          }
+        },
+        "tags": [
+          "fs"
+        ]
+      }
+    },
+    "/fs/mkdir": {
+      "post": {
+        "summary": "建目录",
+        "description": "递归建目录 {path}。响应 {path}",
+        "responses": {
+          "200": {
+            "description": "MkdirResponse"
+          }
+        },
+        "tags": [
+          "fs"
+        ]
+      }
+    },
+    "/command": {
+      "post": {
+        "summary": "斜杠命令",
+        "description": "TUI 斜杠命令 {command, arg?}。webUI 为 TUI 命令子集：未支持命令返回 200+{kind:'error', message}（契约内诚实失败）",
+        "responses": {
+          "200": {
+            "description": "CommandResult"
+          }
+        },
+        "tags": [
+          "chat"
+        ]
+      }
+    },
+    "/live/message": {
+      "post": {
+        "summary": "Live 发消息",
+        "description": "sync 模式发消息 {text, images?, provider?, session_id?}。广播 user → 桥接 /ask/stream 收集全文 → 广播 text/done → 落盘。响应 {ok, session_id}",
+        "responses": {
+          "200": {
+            "description": "LiveMessageResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/stop": {
+      "post": {
+        "summary": "Live 停止",
+        "description": "停止 live 会话 {session_id}，桥接引擎 /sessions/:id/stop。响应 {ok, stopped, reason?}",
+        "responses": {
+          "200": {
+            "description": "LiveStopResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/permission": {
+      "post": {
+        "summary": "Live 审批",
+        "description": "审批决策桥接引擎 /permission {session_id, decision, tool_name}",
+        "responses": {
+          "200": {
+            "description": "PermissionResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/user-input": {
+      "post": {
+        "summary": "Live 问答",
+        "description": "交互问答 — 引擎桥无此通道：{accepted:false, reason}",
+        "responses": {
+          "200": {
+            "description": "UserInputResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/provider": {
+      "post": {
+        "summary": "Live 模型切换",
+        "description": "模型切换回显 {provider}。lc 配置单模型：接受并广播 provider 事件",
+        "responses": {
+          "200": {
+            "description": "ProviderResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/compact": {
+      "post": {
+        "summary": "Live 压缩",
+        "description": "压缩 — 引擎无显式压缩端点：{ok:false, error}",
+        "responses": {
+          "200": {
+            "description": "CompactResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/reasoning_effort": {
+      "post": {
+        "summary": "Live effort",
+        "description": "reasoning effort 回显 {reasoning_effort, provider}。lc 模型目录无 effort 语义",
+        "responses": {
+          "200": {
+            "description": "EffortResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/switch_session": {
+      "post": {
+        "summary": "Live 切换会话",
+        "description": "跨标签页会话切换 {session_id, project_hash?}，广播 switch_session 事件。响应 {ok, session_id}",
+        "responses": {
+          "200": {
+            "description": "SwitchResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
+      }
+    },
+    "/live/mcp/trust": {
+      "post": {
+        "summary": "Live MCP 信任",
+        "description": "MCP 信任 — 状态恒信任，响应 {ok, trusted:true}",
+        "responses": {
+          "200": {
+            "description": "TrustResponse"
+          }
+        },
+        "tags": [
+          "live"
+        ]
       }
     }
   },
   "tags": [
-    { "name": "ops", "description": "运维探测与规格（无鉴权）" },
-    { "name": "auth", "description": "handoff 认证流" },
-    { "name": "chat", "description": "对话桥接" },
-    { "name": "live", "description": "实时状态" }
+    {
+      "name": "ops",
+      "description": "运维探测与规格（无鉴权）"
+    },
+    {
+      "name": "auth",
+      "description": "handoff 认证流"
+    },
+    {
+      "name": "chat",
+      "description": "对话桥接"
+    },
+    {
+      "name": "live",
+      "description": "实时状态"
+    }
   ],
   "x-generated": {
     "note": "本规格为手维护契约（handler 直接解析 serde_json::Value 且大量 SSE 响应，不适用 utoipa 注解生成）；路由覆盖测试（main.rs tests::openapi_covers_all_routes）钉住本文件与 build_router 不漂移",

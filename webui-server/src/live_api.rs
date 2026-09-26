@@ -56,6 +56,9 @@ pub(crate) async fn live_sse(
     let api_key = state.lingclaude_api_key.clone();
     let client = state.client.clone();
     let session_id = q.get("session_id").cloned().unwrap_or_default();
+    // 广播总线订阅（进程级 /chat 与 /live/message 事件源；Receiver 不可 Clone，
+    // 必须在 stream! 外创建）
+    let mut bus_rx = state.proc.subscribe();
 
     let stream = async_stream::stream! {
         // 1. 首次 snapshot（桥接 /status）
@@ -87,10 +90,23 @@ pub(crate) async fn live_sse(
             );
         }
 
-        // 2-3. 周期轮询 /live/events 增量转发 + 心跳（无新事件时）
+        // 2-3. 广播总线订阅（/chat 与 /live/message 的事件直达本流）
+        //      + 周期轮询 /live/events 增量转发 + 心跳（无新事件时）
         let mut since: i64 = 0;
         loop {
-            tokio::time::sleep(Duration::from_secs(3)).await;
+            tokio::select! {
+                // 广播事件优先（低延迟跨标签页同步）
+                Ok(text) = bus_rx.recv() => {
+                    if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&text) {
+                        let ev_type = ev.get("type").and_then(|t| t.as_str()).unwrap_or("state").to_string();
+                        yield Ok::<Event, std::convert::Infallible>(
+                            Event::default().event(ev_type).json_data(&ev).expect("Value 序列化不可能失败"),
+                        );
+                    }
+                    continue;
+                }
+                _ = tokio::time::sleep(Duration::from_secs(3)) => {}
+            }
             let mut forwarded = 0usize;
             let mut builder = client.get(format!("{base}/live/events?since={since}"));
             if let Some(key) = &api_key {

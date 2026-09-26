@@ -937,6 +937,27 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     log_path = Path(f"/tmp/lingclaude-webui-{port}.log")
     env = os.environ.copy()
     env.setdefault("LINGCLAUDE_BASE", engine_url)
+    # 远程访问（2026-09-27）：webui-server 默认绑 127.0.0.1。--remote 显式开启
+    # 0.0.0.0 监听（安全基线：远程暴露必须是显式动作）+ host_guard 白名单注入。
+    if getattr(args, "remote", False):
+        env["LINGCLAUDE_WEBUI_BIND"] = "0.0.0.0"
+    # 模型信息注入（daemon 化 /config /models 数据源）：Python 侧解析 config.yaml
+    # （Rust 不引 YAML 依赖），只传非敏感字段；api_key 只给 has_api_key 布尔。
+    try:
+        import json as _json
+        _cfg_path = Path("config.yaml")
+        if _cfg_path.exists():
+            import yaml as _yaml
+            _cfg = _yaml.safe_load(_cfg_path.read_text()) or {}
+            _m = _cfg.get("model") or {}
+            env["LINGCLAUDE_WEBUI_MODEL"] = _json.dumps({
+                "provider": _m.get("provider", ""),
+                "model": _m.get("model", ""),
+                "base_url": _m.get("base_url", ""),
+                "has_api_key": bool(_m.get("api_key")),
+            })
+    except Exception:
+        pass  # 解析失败 → webui /config /models 返回空集（降级不阻断启动）
     # 本机可达 IP 注入 webui 白名单：局域网/隧道地址访问不再 403。
     # （webui 侧 host_guard 默认仅放行 loopback；本机 IP 访问本机服务是
     # 合理语义，防 rebinding 不因此削弱——攻击者 Host 是外部域名。）
@@ -1126,7 +1147,11 @@ def main() -> int:
     subparsers.add_parser("doctor", help="Environment health check")
 
     webui_parser = subparsers.add_parser("webui", help="Start the WebUI server (webui-server + optional engine)")
-    webui_parser.add_argument("--port", type=int, default=13458, help="WebUI server port (default 13458)")
+    webui_parser.add_argument("--port", type=int, default=23458, help="WebUI server port (default 23458; 13458 conflicts with trae_proxy)")
+    webui_parser.add_argument(
+        "--remote", action="store_true",
+        help="Listen on 0.0.0.0 for remote access (explicit action required; token + host allowlist still enforced)"
+    )
     webui_parser.add_argument(
         "--engine-port", type=int, default=8700, help="lingclaude engine api.py port (default 8700)"
     )
