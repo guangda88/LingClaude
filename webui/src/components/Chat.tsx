@@ -2641,7 +2641,7 @@ export function Chat({ sessionId, onSessionId, cwd, onPermission, onPermissionRe
                   <rect x="6.4" y="6.4" width="11.2" height="11.2" rx="2.6" transform="rotate(45 12 12)" stroke="currentColor" stroke-width="1.8" />
                 </svg>
               </span> */}
-              <span class="landing-brand-name">AtomCode</span>
+              <span class="landing-brand-name">灵克 LingClaude</span>
             </div>
             <div class="landing-tagline">{t('chat.greeting')}</div>
             <div class="landing-input">

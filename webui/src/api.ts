@@ -1,4 +1,4 @@
-// Task 12 — API client for atomcode webui
+// Task 12 — API client for lingclaude webui
 
 // Read the one-time token from URL; never persist to localStorage
 const token = new URLSearchParams(location.search).get('token') ?? '';
@@ -34,9 +34,8 @@ export async function detectBackend(): Promise<BackendType> {
 }
 
 function authHeaders(): Record<string, string> {
-  // X-AtomCode-Client lets the daemon tag telemetry as webui-originated
-  // (resolve_client_mode → SessionMode::Webui); sent regardless of token.
-  const h: Record<string, string> = { 'X-AtomCode-Client': 'webui' };
+  // X-LingClaude-Client: webui 来源标记（引擎遥测分类用），任何请求都带上
+  const h: Record<string, string> = { 'X-LingClaude-Client': 'webui' };
   if (token) h.Authorization = 'Bearer ' + token;
   return h;
 }

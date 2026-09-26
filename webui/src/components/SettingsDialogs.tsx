@@ -588,7 +588,7 @@ export function RemoteAccessDialog({ onClose }: { onClose: () => void }) {
           {/* 使用引导：跳官网对应语言的说明页，新标签打开。 */}
           <a
             class="btn"
-            href={`https://atomcode.atomgit.com/docs/${lang}/webui-remote-access.html`}
+            href={`https://github.com/guangda88/LingClaude`}
             target="_blank"
             rel="noreferrer"
           >
