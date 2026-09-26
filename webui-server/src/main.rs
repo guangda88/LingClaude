@@ -40,8 +40,10 @@ pub(crate) struct AppState {
     pub(crate) enforce_token: bool,
     pub(crate) lingclaude_base: String,
     pub(crate) lingclaude_api_key: Option<String>,
-    /// OpenAPI 规格文件路径（/openapi.json 服务端读取；R1 规格化）。
-    pub(crate) spec_path: std::path::PathBuf,
+    /// OpenAPI 规格来源 — Some(路径)=磁盘文件，None=构建期嵌入。
+    /// `None` 为默认：二进制自带契约，不依赖进程 cwd（部署坑：spec 落盘仓内，
+    /// 而运行时 cwd 是别处 → /openapi.json 500）。
+    pub(crate) spec_path: Option<std::path::PathBuf>,
     pub(crate) client: reqwest::Client,
 }
 
@@ -72,6 +74,7 @@ async fn status(State(state): State<AppState>) -> Response {
             },
             "spec": "/openapi.json",
             "spec_path": state.spec_path,
+            "spec_embedded": state.spec_path.is_none(),
         })),
     )
         .into_response()
@@ -94,20 +97,34 @@ async fn health(State(state): State<AppState>) -> Response {
         .into_response()
 }
 
+/// 构建期嵌入的 OpenAPI 规格 — /openapi.json 的最终回退来源（磁盘不可达时）。
+/// include_str! 保证二进制自带契约，部署不依赖 cwd 与外部文件。
+const EMBEDDED_OPENAPI_JSON: &str = include_str!("../openapi.json");
+
 /// `/openapi.json` — 机器可读契约（手维护规格，路由覆盖测试钉住不漂移）。
+/// 读取顺序：LINGCLAUDE_WEBUI_OPENAPI 环境变量 → 磁盘文件 → 构建期嵌入副本。
 async fn openapi_spec(State(state): State<AppState>) -> Response {
-    match std::fs::read_to_string(&state.spec_path) {
-        Ok(body) => (
-            [(header::CONTENT_TYPE, "application/json")],
-            body,
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("spec file missing at {}: {e}", state.spec_path.display()),
-        )
-            .into_response(),
+    if let Some(body) = &state.spec_path {
+        match std::fs::read_to_string(body) {
+            Ok(text) => {
+                return (
+                    [(header::CONTENT_TYPE, "application/json")],
+                    text,
+                )
+                    .into_response()
+            }
+            Err(e) => {
+                // 磁盘 spec 不可达时回退嵌入副本 — 契约永不 500。
+/// 构建期嵌入的 OpenAPI 规格 — /openapi.json 的最终回退来源（磁盘不可达时）。
+                eprintln!("spec file {} unreadable ({}), falling back to embedded", body.display(), e);
+            }
+        }
     }
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        EMBEDDED_OPENAPI_JSON,
+    )
+        .into_response()
 }
 
 /// 路由注册表 — build_router 与 openapi 覆盖测试共用单一事实源
@@ -181,8 +198,11 @@ async fn main() {
         lingclaude_base: std::env::var("LINGCLAUDE_BASE")
             .unwrap_or_else(|_| "http://127.0.0.1:8700".to_string()),
         lingclaude_api_key: std::env::var("LINGCLAUDE_API_KEYS").ok(),
-        // R1 规格化：/openapi.json 从进程 cwd 读取（与二进制同仓分发）。
-        spec_path: std::path::PathBuf::from("openapi.json"),
+        // R1 规格化：spec 默认走构建期嵌入（include_str!，与二进制同体分发，
+        // 不依赖进程 cwd）；LINGCLAUDE_WEBUI_OPENAPI 可覆盖为外部文件（热更新契约用）。
+        spec_path: std::env::var("LINGCLAUDE_WEBUI_OPENAPI")
+            .ok()
+            .map(std::path::PathBuf::from),
         // 连接 5s 失败快速暴露；单次读 60s 无数据视为引擎挂起（流空闲上限，
         // 引擎整 turn 都会持续吐事件，正常不会触发）。
         client: reqwest::Client::builder()
@@ -214,7 +234,7 @@ mod tests {
             enforce_token: true,
             lingclaude_base: "http://127.0.0.1:1".to_string(), // 测试中不应被真实访问
             lingclaude_api_key: None,
-            spec_path: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("openapi.json"),
+            spec_path: None, // 嵌入回退路径：测试同时验证 include_str! 副本可用
             client: reqwest::Client::new(),
         }
     }
