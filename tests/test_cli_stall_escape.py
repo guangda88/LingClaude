@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lingclaude.cli.repl import _maybe_stall_escape, _next_input
+from lingclaude.cli.repl import _maybe_stall_escape, _next_input, _stall_rebuild_threshold
 
 
 class _Deadline:
@@ -78,6 +79,7 @@ def _make_ctx(readable: bool) -> SimpleNamespace:
         input_queue=_BlockingInputQueue(),
         session=_StuckSession(),
         stall_rebuilds=0,  # 2026-09-15 P0-1: 超长停滞重建冷却计数
+        fallback_read=False,  # 2026-09-26 观测落盘: 日志引用该字段
     )
 
 
@@ -224,3 +226,81 @@ class TestNextInputFallback:
             ctx.input_pump.stop.assert_called_once_with()
             assert ctx.input_pump.dead  # stop() 不重置 dead,fallback 判定不受影响
             m.assert_called_once_with(ctx)
+
+
+class TestStallObservabilityAndThreshold:
+    """2026-09-26 多会话冤杀排查落地：观测落盘 + 阈值配置化。
+
+    冤杀链路：多窗口并行时某窗口 60s+ 无键入（注意力在另一窗口）→
+    60s 门误读为 select 失效 → 强制重建 TCSAFLUSH 搅动半行 → 撞二次门
+    → 永久降级。历史冤杀无法回溯（death_reason 只存内存无数值），
+    故三处触发点 _logger.info 留痕；阈值 LINGCLAUDE_STALL_REBUILD_S
+    可调（先例：N5b watchdog 60→300）。
+    """
+
+    def test_threshold_env_override(self, monkeypatch) -> None:
+        monkeypatch.setenv("LINGCLAUDE_STALL_REBUILD_S", "300")
+        assert _stall_rebuild_threshold() == 300.0
+
+    def test_threshold_default_without_env(self, monkeypatch) -> None:
+        monkeypatch.delenv("LINGCLAUDE_STALL_REBUILD_S", raising=False)
+        assert _stall_rebuild_threshold() == 60.0
+
+    def test_threshold_invalid_and_nonpositive_fallback(self, monkeypatch) -> None:
+        for bad in ("abc", "-5", "0"):
+            monkeypatch.setenv("LINGCLAUDE_STALL_REBUILD_S", bad)
+            assert _stall_rebuild_threshold() == 60.0, bad
+
+    def test_threshold_honored_by_60s_gate(self, monkeypatch) -> None:
+        """阈值 300 时心跳停滞 120s 不触发重建（多会话静默不冤杀）。"""
+        monkeypatch.setenv("LINGCLAUDE_STALL_REBUILD_S", "300")
+        with patch("lingclaude.cli.repl._stdin_readable", return_value=False):
+            ctx = _make_ctx(readable=False)
+            ctx.input_pump._last_beat = time.monotonic() - 120.0
+            result = _maybe_stall_escape(ctx, idle_loops=0, last_check_t=-1.0)
+            assert result < 0
+            assert not ctx.input_pump.dead
+            assert ctx.stall_rebuilds == 0
+
+    def test_60s_rebuild_logs_observability(self, caplog) -> None:
+        """60s 门强制重建触发时数值留痕（beat_idle/stall_rebuilds/threshold）。"""
+        with patch("lingclaude.cli.repl._stdin_readable", return_value=False):
+            ctx = _make_ctx(readable=False)
+            ctx.input_pump._last_beat = time.monotonic() - 120.0
+            ctx.input_pump.start = MagicMock()
+            with caplog.at_level(logging.INFO, logger="lingclaude.cli.repl"):
+                _maybe_stall_escape(ctx, idle_loops=0, last_check_t=-1.0)
+            recs = [r for r in caplog.records if "input_pump_stall" in r.message]
+            assert len(recs) == 1
+            msg = recs[0].getMessage()
+            assert "gate=60s_rebuild" in msg
+            assert "beat_idle=120" in msg  # %.1f 格式化
+            assert "threshold=60s" in msg
+            assert "stall_rebuilds=0" in msg
+
+    def test_8s_gate_logs_observability(self, caplog) -> None:
+        """8s 门降级触发时数值留痕（含 fallback_read —— 字段已正式声明）。"""
+        with patch("lingclaude.cli.repl._stdin_readable", return_value=True):
+            ctx = _make_ctx(readable=True)
+            ctx.input_pump._last_beat = time.monotonic() - 30.0
+            with caplog.at_level(logging.INFO, logger="lingclaude.cli.repl"):
+                t1 = _maybe_stall_escape(ctx, idle_loops=0, last_check_t=-1.0)
+                time.sleep(1.05)
+                _maybe_stall_escape(ctx, idle_loops=1, last_check_t=t1)
+            recs = [r for r in caplog.records if "input_pump_stall" in r.message]
+            assert len(recs) == 1
+            msg = recs[0].getMessage()
+            assert "gate=8s_readable" in msg
+            assert "fallback_read=False" in msg
+
+    def test_permanent_degrade_logs_observability(self, caplog) -> None:
+        """二次触发永久降级时数值留痕。"""
+        with patch("lingclaude.cli.repl._stdin_readable", return_value=False):
+            ctx = _make_ctx(readable=False)
+            ctx.input_pump._last_beat = time.monotonic() - 120.0
+            ctx.stall_rebuilds = 1
+            with caplog.at_level(logging.INFO, logger="lingclaude.cli.repl"):
+                _maybe_stall_escape(ctx, idle_loops=0, last_check_t=-1.0)
+            recs = [r for r in caplog.records if "input_pump_stall" in r.message]
+            assert len(recs) == 1
+            assert "gate=60s_permanent" in recs[0].getMessage()

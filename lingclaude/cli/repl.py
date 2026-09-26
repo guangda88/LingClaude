@@ -137,6 +137,10 @@ class _ReplCtx:
     # 重建后若仍无心跳（重建无效——"强制重建也没用"的真实场景），第二次
     # 直接置 dead + fallback_read 永久降级裸 input()，避免反复 churn。
     stall_rebuilds: int = 0
+    # 2026-09-26 观测落盘: 8s/60s 门日志引用 fallback_read —— 此前仅为
+    # 动态赋值无声明（_read_input 靠 getattr 防御），首次降级前日志引用
+    # 会 AttributeError。正式声明后动态赋值语义不变。
+    fallback_read: bool = False
 
 
 def _restore_tty(ctx: _ReplCtx) -> None:
@@ -573,6 +577,28 @@ def _stdin_readable(timeout: float = 0.0) -> bool:
         return False
 
 
+def _stall_rebuild_threshold() -> float:
+    """60s 门阈值（LINGCLAUDE_STALL_REBUILD_S 可调，默认 60）。
+
+    2026-09-26 多会话冤杀排查：心跳打拍点只有 prompt() 返回，60s 固定
+    阈值赌「用户 1 分钟内总会打字」。多会话并行是本仓库工作常态
+    （HANDOFF_LINGKE_20260911 §多会话协作纪律），某窗口 60s+ 无键入
+    （注意力在另一窗口）是常态而非病态 —— 固定 60s 会把「多会话静默」
+    误读为「select 失效」，冤杀路径：强制重建 stop() 的 TCSAFLUSH 搅动
+    用户正在敲的半行 → 撞二次门 → 永久降级。多会话用户可调大（如 300，
+    先例：N5b watchdog 事件间隙 60→300）。非法/非正值静默回退默认。
+    """
+    raw = os.environ.get("LINGCLAUDE_STALL_REBUILD_S", "").strip()
+    if raw:
+        try:
+            v = float(raw)
+        except ValueError:
+            return 60.0
+        if v > 0:
+            return v
+    return 60.0
+
+
 def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> int:
     """pump 失活复合判定 + 逃生门（2026-09-12 事故:输入假死/Ctrl+D 失效）。
 
@@ -607,6 +633,16 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
             if idle_loops >= 1:
                 input_pump.dead = True
                 input_pump.death_reason = "失活:stdin 可读但心跳停滞(输入泵卡死)"
+                # 2026-09-26 观测落盘：降级判定全程无数值留痕（death_reason
+                # 只存内存），历史冤杀无法回溯。环境值入场辅助归因（多会话
+                # 静默 vs select 失效 vs tty 损坏）。
+                _logger.info(
+                    "input_pump_stall: gate=8s_readable beat_idle=%.1fs "
+                    "readable=True stall_rebuilds=%d fallback_read=%s",
+                    beat_idle,
+                    ctx.stall_rebuilds,
+                    ctx.fallback_read,
+                )
                 print("\n[输入泵失活] 已降级为阻塞输入模式（可继续使用；Ctrl+D 退出）", file=sys.stderr)
                 try:
                     ctx.session.interrupt_event().set()
@@ -638,11 +674,19 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
     # PT session 已不可救——"强制重建也没用"），第二次直接 dead + fallback_read
     # 永久降级裸 input()（绕开损坏的 PT session，见 _read_input 的隔离读），
     # 不再反复 churn。
-    if beat_idle >= 60:
+    if beat_idle >= _stall_rebuild_threshold():
         # 二次触发：上次重建后仍无心跳 → 重建无效，永久降级（不再次重建）
         if ctx.stall_rebuilds >= 1:
             input_pump.dead = True
             input_pump.death_reason = "失活:重建后心跳仍停滞(PT session 不可救,永久降级)"
+            _logger.info(
+                "input_pump_stall: gate=60s_permanent beat_idle=%.1fs "
+                "stall_rebuilds=%d threshold=%.0fs fallback_read=%s",
+                beat_idle,
+                ctx.stall_rebuilds,
+                _stall_rebuild_threshold(),
+                ctx.fallback_read,
+            )
             print("\n[输入泵失活] 重建无效，已永久降级为阻塞输入模式（可继续使用）", file=sys.stderr)
             try:
                 ctx.session.interrupt_event().set()
@@ -659,6 +703,14 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
             return 0
         input_pump.dead = True
         input_pump.death_reason = "失活:心跳超长停滞(select 疑似失效或上游输入断)"
+        _logger.info(
+            "input_pump_stall: gate=60s_rebuild beat_idle=%.1fs "
+            "stall_rebuilds=%d threshold=%.0fs readable=%s",
+            beat_idle,
+            ctx.stall_rebuilds,
+            _stall_rebuild_threshold(),
+            readable,
+        )
         print("\n[输入泵失活] 心跳超长停滞，强制重建输入泵（可继续使用）", file=sys.stderr)
         # 2026-09-15（tty 行规程损坏事故）:重建不能只换线程 —— 假死根因之一
         # 是 tty 模式损坏（ICRNL 失效 → \r 不转 \n → read 永不返回），新线程面对
