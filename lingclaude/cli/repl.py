@@ -633,7 +633,8 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
     # 1800s 意味着 select 状态损坏时用户被冻死 30 分钟才重建（把「等 30 分钟」
     # 当作可接受，与"假死"体感一致）。60s 是安全上限：正常等输入态用户 1 分钟
     # 不打字（读输出/思考）不会被误伤；select 失效的假死能在 1 分钟内自愈。
-    # 重建后设冷却：重建本身会打拍，若 30s 内再触发说明重建无效（tty 损坏/
+    # 重建后设冷却：重建本身会打拍（start() 重置 _last_beat，2026-09-26 兑现），
+    # 若 60s 内再触发说明重建无效（tty 损坏/
     # PT session 已不可救——"强制重建也没用"），第二次直接 dead + fallback_read
     # 永久降级裸 input()（绕开损坏的 PT session，见 _read_input 的隔离读），
     # 不再反复 churn。

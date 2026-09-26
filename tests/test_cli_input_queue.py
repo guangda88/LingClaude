@@ -186,6 +186,38 @@ class TestInputPump:
         pump.stop()
 
 
+    def test_rebuild_resets_heartbeat(self) -> None:
+        """2026-09-26 级联误降级修复：start() 重建必须重置心跳。
+
+        repl._maybe_stall_escape :636 注释「重建本身会打拍」此前是意图未兑现
+        —— 60s 门重建成功后 _last_beat 继承旧停滞值，用户 60s 内未提交输入
+        即撞二次门 stall_rebuilds>=1 → 永久降级裸 input()（重建成功却被冤杀）。
+        """
+        q = InputQueue()
+        session = _FakeSession(block=True)
+        pump = InputPump(session, q)
+        pump._last_beat = time.monotonic() - 120.0  # 模拟 60s 门触发时的停滞现场
+        try:
+            pump.start()
+            assert pump.last_beat() >= time.monotonic() - 1.0  # 重建复位心跳
+        finally:
+            pump.stop()
+
+    def test_note_activity_advances_beat(self) -> None:
+        """2026-09-26 修复：note_activity 是真心跳（置标志 + 推进 _last_beat）。
+
+        >60s 长生成结束后（streaming_active 撤防）空闲探测 beat_idle>=60
+        曾误触发强制重建，stop() 的 app.exit+TCSAFLUSH 会搅动用户正敲的半行；
+        补 _beat() 后 60s 失活窗从最后一个流事件起算。
+        """
+        q = InputQueue()
+        session = _FakeSession(block=True)
+        pump = InputPump(session, q)
+        pump._last_beat = time.monotonic() - 120.0
+        pump.note_activity()
+        assert pump.streaming_active
+        assert pump.last_beat() >= time.monotonic() - 1.0
+
 
 class TestPromptCollectRegression:
     """2026-09-18 重复输入事故回归 — 泵在生成期必须真读 stdin。

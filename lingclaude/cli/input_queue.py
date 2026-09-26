@@ -111,6 +111,12 @@ class InputPump:
                 )
                 return
         self._stop = threading.Event()
+        # 2026-09-26 级联误降级修复：重建必须重置心跳（repl _maybe_stall_escape
+        # 「重建本身会打拍」的意图兑现）—— 否则 60s 门重建成功后 _last_beat 仍
+        # 继承旧停滞值，用户 60s 内未提交输入即撞二次门 stall_rebuilds>=1 →
+        # 永久降级裸 input()（重建明明成功却被冤杀）。重置后新泵拥有完整
+        # 60s 冷却窗，心跳语义回归「线程最近一次正常轮转时刻」。
+        self._last_beat = time.monotonic()
         self._start_t = time.monotonic()  # 诊断/测试:启动时刻基线
         self._wake_pending = False  # stop() 内部唤醒标记（抑制 [已打断] 噪声）
         self._thread = threading.Thread(target=self._run, daemon=True, name="input-pump")
@@ -179,8 +185,17 @@ class InputPump:
     streaming_active = False
 
     def note_activity(self) -> None:
-        """流事件心跳：生成期每个事件调用，压住失活误判窗口。"""
+        """流事件心跳：生成期每个事件调用，压住失活误判窗口。
+
+        2026-09-26 修复：docstring 声称「心跳」但实现只置标志、未刷新
+        _last_beat —— >60s 长生成结束（streaming_active 撤防，repl 流
+        finally 块）后空闲探测 beat_idle>=60 会误触发强制重建，stop() 的
+        app.exit + TCSAFLUSH 会搅动用户正在敲的半行。补 _beat() 让心跳
+        真实推进，流结束后 60s 窗口从最后一个流事件起算（与 streaming
+        守卫的语义对齐：生成期活跃 = 系统健康）。
+        """
         self.streaming_active = True
+        self._beat()
 
     def _run(self) -> None:
         # 2026-09-18 重复输入事故修复:泵优先走 prompt_collect（真读，无视
