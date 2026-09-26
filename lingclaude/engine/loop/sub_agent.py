@@ -3,11 +3,17 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    # R1' (2026-09-26): F821 修复——模块级注解 "ToolResult[Any]" 的静态可解析导入。
+    # 运行时零行为变化（TYPE_CHECKING 块不执行）；若未来对方法调 get_type_hints()
+    # 需改运行时导入。
+    from lingclaude.core.types import ToolResult
 
 
 @dataclass(frozen=True)

@@ -511,13 +511,13 @@ def _cmd_app_server(args: argparse.Namespace) -> int:
         prompt = params.get("prompt", "")
         from lingclaude.cli.repl_turn import _headless_turn
         buf = io.StringIO()
-        _old_stdout = _sys.stdout
-        _sys.stdout = buf
+        _old_stdout = sys.stdout
+        sys.stdout = buf
         try:
             _headless_turn(engine, prompt, as_json=True)
         finally:
-            _sys.stdout = _old_stdout
-        return _json.loads(buf.getvalue() or "{}")
+            sys.stdout = _old_stdout
+        return json.loads(buf.getvalue() or "{}")
 
     def _health() -> dict:
         return {"ok": True, "session_id": getattr(engine, "session_id", None),
@@ -536,18 +536,18 @@ def _cmd_app_server(args: argparse.Namespace) -> int:
 
     if getattr(args, "stdio", False):
         # JSON-RPC over stdio：一行一消息 {jsonrpc, id, method, params}
-        for line in _sys.stdin:
+        for line in sys.stdin:
             line = line.strip()
             if not line:
                 continue
             try:
-                req = _json.loads(line)
+                req = json.loads(line)
                 result = _dispatch(req.get("method", ""), req.get("params", {}))
                 out = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}
             except Exception as e:
                 out = {"jsonrpc": "2.0", "id": None, "error": str(e)}
-            _sys.stdout.write(_json.dumps(out, ensure_ascii=False) + "\n")
-            _sys.stdout.flush()
+            sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
         return 0
 
     # HTTP 传输（默认）：极简 JSON-RPC over HTTP POST（单端点 /rpc）
@@ -557,12 +557,12 @@ def _cmd_app_server(args: argparse.Namespace) -> int:
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(length).decode("utf-8")
-                req = _json.loads(body or "{}")
+                req = json.loads(body or "{}")
                 result = _dispatch(req.get("method", ""), req.get("params", {}))
                 resp = {"jsonrpc": "2.0", "id": req.get("id"), "result": result}
             except Exception as e:
                 resp = {"jsonrpc": "2.0", "id": None, "error": str(e)}
-            payload = _json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            payload = json.dumps(resp, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))

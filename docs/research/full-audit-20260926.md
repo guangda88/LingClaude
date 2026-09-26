@@ -87,3 +87,23 @@
 ---
 
 *审计方法声明（J5 四条件之 1）：本报告静态扫描（grep/AST）与动态实测（pytest/探活）双口径互证；静态口径看不见反射调用与运行时动态 import，动态口径看不见未执行路径——两口径结论已交叉核对。*
+
+## 附录：R1 修复执行记录（2026-09-26 R1' 批次）
+
+**结果：17 处 F821 全清（`ruff check --select F821` → All checks passed；七文件导入冒烟全 PASS）。**
+
+| 文件 | 缺失符号 | 修法 | 语义定性 |
+|---|---|---|---|
+| cli/app.py | `_sys`×6 `_json`×6 | 别名归位 `sys.`/`json.`（模块级 import 早已在，函数体内用了未定义的下划线别名） | 纯暗雷修复，无行为变化 |
+| cli/repl_turn.py | `_json`×1 | 补 `import json` + 别名归位 | 同上 |
+| model/credential_pool.py | `OrderedDict`×2 | 补 `from collections import OrderedDict`（注解字符串内的前向引用，运行时本不炸） | 静态可解析性修复 |
+| engine/loop/sub_agent.py | `ToolResult`×1 | 模块头补 `TYPE_CHECKING` 块导入（与方法注解注释自述的惰性求值设计一致，运行时零变化） | 同上 |
+| self_optimizer/daemon.py | `record_change`×1 | 调用点前补局部导入（对齐同文件 814 行既有惯例） | 暗雷修复（optimize_write 路径运行到即 NameError） |
+| core/model_call.py | `prompt`×1 | `task_hint=prompt` → `task_hint=correction_prompt`（幻觉修正路径的幽灵变量——该方法作用域内本无 `prompt`，主路径 loop_body:595 同语义位传的是当轮任务提示，修正路径对应物即打回提示） | **行为修复**：修正轮工具输出会走 `_slim_tool_output` 裁剪而非 NameError 中断 |
+| core/evidence_protocol.py | `ObservationKind`（`__all__` 幽灵导出） | 从 `__all__` 摘除（该符号全文不存在，无 `import *` 消费者） | 导出面卫生 |
+
+**口径对账**：pyflakes「19 处」= F821 实际 17 处 + `__all__` 幽灵导出 1 处 + `.bak` 备份文件 1 处（非生产代码，已在 .gitignore:41，不计修复项）。pyflakes 与 ruff 计数差异即源于此。
+
+**死方法甄别记录**：`model_call._hallucination_correction` 初判疑似死方法（单文件 grep 无调用点），复核 `hooks.py:176` 经协议调用——**可达路径**，修复按真实路径对待。教训：跨文件调用点全仓核验后方可判死。
+
+**测试验证**：修复涉及面 9 个测试文件（sub_agent/daemon/energize/guard_wiring/p0_p2_roadmap/round_end/n5_done/adaptive）后台运行中，结果随 ⚠ [工具结果未验证] commit message 入账；并行会话资产（display/interface/repl_io/full_tui/auth.rs/main.rs）零触碰。

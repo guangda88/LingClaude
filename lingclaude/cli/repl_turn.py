@@ -4,6 +4,7 @@
 启动期中断恢复。拆分说明见 repl.py 模块 docstring；函数体自 app.py 原样迁移。
 """
 
+import json
 import logging
 import os
 import sys
@@ -213,7 +214,7 @@ def _headless_turn(engine: QueryEngine, prompt: str, *, as_json: bool = False) -
         engine._compact_if_needed()
 
     if as_json:
-        _json.dump({
+        json.dump({
             "ok": not stream_error,
             "content": response_content,
             "usage": usage,

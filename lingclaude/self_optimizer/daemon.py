@@ -952,6 +952,7 @@ class OptimizationDaemon:
                 yaml.dump(raw, default_flow_style=False, allow_unicode=True),
                 encoding="utf-8",
             )
+            from lingclaude.core.file_history import record_change  # R1' 2026-09-26: F821 修复（对齐 814 行同文件惯例）
             record_change(policy_path, source="self_optimizer")
             log_pending_action(
                 "optimize_write",
