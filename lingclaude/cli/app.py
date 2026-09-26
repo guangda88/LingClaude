@@ -712,11 +712,58 @@ def _cmd_governance_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _local_interface_ips() -> list[str]:
+    """枚举本机非 loopback IPv4 地址（webui 白名单注入用）。
+
+    优先级: `ip -4 addr`（真实网卡表，最可靠）→ `hostname -I` → getaddrinfo。
+    沙箱/无网环境可能返回空，此时仅 loopback 可用（webui 默认语义，不 403 本机）。
+    """
+    import re
+    import shutil
+    import subprocess as _sp
+
+    ips: list[str] = []
+    seen: set[str] = set()
+
+    def _add(ip: str) -> None:
+        ip = ip.strip()
+        if ip and not ip.startswith("127.") and ip not in seen:
+            seen.add(ip)
+            ips.append(ip)
+
+    # 1) ip -4 addr（Linux 首选）
+    if shutil.which("ip"):
+        try:
+            out = _sp.run(["ip", "-4", "addr", "show"], capture_output=True, text=True, timeout=5).stdout
+            for m in re.finditer(r"inet\s+(\d+\.\d+\.\d+\.\d+)", out):
+                _add(m.group(1))
+        except Exception:
+            pass
+    # 2) hostname -I
+    if not ips and shutil.which("hostname"):
+        try:
+            out = _sp.run(["hostname", "-I"], capture_output=True, text=True, timeout=5).stdout
+            for tok in out.split():
+                _add(tok)
+        except Exception:
+            pass
+    # 3) getaddrinfo 兜底
+    if not ips:
+        import socket
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                _add(info[4][0])
+        except OSError:
+            pass
+    return ips
+
+
 def _find_webui_binary() -> Path | None:
-    """定位 lingclaude-webui 二进制：优先 webui-server/target/release，其次 PATH。"""
+    """定位 lingclaude-webui 二进制：优先 release，其次 debug，最后 PATH。"""
     root = Path(__file__).resolve().parent.parent.parent
     candidates = [
         root / "webui-server" / "target" / "release" / "lingclaude-webui",
+        root / "webui-server" / "target" / "debug" / "lingclaude-webui",
         root / "target" / "release" / "lingclaude-webui",
         Path.cwd() / "webui-server" / "target" / "release" / "lingclaude-webui",
     ]
@@ -890,6 +937,14 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     log_path = Path(f"/tmp/lingclaude-webui-{port}.log")
     env = os.environ.copy()
     env.setdefault("LINGCLAUDE_BASE", engine_url)
+    # 本机可达 IP 注入 webui 白名单：局域网/隧道地址访问不再 403。
+    # （webui 侧 host_guard 默认仅放行 loopback；本机 IP 访问本机服务是
+    # 合理语义，防 rebinding 不因此削弱——攻击者 Host 是外部域名。）
+    _local_ips = _local_interface_ips()
+    if _local_ips:
+        existing = env.get("LINGCLAUDE_WEBUI_ALLOWED_HOSTS", "")
+        merged = ",".join(filter(None, [existing, *sorted(_local_ips)]))
+        env["LINGCLAUDE_WEBUI_ALLOWED_HOSTS"] = merged
     with open(log_path, "w") as logf:
         webui_proc = subprocess.Popen(
             [str(binary), str(port)],

@@ -54,10 +54,21 @@ pub(crate) async fn serve_static(uri: Uri) -> Response {
     }
     match asset_or_index(path) {
         Some(data) => {
-            let mime = mime_guess::from_path(path).first_or_octet_stream();
+            // 根路径与无扩展名路径一律 text/html（SPA 回退 index.html）。
+            // mime_guess::from_path("/") 无扩展名 → application/octet-stream，
+            // 浏览器会把 index.html 当文件下载（实测 780B 下载事故）。
+            // 仅对带真实扩展名的路径走 mime_guess。
+            let has_ext = path.rsplit('/').next().is_some_and(|seg| seg.contains('.'));
+            let mime = if path == "/" || !has_ext {
+                "text/html".to_string()
+            } else {
+                mime_guess::from_path(path)
+                    .first_or_octet_stream()
+                    .to_string()
+            };
             Response::builder()
                 .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, mime.as_ref())
+                .header(header::CONTENT_TYPE, &mime)
                 .body(axum::body::Body::from(data.into_owned()))
                 .unwrap()
         }
@@ -91,6 +102,18 @@ mod tests {
             asset_or_index("some/spa/route").is_some(),
             "SPA route should fall back to index"
         );
+    }
+
+    #[test]
+    fn root_path_serves_html_not_octet_stream() {
+        // 780B 下载事故回归：/ 回退 index.html 时若 Content-Type 落到
+        // application/octet-stream，浏览器会把页面当文件下载。
+        // serve_static 依赖 axum handler，这里直接测 mime 决策逻辑的等价物：
+        // root 路径必须被当作 HTML。
+        let path = "/";
+        let has_ext = path.rsplit('/').next().is_some_and(|seg| seg.contains('.'));
+        assert!(!has_ext, "root 路径不应被当作有扩展名");
+        assert_eq!(mime_guess::from_path(path).first_or_octet_stream().to_string(), "application/octet-stream", "mime_guess 对无扩展名路径确实回退 octet-stream（回归锚点）");
     }
 
     #[test]
