@@ -78,5 +78,15 @@ cargo run --release -- 23458                  # 端口显式给，避开 13458(t
 | 远程访问 403 `host not allowed` | host_guard 白名单（DNS rebinding 防护） | `LINGCLAUDE_WEBUI_ALLOWED_HOSTS` 注入远程地址 |
 | `/health` 显示 `audit_opened:false` | 审计文件打开失败（目录不存在/权限） | 建目录或改 `LINGCLAUDE_WEBUI_AUDIT_LOG`；条目丢弃会计入 `audit_write_errors` |
 
+## 6. 验证矩阵（每次变更/部署后跑一遍）
+
+| 层 | 命令 | 通过判据 |
+|---|---|---|
+| 单元+集成 | `cd webui-server && cargo test` | 25 passed（含 openapi 覆盖/鉴权/审计回归） |
+| 全链路 E2E | `cd webui-server && cargo build && python3 tests/e2e_smoke.py` | `E2E 全绿 9/9`；mock 引擎默认 :18700（避让生产 8700），可用 `E2E_WEBUI_PORT`/`E2E_ENGINE_PORT` 覆盖 |
+| E2E 覆盖面 | — | openapi 嵌入回退 → 401 fail-closed → mint → handoff 换 cookie（一次性语义）→ status → /chat SSE(text/done) → /live → audit 落盘+计数 |
+
+E2E 脚本内置忠实 mock 引擎（复刻 api.py `/ask/stream` SSE 契约），无需真引擎即可验证 webUI 全部用户旅程；真引擎联调见 §2/§3 注入步骤。
+
 ---
 关联：审计报告 `.audit/webui_audit_e2e_20260926.md`（P1#1）· R1 规格 `webui-server/openapi.json` · 提交 149377d
