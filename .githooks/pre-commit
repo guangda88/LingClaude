@@ -1,0 +1,28 @@
+#!/bin/sh
+# pre-commit 直连入口（core.hooksPath 方案，2026-09-26）
+#
+# 为什么存在：lefthook 每次运行 sync hooks 会重写 .git/hooks/pre-commit，
+# 任何打在 shim 上的直连补丁都会在下一次 lefthook 运行后被冲掉（2026-09-26
+# 实测：repair 脚本补的直连段在当日多次 commit 后已消失）。
+# 本目录经 git config core.hooksPath .githooks 生效，lefthook install/sync
+# 只写 .git/hooks/，永远不碰本目录——直连段因此持久。
+#
+# 执行序：六段机检直连（secret/架构守卫/冒烟三验/孤儿扫描/红名单棘轮/三方对账）
+# 全部通过后才委托 lefthook shim（审计记录/灵督/快照等）。
+# lefthook 低 ulimit 崩溃恒 exit 0 时，机检已在此跑完，不会静默放行。
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+
+bash "$ROOT/scripts/secret_scan_hook.sh" || exit 1
+bash "$ROOT/scripts/arch_guard_gate.sh" || exit 1
+bash "$ROOT/scripts/smoke_gate.sh" || exit 1
+bash "$ROOT/scripts/orphan_gate.sh" || exit 1
+bash "$ROOT/scripts/redlist_gate.sh" || exit 1
+bash "$ROOT/scripts/tripartite_gate.sh" || exit 1
+
+# 委托 lefthook shim；不存在（如新克隆未跑 lefthook install）则静默通过
+# ——六段机检已在此跑完，审计/快照类委托件缺失不阻断提交
+if [ -x "$ROOT/.git/hooks/pre-commit" ]; then
+  exec "$ROOT/.git/hooks/pre-commit" "$@"
+fi
+exit 0

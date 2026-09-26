@@ -1,0 +1,7 @@
+#!/bin/sh
+# 纯委托：core.hooksPath 生效后，非 pre-commit 钩子原样交给 .git/hooks/（灵字辈 post-commit v3.0 / lefthook pre-push）
+ROOT="$(git rev-parse --show-toplevel)"
+# 新克隆未跑 lefthook install 时 .git/hooks/pre-push 可能不存在——静默通过
+# （与 pre-commit 同口径：机检已跑完，委托件缺失不阻断）
+[ -x "$ROOT/.git/hooks/pre-push" ] || exit 0
+exec "$ROOT/.git/hooks/pre-push" "$@"
