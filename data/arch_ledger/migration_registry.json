@@ -9,8 +9,8 @@
   "items": [
     {
       "module": "handover",
-      "stage": "register",
-      "note": "2026-09-26 实测已不在 core/（J4 旧清单 P1 最厚件，去向待核查：迁出或回收）"
+      "stage": "done",
+      "note": "2026-09-26 对账修正：本体已随 09e3f27 迁出 core/ 入 lingmemory（注册表 checkpoint 归位），stage register→done；此前账实脱节（S1 之一）"
     },
     {
       "module": "layered_memory",
@@ -70,8 +70,8 @@
     },
     {
       "module": "behavior_aware_router",
-      "stage": "register",
-      "note": "2026-09-26 实测已不在 core/（J4 旧清单 0 直连类）"
+      "stage": "done",
+      "note": "2026-09-26 对账修正：本体已随 9e6417d 归位 model/（主干倒装清零），stage register→done；此前账实脱节（S1 之二）"
     },
     {
       "module": "context_cache",
@@ -86,5 +86,5 @@
   ],
   "frozen": false,
   "reconciler": "StateReconciler（lingclaude/core/state_store.py，ef23407）三值判定 consistent/drift/error",
-  "next": "layered_memory 已开 double-write（2026-09-26，首刀）：观察期对账 consistent ≥N 周期后推 read-source；镜像侧需 LINGYUAN_STATE_DSN 指向在线 PG（当前 5432 不可达，环境项）；其余 register 件（session/task_aggregation/governance_verifier 等）按流量排序逐件开双写；handover/behavior_aware_router 去向待核查。"
+  "next": "layered_memory 已开 double-write（2026-09-26，首刀）：观察期对账 consistent ≥N 周期后推 read-source；镜像侧需 LINGYUAN_STATE_DSN 指向在线 PG（当前 5432 不可达，环境项）；其余 register 件（session/task_aggregation/governance_verifier 等）按流量排序逐件开双写；handover/behavior_aware_router 已对账 done（2026-09-26 S1 修复）。"
 }

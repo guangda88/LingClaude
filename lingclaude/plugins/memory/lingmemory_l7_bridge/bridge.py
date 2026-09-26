@@ -16,7 +16,7 @@ import logging
 import threading
 from typing import Any
 
-from lingclaude.plugins.memory.lingmemory_bridge.bridge import (
+from lingclaude.plugins.memory.memory_common import (
     _LingMemorySinkBase,
     _get_lingmemory,
     dualwrite_enabled,

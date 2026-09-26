@@ -254,14 +254,16 @@ class TestDegradePath:
 
         直接 monkeypatch 模块内部 _get_lingmemory（确保绑定名称被替换），
         验证调用方拿到 None 时不崩。
+        2026-09-26 N7 收敛：符号本体迁至 memory_common，patch 目标同步改——
+        仅 patch bridge re-export 名不影响 _ensure_lm 的实际解析目标。
         """
         monkeypatch.setattr(
-            "lingclaude.plugins.memory.lingmemory_bridge.bridge._get_lingmemory",
+            "lingclaude.plugins.memory.memory_common._get_lingmemory",
             lambda: None,
         )
-        import lingclaude.plugins.memory.lingmemory_bridge.bridge as lb
+        import lingclaude.plugins.memory.memory_common as mc
 
-        assert lb._get_lingmemory() is None
+        assert mc._get_lingmemory() is None
 
 
 # ---------------------------------------------------------------------------

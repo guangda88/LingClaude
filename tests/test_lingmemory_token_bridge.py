@@ -115,9 +115,11 @@ class TestBypassDiscipline:
 
     def test_bridge_fuse_on_unavailable_lingmemory(self, tmp_path, monkeypatch):
         monkeypatch.setenv("LINGCLAUDE_MEMORY_DUALWRITE", "1")
-        import lingclaude.plugins.memory.lingmemory_bridge.bridge as lb
+        # 2026-09-26 N7 收敛：patch 公共接缝本体（_ensure_lm 实际解析目标），
+        # 仅 patch bridge re-export 名不影响基类懒加载路径
+        import lingclaude.plugins.memory.memory_common as mc
 
-        monkeypatch.setattr(lb, "_get_lingmemory", lambda: None)
+        monkeypatch.setattr(mc, "_get_lingmemory", lambda: None)
         sink = LingMemoryTokenSink(db_path=tmp_path / "unused.db")
         tm = TokenMonitor(db_path=tmp_path / "t.db", legacy_sink=sink)
         _record(tm)  # 主路不受影响
