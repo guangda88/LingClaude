@@ -35,6 +35,7 @@ const _: () = assert!(
 pub(crate) struct AppState {
     pub(crate) tokens: Arc<TokenStore>,
     pub(crate) audit: Arc<audit::AuditLogger>,
+    pub(crate) allowed_hosts: Vec<String>,
     pub(crate) port: u16,
     pub(crate) enforce_token: bool,
     pub(crate) lingclaude_base: String,
@@ -107,9 +108,17 @@ async fn main() {
     }
     println!("audit log: {}", audit_path.display());
 
+    // 远程访问白名单（2026-09-26）：host_guard 硬编码 loopback 导致远程 IP 403
+    // （"host not allowed"）。默认保持 loopback-only；需要远程访问时通过
+    // LINGCLAUDE_WEBUI_ALLOWED_HOSTS 注入（逗号分隔，如 100.66.1.8）。
+    let allowed_hosts: Vec<String> = std::env::var("LINGCLAUDE_WEBUI_ALLOWED_HOSTS")
+        .map(|s| s.split(',').map(|h| h.trim().to_string()).filter(|h| !h.is_empty()).collect())
+        .unwrap_or_default();
+
     let state = AppState {
         tokens: Arc::new(TokenStore::default()),
         audit: Arc::new(audit::AuditLogger::new(audit_path)),
+        allowed_hosts,
         port,
         enforce_token: true,
         lingclaude_base: std::env::var("LINGCLAUDE_BASE")
@@ -141,6 +150,7 @@ mod tests {
         AppState {
             tokens: Arc::new(TokenStore::default()),
             audit: Arc::new(audit::AuditLogger::new(std::env::temp_dir().join("lingclaude-webui-test-audit.jsonl"))),
+            allowed_hosts: vec![],
             port: 13458,
             enforce_token: true,
             lingclaude_base: "http://127.0.0.1:1".to_string(), // 测试中不应被真实访问

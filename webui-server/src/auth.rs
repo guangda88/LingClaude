@@ -154,7 +154,7 @@ fn is_static_asset(path: &str) -> bool {
 /// 读到 handoff token 响应体。仅放行 loopback 命名；**缺 Host 头放行**——
 /// 直连 TCP 客户端与集成测试 oneshot 请求可不带 Host，而 rebinding 攻击
 /// 必然携带攻击者域名的 Host，防御目标不受影响。
-fn is_allowed_host(host_header: Option<&str>) -> bool {
+fn is_allowed_host(host_header: Option<&str>, allowed_hosts: &[String]) -> bool {
     let Some(raw) = host_header else {
         return true;
     };
@@ -165,7 +165,11 @@ fn is_allowed_host(host_header: Option<&str>) -> bool {
         None => raw,
     };
     let host = host.trim_matches(|c| c == '[' || c == ']');
-    matches!(host, "127.0.0.1" | "localhost" | "::1")
+    // loopback 恒放行（原有语义）；额外白名单经 LINGCLAUDE_WEBUI_ALLOWED_HOSTS 注入
+    // （2026-09-26：远程访问 100.66.1.8 曾 403 "host not allowed"——防 DNS rebinding
+    // 守卫保留，白名单显式放行可信远程主机）。
+    host == "127.0.0.1" || host == "localhost" || host == "::1"
+        || allowed_hosts.iter().any(|a| a == host)
 }
 
 /// 鉴权前置守卫 — Host 白名单不匹配 403。
@@ -176,7 +180,7 @@ pub(crate) async fn host_guard(
     next: Next,
 ) -> Response {
     let host_header = req.headers().get(header::HOST).and_then(|v| v.to_str().ok());
-    if !is_allowed_host(host_header) {
+    if !is_allowed_host(host_header, &state.allowed_hosts) {
         state.audit.log_request(
             req.method().as_str(),
             req.uri().path(),

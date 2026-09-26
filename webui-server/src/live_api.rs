@@ -7,10 +7,19 @@ use axum::{
         IntoResponse, Response,
     },
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::AppState;
+
+/// lingclaude 8700 `/status` 中单个 project 条目（契约见 lingclaude/seams/external_query.py::_list_projects）。
+#[derive(Deserialize, Serialize)]
+struct ProjectEntry {
+    name: String,
+    path: String,
+    #[serde(default)]
+    exists: bool,
+}
 
 /// lingclaude 8700 `/status` 响应（契约见 lingclaude/api.py）。
 #[derive(Deserialize)]
@@ -18,7 +27,7 @@ struct LingclaudeStatus {
     status: String,
     version: Option<String>,
     #[serde(default)]
-    projects: Vec<String>,
+    projects: Vec<ProjectEntry>,
     #[serde(default)]
     auth_required: bool,
 }
@@ -132,4 +141,41 @@ pub(crate) async fn live_sse(
     };
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))).into_response()
+}
+
+// ─── tests ───
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// P1 回归：引擎 `/status` 返回 `projects: [{name,path,exists}]` 对象数组，
+    /// 此前 `Vec<String>` 声明导致 serde 解码失败 → /live snapshot 永远报
+    /// "bridge parse failed"。此测试钉住对象数组契约。
+    #[test]
+    fn lingclaude_status_projects_object_array_deserializes() {
+        let json = r#"{
+            "status": "online",
+            "version": "0.2.2",
+            "projects": [
+                {"name": "lingflow", "path": "/home/ai/lingflow", "exists": true},
+                {"name": "ghost", "path": "/home/ai/ghost", "exists": false}
+            ],
+            "auth_required": false
+        }"#;
+        let status: LingclaudeStatus = serde_json::from_str(json)
+            .expect("LingclaudeStatus 反序列化失败 — 引擎 /status 契约已变更?");
+        assert_eq!(status.projects.len(), 2);
+        assert_eq!(status.projects[0].name, "lingflow");
+        assert_eq!(status.projects[0].exists, true);
+        assert_eq!(status.projects[1].exists, false);
+    }
+
+    /// 向后兼容：引擎不返回 `projects` 字段时，`#[serde(default)]` 给空 Vec。
+    #[test]
+    fn lingclaude_status_missing_projects_defaults_empty() {
+        let json = r#"{"status": "online", "version": "0.2.2", "auth_required": false}"#;
+        let status: LingclaudeStatus = serde_json::from_str(json).unwrap();
+        assert!(status.projects.is_empty());
+    }
 }
