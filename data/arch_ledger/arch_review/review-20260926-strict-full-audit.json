@@ -1,0 +1,81 @@
+{
+  "type": "arch_review",
+  "record_type": "strict_full_audit_20260926",
+  "created": "2026-09-26",
+  "audit_baseline_head": "7389587",
+  "auditor": "灵克（严格审计官模式）",
+  "health_score": 78,
+  "summary": "全量代码审计 + 并行全量 E2E（后台）+ 文档对账。分层清晰、接缝机制成型、治理账本有体系；发现 2 处账本与实况脱节（严重）、datalog 无轮转（警告）、ProviderPool.close 无调用（警告）。",
+  "severity_counts": {
+    "严重": 1,
+    "警告": 6,
+    "观察": 6
+  },
+  "findings": [
+    {
+      "id": "S1",
+      "severity": "严重",
+      "title": "migration_registry 账本与实况脱节（2 处）",
+      "evidence": "handover 与 behavior_aware_router 均 stage=register 但文件已不在 core/（git log 确认 09e3f27 迁出 handover、9e6417d 归位 behavior_aware_router）；note 自述「已不在 core/」",
+      "impact": "红名单迁移计数失真，stage 无法正确判定待迁/已迁出",
+      "fix": "两件 stage 更新为 migrated，核对迁移 commit 并归档"
+    },
+    {
+      "id": "W1",
+      "severity": "警告",
+      "title": "datalog append-only JSONL 无轮转/压缩",
+      "evidence": "core/datalog.py:35 _write_event 以 a 模式追加，无大小上限；log_model_call 每 chunk 调用",
+      "impact": "长期运行单日文件无限增长",
+      "fix": "按大小轮转或按周归档压缩（参考 bounded_compaction.py）"
+    },
+    {
+      "id": "W2",
+      "severity": "警告",
+      "title": "ProviderPool 长连接无 close 调用",
+      "evidence": "llm_proxy/provider_pool.py:41 AsyncClient 常驻；close() 定义于 215 行但全仓无调用方；CodingRuntime.close 未关",
+      "impact": "进程退出 httpx 连接池未优雅关闭",
+      "fix": "CodingRuntime.close 补 provider_pool.close()"
+    },
+    {
+      "id": "W3",
+      "severity": "警告",
+      "title": "model_call 熔断统计缺 base_url 身份维度",
+      "evidence": "core/model_call.py:141 _record_provider_outcome 按 provider 名聚合；④ 聚合层扩展为已知计划",
+      "impact": "provider 分账不细",
+      "fix": "随闭合期④ 扩展身份维度（已知计划）"
+    },
+    {
+      "id": "W4",
+      "severity": "警告",
+      "title": "eval 出现在非测试代码（低危）",
+      "evidence": "lacp/marketplace.py:317 eval(cmd) 位于 __main__ 测试块，非生产路径",
+      "impact": "静态扫描误报风险",
+      "fix": "测试块加 noqa 标注"
+    },
+    {
+      "id": "W5",
+      "severity": "警告",
+      "title": "豁免 2026-10-17 批量到期（88 件）无收割执行记录",
+      "evidence": "exemption_review_calendar.json 2026-10-17 有 88 件 active 到期",
+      "impact": "到期件未过四判据，无收割记录",
+      "fix": "10-17 前批量收割预演或续豁免"
+    },
+    {
+      "id": "W6",
+      "severity": "警告",
+      "title": "N7 四桥互连历史 RED 需回归确认",
+      "evidence": "上轮 4 件 RED 已转绿；需本轮 E2E 确认保持 GREEN",
+      "impact": "回归风险",
+      "fix": "E2E 结果专项核验"
+    }
+  ],
+  "action_items_top5": [
+    "修 migration_registry 2 处账本脱节（S1）— 1 小时内",
+    "datalog 轮转/压缩（W1）— 半天",
+    "ProviderPool.close 接入 CodingRuntime.close（W2）— 1 小时",
+    "豁免 88 件 10-17 批量收割预演（W5）— 随日历排期",
+    "E2E 基线确认 N7 四件保持 GREEN（W6）— 等后台结果"
+  ],
+  "workspace_notes": "工作区 3 M 文件（interface.py/auth.rs/main.rs）属并行会话，审计不触碰；main.rs 编译红 E0063 已给并行会话口信（AppState 补 allowed_hosts 初始化）",
+  "link": "docs/audit/AUDIT_20260926_STRICT_FULL.md"
+}
