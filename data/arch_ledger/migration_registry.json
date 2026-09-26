@@ -15,7 +15,7 @@
     {
       "module": "layered_memory",
       "stage": "register",
-      "note": "在 core/ 620 行；J4 P1；orphan_scan_v2 零消费候选（test:3）——与 memory_engine 合并迁移评估（memstore bridge docstring 口径）"
+      "note": "在 core/ 620 行；J4 P1。【自我纠错 2026-09-26】上轮基于 orphan_scan_v2 结果误记「零生产候选」——实测有 10+ 处真实生产引用：core/__init__.py:25 顶层 re-export / core/query_engine.py:24+201 顶层 from-import+property / core/tool_executor.py:12+317 顶层 from-import+调用 / core/wiring.py:304-417 装配缝(_make_layered_memory)。【结论】不是零消费件，不可走 memory_engine 式回收；是 MEMORY 域真实装配链核心，「与 memory_engine 合并迁移评估」的前提已不成立——按独立件走双写首刀，第一步 core/__init__.py:25 re-export 摘出（启动链依赖）"
     },
     {
       "module": "memory_engine",
