@@ -9,7 +9,9 @@ max_budget_tokens 是会话累计预算，不再充当窗口分母。
 from __future__ import annotations
 
 import os
+import shutil
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 
 
@@ -187,14 +189,65 @@ _TOOLBAR_TIPS: tuple[str, ...] = (
     "/resync 重绘界面",
     # ── EVOLVE-BLOCK: toolbar_tips end ─────────────────────────────────────
 )
-_TIP_EVERY_TURNS = 5
+_TIP_EVERY_TURNS = 20
 
 
 def toolbar_tip(turns: int) -> str:
-    """按轮数轮换的 toolbar 提示：每 5 轮换一条，纯函数零状态。"""
+    """按轮数轮换的 toolbar 提示：每 20 轮换一条（2026-09-26 降频 5→20，
+    CC 实证提示非必需品），纯函数零状态。"""
     if turns <= 0:
         return _TOOLBAR_TIPS[0]
     return _TOOLBAR_TIPS[(turns // _TIP_EVERY_TURNS) % len(_TOOLBAR_TIPS)]
+
+
+def _display_width(text: str) -> int:
+    """East-Asian Width 感知显示宽度：全角/宽字符（CJK、●⚙🔄⏵⚠│）计 2，
+    半角计 1。wcwidth 库未引入依赖，用 unicodedata 等价实现（eaw in
+    ('W','F') 计 2，其余 1；不处理零宽组合序列——toolbar 文案均为纯文本）。"""
+    return sum(
+        2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text
+    )
+
+
+def _wrap_fragments(frag: list, width: int) -> list:
+    """按 │ 段界贪心折行（P1-6, 2026-09-26）。
+
+    PT bottom_toolbar Window 无 wrap_lines，超宽剪裁；此处预折行：
+    把 frag 按段（含 │ 的文本段为界）聚成行，行宽超过 width 就在该段
+    前断行——断行 = 在上一行行尾插 ('', '\\n')，toolbar 高度随内容行数
+    自动增长。贪心策略保证「能塞下就同排」，段永不从中间剪断。
+    width<=0（终端宽未知，如捕获输出/测试桩）不折行，维持旧行为。
+    """
+    if width <= 0 or not frag:
+        return frag
+    # 按段拆分：每段文本按 │ 切成子段（│ 保留在前子段尾部），各子段
+    # 继承所在片段的 style。
+    cells: list[tuple[str, str]] = []  # (style, text) 原子单元格
+    for style, text in frag:
+        parts = text.split("│")
+        for i, part in enumerate(parts):
+            chunk = ("│" + part) if i > 0 else part
+            if chunk:
+                cells.append((style, chunk))
+    lines: list[list[tuple[str, str]]] = []
+    cur: list[tuple[str, str]] = []
+    cur_w = 0
+    for style, chunk in cells:
+        w = _display_width(chunk)
+        if cur and cur_w + w > width:
+            cur.append(("", "\n"))
+            lines.append(cur)
+            cur, cur_w = [], 0
+        cur.append((style, chunk))
+        cur_w += w
+    if cur:
+        lines.append(cur)
+    if len(lines) <= 1:
+        return frag  # 一行塞得下：原样返回，零回归面
+    out: list[tuple[str, str]] = []
+    for line in lines:
+        out.extend(line)
+    return out
 
 
 def toolbar_fragments(s: StatusModel):
@@ -204,6 +257,14 @@ def toolbar_fragments(s: StatusModel):
       ⏵⏵ auto │ glm5.3-flash │ ~/path │ 12.3k/128k tok (10%) │ cache 94% │ N轮 │ 任务 │ 待办
     上下文占比分色：<60% 绿 / <85% 黄 / >=85% 红+将压缩提示。
     钉住模型显示 [PINNED] 标识。
+    2026-09-26 P1-6: 段界贪心折行——PT bottom_toolbar 的 Window 未开
+    wrap_lines（prompt_toolkit prompt.py:589，默认 False），单行超宽直接
+    剪裁（SSH 窄屏实测丢信息）。改为按 │ 段界折行插 \\n：toolbar 高度 =
+    内容行数（FormattedTextControl.preferred_height），自动长高不截断。
+    宽度取 shutil.get_terminal_size()（fd1 ioctl 实时反映 resize；COLUMNS
+    环境变量优先，测试可注入）。注意 COLUMNS=0 会被 shutil 视为「未设置」
+    回退 ioctl，非 tty 最终取 POSIX 缺省 80——即宽查询永不失败，折行
+    总是生效（折行优于剪裁）。
     """
     frag = []
     # 2026-09-22: 任务清单面板（todo panel，常驻状态栏上方，对标 atomcode）——
@@ -236,19 +297,21 @@ def toolbar_fragments(s: StatusModel):
         s.pinned = False
     if getattr(s, "task_active", None) is None:
         s.task_active = ""
-    # 每项一行：⚙ in_progress / · pending / ✓ completed / ✗ cancelled。
-    # 有未完成项时先渲染清单行再渲染状态行（bottom_toolbar 多行片段 PT 原生支持，
-    # 全屏 TUI _status_win 高度自适应配套）；无任务时零行，不占版面。
-    _TODO_MARK = {
-        "in_progress": ("class:accent", "⚙"),
-        "pending": ("class:yellow", "·"),
-        "completed": ("class:green", "✓"),
-        "cancelled": ("class:red", "✗"),
-    }
-    for _st, _content in getattr(s, "todo_items", ()):
-        _ms, _mark = _TODO_MARK.get(_st, ("", "·"))
-        _show = _content if len(_content) <= 46 else _content[:45] + "…"
-        frag.append((_ms, f"{_mark} {_show}\n"))
+    # 2026-09-26 P1-5: todo 清单逐项常驻退役（对标 CC status line：单行，
+    # 无常驻 todo 面板）——多任务时逐项清单曾霸占 toolbar 5-10 行。改为
+    # 一粒汇总角标 ⚙{ip}·{pd}（in_progress/pending 计数，completed/cancelled
+    # 不计入）；明细查看走 /tasks（输出进 scrollback，屏上滚即可）。
+    # 喂入链路 set_todo_items 保留（repl.py 1s 节流块），渲染侧消费。
+    _todo_items = getattr(s, "todo_items", ())
+    # 计数契约：in_progress/pending 原样计入；completed/cancelled 排除；
+    # 未知态兜底 pending 计入（对齐旧 _TODO_MARK.get(_st, ("", "·")) 契约）
+    _KNOWN = ("in_progress", "pending", "completed", "cancelled")
+    _ip_n = sum(1 for _st, _ in _todo_items if _st == "in_progress")
+    _pd_n = sum(
+        1 for _st, _ in _todo_items if _st == "pending" or _st not in _KNOWN
+    )
+    if _ip_n or _pd_n:
+        _todo_badge = ("class:accent", f" ⚙{_ip_n}·{_pd_n}")
     # 2026-09-22: 状态球（对标 atomcode）——状态行最前一粒绿/黄/红圆点，
     # 一眼标定运行状态：idle=绿 / busy=黄 / blocked=红。优先级 blocked > busy > idle，
     # 由 _toolbar_snapshot 每秒判定 state_level 喂入；未知值兜绿。
@@ -302,16 +365,23 @@ def toolbar_fragments(s: StatusModel):
         frag.append((_cs, f"│ cache {_cp}% "))
     task_display = s.task if len(s.task) <= 40 else s.task[:39] + "…"
     frag.append(("", f"│ {s.turns}轮 │ {task_display}"))
-    # P1-4（2026-09-20）→ 2026-09-25 升级：常驻提示改 tips 轮换池
-    # （每 5 轮换一条，首条保留键位兜底；见 _TOOLBAR_TIPS 注释）
+    # 2026-09-26 P1-5: tips 轮换池降频 5→20 轮（CC 实证：提示非必需品，
+    # 常驻占用视觉带宽；20 轮 ≈ 一次典型工作循环才换一条）
     frag.append(("", f"│ {toolbar_tip(s.turns)} "))
     if s.pending > 0:
         frag.append(("class:accent", f" │ 挂起×{s.pending}"))
-    # 2026-09-17 第3级b: 任务面板角落常驻 — 有活跃任务时右下角显示
-    # 🔄当前执行 + 待办数（每轮经 set_task_panel 刷新，零额外 I/O）。
+    # 2026-09-26 P1-5: 待办×N 段退役——todo 汇总角标 ⚙{ip}·{pd} 已含该信息
+    #（同源同值，双显冗余）；🔄当前执行段保留（active 名单角标不含）。
     if s.task_active:
         act = s.task_active if len(s.task_active) <= 18 else s.task_active[:17] + "…"
         frag.append(("class:accent", f" │ 🔄 {act}"))
-    if s.task_pending > 0:
-        frag.append(("", f" │ 待办×{s.task_pending}"))
-    return frag
+    # todo 汇总角标挂行尾（与 🔄 相邻，任务语义聚拢）
+    if _ip_n or _pd_n:
+        frag.append(_todo_badge)
+    # 2026-09-26 P1-6: 段界贪心折行——超终端宽时在 │ 段界断行成多行，
+    # toolbar 自动长高，信息不再被 PT 剪裁（详见 _wrap_fragments docstring）
+    try:
+        _cols = shutil.get_terminal_size().columns
+    except (ValueError, OSError, AttributeError):
+        _cols = 0
+    return _wrap_fragments(frag, _cols)

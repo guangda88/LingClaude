@@ -205,23 +205,27 @@ class TestPinFailureClearsStaleStatus:
         status.set_pinned.assert_called_with(True)
 
 
-class TestTodoPanel:
-    """2026-09-22: todo panel 常驻 toolbar 上方（对标 atomcode）。
+class TestTodoBadge:
+    """2026-09-26 P1-5: todo 清单逐项常驻退役（对标 CC status line 单行哲学）。
 
-    渲染契约：toolbar_fragments 在状态行之前展开清单行（每行以 \\n 结尾），
-    状态行保持原有单行形态；空清单 = 输出与旧版逐字符一致（零版面侵占）。
+    渲染契约：清单行不再逐项展开，收敛为一粒汇总角标 ⚙{ip}·{pd}（accent 高亮，
+    仅统计 in_progress/pending）；明细查看走 /tasks（进 scrollback）。
+    空清单 = 输出与旧版逐字符一致（零版面侵占）。
     """
 
     def test_empty_panel_zero_footprint(self) -> None:
-        """无任务时输出与历史形态完全一致——面板不占版面。"""
+        """无任务时输出与历史形态完全一致——角标不占版面。"""
         s = StatusModel()
         s.set_model("m1")
         s.cwd = "/tmp"
         frag = toolbar_fragments(s.snapshot())
         text = "".join(x[1] for x in frag)
-        assert "\n" not in text  # 单行形态，无清单行
+        # 2026-09-26 P1-6: 折行引入 \n 属预期（toolbar 自动长高），旧
+        # 「无 \n」断言退役；「无清单行」意图改由 ⚙ 角标缺席守护。
+        assert "⚙" not in text  # 无任务无角标（无逐项清单的当前形态）
 
-    def test_in_progress_and_pending_rows(self) -> None:
+    def test_badge_counts_ip_and_pending(self) -> None:
+        """有未完成项时输出单行汇总角标，不逐项展开。"""
         s = StatusModel()
         s.set_model("m1")
         s.cwd = "/tmp"
@@ -230,30 +234,39 @@ class TestTodoPanel:
         )
         frag = toolbar_fragments(s.snapshot())
         text = "".join(x[1] for x in frag)
-        assert "⚙ 迁移钩子替换\n" in text
-        assert "· 跑全量回归\n" in text
-        # 清单行必须先于状态行（面板在 toolbar 上方）
-        assert text.index("⚙") < text.index("m1")
+        assert "⚙1·1" in text  # 单行角标：1 进行中 + 1 待办
+        # 2026-09-26 P1-6: 「不得逐项展开」改由明细文本缺席守护——
+        # 折行（\n）属 P1-6 预期行为，不再以换行符为违规判据
+        assert "迁移钩子替换" not in text  # 明细不进 toolbar
+        assert "跑全量回归" not in text  # 明细不进 toolbar
 
-    def test_completed_row_and_unknown_status(self) -> None:
+    def test_completed_and_cancelled_not_counted(self) -> None:
+        """completed/cancelled 不计入角标；未知态兜底 pending 计入。"""
         s = StatusModel()
         s.set_todo_items(
-            [("completed", "已交付项"), ("weird_status", "未知态项")]
+            [
+                ("completed", "已交付项"),
+                ("cancelled", "已取消项"),
+                ("weird_status", "未知态项"),
+            ]
         )
         frag = toolbar_fragments(s.snapshot())
         text = "".join(x[1] for x in frag)
-        assert "✓ 已交付项\n" in text
-        assert "· 未知态项\n" in text  # 未知状态兜底为 pending 形态
+        assert "⚙0·1" in text  # 只有未知态兜底计入 pending
 
-    def test_long_content_truncated(self) -> None:
+    def test_accent_style_and_position(self) -> None:
+        """角标用 accent 样式，位于行尾任务区（🔄 之后）。"""
         s = StatusModel()
-        s.set_todo_items([("pending", "x" * 80)])
+        s.set_model("m1")
+        s.cwd = "/tmp"
+        s.set_todo_items([("in_progress", "任务A"), ("pending", "任务B")])
         frag = toolbar_fragments(s.snapshot())
-        text = "".join(x[1] for x in frag)
-        assert "…" in text
-        # 面板 1 行 + 状态行 1 行 = 2；长内容必须折叠进单行清单，不得换行溢出
-        lines = [ln for ln in text.split("\n") if ln.strip()]
-        assert len(lines) == 2
+        badge_idx = next(
+            i for i, (style, txt) in enumerate(frag) if "⚙" in txt
+        )
+        assert frag[badge_idx][0] == "class:accent"
+        model_idx = next(i for i, (_, txt) in enumerate(frag) if "m1" in txt)
+        assert badge_idx > model_idx  # 行尾任务区，在状态行主体之后
 
     def test_snapshot_thread_safe(self) -> None:
         import threading as _t
@@ -345,14 +358,15 @@ class TestToolbarTips:
         # 键位兜底保住：0 轮（会话开始）必显示 Esc+Enter 提示
         assert "Esc+Enter" in toolbar_tip(0)
 
-    def test_rotates_every_5_turns(self) -> None:
-        assert toolbar_tip(4) == toolbar_tip(0)   # 未满 5 轮不变
-        assert toolbar_tip(5) != toolbar_tip(0)   # 满 5 轮换下一条
+    def test_rotates_every_20_turns(self) -> None:
+        # 2026-09-26 P1-5 降频：5→20 轮（CC 实证提示非必需品）
+        assert toolbar_tip(19) == toolbar_tip(0)  # 未满 20 轮不变
+        assert toolbar_tip(20) != toolbar_tip(0)  # 满 20 轮换下一条
 
     def test_wraps_around(self) -> None:
-        # 10 条池 × 每 5 轮 = turns=50 回绕到首条
-        assert toolbar_tip(50) == toolbar_tip(0)
-        assert toolbar_tip(49) != toolbar_tip(0)
+        # 10 条池 × 每 20 轮 = turns=200 回绕到首条
+        assert toolbar_tip(200) == toolbar_tip(0)
+        assert toolbar_tip(199) != toolbar_tip(0)
 
     def test_keybinding_tips_in_pool(self) -> None:
         # 2026-09-25 二期：键位/操作类入池（chord 事实源自 interface.py:311-312
@@ -372,13 +386,14 @@ class TestToolbarTips:
                         f"tips 池出现未注册命令 {token}（handler 缺失不得推广）")
 
     def test_toolbar_renders_rotating_tip(self) -> None:
+        # 2026-09-26 P1-5 降频 5→20：轮换点改为 20 轮
         s = StatusModel()
-        for _ in range(5):
+        for _ in range(20):
             s.bump_turns()
         frag = toolbar_fragments(s.snapshot())
         text = "".join(t for _, t in frag if isinstance(t, str))
-        assert f"│ {toolbar_tip(5)} " in text
-        assert "Esc+Enter" not in text  # 5 轮后键位提示已轮换出
+        assert f"│ {toolbar_tip(20)} " in text
+        assert "Esc+Enter" not in text  # 20 轮后键位提示已轮换出
 
 
 # ---------------------------------------------------------------------------
@@ -433,3 +448,76 @@ class TestDegradedChannel:
                             turns=None, task=None, pending=None,
                             task_pending=None, cache_pct=None)
         assert toolbar_fragments(dirty)
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-26 P1-6: 段界贪心折行——bottom_toolbar 超宽不再被 PT 剪裁。
+# 根因：PT bottom_toolbar Window 未开 wrap_lines（prompt.py:589 默认
+# False），height=Dimension(min=1) 高度随内容行数走 → fragment 内插
+# \n 即自动长高。契约：内容流无损（仅插换行）、每行 ≤ 终端宽、
+# 段永不从中间剪断、宽屏零回归、终端宽未知（0 列）不折行。
+# ---------------------------------------------------------------------------
+class TestToolbarWrap:
+    """P1-6 折行契约（SSH 窄屏实测截断 → 段界贪心折行）。"""
+
+    def _rich_model(self) -> StatusModel:
+        return StatusModel(
+            model="glm5.3-flash",
+            cwd="/home/ai/lingclaude",
+            ctx_tokens=91500,
+            ctx_window=128000,
+            cache_pct=94,
+            turns=57,
+            task="P1-6 折行测试任务",
+            pending=2,
+            perm_mode="auto",
+            task_active="活跃任务名",
+            todo_items=(("in_progress", "a"), ("pending", "b")),
+        )
+
+    @staticmethod
+    def _render(frag) -> str:
+        return "".join(t for _, t in frag if isinstance(t, str))
+
+    def _with_columns(self, monkeypatch, cols: str):
+        monkeypatch.setenv("COLUMNS", cols)
+        return self._render(toolbar_fragments(self._rich_model().snapshot()))
+
+    def test_wide_terminal_single_line(self, monkeypatch) -> None:
+        # 宽屏（300 列）：零折行，与折行前渲染逐字符一致（零回归面）
+        out = self._with_columns(monkeypatch, "300")
+        assert "\n" not in out
+
+    def test_narrow_terminal_wraps_within_width(self, monkeypatch) -> None:
+        from lingclaude.cli.status import _display_width
+        out = self._with_columns(monkeypatch, "80")
+        lines = out.split("\n")
+        assert len(lines) > 1, "80 列下该模型必折行"
+        assert all(_display_width(l) <= 80 for l in lines), "有行超宽"
+
+    def test_no_content_loss(self, monkeypatch) -> None:
+        # 折行只插换行，不删字符：去 \n 后与宽屏（300 列不折）流一致
+        wide = self._with_columns(monkeypatch, "300")
+        narrow = self._with_columns(monkeypatch, "80")
+        assert wide.replace("\n", "") == narrow.replace("\n", "")
+
+    def test_zero_columns_falls_back_posix_80(self, monkeypatch) -> None:
+        # shutil.get_terminal_size 的 COLUMNS=0 语义 = fallback ioctl（0 falsy
+        # 被覆盖），非 tty 时最终回退 POSIX 缺省 80×24——永远不会得到 0 宽。
+        # 所以 0 列下仍按 ≤80 折行（折行优于剪裁，信息保真优先）。
+        from lingclaude.cli.status import _display_width
+        out = self._with_columns(monkeypatch, "0")
+        assert all(_display_width(l) <= 80 for l in out.split("\n"))
+
+    def test_long_segment_never_split(self, monkeypatch) -> None:
+        # 单段超宽：不从中间剪断，整段落到新行保完整
+        from lingclaude.cli.status import _wrap_fragments
+        marker = "x" * 100
+        out = _wrap_fragments([("", "│ " + marker)], 80)
+        assert marker in self._render(out)
+
+    def test_tips_token_survives_wrap(self, monkeypatch) -> None:
+        # tips 提示含斜杠命令 token，折行后必须原样存活（防伪装丢 token）
+        out = self._with_columns(monkeypatch, "80")
+        from lingclaude.cli.status import toolbar_tip
+        assert toolbar_tip(57) in out
