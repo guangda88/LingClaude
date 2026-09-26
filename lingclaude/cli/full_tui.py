@@ -32,6 +32,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import os
 import re
@@ -63,8 +64,13 @@ try:
     from prompt_toolkit.layout import HSplit, Layout, Window
     from prompt_toolkit.layout.dimension import Dimension
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+    from prompt_toolkit.layout.processors import (
+        Processor,
+        Transformation,
+        TransformationInput,
+    )
     from prompt_toolkit.layout.margins import ScrollbarMargin
-    from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
+    from prompt_toolkit.mouse_events import MouseEvent, MouseEventType, MouseButton
     from prompt_toolkit.output import create_output
     from prompt_toolkit.widgets import TextArea
 
@@ -111,7 +117,73 @@ _PLACEHOLDER_RE = re.compile(r"\[文本块 #(\d+) · \d+行 · \d+字符\]")
 _PASTE_STORE_MAX = 200
 
 
+_OSC52_DEBUG = os.environ.get("LING_OSC52_DEBUG", "") not in ("", "0", "false")
+
 if _HAS_PROMPT_TOOLKIT:
+
+    def _reverse_range(
+        fragments: list[tuple], lo: int, hi: int | None
+    ) -> list[tuple]:
+        """对 fragments 的显示列区间 [lo, hi)（hi=None 到行尾）追加 reverse。
+
+        与区间无交集的 fragment 原样保留；跨界 fragment 按列切三段，
+        仅有交集段带反色。事件样式（*rest，如鼠标处理器）原样透传。
+        """
+        out: list[tuple] = []
+        pos = 0
+        for style, txt, *rest in fragments:
+            w = len(txt)
+            seg_lo, seg_hi = pos, pos + w
+            pos = seg_hi
+            a = max(seg_lo, lo)
+            b = seg_hi if hi is None else min(seg_hi, hi)
+            if a >= b:  # 无交集
+                out.append((style, txt, *rest))
+                continue
+            pre = txt[: a - seg_lo]
+            mid = txt[a - seg_lo : b - seg_lo]
+            post = txt[b - seg_lo :]
+            if pre:
+                out.append((style, pre, *rest))
+            if mid:
+                out.append((style + " reverse", mid, *rest))
+            if post:
+                out.append((style, post, *rest))
+        return out
+
+    class _SelectionHighlightProcessor(Processor):
+        """拖选反色高亮（2026-09-27 OSC52 方案的视觉反馈层）。
+
+        坐标系与取词一致：鼠标 DOWN/MOVE/UP 已被 Window 换算为 buffer
+        行/列，选区存于 FullTuiSession._sel_start/_sel_end。BufferControl
+        每行渲染都会跑 input_processors，在 fragment 层插 style 即可实现
+        反色，不动 Window/布局。原地点击（起终点同格）不高亮。
+        """
+
+        def __init__(self, session: "FullTuiSession") -> None:
+            self._session = session
+
+        def apply_transformation(self, ti: TransformationInput) -> Transformation:
+            sess = self._session
+            start = sess._sel_start
+            end = sess._sel_end
+            if start is None or end is None or start == end:
+                return Transformation(ti.fragments)
+            if start > end:
+                start, end = end, start
+            sr, sc = start
+            er, ec = end
+            if not (sr <= ti.lineno <= er):
+                return Transformation(ti.fragments)
+            if sr == er:  # 单行：[sc, ec]
+                frags = _reverse_range(ti.fragments, sc, ec + 1)
+            elif ti.lineno == sr:  # 首行：起始列 → 行尾
+                frags = _reverse_range(ti.fragments, sc, None)
+            elif ti.lineno == er:  # 末行：行首 → 终点列（含）
+                frags = _reverse_range(ti.fragments, 0, ec + 1)
+            else:  # 中间整行
+                frags = _reverse_range(ti.fragments, 0, None)
+            return Transformation(frags)
 
     class _OutputScrollControl(BufferControl):
         """输出窗控件 — 在 BufferControl 基础上拦截滚轮事件。
@@ -123,9 +195,10 @@ if _HAS_PROMPT_TOOLKIT:
         输入框焦点），其余事件交还父类。
         """
 
-        def __init__(self, *args: Any, on_wheel: Callable[[int], None] | None = None, **kwargs: Any) -> None:
+        def __init__(self, *args: Any, on_wheel: Callable[[int], None] | None = None, on_select: Callable[[str, Any], None] | None = None, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
             self._on_wheel = on_wheel
+            self._on_select = on_select
 
         def mouse_handler(self, mouse_event: MouseEvent) -> Any:
             et = mouse_event.event_type
@@ -135,6 +208,19 @@ if _HAS_PROMPT_TOOLKIT:
                     return None
                 if et == MouseEventType.SCROLL_DOWN:
                     self._on_wheel(1)
+                    return None
+            # 拖选复制（2026-09-27 OSC52）：DOWN 记起点 / LEFT+MOVE 更新终点 /
+            # UP 落锤取词 → OSC52 写终端剪贴板（穿透 SSH 直达本地）。
+            # 细节委托 _on_select 回调；None 一律交回父类。
+            if self._on_select is not None:
+                if et == MouseEventType.MOUSE_DOWN:
+                    self._on_select("down", mouse_event.position)
+                    return None
+                if et == MouseEventType.MOUSE_MOVE and mouse_event.button is MouseButton.LEFT:
+                    self._on_select("move", mouse_event.position)
+                    return None
+                if et == MouseEventType.MOUSE_UP:
+                    self._on_select("up", mouse_event.position)
                     return None
             return super().mouse_handler(mouse_event)
 
@@ -322,6 +408,18 @@ class FullTuiSession:
         # 表现为整屏假死（19:20-19:45 事故）——等待循环每轮顺带检测自愈。
         self._raw_guard_last = 0.0
 
+        # 拖选复制状态机（2026-09-27 OSC52）：DOWN 记起点，LEFT+MOVE 更新
+        # 终点，UP 落锤取词。_sel_active 防丢 UP 后 MOVE 续画；_sel_dragged
+        # 区分「原地点击」与「真拖动」（点击不清不复制，不干扰终端原生行为）。
+        self._sel_start: tuple[int, int] | None = None
+        self._sel_end: tuple[int, int] | None = None
+        self._sel_active = False
+        self._sel_dragged = False
+
+        # OSC52 写入通道（2026-09-27）：默认 /dev/tty（SSH 场景 sys.stdout
+        # 可能是管道）；App 驻留期改用 app.output 的 raw fd（PT 正在管终端）。
+        self._osc52_fd: int | None = None
+
         # 控件（常驻复用）。输出窗 = Buffer + BufferControl子类 + Window 手工
         # 组合（TextArea 不支持传 key_bindings/自定义控件；见模块 docstring）。
         # 滚动模型：输出 buffer 光标 = 视口锚点（PT 渲染层 keep-cursor-visible
@@ -339,7 +437,9 @@ class FullTuiSession:
             focusable=False,
             focus_on_click=False,
             include_default_input_processors=False,
+            input_processors=[_SelectionHighlightProcessor(self)],
             on_wheel=self._on_out_wheel,
+            on_select=self._on_select_event,
         )
         self._output_area = Window(
             content=self._out_control,
@@ -728,8 +828,118 @@ class FullTuiSession:
         except Exception:  # noqa: BLE001 — 重绘失败不影响终端恢复本身
             pass
 
-    def _run_app(self) -> None:
+    # ── 拖选复制（2026-09-27 OSC52）───────────────────────────────────────
+
+    def _extract_selected_text(self) -> str:
+        """按当前选择框取输出 buffer 文本（行式，鼠标坐标语义）。
+
+        坐标来自 Window 派发（containers.py:1847-1862）：position 已换算为
+        buffer 行/列（视口外/行尾点击已被 clamp）。行式复制是鼠标选择惯例：
+        终行含尾列之后的整行内容（与终端拖选行为一致）。
+        """
         try:
+            with self._area_lock:
+                lines = self._out_buffer.text.split("\n")
+                start = self._sel_start
+                end = self._sel_end
+            if start is None or end is None:
+                return ""
+            if start > end:
+                start, end = end, start
+            sr, sc = start
+            er, ec = end
+            if sr == er:
+                return lines[sr][sc : ec + 1]
+            parts = [lines[sr][sc:]]
+            parts.extend(lines[r] for r in range(sr + 1, er))
+            parts.append(lines[er][: ec + 1])
+            return "\n".join(parts)
+        except Exception:  # noqa: BLE001 — 取词失败不影响 UI
+            return ""
+
+    def _osc52_copy(self, text: str) -> bool:
+        """OSC52 序列写终端剪贴板：ESC]52;c;<base64>ST（ST=ESC\\）。
+
+        truecolor/256 色等颜色能力无关；终端禁用（VTE 默认 allowClipboard
+        off 等）时序列被忽略，无副作用。上限 8MiB（xterm 序列缓冲经验值）。
+        通道：App 驻留用 app.output raw fd；否则 /dev/tty（SSH 场景
+        sys.stdout 可能被代理/管道替换，/dev/tty 才是控制终端本体）。
+        """
+        try:
+            payload = base64.b64encode(text.encode("utf-8")).decode("ascii")
+            if len(payload) > 8 * 1024 * 1024:
+                return False
+            seq = "\x1b]52;c;" + payload + "\x1b\\"
+            data = seq.encode("ascii")
+            fd = self._osc52_fd
+            if fd is not None:
+                os.write(fd, data)
+            else:
+                with open("/dev/tty", "wb") as tty:
+                    tty.write(data)
+            if _OSC52_DEBUG:
+                logger.debug(
+                    "osc52_copy: %s chars via fd=%s", len(text), fd if fd is not None else "/dev/tty"
+                )
+            return True
+        except Exception:  # noqa: BLE001 — 复制失败不反噬 UI（静默，debug 日志留痕）
+            return False
+
+    def _on_select_event(self, kind: str, position: Any) -> None:
+        """输出窗鼠标三态回调（_OutputScrollControl on_select）。
+
+        DOWN 记起点；LEFT+MOVE 更新终点并标记拖动；UP 落锤——真拖动才
+        取词复制，原地点击不干扰。全程吞异常 + 最终 _invalidate。
+        """
+        try:
+            if _OSC52_DEBUG:
+                logger.debug(
+                    "osc52_select: kind=%s pos=(%s, %s)", kind, position.y, position.x
+                )
+            pos = (position.y, position.x)
+            if kind == "down":
+                self._sel_start = pos
+                self._sel_end = pos
+                self._sel_active = True
+                self._sel_dragged = False
+            elif kind == "move":
+                if self._sel_start is None:
+                    return
+                self._sel_end = pos
+                if pos != self._sel_start:
+                    self._sel_dragged = True
+            elif kind == "up":
+                if self._sel_start is not None:
+                    # UP 坐标即最终终点（终端拖选惯例）：先落终点再取词
+                    self._sel_end = pos
+                if self._sel_start is not None and self._sel_dragged:
+                    text = self._extract_selected_text()
+                    if text:
+                        self._osc52_copy(text)
+                self._sel_start = None
+                self._sel_end = None
+                self._sel_active = False
+                self._sel_dragged = False
+        except Exception:  # noqa: BLE001 — 选择事件异常绝不反噬事件循环
+            self._sel_start = None
+            self._sel_end = None
+            self._sel_active = False
+            self._sel_dragged = False
+        finally:
+            self._invalidate()
+
+    def _run_app(self) -> None:
+        tty_fd = None
+        try:
+            # OSC52 通道（2026-09-27）：App 驻留期专用 /dev/tty raw fd——
+            # 拖选复制在 PT 管理终端的窗口内发生，独立 fd 避免与 stdout
+            # 代理/PTY 状态纠缠；退出 finally 统一关闭（不吞 PT 终端状态）。
+            try:
+                tty_fd = os.open("/dev/tty", os.O_WRONLY)
+                self._osc52_fd = tty_fd
+            except Exception:  # noqa: BLE001 — 无控制终端：/dev/tty 回退路径兜底
+                tty_fd = None
+                self._osc52_fd = None
             # PT3: output 已在构造期注入（start()），run() 不得再传 —— 会
             # TypeError。事件循环在本后台线程创建运行，终端控制权全程归 PT。
             self._app.run()
@@ -737,6 +947,13 @@ class FullTuiSession:
             self._app_error = f"{type(e).__name__}: {e}"
             self._running = False
         finally:
+            # OSC52 fd 收尾
+            if tty_fd is not None:
+                try:
+                    os.close(tty_fd)
+                except Exception:  # noqa: BLE001
+                    pass
+            self._osc52_fd = None
             # 线程死亡/退出时还原 stdout —— 否则后续输出全进不可见的
             # 输出窗缓冲，用户看不到任何内容（静默死亡事故防复发）。
             if self._stdout_proxy is not None:
