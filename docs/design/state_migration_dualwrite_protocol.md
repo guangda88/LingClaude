@@ -48,7 +48,7 @@ register → double-write → read-source → read-target → drop
 |---|---|---|
 | 双写开关 | `StateStore.__init__` `dualwrite` 参数 / `LINGCLAUDE_MEMORY_DUALWRITE=1` | ✅ 已实现 |
 | 读切开关 | `read_from_lingyi` 参数（读 lingyi→json 降级） | ✅ 已实现 |
-| 对账器 | `StateReconciler`（consistent/drift/error 三值） | ✅ 已落地（ef23407） |
+| 对账器 | `StateReconciler`（consistent/drift/error 三值） | ✅ 已落地（ef23407）【坐标纠错 2026-09-26】实落点 `lingclaude/engine/state_reconcile.py`（8237 字节，tests/test_state_reconcile.py 9/9 绿），非本文件——原文误记 |
 | 迁移登记 | `migration_registry`（待建：record_type=migration） | ❌ 待建（本协议第 5 节） |
 | 冻结判定 | 对账失败冻结（待建：挂 `StateReconciler` 输出） | ❌ 待建 |
 | revert 入账 | `ly_state_events` 追加 `revert` 事件 | ❌ 待建（依赖 sink 接线） |

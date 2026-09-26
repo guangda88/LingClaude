@@ -1,0 +1,27 @@
+{
+  "type": "arch_review",
+  "record_type": "migration_first_cut",
+  "created": "2026-09-26",
+  "module": "layered_memory",
+  "decision": "P5 MEMORY 首刀开账：layered_memory stage register → double-write",
+  "decided_by": "用户指令（lc 会话）+ 机械装置实测",
+  "prerequisites_checked": [
+    "P2 全量基线已入档（1532 passed / 8 skipped / 15 failed，无超时截断）",
+    "双写协议已批准（docs/design/state_migration_dualwrite_protocol.md）",
+    "migration_registry 已开账（2026-09-26，frozen=False）"
+  ],
+  "mechanism_verification": {
+    "reconciler": "StateReconciler 9/9 passed（lingclaude/engine/state_reconcile.py，50s）",
+    "redpath_dsn_missing": "LINGYUAN_STATE_BACKEND=lingyi 无 DSN → 回落 json，save/load 正常，不炸",
+    "redpath_dualwrite_unreachable": "LINGCLAUDE_MEMORY_DUALWRITE=1 + lingyi 不可达 → WARNING 双写失败，json 侧承载，读回一致",
+    "greenpath_note": "真实双写（镜像侧落 PG）待环境：本机 5432 不可达、LINGYUAN_STATE_DSN 未配（asyncpg 0.31.0 在位）"
+  },
+  "dualwrite_semantics": "meta/shared 事实经 StateStore(record_type=memory) 双写：json 事实标准 + lingyi 镜像（layered_memory.py:_save_json 主通道 + wiring.py:304 装配缝 sink 通道）；experience SQLite 层不在本刀范围（协议 §6 遗留评估项）",
+  "constraints": [
+    "镜像侧空转待环境（DSN/PG 在线），不阻塞 json 事实标准",
+    "2026-10-17 豁免到期前需推进至 read-source 或做续豁免裁决",
+    "对账 frozen 语义：StateReconciler 连续 drift/error → 停止推进（协议 §2）"
+  ],
+  "background_jobs": "test_state_store + test_layered_memory 后台回归（job e5ef290c9baa）在途，结果入档",
+  "protocol_fix": "协议 §3 对账器坐标纠错：core/state_store.py → engine/state_reconcile.py"
+}

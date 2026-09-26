@@ -14,8 +14,9 @@
     },
     {
       "module": "layered_memory",
-      "stage": "register",
-      "note": "在 core/ 620 行；J4 P1。【自我纠错 2026-09-26】上轮基于 orphan_scan_v2 结果误记「零生产候选」——实测有 10+ 处真实生产引用：core/__init__.py:25 顶层 re-export / core/query_engine.py:24+201 顶层 from-import+property / core/tool_executor.py:12+317 顶层 from-import+调用 / core/wiring.py:304-417 装配缝(_make_layered_memory)。【结论】不是零消费件，不可走 memory_engine 式回收；是 MEMORY 域真实装配链核心，「与 memory_engine 合并迁移评估」的前提已不成立——按独立件走双写首刀，第一步 core/__init__.py:25 re-export 摘出（启动链依赖）"
+      "stage": "double-write",
+      "note": "在 core/ 620 行；J4 P1。【自我纠错 2026-09-26】上轮基于 orphan_scan_v2 结果误记零消费，实有 10+ 生产引用（core/__init__ re-export / query_engine / tool_executor / wiring 装配缝），改判双写首刀候选。【stage→double-write 2026-09-26】P5 首刀开账：机械装置三态实测通过（StateReconciler 9/9 绿；LINGYUAN_STATE_BACKEND=lingyi DSN 缺失回落 json 不炸；LINGCLAUDE_MEMORY_DUALWRITE=1 + 灵忆不可达写路径 warning 不炸、json 侧承载、读回一致）。双写语义：meta/shared 事实经 StateStore(record_type=memory) 双写（json 事实标准 + lingyi 镜像），experience SQLite 层不在本刀范围（协议 §6 遗留评估项）。entry 判据满足：register 完成、无并发迁移冲突（frozen=False）。约束：本机 PG 5432 当前不可达（asyncpg 0.31.0 在位、DSN 未配）——双写镜像侧空转待环境，10-17 豁免到期前需推进至 read-source 或做续豁免裁决，不得带 frozen 过期。",
+      "entered_double_write": "2026-09-26"
     },
     {
       "module": "memory_engine",
@@ -85,5 +86,5 @@
   ],
   "frozen": false,
   "reconciler": "StateReconciler（lingclaude/core/state_store.py，ef23407）三值判定 consistent/drift/error",
-  "next": "memory_engine 已裁决回收（2026-09-26，recycled-memory-engine-20260926）。下一步：对有真实流量的 register 件（layered_memory/session/task_aggregation 等）逐件开 double-write，按五阶段推进；handover/behavior_aware_router 需先核查去向（已不在 core/）。"
+  "next": "layered_memory 已开 double-write（2026-09-26，首刀）：观察期对账 consistent ≥N 周期后推 read-source；镜像侧需 LINGYUAN_STATE_DSN 指向在线 PG（当前 5432 不可达，环境项）；其余 register 件（session/task_aggregation/governance_verifier 等）按流量排序逐件开双写；handover/behavior_aware_router 去向待核查。"
 }
