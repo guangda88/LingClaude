@@ -1,0 +1,352 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "lingclaude-webui",
+    "version": "0.1.0",
+    "description": "LingClaude webUI server — 无头 webUI 桥接层（axum），桥接 lingclaude 引擎 (api.py, 默认 http://127.0.0.1:8700)。\n\n认证流（auth.rs）：CLI 调 GET /mint 得到一次性 handoff URL → 浏览器访问消费 token（5min TTL）→ 种下 24h 会话 cookie（HttpOnly/SameSite=Strict，port-scoped 名）→ 之后所有非静态请求要求该 cookie。\n\nSSE 说明：`/chat` 与 `/live` 响应为 text/event-stream；事件名在 `event:` 字段，负载在 `data:` 字段。桥接层产生的错误事件统一为 `event: error` + 合法 JSON {\"type\":\"error\",\"message\":...}（fail-closed，不静默）。\n\n引擎鉴权：webUI 以 X-API-Key 头访问引擎（LINGCLAUDE_API_KEYS 注入），该头不出现在本 API 的客户端契约中。"
+  },
+  "servers": [
+    { "url": "http://127.0.0.1:13458", "description": "本机默认（注意：13458 同时是 trae_proxy 硬编码端口，共存时须改用其他端口，如 23458）" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "atomcode_webui_<port>",
+        "description": "port-scoped 会话 cookie，经 /mint handoff 流程签发"
+      }
+    },
+    "schemas": {
+      "ChatRequest": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "description": "前端自身生成的 requestId。诚实契约：引擎当前无会话存储，本字段被接受但不消费（chat_api.rs ChatRequest.session_id）"
+          },
+          "message": { "type": "string", "description": "用户消息文本，桥接为引擎 /ask/stream 的 question" },
+          "images": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "附件对象数组。桥接层当前不消费；类型放宽为任意对象以避免旧版 Vec<String> 遇对象必 400"
+          },
+          "model": { "type": "string" },
+          "mode": { "type": "string", "default": "" }
+        }
+      },
+      "StopRequest": {
+        "type": "object",
+        "properties": {
+          "session_id": { "type": "string", "description": "缺省或空串返回 400 session_id is required" }
+        }
+      },
+      "StopResponse": {
+        "type": "object",
+        "required": ["stopped", "session_id"],
+        "properties": {
+          "stopped": {
+            "type": "boolean",
+            "description": "诚实语义（chat_api.rs 契约现状）：前端传的 session_id 是自身 requestId，引擎不认识 ⇒ 引擎 404 ⇒ stopped:false。真实终止语义待引擎侧会话注册表（协议文档 §8.2）"
+          },
+          "session_id": { "type": "string" },
+          "engine": { "description": "2xx 时原样透传引擎响应（Session redacted dict）供排查", "type": ["object", "null"] },
+          "reason": { "type": "string", "description": "stopped=false 时给出原因" }
+        }
+      },
+      "PermissionRequest": {
+        "type": "object",
+        "required": ["session_id", "decision", "tool_name"],
+        "properties": {
+          "session_id": { "type": "string" },
+          "decision": { "type": "string" },
+          "tool_name": { "type": "string" },
+          "reason": { "type": "string", "description": "可选；前端 respondPermission 当前不发送" }
+        }
+      },
+      "PermissionResponse": {
+        "type": "object",
+        "required": ["success", "decision"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "decision": { "type": "string" }
+        }
+      },
+      "ProjectEntry": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "exists": { "type": "boolean", "default": false }
+        }
+      },
+      "EngineStatus": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "version": { "type": ["string", "null"] },
+          "projects": { "type": "array", "items": { "$ref": "#/components/schemas/ProjectEntry" } },
+          "auth_required": { "type": "boolean" }
+        }
+      },
+      "SnapshotEvent": {
+        "type": "object",
+        "description": "/live 首事件。引擎不可达/解码失败时首事件改发 event:error，负载形状为 SseErrorEvent",
+        "properties": {
+          "type": { "const": "snapshot" },
+          "messages": { "type": "array", "items": {}, "description": "当前恒为空数组（引擎无会话存储）" },
+          "session_id": { "type": "string", "description": "回显查询参数" },
+          "project_hash": { "type": "string" },
+          "provider": { "type": "string" },
+          "mode": { "type": "string" },
+          "engine": { "$ref": "#/components/schemas/EngineStatus" }
+        }
+      },
+      "SseErrorEvent": {
+        "type": "object",
+        "properties": {
+          "type": { "const": "error" },
+          "message": { "type": "string" }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "properties": {
+          "service": { "const": "lingclaude-webui" },
+          "port": { "type": "integer" },
+          "enforce_token": { "type": "boolean" },
+          "cookie": { "type": "string", "description": "port-scoped cookie 名" },
+          "sse": { "type": "array", "items": { "type": "string" } },
+          "post": { "type": "array", "items": { "type": "string" } },
+          "audit": {
+            "type": "object",
+            "description": "审计日志健康（P3 清偿：降级可观测，不再静默）",
+            "properties": {
+              "opened": { "type": "boolean", "description": "false = 日志文件打开失败，审计处于丢弃状态" },
+              "requests_logged": { "type": "integer", "description": "累计成功写入的请求审计条数" },
+              "events_logged": { "type": "integer", "description": "累计成功写入的 SSE 事件审计条数" },
+              "write_errors": { "type": "integer", "description": "写入失败计数" }
+            }
+          },
+          "spec": { "type": "string", "description": "OpenAPI 规格路径" },
+          "spec_path": { "type": "string", "description": "服务端 openapi.json 文件路径" }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "ok": { "const": true },
+          "audit_opened": { "type": "boolean" },
+          "audit_write_errors": { "type": "integer" },
+          "audit_requests_logged": { "type": "integer" },
+          "audit_events_logged": { "type": "integer" }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "缺/坏会话 cookie（auth_middleware fail-closed）",
+        "content": { "text/plain": { "schema": { "type": "string" } } }
+      },
+      "HostForbidden": {
+        "description": "Host 头不在白名单（DNS rebinding 防护；loopback 恒放行，远程需 LINGCLAUDE_WEBUI_ALLOWED_HOSTS）",
+        "content": { "text/plain": { "schema": { "type": "string" } } }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "getHealth",
+        "summary": "存活/就绪探测（无鉴权无审计，区分静态资源假阳性）",
+        "responses": {
+          "200": {
+            "description": "进程存活；audit_opened=false 表示审计降级为丢弃",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/HealthResponse" } }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenapiJson",
+        "summary": "本规格（机器可读契约）",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 规格 JSON",
+            "content": {
+              "application/json": { "schema": { "type": "object" } }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "operationId": "getIndex",
+        "summary": "SPA 入口（消费一次性 handoff token 或校验会话 cookie）",
+        "description": "带 ?token=<有效一次性 token> 时在中间件单点消费并 302 签发会话 cookie（去参跳转）；否则要求 cookie 或回静态 fallback",
+        "parameters": [
+          { "name": "token", "in": "query", "schema": { "type": "string" }, "description": "一次性 handoff token（TTL 5min，消费即焚）" }
+        ],
+        "responses": {
+          "200": { "description": "SPA HTML", "content": { "text/html": { "schema": { "type": "string" } } } },
+          "302": { "description": "handoff 成功，种 cookie 后跳去参地址", "headers": { "Location": { "schema": { "type": "string" } }, "Set-Cookie": { "schema": { "type": "string" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/status": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "webui-server 自身状态（含审计健康）",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "状态 JSON",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/StatusResponse" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/HostForbidden" }
+        }
+      }
+    },
+    "/mint": {
+      "get": {
+        "operationId": "getMint",
+        "summary": "签发一次性 handoff URL（无鉴权是设计使然：token 本身即凭证）",
+        "responses": {
+          "200": {
+            "description": "形如 http://127.0.0.1:{port}/?token=<uuid> 的 URL 文本",
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/chat": {
+      "post": {
+        "operationId": "postChat",
+        "summary": "流式对话（SSE）— 桥接引擎 /ask/stream",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/ChatRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE 流。事件：message（data 为引擎 data 行原样转发）、error（{type:error,message}，桥接/引擎失败时 fail-closed 推送后结束）。保活间隔 15s",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "oneOf": [
+                    { "type": "string", "description": "event:message 的 data 负载（引擎事件原样）" },
+                    { "$ref": "#/components/schemas/SseErrorEvent" }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "description": "请求体非法", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/HostForbidden" }
+        }
+      }
+    },
+    "/chat/stop": {
+      "post": {
+        "operationId": "postChatStop",
+        "summary": "停止会话（诚实语义：引擎侧无该会话时 stopped=false）",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/StopRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "停止结果（200 不必然等于真的停了，看 stopped 字段）",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/StopResponse" } }
+            }
+          },
+          "400": { "description": "session_id 缺失/空", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/HostForbidden" },
+          "502": { "description": "引擎不可达或非 2xx/404 响应（fail-closed）", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/chat/permission": {
+      "post": {
+        "operationId": "postChatPermission",
+        "summary": "工具审批决策 — 桥接引擎 /permission（fail-closed：桥接失败 502，不静默放行）",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/PermissionRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "决策回执",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/PermissionResponse" } }
+            }
+          },
+          "400": { "description": "请求体非法", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/HostForbidden" },
+          "502": { "description": "引擎不可达或响应解析失败", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/live": {
+      "get": {
+        "operationId": "getLive",
+        "summary": "实时状态同步（SSE）— 桥接引擎 /status + /live/events",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [
+          { "name": "session_id", "in": "query", "schema": { "type": "string" }, "description": "可选；回显进 snapshot" }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE 流。首事件 snapshot（含 engine{status,version,projects[{name,path,exists}],auth_required}；引擎不可达/解码失败改发 event:error）→ 周期转发 tool_start/tool_result → 无新事件推 heartbeat。保活对齐 webui-v0.1.md §4.2",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "oneOf": [
+                    { "$ref": "#/components/schemas/SnapshotEvent" },
+                    { "$ref": "#/components/schemas/SseErrorEvent" },
+                    { "type": "string", "description": "heartbeat 文本 / tool 事件负载" }
+                  ]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/HostForbidden" }
+        }
+      }
+    }
+  },
+  "tags": [
+    { "name": "ops", "description": "运维探测与规格（无鉴权）" },
+    { "name": "auth", "description": "handoff 认证流" },
+    { "name": "chat", "description": "对话桥接" },
+    { "name": "live", "description": "实时状态" }
+  ],
+  "x-generated": {
+    "note": "本规格为手维护契约（handler 直接解析 serde_json::Value 且大量 SSE 响应，不适用 utoipa 注解生成）；路由覆盖测试（main.rs tests::openapi_covers_all_routes）钉住本文件与 build_router 不漂移",
+    "route_coverage_test": "main.rs::tests::openapi_covers_all_routes",
+    "date": "2026-09-26"
+  }
+}

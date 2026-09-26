@@ -14,7 +14,7 @@ mod chat_api;
 mod live_api;
 mod webui;
 
-use axum::{extract::State, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Router};
+use axum::{extract::State, http::{header, StatusCode}, response::{IntoResponse, Response}, routing::{get, post}, Router};
 use std::sync::Arc;
 
 use auth::TokenStore;
@@ -40,6 +40,8 @@ pub(crate) struct AppState {
     pub(crate) enforce_token: bool,
     pub(crate) lingclaude_base: String,
     pub(crate) lingclaude_api_key: Option<String>,
+    /// OpenAPI 规格文件路径（/openapi.json 服务端读取；R1 规格化）。
+    pub(crate) spec_path: std::path::PathBuf,
     pub(crate) client: reqwest::Client,
 }
 
@@ -50,8 +52,9 @@ impl AppState {
     }
 }
 
-/// `/status` — webui-server 自身状态。
+/// `/status` — webui-server 自身状态（含审计健康；P3 清偿：降级可观测）。
 async fn status(State(state): State<AppState>) -> Response {
+    let a = state.audit.stats();
     (
         StatusCode::OK,
         axum::Json(serde_json::json!({
@@ -61,21 +64,75 @@ async fn status(State(state): State<AppState>) -> Response {
             "cookie": state.cookie_name(),
             "sse": ["/chat", "/live"],
             "post": ["/chat/stop", "/chat/permission"],
+            "audit": {
+                "opened": a.opened,
+                "requests_logged": a.requests_logged,
+                "events_logged": a.events_logged,
+                "write_errors": a.write_errors,
+            },
+            "spec": "/openapi.json",
+            "spec_path": state.spec_path,
         })),
     )
         .into_response()
 }
 
+/// `/health` — 存活/就绪探测（无鉴权无审计，区分静态资源 fallback 假阳性）。
+/// audit_opened=false 表示审计降级为丢弃（条目不计数成功、write_errors 递增）。
+async fn health(State(state): State<AppState>) -> Response {
+    let a = state.audit.stats();
+    (
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "ok": true,
+            "audit_opened": a.opened,
+            "audit_write_errors": a.write_errors,
+            "audit_requests_logged": a.requests_logged,
+            "audit_events_logged": a.events_logged,
+        })),
+    )
+        .into_response()
+}
+
+/// `/openapi.json` — 机器可读契约（手维护规格，路由覆盖测试钉住不漂移）。
+async fn openapi_spec(State(state): State<AppState>) -> Response {
+    match std::fs::read_to_string(&state.spec_path) {
+        Ok(body) => (
+            [(header::CONTENT_TYPE, "application/json")],
+            body,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("spec file missing at {}: {e}", state.spec_path.display()),
+        )
+            .into_response(),
+    }
+}
+
+/// 路由注册表 — build_router 与 openapi 覆盖测试共用单一事实源
+/// （R1 规格化：新增路由必须同步 openapi.json，否则覆盖测试红）。
+fn routes() -> Vec<(&'static str, axum::routing::MethodRouter<AppState>)> {
+    vec![
+        ("/", get(webui::serve_index)),
+        ("/status", get(status)),
+        ("/health", get(health)),
+        ("/openapi.json", get(openapi_spec)),
+        ("/mint", get(auth::mint_token)),
+        ("/chat", post(chat_api::chat_sse)),
+        ("/chat/stop", post(chat_api::chat_stop)),
+        ("/chat/permission", post(chat_api::chat_permission)),
+        ("/live", get(live_api::live_sse)),
+    ]
+}
+
 /// 组装路由 + 鉴权中间件（main 与集成测试共用）。
 pub(crate) fn build_router(state: AppState) -> Router {
-    Router::new()
-        .route("/", get(webui::serve_index))
-        .route("/status", get(status))
-        .route("/mint", get(auth::mint_token))
-        .route("/chat", post(chat_api::chat_sse))
-        .route("/chat/stop", post(chat_api::chat_stop))
-        .route("/chat/permission", post(chat_api::chat_permission))
-        .route("/live", get(live_api::live_sse))
+    let mut router = Router::new();
+    for (path, method_router) in routes() {
+        router = router.route(path, method_router);
+    }
+    router
         .fallback(webui::serve_static)
         .with_state(state.clone())
         .layer(axum::middleware::from_fn_with_state(
@@ -124,6 +181,8 @@ async fn main() {
         lingclaude_base: std::env::var("LINGCLAUDE_BASE")
             .unwrap_or_else(|_| "http://127.0.0.1:8700".to_string()),
         lingclaude_api_key: std::env::var("LINGCLAUDE_API_KEYS").ok(),
+        // R1 规格化：/openapi.json 从进程 cwd 读取（与二进制同仓分发）。
+        spec_path: std::path::PathBuf::from("openapi.json"),
         // 连接 5s 失败快速暴露；单次读 60s 无数据视为引擎挂起（流空闲上限，
         // 引擎整 turn 都会持续吐事件，正常不会触发）。
         client: reqwest::Client::builder()
@@ -155,6 +214,7 @@ mod tests {
             enforce_token: true,
             lingclaude_base: "http://127.0.0.1:1".to_string(), // 测试中不应被真实访问
             lingclaude_api_key: None,
+            spec_path: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("openapi.json"),
             client: reqwest::Client::new(),
         }
     }
@@ -399,5 +459,115 @@ mod tests {
         assert!(set_cookie.contains("Secure"), "V8 清偿：会话 cookie 必须带 Secure flag: {set_cookie}");
         assert!(set_cookie.contains("HttpOnly"));
         assert!(set_cookie.contains("SameSite=Strict"));
+    }
+
+    #[tokio::test]
+    async fn health_and_openapi_are_public_no_auth() {
+        // R1 契约（openapi.json）：运维端点无鉴权，就绪探测不再撞静态 fallback 假阳性。
+        let state = test_state();
+        for uri in ["/health", "/openapi.json"] {
+            let app = build_router(state.clone());
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .uri(uri)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "{uri} 必须无鉴权可达（审计/规格负载无用户敏感数据）"
+            );
+        }
+        // 对照组：其余端点仍 fail-closed。
+        let app = build_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/status")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn status_exposes_audit_health_and_spec() {
+        // P3 清偿：审计降级必须可观测（/status 含 audit 块 + spec 指针）。
+        let state = test_state();
+        let app = build_router(state.clone());
+        let token = state.tokens.mint_handoff();
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/?token={token}"))
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FOUND);
+        let cookie = resp
+            .headers()
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .expect("handoff 必须种会话 cookie")
+            .to_string();
+        let cookie_kv = cookie.split(';').next().unwrap_or_default().to_string();
+
+        let app = build_router(state.clone());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/status")
+                    .header(header::COOKIE, cookie_kv)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let audit = v
+            .get("audit")
+            .expect("/status 必须暴露 audit 健康块（P3 清偿：不再静默）");
+        assert_eq!(audit["opened"], true, "测试态审计文件应正常打开");
+        assert_eq!(audit["write_errors"], 0);
+        assert!(
+            audit["requests_logged"].is_u64(),
+            "requests_logged 计数器必须存在"
+        );
+        assert_eq!(v["spec"], "/openapi.json", "规格指针必须在场");
+    }
+
+    #[test]
+    fn openapi_covers_all_routes() {
+        // R1 防漂移：openapi.json 的 paths 必须覆盖 routes() 注册表全集。
+        // routes() 是 build_router 与本测试共用的单一事实源 —— 新增路由
+        // 不同步规格则本测试红。
+        let spec_raw = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("openapi.json"),
+        )
+        .expect("openapi.json 必须随仓分发");
+        let spec: serde_json::Value = serde_json::from_str(&spec_raw).expect("openapi.json 必须是合法 JSON");
+        let paths = spec
+            .get("paths")
+            .and_then(|p| p.as_object())
+            .expect("openapi.json 缺 paths");
+        for (path, _) in routes() {
+            assert!(
+                paths.contains_key(path),
+                "openapi.json 缺少路由 {path} 的规格 — 请同步 webui-server/openapi.json"
+            );
+        }
+        // 规格中的关键契约字段抽查（防规格被清空仍通过路由检查）。
+        assert!(spec["components"]["schemas"]["StopResponse"]["properties"]["stopped"].is_object());
+        assert!(spec["components"]["schemas"]["ProjectEntry"]["properties"]["path"].is_object());
     }
 }

@@ -228,7 +228,15 @@ pub(crate) async fn auth_middleware(
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
     let method = req.method().to_string();
-    if !state.enforce_token || path == "/mint" || is_static_asset(&path) {
+    // /health 与 /openapi.json 为无鉴权运维端点（契约见 openapi.json）：
+    // /health 供编排层存活探测（区分静态 fallback 假阳性），/openapi.json 为
+    // 机器可读契约。二者均无敏感负载（审计健康仅计数器，无用户数据）。
+    if !state.enforce_token
+        || path == "/mint"
+        || path == "/health"
+        || path == "/openapi.json"
+        || is_static_asset(&path)
+    {
         let resp = next.run(req).await;
         // P4.2: 免鉴权路径同样记审计（status + 4 段字段）。
         state.audit.log_request(&method, &path, None, resp.status().as_u16(), None);
