@@ -155,13 +155,15 @@ pub(crate) fn create_session(
         message_count: 0,
         messages: Vec::new(),
     };
+    let _guard = WRITE_LOCK.lock().map_err(|e| e.to_string())?;
     write_session(root, &hash, &detail)?;
     Ok(detail)
 }
 
 /// 落盘单条会话（整文件重写 — 会话文件小，简单正确优先）。
+/// 调用方必须已持 WRITE_LOCK（create/append 入口加锁，本函数不加 —
+/// std Mutex 不可重入，嵌套取锁 = 自死锁，2026-09-27 实测踩坑）。
 fn write_session(root: &Path, hash: &str, detail: &SessionDetail) -> Result<(), String> {
-    let _guard = WRITE_LOCK.lock().map_err(|e| e.to_string())?;
     let dir = root.join(sanitize(hash));
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = session_path(root, hash, &detail.id);
@@ -210,6 +212,7 @@ pub(crate) fn append_message(
         message_count: file.messages.len(),
         messages: file.messages,
     };
+    // 锁已由本函数入口持有 — write_session 不再加锁（防重入死锁）
     write_session(root, hash, &detail)
 }
 
