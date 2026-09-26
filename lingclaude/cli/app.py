@@ -712,6 +712,23 @@ def _cmd_governance_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _session_api_key() -> tuple[str | None, bool]:
+    """webui 链路密钥获取：环境已有则透传，否则生成随机会话密钥。
+
+    返回 (key, generated)。密钥同时注入引擎与 webui（main.rs:126 把该 env
+    整串当单个密钥用，禁止逗号列表）。401 根治：2026-09-27 实测 --with-engine
+    启动的引擎因 LINGCLAUDE_API_KEYS 缺失 fail-closed，webui /chat 全 401。
+    """
+    import secrets as _secrets
+
+    existing = os.environ.get("LINGCLAUDE_API_KEYS", "").strip()
+    if existing:
+        # 透传约定：调用方显式注入的值原样使用（单值；含逗号列表时 webui
+        # 侧按整串单值处理会导致引擎 401，见 webui-server/src/main.rs:126）
+        return existing, False
+    return _secrets.token_hex(32), True
+
+
 def _local_interface_ips() -> list[str]:
     """枚举本机非 loopback IPv4 地址（webui 白名单注入用）。
 
@@ -906,13 +923,22 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     # 1. 引擎侧：默认假定 8700 已运行；--with-engine 则自动拉起 api.py
     engine_proc: subprocess.Popen | None = None
     engine_url = f"http://127.0.0.1:{engine_port}"
+    # 会话密钥（2026-09-27 401 根治）：引擎 fail-closed 要求 LINGCLAUDE_API_KEYS，
+    # 未注入时自动生成随机会话密钥，引擎与 webui 同值（webui main.rs:126 整串单值）。
+    api_key, key_generated = _session_api_key()
+    if key_generated:
+        print_info("已自动生成会话密钥（引擎与 webUI 同值注入，密钥不落日志）")
     if args.with_engine:
         api_file = Path(__file__).resolve().parent.parent / "api.py"
         print_info(f"启动引擎 {api_file} (端口 {engine_port})")
+        engine_env = os.environ.copy()
+        if api_key:
+            engine_env["LINGCLAUDE_API_KEYS"] = api_key
         engine_proc = subprocess.Popen(
             [sys.executable, str(api_file), "--port", str(engine_port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=engine_env,
         )
         if not _wait_for_http(f"{engine_url}/status", timeout=20.0):
             print_error(f"引擎 {engine_url}/status 超时未就绪")
@@ -937,6 +963,9 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     log_path = Path(f"/tmp/lingclaude-webui-{port}.log")
     env = os.environ.copy()
     env.setdefault("LINGCLAUDE_BASE", engine_url)
+    # 会话密钥同值注入 webui 侧（与引擎一致，/chat 桥接才不 401）
+    if api_key:
+        env["LINGCLAUDE_API_KEYS"] = api_key
     # 远程访问（2026-09-27）：webui-server 默认绑 127.0.0.1。--remote 显式开启
     # 0.0.0.0 监听（安全基线：远程暴露必须是显式动作）+ host_guard 白名单注入。
     if getattr(args, "remote", False):
