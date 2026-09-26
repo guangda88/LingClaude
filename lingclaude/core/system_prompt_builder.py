@@ -301,11 +301,17 @@ def build_dynamic_system_suffix(
             fw = DataFlywheel()
             if fw.should_alert(threshold=0.5):
                 stats = fw.get_stats()
-                extras.append(
-                    f"\n⚠ 错误复发: 错误复发率 {stats.recurrence_rate:.0%}，"
-                    f"共 {stats.total_errors} 个错误，{stats.total_corrections} 个修复。"
-                    "请避免重复已犯过的错误。"
-                )
+                # 口径分层 (2026-09-26)：复发率只算真正的 AI 犯错(hallucination)，
+                # 环境故障/防线拦截/用户打断不再误报。无 AI 错误则不注入报警。
+                if stats.ai_error_total > 0:
+                    extras.append(
+                        f"\n⚠ 错误复发: AI 错误复发率 {stats.ai_recurrence_rate:.0%}"
+                        f"（AI 类 {stats.ai_error_total} 个，重复 "
+                        f"{stats.ai_error_total - stats.ai_error_unique} 个；"
+                        f"环境/防线/打断类 {stats.noise_error_total} 个不计入），"
+                        f"共 {stats.total_corrections} 个修复。"
+                        "请避免重复已犯过的错误。"
+                    )
             fw.close()
         except Exception as e:
             logger.warning("feedback writer close failed: %s", e)
@@ -325,12 +331,19 @@ def build_dynamic_system_suffix(
         # 由 _build_dynamic_suffix 传入）；messages[-1] 在多轮场景下常为注入的
         # SYSTEM 动态后缀，LIKE 检索会漂移到无关规则。无 current_query 时回退旧行为。
         result = kb.search_rules(keyword=keyword, limit=5)
+        # 去重修复 (2026-09-26)：此前同一规则在热路可重复出现（search_rules
+        # 关键词同时命中 name+description 会返回同一规则多次），冷路又各自独立，
+        # 导致同一条经验在 prompt 里三重重复。改为热路自身去重 + 冷路对热路去重。
+        _seen_descs: set = set()
         if result.is_ok and result.data:
-            rule_lines = [
-                f"  - {r.description} (置信度={r.confidence:.0%})"
-                for r in result.data
-                if r.confidence > 0.5
-            ]
+            rule_lines = []
+            for r in result.data:
+                if r.confidence <= 0.5 or r.description in _seen_descs:
+                    continue
+                _seen_descs.add(r.description)
+                rule_lines.append(
+                    f"  - {r.description} (置信度={r.confidence:.0%})"
+                )
             if rule_lines:
                 extras.append(
                     "\n📚 已学经验:\n" + "\n".join(rule_lines)
@@ -338,6 +351,7 @@ def build_dynamic_system_suffix(
         all_result = kb.get_all_rules(limit=3)
         if all_result.is_ok and all_result.data:
             existing_descs = {r.description for r in (result.data or [])}
+            existing_descs |= _seen_descs  # 冷路也要对热路已注入项去重
             general_lines = [
                 f"  - {r.description} (置信度={r.confidence:.0%})"
                 for r in all_result.data

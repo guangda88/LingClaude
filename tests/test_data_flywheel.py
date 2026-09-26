@@ -228,3 +228,54 @@ class TestRepoDataDecoyGuard:
 
         decoy = Path(df_mod.__file__).parent.parent.parent / "data" / df_mod.FLYWHEEL_DB_NAME
         assert not decoy.exists(), f"诱饵库再现（0字节分流温床）: {decoy}"
+
+
+class TestErrorRateScopeFix:
+    """口径分层回归 (2026-09-26)：AI 复发率只统计 hallucination_*，
+    环境故障(tool_error)/防线拦截(permission_*)/打断(hard_interrupt) 剥离。
+    此前 88.9% 重复 tool_error 喂出 98% 「错误复发率」虚警。"""
+
+    def _log(self, fw, ptype, msg, n=1):
+        for i in range(n):
+            fw.log_error(ErrorPattern(
+                pattern_type=ptype, file_path="x.py", error_message=msg,
+                tool_name="bash", context="", session_id="s",
+                occurred_at="2026-09-26T10:00:00"))
+
+    def test_ai_rate_excludes_noise(self, flywheel):
+        # 大量环境故障（同 message 重复 = 高噪声复发）
+        self._log(flywheel, "tool_error", "bash timeout", n=50)
+        # 少量真实 AI 犯错（互不重复）
+        self._log(flywheel, "hallucination:hard_fact", "assert A")
+        self._log(flywheel, "hallucination:hard_fact", "assert B")
+        s = flywheel.get_stats()
+        assert s.total_errors == 52          # 全量口径不变
+        assert s.noise_error_total == 50     # 噪声剥离
+        assert s.ai_error_total == 2         # 只剩真正的 AI 错误
+        assert s.ai_recurrence_rate == 0.0   # 两条 AI 错误不重复 → 0%
+
+    def test_ai_rate_counts_real_recurrence(self, flywheel):
+        # 同一条 AI 断言复发 3 次 + 噪声
+        self._log(flywheel, "tool_error", "bash timeout", n=10)
+        self._log(flywheel, "hallucination:unsupported", "same claim", n=3)
+        s = flywheel.get_stats()
+        assert s.ai_error_total == 3
+        assert s.ai_error_unique == 1
+        # get_stats 对 rate round(…, 3)，容差需宽于 1e-6
+        assert abs(s.ai_recurrence_rate - (2 / 3)) < 5e-3  # (3-1)/3
+
+    def test_record_recurrence_uses_real_message(self, flywheel):
+        # 埋点传真实 error_message → 同断言才计复发，不同断言不计
+        flywheel.record_recurrence(
+            session_id="s", fact_types=["hard_fact"],
+            error_message="claim X about API")
+        flywheel.record_recurrence(
+            session_id="s", fact_types=["hard_fact"],
+            error_message="claim X about API")   # 同断言复发
+        flywheel.record_recurrence(
+            session_id="s", fact_types=["hard_fact"],
+            error_message="claim Y about DB")    # 不同断言
+        s = flywheel.get_stats()
+        assert s.ai_error_total == 3
+        assert s.ai_error_unique == 2           # 真实 message 区分了 X 和 Y
+        assert abs(s.ai_recurrence_rate - (1 / 3)) < 5e-3

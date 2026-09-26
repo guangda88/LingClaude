@@ -58,6 +58,14 @@ class FlywheelStats:
     top_error_files: dict[str, int] = field(default_factory=dict)
     recurrence_rate: float = 0.0
     correction_rate: float = 0.0
+    # 口径分层 (2026-09-26)：total_errors 仍含全部，但 AI 复发率只统计真正的
+    # AI 犯错（hallucination_*），把环境故障(tool_error)/防线拦截(permission_*)/
+    # 用户打断(hard_interrupt) 剥离开——此前 88.9% 重复 tool_error 喂出 98%
+    # 「错误复发率」，让模型误以为自己在连环犯错。
+    ai_error_total: int = 0
+    ai_error_unique: int = 0
+    ai_recurrence_rate: float = 0.0
+    noise_error_total: int = 0
 
 
 class DataFlywheel:
@@ -304,6 +312,7 @@ class DataFlywheel:
         fact_types: list[str],
         window_minutes: int = 30,
         occurred_at: str | None = None,
+        error_message: str | None = None,
     ) -> Result[int]:
         """R10-1 (2026-09-23): 幻觉复发埋点——写入 error_log + 命中计数。
 
@@ -342,7 +351,10 @@ class DataFlywheel:
                     (
                         f"hallucination:{ft}",
                         "response_text",
-                        "幻觉守卫触发（R10 埋点）",
+                        # 口径修复 (2026-09-26)：优先记录守卫真实问题内容，
+                        # 仅调用方未提供时才回退占位符。占位符全同会让
+                        # ai_recurrence_rate 虚高到无意义（见 get_stats）。
+                        (error_message or "幻觉守卫触发（R10 埋点）")[:500],
                         "hallucination_guard",
                         "",
                         session_id,
@@ -446,6 +458,23 @@ class DataFlywheel:
             correction_rate = (total_corrections / total_errors) if total_errors > 0 else 0.0
             recurrence_rate = ((total_errors - unique_errors) / total_errors) if total_errors > 0 else 0.0
 
+            # 口径分层 (2026-09-26)：AI 复发率只统计真正的 AI 犯错。
+            # AI 类 = hallucination_*；环境/防线/打断类(非 AI 责任)全部剔除。
+            c.execute(
+                "SELECT COUNT(*) FROM error_log WHERE pattern_type LIKE 'hallucination%'"
+            )
+            ai_error_total = c.fetchone()[0]
+            c.execute(
+                "SELECT COUNT(DISTINCT error_message) FROM error_log "
+                "WHERE pattern_type LIKE 'hallucination%'"
+            )
+            ai_error_unique = c.fetchone()[0]
+            ai_recurrence_rate = (
+                (ai_error_total - ai_error_unique) / ai_error_total
+                if ai_error_total > 0 else 0.0
+            )
+            noise_error_total = total_errors - ai_error_total
+
             return FlywheelStats(
                 total_errors=total_errors,
                 total_corrections=total_corrections,
@@ -453,6 +482,10 @@ class DataFlywheel:
                 top_error_files=top_error_files,
                 recurrence_rate=round(recurrence_rate, 3),
                 correction_rate=round(correction_rate, 3),
+                ai_error_total=ai_error_total,
+                ai_error_unique=ai_error_unique,
+                ai_recurrence_rate=round(ai_recurrence_rate, 3),
+                noise_error_total=noise_error_total,
             )
         except Exception as e:
             logger.warning("飞轮统计失败: %s", e)

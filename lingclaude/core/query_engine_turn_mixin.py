@@ -267,10 +267,18 @@ class QueryEngineTurnMixin:
                                 str(i).split(":", 1)[0].strip()
                                 for i in vr.get("issues", []) if str(i).strip()
                             }) or ["unknown"]
+                            # 口径修复 (2026-09-26)：error_message 传守卫的真实问题
+                            # 内容（截断防膨胀）。此前埋点写死「幻觉守卫触发（R10 埋点）」
+                            # 占位符，导致 136 条记录 error_message 全同 →
+                            # get_stats 的 ai_recurrence_rate 恒 99%+（虚高），
+                            # 复发率失去意义。传真实 issue 后复发率才能反映「同断言复发」。
                             _fw = DataFlywheel()
                             _fw.record_recurrence(
                                 session_id=str(getattr(self, "session_id", "unknown")),
                                 fact_types=_fact_types,
+                                error_message="; ".join(
+                                    str(i) for i in vr.get("issues", [])[:5]
+                                )[:500],
                                 occurred_at=datetime.now().isoformat(timespec="seconds"),
                             )
                             _fw.close()

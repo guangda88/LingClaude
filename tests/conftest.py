@@ -133,13 +133,20 @@ def _protect_project_lingclaude(request: pytest.FixtureRequest) -> None:
 
     def _snapshot() -> dict[str, tuple[int, int]]:
         snap: dict[str, tuple[int, int]] = {}
-        for p in project_rt.rglob("*"):
-            if p.is_file():
+        # 2026-09-26 假死会话修复：rglob+is_file 对 3 万文件全树双份 stat，
+        # 每用例前后各一遍 → 单用例数十秒忙等（slash_registry 套件卡死实锤）。
+        # 改 os.walk（walk 结果免二次 is_file stat）+ 剪枝排除 worktrees/
+        # （灵依自优化 git worktree 堆积，实测 1.8 万+文件；非 rm -rf 事故
+        # 要保护的运行时四库——权衡：测试破坏 worktrees 不会被此门捕获）。
+        for root, dirs, files in os.walk(project_rt):
+            dirs[:] = [d for d in dirs if d != "worktrees"]
+            for name in files:
+                fp = os.path.join(root, name)
                 try:
-                    st = p.stat()
-                    snap[str(p.relative_to(project_rt))] = (st.st_mtime_ns, st.st_size)
+                    st = os.stat(fp)
                 except OSError:
                     continue
+                snap[os.path.relpath(fp, project_rt)] = (st.st_mtime_ns, st.st_size)
         return snap
 
     before = _snapshot()

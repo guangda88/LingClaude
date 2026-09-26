@@ -44,7 +44,6 @@ from enum import Enum
 from typing import Any
 
 __all__ = [
-    "ObservationKind",
     "RuntimeObservation",
     "EvidenceLedger",
     "StateClass",
