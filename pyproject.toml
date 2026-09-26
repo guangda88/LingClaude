@@ -75,6 +75,12 @@ include = ["lingclaude*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# 全局单测熔断（2026-09-26 hang 事故防线）：pytest-timeout 2.4.0。
+# 事故：一个 pytest 进程 100% CPU 挂 6h40m 无人发现（残留后台进程）。
+# 本配置保证任何单件测试最多挂 300s 即被熔断，防 hang 扩散到整条队列。
+# 长跑用例（benchmark/e2e）可按件标 @pytest.mark.timeout(N) 覆盖。
+timeout = 300
+timeout_method = "thread"
 markers = [
     # xdist-state-write-race 债（2026-09-18 立）：no_xdist 此前只有裸声明
     # 无注册无执行机制，"单线程执行"保护不存在。现注册并由 conftest 的

@@ -112,3 +112,27 @@
 > pre-commit 六守卫直连立即生效；lefthook 委托件（审计/灵督/快照）
 > 缺失时静默通过（pre-commit 内置 -x 判断），不阻断提交。
 > 此后每次 commit 自动过机检，无需人自觉。
+
+## 九、长时任务会话哨兵规程（2026-09-26 hang 事故防线）
+
+> 事故：一个 pytest 后台进程 100% CPU 挂 6h40m 无人发现（残留后台
+> 任务），挤占 CPU 导致并行测试慢化、P2 基线「跑不完」误判。
+> 事故根因链：后台任务无 timeout 参数 + 无 job 登记 + 无周期巡检。
+
+**三条铁律**（任何 agent 会话执行长时任务时适用）：
+
+1. **启动必留名**：后台命令必须带显式 `timeout` 参数（run_in_background
+   timeout 字段，或 shell 层 `timeout <N> <cmd>`），并在当轮汇报中
+   记录 job_id / pid 与预期完成时长。
+2. **每轮必巡检**：会话每轮开场用 `jobs` / `job_status` 查未完成项；
+   直接 spawn 的进程用 `ps aux | grep <标识>` 复核，不允许「启动后
+   静默等它自己结束」。
+3. **hang 即处决**：判定标准 = 运行超预期 2 倍 或 >30min 且
+   CPU>90% 且输出文件无增长。命中立即 kill，并在 handoff/汇报中
+   记录（谁、何时、什么命令、为何 hang）。禁止「再等等看」。
+
+**代码层兜底**（已入库 pyproject.toml）：
+`[tool.pytest.ini_options] timeout = 300`（pytest-timeout 2.4.0）
+——任何单件测试最多挂 300s 自动熔断；长跑用例按件
+`@pytest.mark.timeout(N)` 覆盖。此为最后一道防线，不替代上面三条。
+
