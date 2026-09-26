@@ -642,6 +642,9 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
             )
             if verdict == "warn":
                 messages.append(ModelMessage(role=MessageRole.USER, content=_LOOP_WARN_HINT))
+                # 第一次打转提醒同步外显给用户（对齐 abort 路径的 text_delta 模式），
+                # 避免只有模型看到提示、用户毫无感知直到熔断。
+                yield {"type": "text_delta", "text": "[循环检测] 首次原地打转，已注入纠偏提醒（换方式/拆小任务/直接作答），下一轮仍重复将熔断。\n"}
             elif verdict == "abort":
                 yield {"type": "text_delta", "text": _LOOP_ABORT_MSG}
                 yield {"type": "done", "content": response_content + _LOOP_ABORT_MSG,
