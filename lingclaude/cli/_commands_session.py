@@ -95,7 +95,7 @@ class SlashCommandSessionMixin:
         else:
             print(f"[会话切换失败] {target_id} 不存在或已损坏（当前上下文未受影响）")
 
-    def _cmd_resume(self, name: str, arg: str) -> None:
+    def _cmd_resume(self, name: str, arg: str = "") -> None:
         engine = self.engine
         # 会话恢复:/resume [ID] 恢复指定会话、/continue 恢复最近一次。
         # 复用启动参数 --resume/--continue 的同一套持久化接口（load_session），

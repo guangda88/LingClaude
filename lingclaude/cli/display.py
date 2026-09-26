@@ -248,8 +248,8 @@ def format_tool_call(name: str, args_preview: str) -> str:
 
 def format_tool_result(is_error: bool, preview: str = "") -> str:
     mark = "✗" if is_error else "✓"
-    if preview and not is_error:
-        return f"{mark} ({len(preview)} chars)\n"
+    if preview:
+        return f"{mark} {preview}\n"
     return f"{mark}\n"
 
 

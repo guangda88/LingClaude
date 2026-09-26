@@ -44,7 +44,17 @@ PT_TUI_STYLE = (
         "green": "ansigreen",
         "yellow": "ansiyellow",
         "red": "ansired bold",
-        "accent": "ansicyan bold",
+        # 2026-09-26: toolbar 去高亮（用户要求正常显示）——accent 原为
+        # "ansicyan bold"（模型名/⏵⏵/⚙/🔄/挂起 全部加粗亮青），现置空为
+        # 普通前景。片段结构不变，仅样式规则清空；full_tui 输入区共用
+        # 此表但 input class 本就为空，无回归面。
+        "accent": "",
+        # 2026-09-26: toolbar 背景去高亮 —— PT 默认样式表内置
+        # ("bottom-toolbar", "reverse")（prompt_toolkit/styles/defaults.py:129），
+        # 用户样式表在 merge_styles 中排其后可覆盖；置 noreverse 后工具栏
+        # 不再整行反白（两代 TUI：PromptSession.bottom_toolbar 与全屏
+        # FullTuiSession 状态窗共用此表，一处修复两路生效）。
+        "bottom-toolbar": "noreverse",
         "status": "noinherit",
         "sep": "ansibrightblack",
         "output": "",

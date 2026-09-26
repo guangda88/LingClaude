@@ -63,9 +63,11 @@ class TestFormatToolResult:
         result = format_tool_result(True)
         assert "✗" in result
 
-    def test_preview_chars(self) -> None:
+    def test_preview_content_shown(self) -> None:
+        # 2026-09-26: preview 内容直接外显（此前只显示 "(N chars)" 计数）
         result = format_tool_result(False, "x" * 100)
-        assert "100 chars" in result
+        assert "x" in result
+        assert "chars)" not in result
 
 
 class TestSessionSummary:

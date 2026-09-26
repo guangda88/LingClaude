@@ -6,7 +6,7 @@ quit_requested 由 nonlocal 改为实例属性（语义不变）。
 命令体自 app.py 原样迁移，仅去掉一层闭包缩进。
 """
 
-from typing import Any
+from typing import Any, NamedTuple
 
 import json
 import logging
@@ -34,25 +34,9 @@ def _next_fork_tag() -> str:
         tag += f"-{os.getpid() % 10000}"
     return tag
 
-# Step 3: Tab 补全清单（F2 修复:删 /undo — handler 缺失不得留在补全里误导用户）
-SLASH_COMPLETER_WORDS = [
-    "/help", "/clear", "/compact", "/model", "/schedule", "/lsp",
-    "/resume", "/continue", "/session", "/checkpoint", "/recover", "/rewind", "/quit",
-    # 2026-09-23: C 路线统一——/fork（rollout 不可变分叉）/ /share（自包含导出）
-    "/fork", "/share",
-    # 2026-09-17: 任务面板（对标 AtomCode todowrite）—— /tasks /todo /plan 同义
-    "/tasks",
-    # 2026-09-20: 会话历史查看（TUI 优化方案 P2-1，cc 建议）—— 退出后回看入口
-    "/history",
-    # 2026-09-21: OpenRouter 一键接入（OAuth PKCE，学 atomcode）——
-    # CodingPlan 配额耗尽时的免费池逃生门
-    "/openrouter",
-    # 2026-09-20: P3 全量重绘输出窗（atomcode invalidate 借鉴）
-    "/resync",
-    # 2026-09-25: /multi 补登——handler 一直在（_cmd_multi，commands.py:88/160），
-    # 但从未进补全清单；tips 守卫收紧为「任意 /token 必须注册」后此处为准入点
-    "/multi",
-]
+# Step 3: Tab 补全清单 → A(2026-09-26) 改为注册表派生（见文件末尾
+# SLASH_REGISTRY / SLASH_COMPLETER_WORDS）：补全、/help、handle() 三者单源，
+# 根除「handler 在、补全/help 漏登」类两账本缺陷（/fork、/multi 历史先例）。
 
 
 
@@ -76,89 +60,60 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
         self.quit_requested = False
 
     def handle(self, cmd: str) -> bool:
-        """T1-7: 斜杠命令。返回 True 表示已消费；/quit /exit 置 quit_requested。"""
+        """T1-7: 斜杠命令。返回 True 表示已消费；/quit /exit 置 quit_requested。
+
+        A(2026-09-26) 注册表化：分派由 SLASH_REGISTRY 驱动（查表 → needs_args
+        检查 → 调 handler），命令/别名/handler 单源。补全清单与 /help 文本
+        亦从注册表派生（SLASH_COMPLETER_WORDS / _cmd_help）。
+        """
         parts = cmd.strip().split(maxsplit=1)
         if not parts or parts[0][:1] != "/":
             return False
         name = parts[0].lower()
-        arg = parts[1] if len(parts) > 1 else ""
-        # 审计#3 修复:/quit /exit 此前无 handler → 落成用户消息发给 LLM，
-        # 且补全列表还在引导用户输入（F2 删 /undo 时漏掉的同类问题）。
+        # 审计#3 修复（语义保留）:/quit /exit 特判置 quit_requested。
+        # 注册表里两条以 handler=None 登记仅供补全/帮助派生，不可分发。
         if name in ("/quit", "/exit"):
             self.quit_requested = True
             return True
-        # P1-4（2026-09-20）: 显式多行输入模式 —— 不依赖 Esc+Enter 键位记忆
-        if name == "/multi":
-            self._cmd_multi()
+        # A(2026-09-26) 歧义形状守卫（atomcode parse_slash_line 借鉴）：
+        # "/" 后必须是命令形 token（[A-Za-z0-9_?:-]+）——含路径字符的
+        # /Users/me、/tmp、/etc/hosts 不是命令，原样放行给模型/管道。
+        if _SLASH_TOKEN_RE.match(name) is None:
+            return False
+        arg = parts[1] if len(parts) > 1 else ""
+        entry = SLASH_REGISTRY.get(name)
+        if entry is None or entry.handler is None:
+            # handler=None（/quit /exit）已在头部特判消费；落到这里说明
+            # 注册了无 handler 又没有特判的命令 → 不吞不炸。
+            return False
+        if entry.needs_args and not arg.strip():
+            # atomcode needs_args 借鉴：无参无意义的命令先要参数，不空跑
+            print(f"[{name}] 缺参数：{entry.arg_hint}")
             return True
-        # P3（2026-09-20，atomcode invalidate 借鉴）: 全量重绘输出窗
-        if name == "/resync":
-            self._cmd_resync()
-            return True
-        if name in ("/help", "/?"):
-            self._cmd_help()
-            return True
-        if name == "/clear":
-            self.engine._messages.clear()
-            self.engine._conversation.clear()
-            print("[会话已清空]")
-            return True
-        if name == "/compact":
-            self._cmd_compact()
-            return True
-        if name == "/model":
-            self._cmd_model(arg)
-            return True
-        if name == "/schedule":
-            self._cmd_schedule(arg)
-            return True
-        if name == "/openrouter":
-            self._cmd_openrouter(arg)
-            return True
-        if name == "/lsp":
-            self._cmd_lsp(arg)
-            return True
-        if name == "/checkpoint":
-            self._cmd_checkpoint()
-            return True
-        if name == "/recover":
-            self._cmd_recover()
-            return True
-        if name == "/rewind":
-            self._cmd_rewind(arg)
-            return True
-        if name == "/fork":
-            self._cmd_fork(arg)
-            return True
-        if name == "/share":
-            self._cmd_share(arg)
-            return True
-        if name in ("/resume", "/continue"):
-            self._cmd_resume(name, arg)
-            return True
-        if name == "/session":
-            # 2026-09-15（会话问题重构 P1-2）: /session 命令 —— 列出当前
-            # 项目会话（带摘要）/ 切换到指定会话。会话按当前工作目录隔离。
-            self._cmd_session(arg)
-            return True
-        if name == "/history":
-            # 2026-09-20（TUI 优化方案 P2-1）: 会话历史查看 —— 全屏 TUI 退出后
-            # 滚轮回看不再可达，此命令是持久入口（复用 SessionManager 快照）。
-            self._cmd_history(arg)
-            return True
-        if name in ("/tasks", "/todo", "/plan"):
-            # 2026-09-17: 任务面板 —— 第1级（渲染）+ 第2级（状态纪律）：
-            #   /tasks             列出活跃任务（in_progress 高亮 + pending）
-            #   /tasks add <文本>  新增任务
-            #   /tasks start <id>  置 in_progress（其他 in_progress 自动退回 pending）
-            #   /tasks done <id>   完成一项（禁批量）
-            #   /tasks all         全量（含 completed/cancelled）
-            self._cmd_tasks(arg)
-            return True
-        return False
+        if entry.wants_arg:
+            entry.handler(self, arg)
+        else:
+            entry.handler(self)
+        return True
 
     # ---- P5 回路驱动拆分：P4.1 迁移的巨 handle (radon F(82)) 按命令分派拆方法 ----
     # 会话/检查点/任务域方法已外提到 _commands_*.py mixin，本类保留通用命令。
+
+    def _cmd_clear(self) -> None:
+        """A(2026-09-26) 注册表化时从 handle() 内联逻辑外提（语义不变）。"""
+        self.engine._messages.clear()
+        self.engine._conversation.clear()
+        print("[会话已清空]")
+
+    # ---- A(2026-09-26) 注册表适配层：三参 handler 折成统一 (self, arg) 形状 ----
+
+    def _cmd_resume_adapted(self, arg: str = "") -> None:
+        """/resume → _cmd_resume("/resume", arg)。"""
+        self._cmd_resume("/resume", arg)
+
+    def _cmd_continue_adapted(self, arg: str = "") -> None:
+        """/continue → _cmd_resume("/continue", arg)（恢复最近一次）。"""
+        self._cmd_resume("/continue", arg)
 
     def _cmd_multi(self) -> None:
         """P1-4（2026-09-20）: 显式多行输入模式。
@@ -216,23 +171,38 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
         else:
             print("[重绘] 当前会话类型不支持（仅全屏 TUI 可用）")
 
-    def _cmd_help(self) -> None:
+    def _cmd_help(self, arg: str = "") -> None:
+        """A(2026-09-26): 帮助文本从 SLASH_REGISTRY 派生（单源，防漏登）。
+
+        /help        全量清单（注册表顺序）
+        /help <cmd>  单条用法（含别名）
+        """
+        arg = (arg or "").strip()
+        if arg:
+            name = arg if arg.startswith("/") else f"/{arg}"
+            entry = SLASH_REGISTRY.get(name.lower())
+            if entry is None:
+                print(f"[help] 未知命令 {name}（/help 查看全部）")
+                return
+            alts = sorted(o.name for o in SLASH_REGISTRY.values()
+                          if o is not entry and o.handler is entry.handler
+                          and not o.hidden)
+            alias_s = f"（别名: {'、'.join(alts)}）" if alts else ""
+            print(f"  {entry.name:<24}{entry.desc}{alias_s}")
+            return
         print("[斜杠命令]")
-        print("  /help                  本帮助")
-        print("  /multi                 多行输入模式（'.' 结束提交；平时用 Esc+Enter 换行）")
-        print("  /clear                 清空会话上下文")
-        print("  /compact               手动压缩（未达阈值时明确提示）")
-        print("  /model [名称]          查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复路由）")
-        print("  /schedule [表达式]      定时任务注册/列出/取消")
-        print("  /lsp add|remove [参数]  LSP 服务器注册/删除（不带参数列出）")
-        print("  /checkpoint             手动保存 checkpoint（R5 阶段1）")
-        print("  /recover                恢复最近中断的工具轮 checkpoint")
-        print("  /rewind [tag]           列出/回滚到历史 checkpoint 快照（P1 rewind）")
-        print("  /resume [ID]           恢复指定会话（不带 ID 列出全部；ID 支持短前缀）")
-        print("  /continue              恢复最近一次会话（等价启动参数 --continue）")
-        print("  /tasks [add|start|done|all]  任务面板（对标 AtomCode：单 in_progress + 中断退回）")
-        print("  /quit、/exit           退出")
-        print("  /history [N]           最近 N 条会话列表；/history show <id> 查看记录")
+        printed: set[int] = set()
+        for entry in SLASH_REGISTRY.values():
+            if id(entry) in printed or entry.hidden:
+                continue
+            printed.add(id(entry))
+            names = [entry.name]
+            for other in SLASH_REGISTRY.values():
+                if (other is not entry and other.handler is entry.handler
+                        and not other.hidden and id(other) not in printed):
+                    names.append(other.name)
+                    printed.add(id(other))
+            print(f"  {'、'.join(names):<24}{entry.desc}")
 
     def _cmd_compact(self) -> None:
         # 审计#9 修复:此前无论是否达阈值都谎报「已触发压缩」— 实际多数
@@ -528,3 +498,118 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
                     print(f"[失败] {lang}: {result.get('error', '未知错误')}")
         else:
             print("[用法] /lsp add <lang> --command <cmd> | /lsp remove <lang> | /lsp check <lang> | /lsp 列出")
+
+
+# ===========================================================================
+# ===========================================================================
+# A(2026-09-26): 斜杠命令注册表 —— 命令/别名/handler/参数要求单源。
+#
+# 补全清单（SLASH_COMPLETER_WORDS）、/help 帮助文本、handle() 分派三者均由
+# 本表派生：新增命令 = 加一行 _register(...)，三处自动同步，根除「handler 在、
+# 补全/help 漏登」两账本缺陷（/fork、/multi 历史先例）。
+# 数据模型对标 atomcode-tuix/src/commands.rs（needs_args/hidden/aliases）。
+# ===========================================================================
+
+import re as _re
+
+_SLASH_TOKEN_RE = _re.compile(r"^/[A-Za-z0-9_?:-]+$")
+
+
+class SlashCommand(NamedTuple):
+    name: str                 # "/tasks" 形式（含斜杠）
+    handler: Any              # Callable[[SlashCommandProcessor, str], None]
+    desc: str                 # /help 展示
+    aliases: tuple = ()       # 主名同义别名
+    needs_args: bool = False  # 无参数无意义 → handle() 拦截并提示用法
+    arg_hint: str = ""        # needs_args 提示文案
+    wants_arg: bool = True    # handler 签名带 arg？（_register 自动探测）
+    hidden: bool = False      # 预留：不进补全/help 但可分发
+
+
+SLASH_REGISTRY: dict[str, SlashCommand] = {}
+
+
+def _h(method_name: str) -> Any:
+    """按方法名取 SlashCommandProcessor 的未绑定方法（注册表延迟解析）。"""
+    return getattr(SlashCommandProcessor, method_name)
+
+
+def _register(
+    name: str, handler: str, desc: str,
+    aliases: tuple = (), needs_args: bool = False, arg_hint: str = "",
+) -> None:
+    """注册一条命令；别名展开为可见条目（符号形别名除外，见 hidden）。
+
+    wants_arg 由 handler 签名自动探测（(self) → 无参；(self, arg) → 带参），
+    调用方 handle() 据此选择调用形态，handler 无需迁就统一签名。
+    """
+    import inspect as _inspect
+
+    fn = _h(handler)
+    try:
+        n_params = len(_inspect.signature(fn).parameters)
+    except (ValueError, TypeError):  # pragma: no cover — 内建/异常签名按带参处理
+        n_params = 2
+    if n_params > 2:
+        raise ValueError(
+            f"{handler} 有 {n_params} 个参数：注册表统一 (self, arg) 形状，"
+            "请先加适配方法（参见 _cmd_resume_adapted）"
+        )
+    wants_arg = n_params >= 2
+    entry = SlashCommand(
+        name=name, handler=fn, desc=desc, aliases=aliases,
+        needs_args=needs_args, arg_hint=arg_hint, wants_arg=wants_arg,
+    )
+    SLASH_REGISTRY[name] = entry
+    for alias in aliases:
+        SLASH_REGISTRY[alias] = SlashCommand(
+            # 别名条目 name=别名自身（补全派生按 name 去重，存主名会丢别名）
+            name=alias, handler=fn, desc=desc,
+            aliases=(), needs_args=needs_args, arg_hint=arg_hint,
+            wants_arg=wants_arg,
+            # 别名默认进补全（/continue /todo 是用户已知命令）；符号形
+            # 别名（/?）不进 —— 补全菜单里出现 "/?" 是噪声。
+            hidden=alias == "/?",
+        )
+
+
+# 表体顺序 = /help 展示顺序（补全清单同序派生）。
+_register("/help", "_cmd_help", "本帮助；/help <命令> 查单条用法", aliases=("/?",))
+_register("/clear", "_cmd_clear", "清空会话上下文")
+_register("/multi", "_cmd_multi", "多行输入模式（'.' 结束提交；平时用 Esc+Enter 换行）")
+_register("/resync", "_cmd_resync", "全量重绘输出窗（全屏 TUI）")
+_register("/compact", "_cmd_compact", "手动压缩上下文（未达阈值时明确提示）")
+_register("/model", "_cmd_model", "查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复）")
+_register("/schedule", "_cmd_schedule", "定时任务注册/列出/取消")
+_register("/openrouter", "_cmd_openrouter", "OpenRouter 一键接入：/openrouter [status|logout|models]")
+_register("/lsp", "_cmd_lsp", "LSP 服务器注册/删除/握手检查：/lsp add|remove|check")
+_register("/checkpoint", "_cmd_checkpoint", "手动保存 checkpoint")
+_register("/recover", "_cmd_recover", "恢复最近中断的工具轮 checkpoint")
+_register("/rewind", "_cmd_rewind", "列出/回滚到历史 checkpoint 快照")
+_register("/fork", "_cmd_fork", "分叉当前会话（rollout 不可变分叉）")
+_register("/share", "_cmd_share", "自包含导出当前会话副本（JSONL，redact 已过）")
+_register("/resume", "_cmd_resume_adapted", "恢复指定会话；不带 ID 列出全部")
+_register("/continue", "_cmd_continue_adapted", "恢复最近一次会话（等价启动参数 --continue）")
+_register("/session", "_cmd_session", "列出/切换当前项目会话")
+_register("/history", "_cmd_history", "最近 N 条会话列表；/history show <id> 查看记录")
+_register("/tasks", "_cmd_tasks", "任务面板：/tasks [add|start|done|all]",
+          aliases=("/todo", "/plan"))
+# /quit /exit 无 handler：handle() 特判置 quit_requested（语义即退出）。
+# /quit /exit 均保留在补全清单（旧行为：两条都在 SLASH_COMPLETER_WORDS）。
+SLASH_REGISTRY["/quit"] = SlashCommand(
+    name="/quit", handler=None, desc="退出", aliases=(),
+    needs_args=False, arg_hint="",
+)
+SLASH_REGISTRY["/exit"] = SlashCommand(
+    name="/exit", handler=None, desc="退出（/quit 同义）", aliases=(),
+    needs_args=False, arg_hint="",
+)
+
+SLASH_COMPLETER_WORDS = []
+_seen: set[str] = set()
+for _entry in SLASH_REGISTRY.values():
+    if _entry.hidden or _entry.name in _seen:
+        continue
+    _seen.add(_entry.name)
+    SLASH_COMPLETER_WORDS.append(_entry.name)
+del _entry, _seen

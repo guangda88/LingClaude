@@ -1363,7 +1363,13 @@ class TestToolbarStyle:
         red = PT_TUI_STYLE.get_attrs_for_style_str("class:red")
         assert red.color == "ansired" and red.bold is True
         accent = PT_TUI_STYLE.get_attrs_for_style_str("class:accent")
-        assert accent.color == "ansicyan" and accent.bold is True
+        # 2026-09-26 toolbar 去高亮（用户要求正常显示）：accent 由
+        # "ansicyan bold" 置空为普通前景，旧断言随之更新。
+        assert accent.color == "" and accent.bold is False
+        # 2026-09-26 toolbar 背景去高亮：覆盖 PT 内置 ("bottom-toolbar",
+        # "reverse")，整行反白不再出现（否则底部工具栏呈高亮背景条）。
+        bottom = PT_TUI_STYLE.get_attrs_for_style_str("class:bottom-toolbar")
+        assert bottom.reverse is False and bottom.bgcolor == ""
 
     def test_full_tui_application_carries_style(self) -> None:
         """全屏 Application 构造必须携带样式表（修复点直证）。"""

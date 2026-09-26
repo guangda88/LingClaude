@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 
 # P0-行缓冲:跨事件聚合流式 delta,残行待下次事件或 flush 收尾
 _stream_line_buf: list[str] = []
+# B(2026-09-26): 无换行流防御（atomcode retained.rs 1MiB cap 借鉴，行缓冲
+# 收紧到 64KiB）。病态流（minified JSON/base64 无换行 delta）会让残行
+# 缓冲无限增长；达上限强制断行输出（内容不丢，只是提前落一行）。
+_STREAM_LINE_BUF_MAX = 65536
 _stream_lines_emitted = 0  # 本轮已输出行数(done 时用于 ANSI 擦除重渲染)
 _OUTPUT_FORMAT = "plain"  # P0-2: plain | json | jsonl
 _json_event_buffer: list[dict[str, Any]] = []  # json 模式事件缓冲
@@ -252,7 +256,12 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
             _stream_write(line + "\n")
             globals()["_stream_lines_emitted"] += 1
         if pending:
-            _stream_line_buf.append(pending)
+            if len(pending) >= _STREAM_LINE_BUF_MAX:
+                # B(2026-09-26): 无换行流防御——达上限强制断行（不丢内容）
+                _stream_write(pending + "\n")
+                globals()["_stream_lines_emitted"] += 1
+            else:
+                _stream_line_buf.append(pending)
     elif etype == "tool_call_start":
         _flush_stream_line()
         name = event.get("name", "?")
@@ -270,15 +279,16 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         is_error = event.get("is_error", False)
         preview = event.get("output_preview", "")
         mark = "❌" if is_error else "✅"
-        if preview and not is_error:
-            # 终端宽度动态截断（替代固定 80 字符）——窄终端不低于 60，
-            # 宽终端用 columns-8 留余白；非 TTY 回落 80
+        if preview:
+            # 直接外显工具输出内容（此前只显示 "(N chars)" 计数，用户看不到内容）；
+            # 终端宽度动态截断——窄终端不低于 60，宽终端用 columns-8 留余白；
+            # 非 TTY 回落 80
             try:
                 cols = max(60, (shutil.get_terminal_size().columns or 80) - 8) if sys.stdout.isatty() else 80
             except Exception:  # noqa: BLE001
                 cols = 80
             preview = preview[:cols].replace("\n", " ")
-            _stream_write(f"{mark} ({len(preview)} chars)\n")
+            _stream_write(f"{mark} {preview}\n")
         else:
             _stream_write(f"{mark}\n")
     elif etype == "status":
