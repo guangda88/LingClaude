@@ -131,6 +131,23 @@ class ToolExecutor:
             except Exception as e:
                 logger.debug("Cache read failed, falling back to tool: %s", e)
 
+        # 止血 (2026-09-26): _runtime 未注入时下一行直接 AttributeError('NoneType'
+        # object has no attribute 'execute_tool')，被下方 except 吞成 EXECUTION_ERROR
+        # 噪音 —— 21 天刷出 28,972 条同文错误日志（94% 挂在 read）的根因。
+        # 改为结构化可诊断错误。不用 TOOL_NOT_FOUND：:144 判定该码会 fallback MCP，
+        # runtime 未就绪不属于「未注册」语义，走 MCP 等于绕过 runtime。
+        runtime = getattr(self._engine, "_runtime", None)
+        if runtime is None:
+            logger.warning(
+                "Tool %s called before runtime injection (entry path missed set_runtime)", name
+            )
+            return ToolResult.err(
+                "Tool runtime not initialized: engine has no _runtime yet "
+                "(entry path missed set_runtime); retry after runtime ready",
+                code=ToolErrorCode.EXECUTION_ERROR,
+                tool_name=name,
+            )
+
         try:
             result = self._engine._runtime.execute_tool(name, **kwargs)
             tr = parse_tool_result(result, tool_name=name)

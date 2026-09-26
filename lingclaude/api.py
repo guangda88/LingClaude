@@ -414,6 +414,14 @@ async def ask_stream(req: AskRequest, api_key: str = Security(verify_api_key)):
         raise HTTPException(500, f"QueryEngine 初始化失败: {engine_result.error}")
 
     engine = engine_result.data
+    # 治本 (2026-09-26): 此前只构造 engine 不注入 runtime —— _runtime 恒为 None，
+    # 每个工具调用经 tool_executor 撞 'NoneType' object has no attribute
+    # 'execute_tool'（21 天 28,972 条错误日志的根因，webUI /chat 经 /ask/stream
+    # 到此必炸）。补齐 bus_responder._ensure_engine 同款注入。
+    from lingclaude.core.config import load_config
+    from lingclaude.engine.coding import CodingRuntime
+
+    engine.set_runtime(CodingRuntime(load_config(None)))
     prompt = req.question
     if req.context:
         prompt = f"上下文：{req.context}\n\n问题：{req.question}"

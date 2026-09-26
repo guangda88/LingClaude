@@ -506,6 +506,13 @@ def _cmd_app_server(args: argparse.Namespace) -> int:
     from lingclaude.core.query_engine import QueryEngine
 
     engine = QueryEngine.from_config_file(args.config).data
+    # 治本 (2026-09-26): headless app-server 此前同样漏 set_runtime —— run/stream
+    # 方法内模型一发起工具调用即撞 NoneType execute_tool。补齐注入（同
+    # cli/app.py 主入口与 bus_responder 模式）。
+    from lingclaude.core.config import load_config
+    from lingclaude.engine.coding import CodingRuntime
+
+    engine.set_runtime(CodingRuntime(load_config(args.config)))
 
     def _do_run(params: dict) -> dict:
         prompt = params.get("prompt", "")

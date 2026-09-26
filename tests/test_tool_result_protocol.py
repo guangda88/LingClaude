@@ -209,6 +209,12 @@ class _FakeEngine:
         self._dementia_detector = type("C", (), {"record_file_read": lambda self, p: None, "record_tool_call": lambda self, n, a: None})()
         self._runtime = type("C", (), {"execute_tool": self._fake_execute})()
 
+    def mcp_call_tool(self, name, kwargs):
+        # arch-m3 (2026-09-24) 后 ToolExecutor 走 engine 门面；桩复刻
+        # McpToolsMixin.mcp_call_tool 的委托（经模块属性调用，spy monkeypatch 仍生效）。
+        from lingclaude.engine import mcp_proxy
+        return mcp_proxy.call_tool(name, **kwargs)
+
     def _fake_execute(self, name, **kwargs):
         # 返回 pipeline 风格的 dict（含 error_code）
         if name == "blocked":
@@ -426,3 +432,20 @@ def test_check_permission_does_not_execute_handler():
     ok = p.check_permission("t", {}, permissions_blocks=lambda n: False)
     assert ok is None
     assert executed == []
+
+
+def test_tool_executor_runtime_not_injected_structured_error():
+    """止血回归 (2026-09-26): _runtime 未注入时返回结构化 EXECUTION_ERROR，
+    不再抛 AttributeError('NoneType' object has no attribute 'execute_tool')
+    被外层 except 吞成噪音 —— 21 天 28,972 条同文错误日志的根因回归钉。
+    且不得误用 TOOL_NOT_FOUND（该码会触发 MCP fallback，绕过 runtime）。"""
+    from lingclaude.core.tool_executor import ToolExecutor
+
+    eng = _FakeEngine()
+    eng._runtime = None  # 模拟入口路径漏 set_runtime
+    te = ToolExecutor(eng)
+
+    tr = te._execute_tool_typed("read", '{"path": "/tmp/x"}')
+    assert tr.is_error
+    assert tr.error.code == ToolErrorCode.EXECUTION_ERROR
+    assert "runtime not initialized" in tr.error.message
