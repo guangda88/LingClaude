@@ -22,6 +22,6 @@
     "2026-10-17 豁免到期前需推进至 read-source 或做续豁免裁决",
     "对账 frozen 语义：StateReconciler 连续 drift/error → 停止推进（协议 §2）"
   ],
-  "background_jobs": "test_state_store + test_layered_memory 后台回归（job e5ef290c9baa）在途，结果入档",
+  "background_jobs": "test_state_store + test_layered_memory 后台回归（job e5ef290c9baa）完成：63 passed in 374.33s，EXIT=0，零失败——首刀对象自身回归绿",
   "protocol_fix": "协议 §3 对账器坐标纠错：core/state_store.py → engine/state_reconcile.py"
 }
