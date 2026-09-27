@@ -479,8 +479,13 @@ class FullTuiSession:
             style="class:sep",
         )
 
-        # 键绑定：Enter 提交 / Esc+Enter（或 Ctrl+Enter / Shift+Enter，经
-        # interface._patch_pt_modifier_enter 映射）换行 / Ctrl+C 清行或打断 / Ctrl+D 空退出
+        # 键绑定：Enter 提交 / Esc+Enter 换行 / Ctrl+C 清行或打断 / Ctrl+D 空退出。
+        # 注（2026-09-27 实测）：换行的通用键是 Esc+Enter——它只由普通按键序列
+        # 组成，不依赖任何终端增强协议。Ctrl+Enter / Shift+Enter 换行依赖终端发
+        # xterm modifyOtherKeys / kitty 增强键盘序列（interface._patch_pt_modifier_enter
+        # 已备映射），但多数终端（含 Windows Terminal，IME 探针实证）对 Enter
+        # 组合键统一发裸 \r，这些序列永远不会到达——需要组合键换行时，在客户端
+        # 用 sendInput 把它绑成 ESC+CR。
         self._kb = KeyBindings()
 
         # 输出历史滚动键（app 级：优先级高于 emacs 默认绑定，application.py
