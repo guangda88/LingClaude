@@ -43,6 +43,7 @@ from lingclaude.cli.repl_io import (
     set_full_tui_managed,
 )
 from lingclaude.cli.full_tui import FullTuiSession
+from lingclaude.cli.full_tui import _StdoutProxy
 from lingclaude.engine.lineedit import (
     add_history_line,
     ensure_readline,
@@ -374,6 +375,24 @@ def _is_full_tui_session(session: Any) -> bool:
     return isinstance(session, FullTuiSession)
 
 
+def _tui_visible_print(msg: str) -> None:
+    """可见降级提示的分流出口（2026-09-27 全屏裸写根治）。
+
+    全屏 TUI 驻留期 stderr 与 PT 管理的是同一 tty——raw 模式下裸写
+    print(file=sys.stderr) 的字节会顶乱 alternate screen（物理屏幕
+    错位 → 鼠标偏移/toolbar 消失，full_tui.hard_resync docstring 有
+    证据链）。全屏期改走 logger.warning（落 host_root.log，屏幕零
+    字节直写）；P1/降级形态 stderr 是干净通路，行为不变。
+    驻留信号：FullTuiSession.start() 会把 sys.stdout 换成 _StdoutProxy
+    （full_tui.py start/_run_app finally 还原），即「全屏正在管终端」
+    的可靠判据；退出后自动回落 print 通路。
+    """
+    if isinstance(sys.stdout, _StdoutProxy):
+        _logger.warning("tui_notice: %s", msg)
+        return
+    print(msg, file=sys.stderr)
+
+
 def _full_tui_output_source(engine: Any) -> Callable[[], list[str]]:
     """构造全屏 TUI 输出窗内容源（会话历史行，用户/助手前缀）。
 
@@ -665,7 +684,7 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
                     ctx.stall_rebuilds,
                     ctx.fallback_read,
                 )
-                print("\n[输入泵失活] 已降级为阻塞输入模式（可继续使用；Ctrl+D 退出）", file=sys.stderr)
+                _tui_visible_print("\n[输入泵失活] 已降级为阻塞输入模式（可继续使用；Ctrl+D 退出）")
                 try:
                     ctx.session.interrupt_event().set()
                 except Exception:  # noqa: BLE001
@@ -714,7 +733,7 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
                 _stall_rebuild_threshold(),
                 ctx.fallback_read,
             )
-            print("\n[输入泵失活] 重建无效，已永久降级为阻塞输入模式（可继续使用）", file=sys.stderr)
+            _tui_visible_print("\n[输入泵失活] 重建无效，已永久降级为阻塞输入模式（可继续使用）")
             try:
                 ctx.session.interrupt_event().set()
             except Exception:  # noqa: BLE001
@@ -738,7 +757,7 @@ def _maybe_stall_escape(ctx: _ReplCtx, idle_loops: int, last_check_t: float) -> 
             _stall_rebuild_threshold(),
             readable,
         )
-        print("\n[输入泵失活] 心跳超长停滞，强制重建输入泵（可继续使用）", file=sys.stderr)
+        _tui_visible_print("\n[输入泵失活] 心跳超长停滞，强制重建输入泵（可继续使用）")
         # 2026-09-15（tty 行规程损坏事故）:重建不能只换线程 —— 假死根因之一
         # 是 tty 模式损坏（ICRNL 失效 → \r 不转 \n → read 永不返回），新线程面对
         # 同一个坏 tty 照样饿死。重建前先恢复启动时保存的 known-good termios，

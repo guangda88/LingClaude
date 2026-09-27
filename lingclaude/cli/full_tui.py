@@ -228,15 +228,20 @@ if _HAS_PROMPT_TOOLKIT:
 def _warn_raw(msg: str) -> None:
     """P0 普查（2026-09-25）：模块级原始 fd 预警，60s 节流。
 
-    供渲染/刷新回调链使用——这些链路外层已有「吞异常保 UI」护栏，纯静默
-    会让故障既不可见也无证据（toolbar 事故教训）。预警炸则彻底放弃。
+    2026-09-27 通道修正：全屏 TUI 驻留期 stderr 也是被 PT 管理的同一
+    tty——raw 模式下裸写 os.write(2) 会顶乱 alternate screen 光标，
+    物理屏幕结构错位（鼠标偏移/toolbar 消失的帮凶之一，见
+    hard_resync docstring 证据链）。改走 logger.warning：
+    host_root.log 文件兜底（app.py:_install_root_file_guard）落盘，
+    渲染层零字节直写终端。故障可见性不变（文件里有），屏幕不再被撕。
+    60s 节流保留。
     """
     now = time.monotonic()
     if now - getattr(_warn_raw, "_last", 0.0) < 60.0:
         return
     _warn_raw._last = now  # type: ignore[attr-defined]
     try:
-        os.write(2, msg.encode("utf-8", "replace"))
+        logger.warning("full_tui raw warn: %s", msg)
     except Exception:  # noqa: BLE001 — 预警失败即放弃
         pass
 
@@ -543,6 +548,17 @@ class FullTuiSession:
             buf = event.app.layout.current_buffer
             if buf is not None:
                 buf.insert_text("\n")
+
+        # Ctrl+L 硬重绘（2026-09-27 错位根治）：必须覆盖 PT 默认
+        # clear-screen（basic.py:155 → renderer.clear() →
+        # erase(leave_alternate_screen=True)）——那个默认实现会退出
+        # \x1b[?1049h 备用屏，全屏 TUI 之后画在主缓冲区上，物理屏幕
+        # 结构永久错位（鼠标点击偏上 N 行 + toolbar 顶出视口的同源病根，
+        # 实码证据见 hard_resync docstring）。app 级绑定优先级高于默认，
+        # 反转列表后唯一赢家，默认 handler 不再执行。eager=True 语义独立。
+        @self._kb.add("c-l", eager=True)
+        def _on_hard_resync(event: Any) -> None:
+            self.hard_resync()
 
         @self._kb.add("c-c")
         def _on_ctrl_c(event: Any) -> None:
@@ -1219,6 +1235,44 @@ class FullTuiSession:
         替代逐路径打补丁。线程安全性同 _write_via_buffer（主线程调用
         最佳；他线程调用经 _invalidate 请求重绘，文档替换本身幂等）。
         """
+        self._refresh_output_area()
+        self._invalidate()
+
+    def hard_resync(self) -> None:
+        """硬 resync（2026-09-27）：renderer 全量复位 + 结构性重建。
+
+        与软 resync（resync，只换文档+invalidate）的区别：renderer.reset()
+        把 PT 渲染器的 diff 基线、alternate-screen 标志、鼠标处理表全部
+        清零，下一帧按「全新首帧」整屏重画。
+
+        为什么必须有：软 resync 治不了「物理屏幕结构被破坏」的场景——
+        证据链（2026-09-27 用户实机两症状同偏移）：
+        1. Ctrl+L 落到 PT 默认 clear-screen（basic.py:155）→
+           renderer.clear() → erase(leave_alternate_screen=True 默认值)
+           → 退出 \x1b[?1049h 备用屏 → 全屏画在主缓冲区，结构永久错位；
+        2. 全屏期任何裸写 stderr/stdout 的字节（_warn_raw、异常打印）
+           顶乱 alternate screen 光标，PT diff 认为画面没变 → 不重画。
+        两个症状由此同源：物理屏幕被顶高 N 行后，鼠标物理坐标直接当
+        布局坐标用（bindings/mouse.py:275 y-=rows_above_layout，全屏恒
+        0）→ 点击偏上 N 行；toolbar 被顶出视口 → 「toolbar 不可见」。
+
+        受控复现（repro7：进程内 Application + 同构布局 + SGR 鼠标注入）
+        证明布局与坐标映射本身零缺陷——toolbar 精确落 22 行、屏幕行 19
+        点击精确映射 buffer 行 18。错位只来自渲染器外部破坏。
+
+        注意：本方法在 alternate screen 内部调用时 reset 会先发 1049l
+        退出备用屏，下一次 render 检测 _in_alternate_screen=False 会重新
+        1049h 进入——等效「擦掉重来」，正是我们要的语义。
+        线程安全：仅请求重绘路径，主线程/他线程均可（同 resync）。
+        """
+        app = self._app
+        if app is not None and self._running:
+            try:
+                renderer = app.renderer
+                if renderer is not None:
+                    renderer.reset()
+            except Exception:  # noqa: BLE001 — 复位失败退回软 resync 语义
+                pass
         self._refresh_output_area()
         self._invalidate()
 
