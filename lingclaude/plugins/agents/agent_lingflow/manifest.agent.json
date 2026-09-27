@@ -7,10 +7,15 @@
   "plug_level": "L1",
   "caller": "lingclaude",
   "transport": {
-    "kind": "platform",
-    "mode": "registry",
+    "kind": "mcp",
+    "mode": "stdio",
     "cwd": "/home/ai/lingflow",
-    "call_timeout_s": 120
+    "call_timeout_s": 120,
+    "command": [
+      "python3",
+      "lingflow_mcp_server.py"
+    ],
+    "command_note": "载体清偿 2026-09-27（family-carriers-batch2-4 交叉债）：零依赖裸 JSON-RPC MCP stdio server（lingflow_mcp_server.py，包装 skills/*/implementation.py 既有入口，不重复实现；mcp 包 lingflow venv 未装故不依赖）。工具面 run_skill/run_workflow/list_skills。"
   },
   "stop_layer": {
     "kernel": "平台型载体（agents/ + data_v8_domain.jsonl，流程编排平台，AGENTS.md 在册）",

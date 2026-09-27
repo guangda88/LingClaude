@@ -11,5 +11,6 @@
   "due": "2026-10-31",
   "closed": "2026-09-27T03:23:25+00:00",
   "closed_by": "lingclaude",
-  "clear_evidence": "cap/lingflow-crew 首插片入册（lingclaude/seams/lingflow_crew.py，CrewOrchestrator 协议 isinstance PASS + N3 cap/ 域前缀 + ORCHESTRATOR 槽注册）;端到端实测：真实 lingflow workflow YAML（tasks/skill/params 结构）经 create_crew→dispatch→status 全绿（AGENT 真缝 agent/ghidra 派单返回真实 Ghidra 反编数据 + 控制流原语 conditional-branch/notification + 模板插值 + J4 crew_run record）；守卫测试 tests/seams/test_lingflow_crew.py 14/14 绿。前置条件 agent/lingflow 插片在册（registry_loader 装配）满足。交叉债：lingflow platform 载体无 MCP 传输（family-carriers-batch2-4）——lingflow 原生 skill 经委派层如实 failed 不假活，原生执行待载体清偿。"
+  "clear_evidence": "cap/lingflow-crew 首插片入册（lingclaude/seams/lingflow_crew.py，CrewOrchestrator 协议 isinstance PASS + N3 cap/ 域前缀 + ORCHESTRATOR 槽注册）;端到端实测：真实 lingflow workflow YAML（tasks/skill/params 结构）经 create_crew→dispatch→status 全绿（AGENT 真缝 agent/ghidra 派单返回真实 Ghidra 反编数据 + 控制流原语 conditional-branch/notification + 模板插值 + J4 crew_run record）；守卫测试 tests/seams/test_lingflow_crew.py 14/14 绿。前置条件 agent/lingflow 插片在册（registry_loader 装配）满足。交叉债：lingflow platform 载体无 MCP 传输（family-carriers-batch2-4）——lingflow 原生 skill 经委派层如实 failed 不假活，原生执行待载体清偿。",
+  "cross_debt_note": "交叉债 family-carriers-batch2-4 已于 2026-09-27 清偿（lingflow 载体 MCP 薄壳上线，原生 skill 委派路径已通）——见 arch_debt/family-carriers-batch2-4.json resolution。"
 }

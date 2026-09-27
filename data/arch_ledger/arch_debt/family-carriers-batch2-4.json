@@ -1,0 +1,15 @@
+{
+  "type": "arch_debt",
+  "key": "family-carriers-batch2-4",
+  "state": "resolved",
+  "severity": "P3",
+  "created": "2026-09-27T09:00:00+00:00",
+  "created_by": "lingclaude",
+  "location": "lingclaude/plugins/agents/agent_lingflow/{manifest.agent.json,plugin.py} + /home/ai/lingflow/lingflow_mcp_server.py",
+  "reason": "批2-4 载体载体类型盘点（2026-09-27 实测）：受影响 platform 载体仅 agent/lingflow 1 个（transport.kind=platform mode=registry，_call_tool 显式 raise → run 一律 failed 入账 J4 不假活）；其余 23 个 AGENT 载体均为 MCP 传输健康。该债此前以批号形式被 cap-crew-lingflow-deferred 清偿证据交叉引用，无独立账档——本档补立并闭合。",
+  "due": "2026-09-30",
+  "resolve_hint": "lingflow 侧补 MCP 薄壳（对齐 lingxi 范式）或 lc 侧 skill 文件直读；用户裁定走薄壳。",
+  "resolved": "2026-09-27T06:14:40+00:00",
+  "resolved_by": "lingclaude",
+  "resolution": "方案A落地：零依赖裸 JSON-RPC MCP stdio server（lingflow_mcp_server.py，不依赖 mcp 包——lingflow venv 未装；包装 skills/*/implementation.py 既有入口，不重复实现）。工具面 run_skill/run_workflow/list_skills。hermetic 四步握手实测 （initialize/tools/list/list_skills 38 个真实 skill/run_skill 真实执行）全通。lc 侧：manifest kind platform→mcp + transport.command 指向薄壳；plugin.py 删 platform 死守卫（父类 MCP 真传输接管）；测试 kind 白名单补 mcp。端到端：agent/lingflow run(list_skills) succeeded（38 skills 真实数据）；cap/lingflow-crew 原生 skill 管线 dispatch succeeded。verify_family_carriers.py 装载 ok=20 fail=0。回归 318 passed。"
+}

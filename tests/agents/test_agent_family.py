@@ -203,9 +203,9 @@ def test_family_base_is_shared_implementation():
 
 @pytest.mark.parametrize("seam_key", sorted(REGISTRY_MEMBERS))
 def test_registry_member_transport_kind(seam_key, tmp_path):
-    """登记型 transport.kind 必须如实声明（mcp 之外的 kind：调用必 failed 入账）。"""
+    """登记型 transport.kind 必须如实声明（mcp=真传输；其余 kind：调用必 failed 入账）。"""
     mf = _manifest(seam_key)  # 传缝 key（含域），_mid_dir 内部解析目录
-    assert mf["transport"]["kind"] in ("library", "cli", "service", "platform", "absent")
+    assert mf["transport"]["kind"] in ("mcp", "library", "cli", "service", "platform", "absent")
     assert mf["name"] == seam_key
 
 
