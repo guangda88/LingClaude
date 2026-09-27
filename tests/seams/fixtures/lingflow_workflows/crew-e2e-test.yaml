@@ -1,0 +1,22 @@
+# 端到端验证 fixture：AGENT 真缝（ghidra）+ 内置编排辅助
+name: crew 端到端验证
+description: ghidra 枚举函数 → 条件分支 → 通知（全链路可解析）
+
+tasks:
+  - id: list_funcs
+    skill: agent/ghidra
+    params:
+      cmd: list_methods
+      offset: 0
+      limit: 3
+
+  - id: check_funcs
+    skill: conditional-branch
+    params:
+      condition: "{{tasks.list_funcs.output.result}}"
+
+  - id: notify_done
+    skill: notification
+    params:
+      level: "info"
+      message: "crew 执行完成: {{tasks.list_funcs.output.result}}"

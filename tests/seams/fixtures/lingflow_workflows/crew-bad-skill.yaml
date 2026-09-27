@@ -1,0 +1,6 @@
+# J5 失败显式 fixture：未知 skill
+name: 未知 skill 负例
+tasks:
+  - id: boom
+    skill: zzz-unknown-skill
+    params: {}
