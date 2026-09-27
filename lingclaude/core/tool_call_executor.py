@@ -75,10 +75,13 @@ class ToolCallExecutor:
             tool_output = engine._execute_tool_with_retry(tc.name, tc.arguments)
             if is_tool_error(tool_output):
                 engine._behavior = engine._behavior.record_tool_calls(count=0, errors=1)
+                # 2026-09-27 补 context：工具参数摘要（截断防敏感泄漏），修复观测盲区
+                args_summary = str(tc.arguments)[:120] if tc.arguments else ""
                 engine._log_to_flywheel(
                     pattern_type="tool_error",
                     error_message=tool_output[:200],
                     tool_name=tc.name,
+                    context=f"args={args_summary}",
                 )
                 self._log_tool_event(tc.name, success=False)
             else:
@@ -130,10 +133,13 @@ class ToolCallExecutor:
         for tc, tool_output in results:
             if is_tool_error(tool_output):
                 engine._behavior = engine._behavior.record_tool_calls(count=0, errors=1)
+                # 2026-09-27 补 context：工具参数摘要（截断防敏感泄漏），修复观测盲区
+                args_summary = str(tc.arguments)[:120] if tc.arguments else ""
                 engine._log_to_flywheel(
                     pattern_type="tool_error",
                     error_message=tool_output[:200],
                     tool_name=tc.name,
+                    context=f"args={args_summary}",
                 )
                 self._log_tool_event(tc.name, success=False)
             else:

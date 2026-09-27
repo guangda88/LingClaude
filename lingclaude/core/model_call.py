@@ -172,14 +172,19 @@ class ModelCallMixin:
         """
         if scope == "model_call":
             logger.warning("硬中断触发: 连续模型调用失败 %d 次，强制停止", consecutive_failures)
+            # 2026-09-27 补 context：scope/failures/provider 名，修复观测盲区（归因网络类失败）
+            provider_name = getattr(getattr(self, "_provider", None), "name", "") or ""
             self._log_to_flywheel(
                 "hard_interrupt", f"连续模型调用失败 {consecutive_failures} 次", tool_name="provider",
+                context=f"scope={scope};failures={consecutive_failures};provider={provider_name}",
             )
             return f"[硬中断] 连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。"
         if scope == "tool_loop_call":
             logger.warning("硬中断触发: 连续工具失败 %d 次，强制停止", consecutive_failures)
+            # 2026-09-27 补 context：scope/failures，区分工具循环 vs 模型调用失败
             self._log_to_flywheel(
                 "hard_interrupt", f"连续工具失败 {consecutive_failures} 次", tool_name="tool_loop",
+                context=f"scope={scope};failures={consecutive_failures}",
             )
             return f"\n[硬中断] 连续工具调用失败 {consecutive_failures} 次，自动停止。"
         if scope == "model_stream":
