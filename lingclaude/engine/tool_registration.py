@@ -344,6 +344,29 @@ SPECS: tuple[ToolSpec, ...] = (
         security_scope='read',
         concurrency_safe=False,
     ),
+    # skill 工具面（2026-09-27）：全族 skills 索引检索 + 按需读 SKILL.md 全文
+    # （文件即接缝，75 skills / 9 落点，data/skills_index.json 单一事实源）。
+    ToolSpec(
+        name='skill_search',
+        description='Search ling-family skills by keyword (75+ skills across 9 members). Returns name/member/description/path for each hit.',
+        parameters={
+            'keyword': {'type': 'string', 'description': 'Keyword to match in skill name or description (empty = list first 10)'},
+            'limit': {'type': 'integer', 'description': 'Max hits to return (default 10)'},
+        },
+        handler_attr='_skill_search_handler',
+        security_scope='read',
+        concurrency_safe=True,
+    ),
+    ToolSpec(
+        name='skill_read',
+        description='Read the full SKILL.md content of a ling-family skill by name (lazy load; use skill_search first to find names).',
+        parameters={
+            'name': {'type': 'string', 'description': 'Exact skill name as returned by skill_search'},
+        },
+        handler_attr='_skill_read_handler',
+        security_scope='read',
+        concurrency_safe=True,
+    ),
 )
 
 

@@ -1092,6 +1092,27 @@ def main() -> int:
     # R-toolbar-logfix: 同样必须在任何子命令分派前装配——任何入口路径
     # （repl/run/daemon 转发）下的日志告警都不许再走 lastResort 裸写 tty。
     _install_root_file_logging()
+    # AgentSeam 全族装配（2026-09-27）：24+ 灵族/外部工程插片注册进 SeamRegistry
+    # 的 AGENT 槽位——此前各插片 register() 零调用，模型侧 sub_agent 只能见
+    # inprocess/acp 内置后端。fail-soft：单个插件装载失败只告警+record，不阻断
+    # 启动（L1 语义：缺席不崩）；幂等（同名覆盖）；J4 审计入 agent_registry_load。
+    try:
+        from lingclaude.plugins.agents.registry_loader import load_all as _load_agent_seams
+        _seam_report = _load_agent_seams()
+        if _seam_report["failed"]:
+            import logging
+            logging.getLogger(__name__).warning(
+                "AgentSeam 装载部分失败（%d/%d）: %s",
+                len(_seam_report["failed"]),
+                len(_seam_report["loaded"]) + len(_seam_report["failed"]),
+                _seam_report["failed"],
+            )
+    except Exception as _seam_err:  # noqa: BLE001 —— 装载器自身故障不阻断启动
+        import logging
+        logging.getLogger(__name__).warning(
+            "AgentSeam 装载器异常（不影响本次启动）: %s: %s",
+            type(_seam_err).__name__, _seam_err,
+        )
     parser = argparse.ArgumentParser(
         prog="lingclaude",
         description="lingclaude — Self-optimizing AI runtime",

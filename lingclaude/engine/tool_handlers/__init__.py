@@ -15,6 +15,7 @@ from lingclaude.engine.tool_handlers.web_tools import WebToolsMixin
 from lingclaude.engine.tool_handlers.plan_tools import PlanToolsMixin
 from lingclaude.engine.tool_handlers.todo_tools import TodoToolsMixin
 from lingclaude.engine.tool_handlers.lsp_tools import LspToolsMixin
+from lingclaude.engine.tool_handlers.skill_tools import SkillToolsMixin
 
 __all__ = [
     "BashToolsMixin",
@@ -27,4 +28,5 @@ __all__ = [
     "PlanToolsMixin",
     "TodoToolsMixin",
     "LspToolsMixin",
+    "SkillToolsMixin",
 ]

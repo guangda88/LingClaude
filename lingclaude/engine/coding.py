@@ -33,6 +33,7 @@ from lingclaude.engine.tool_handlers import (
     LspToolsMixin,
     PlanToolsMixin,
     SearchToolsMixin,
+    SkillToolsMixin,
     SubagentToolsMixin,
     TodoToolsMixin,
     WebToolsMixin,
@@ -42,7 +43,7 @@ from lingclaude.engine.tool_handlers import (
 class CodingRuntime(
     BashToolsMixin, FileToolsMixin, SearchToolsMixin, GitToolsMixin,
     SubagentToolsMixin, BackgroundToolsMixin, WebToolsMixin,
-    PlanToolsMixin, TodoToolsMixin, LspToolsMixin,
+    PlanToolsMixin, TodoToolsMixin, LspToolsMixin, SkillToolsMixin,
 ):
     def __init__(self, config: lingclaudeConfig | None = None, model_provider: Any | None = None) -> None:
         self.config = config or lingclaudeConfig()

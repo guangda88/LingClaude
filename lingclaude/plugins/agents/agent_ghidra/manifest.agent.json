@@ -1,0 +1,68 @@
+{
+  "name": "agent/ghidra",
+  "target": "ghidra",
+  "display_name": "灵逆（Ghidra 逆向）",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": [
+      "python3",
+      "bridge_mcp_ghidra.py",
+      "--ghidra-server",
+      "http://127.0.0.1:8081/"
+    ],
+    "command_note": "固化于 plugin._server_cmd()。bridge 为 LaurieWired/GhidraMCP 官方脚本（v1.4），stdio 传输；后端是 Ghidra headless 内自建 Jython HTTP server（ghidra_http_server.py，经 analyzeHeadless -postScript 启动，端口 8081）。前置条件：Ghidra 11.4.3 已装且 TestProj 已导入目标二进制（headless 分析完成）。",
+    "cwd": "/home/ai/lingclaude/lingclaude/plugins/agents/agent_ghidra",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "backend": {
+    "kind": "ghidra-headless-http",
+    "http_base": "http://127.0.0.1:8081/",
+    "server_script": "ghidra_http_server.py",
+    "ghidra_home": "/home/ai/ghidra_install/ghidra_11.4.3_PUBLIC",
+    "project_dir": "/tmp/ghidra_proj",
+    "project_name": "TestProj",
+    "program": "crush",
+    "start_cmd_note": "analyzeHeadless /tmp/ghidra_proj TestProj -process crush -noanalysis -scriptPath <scripts_dir> -postScript GhidraHttpServer.py",
+    "health_probe_http": "/methods?limit=1"
+  },
+  "stop_layer": {
+    "kernel": "Ghidra headless（analyzeHeadless OSGi 引导）内 Jython GhidraScript 起 com.sun.net.httpserver.HttpServer（8081）→ bridge_mcp_ghidra.py（stdio MCP）翻译为 MCP 协议",
+    "seams": [
+      "model_provider"
+    ],
+    "implementations": 1
+  },
+  "capabilities": [
+    "list_methods",
+    "list_classes",
+    "list_segments",
+    "list_imports",
+    "list_exports",
+    "list_data_items",
+    "list_strings",
+    "search_functions_by_name",
+    "decompile_function",
+    "disassemble_function",
+    "get_function_by_address",
+    "get_xrefs_to",
+    "get_xrefs_from",
+    "get_function_xrefs",
+    "rename_function",
+    "rename_data",
+    "set_disassembly_comment"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "initialize",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:ghidra",
+  "notes": "mcp-wrap 流水线产出（2026-09-27）。路线实证：LaurieWired GhidraMCP 官方插件为 GUI-only（HTTP server 仅随 CodeBrowser 绑定，无头 Xvfb 驱动不开程序）；GhidraScript 起 HttpServer 必须用静态工厂 HttpServer.create()（OSGi 下无公开构造器）；Jython 里 fm.getFunction(name) 单参被解析为 long 重载（按名查需走预建字典）。探针债 agent-ghidra-mcp-probe-timeout 已清偿：initialize/tools/list/tools_call 三步实测通过（2026-09-27，backend 8081 实证 3005 函数 + decompile 返回真实 C 代码）。信任等级 T2（契约审计：只读为主，写操作限 rename/comment，不触 shell/文件系统）；拔插等级 L1（缺席时 lc 主干照跑）。"
+}

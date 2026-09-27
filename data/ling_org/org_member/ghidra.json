@@ -1,0 +1,12 @@
+{
+ "id": "ghidra",
+ "name": "ghidra",
+ "state": "active",
+ "created": "2026-09-27T08:30:00+00:00",
+ "first_layer_access": true,
+ "plug_seam_key": "agent/ghidra",
+ "trust_level": "T2",
+ "plug_level": "L1",
+ "first_layer_at": "2026-09-27T08:30:00+00:00",
+ "note": "Ghidra 逆向能力插片（mcp-wrap 流水线产出，NSA Ghidra headless + MCP bridge），2026-09-27 对账补登记"
+}

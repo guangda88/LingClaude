@@ -47,6 +47,15 @@ class SubagentToolsMixin:
         manager = getattr(self, "_subagent_manager", None)
         if manager is None:
             manager = SubagentManager()
+            # AgentSeam 全族桥（2026-09-27）：把 SeamRegistry.AGENT 缝（24 灵族/
+            # 外部工程插片）包装注册为 manager 后端——模型侧 sub_agent 的
+            # provider=缝 key（如 agent/ghidra）即可派单。fail-soft：桥故障只
+            # 告警，inprocess/acp 内置后端照常可用（L1 语义：缺席不崩）。
+            try:
+                from lingclaude.plugins.agents.seam_bridge import install_family_backends
+                install_family_backends(manager)
+            except Exception:  # noqa: BLE001 —— 桥故障不阻断内置后端派单
+                pass
             self._subagent_manager = manager
         result = manager.run(request, ctx)
 
