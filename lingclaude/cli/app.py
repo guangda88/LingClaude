@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
+import atexit
 import threading
 import time
 import urllib.request
@@ -151,6 +152,9 @@ def _hard_exit_after_close(runtime: "CodingRuntime", code: int) -> NoReturn:
     语义注意（fire-and-forget 退出，同 BackgroundTaskManager 约定 background.py:16）:
     - os._exit 跳过 atexit 队列 → bus responder stop 事件在此显式置位
       （只 set 不 join，join 反而回到同一挂死类）；
+    - os._exit 跳过 atexit 队列 → webui-server/engine 子进程兜底
+      （_cleanup_webui_procs 挂在 atexit）在此显式调用，否则 /webui
+      后台线程起的子进程会在硬退路径残留；
     - 仅用于交互 REPL 路径。单轮/headless/banner 路径仍走正常返回 + atexit。
     """
     stop = globals().get("_bus_stop_event")
@@ -159,9 +163,21 @@ def _hard_exit_after_close(runtime: "CodingRuntime", code: int) -> NoReturn:
             stop.set()
         except Exception:  # noqa: BLE001
             pass
+    _cleanup_webui_procs()
     _close_runtime(runtime)
     sys.stdout.flush()
     sys.stderr.flush()
+    # C-fix（2026-09-27 鼠标残码根治）: os._exit 跳过 atexit 队列 —— 硬退前
+    # 最后一次确定性复位终端增强模式（kitty 键盘/焦点上报/鼠标上报）。此为
+    # 终态守门：即使 close() 的复位之后 PT 线程又渲染过帧（重发 1000h/1003h），
+    # 这一次写入也保证进程死亡瞬间终端不处于鼠标上报模式。isatty 防御与
+    # 静默失败内置于 reset_terminal_key_modes，绝不反噬退出流程。
+    try:
+        from lingclaude.engine.lineedit import reset_terminal_key_modes
+
+        reset_terminal_key_modes()
+    except Exception:  # noqa: BLE001 — 退出路径不抛异常
+        pass
     os._exit(code)
 
 
@@ -793,6 +809,38 @@ def _find_webui_binary() -> Path | None:
     return None
 
 
+# webui 子进程 registry：launch_webui 由 daemon 线程承载时，其 finally 清理
+# 可能因线程强杀而不执行 → webui-server/engine 残留。登记到模块级列表并挂
+# atexit 钩子，进程退出（正常 / REPL Ctrl+C 引发解释器 shutdown）时兜底终止。
+_webui_procs: list[subprocess.Popen] = []
+
+
+def _cleanup_webui_procs() -> None:
+    """atexit 兜底：终止登记的 webui-server/engine 子进程并清空 registry。
+
+    可被显式重入（_hard_exit_after_close 在 os._exit 前调用）：清空列表避免
+    对同一已终止句柄重复 terminate（Popen.terminate 对死进程幂等无害，但不干净）。
+    """
+    procs = list(_webui_procs)
+    _webui_procs.clear()
+    _terminate_procs(*procs)
+
+
+def _register_webui_procs(*procs: subprocess.Popen | None) -> None:
+    for p in procs:
+        if p is not None and p not in _webui_procs:
+            _webui_procs.append(p)
+
+
+def _unregister_webui_procs(*procs: subprocess.Popen | None) -> None:
+    for p in procs:
+        if p is not None and p in _webui_procs:
+            _webui_procs.remove(p)
+
+
+atexit.register(_cleanup_webui_procs)
+
+
 def _terminate_procs(*procs: subprocess.Popen | None) -> None:
     """终止非 None 的子进程（忽略终止异常）。webui 启动/清理路径共用。"""
     for p in procs:
@@ -915,12 +963,16 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 1 if has_fail else 0
 
 
-def _cmd_webui(args: argparse.Namespace) -> int:
-    """启动 WebUI：webui-server(Rust, 前端) + 可选引擎(api.py :8700)。"""
-    port = args.port
-    engine_port = args.engine_port
+def launch_webui(*, port: int = 23458, engine_port: int = 8700,
+                 remote: bool = False, with_engine: bool = False,
+                 open_browser: bool = True) -> int:
+    """启动 WebUI 的可复用核心：CLI 子命令与 /webui 斜杠命令共用。
 
-    # 1. 引擎侧：默认假定 8700 已运行；--with-engine 则自动拉起 api.py
+    remote=True 绑 0.0.0.0（远程访问）；安全防护见 webui-server auth.rs：
+    /mint 按 ConnectInfo peer-IP 收口、host_guard 白名单、mint 限流、
+    一次性 handoff + 24h cookie。本函数叠加：LAN IP 白名单注入。
+    """
+    # 1. 引擎侧：默认假定 8700 已运行；with_engine 则自动拉起 api.py
     engine_proc: subprocess.Popen | None = None
     engine_url = f"http://127.0.0.1:{engine_port}"
     # 会话密钥（2026-09-27 401 根治）：引擎 fail-closed 要求 LINGCLAUDE_API_KEYS，
@@ -928,7 +980,7 @@ def _cmd_webui(args: argparse.Namespace) -> int:
     api_key, key_generated = _session_api_key()
     if key_generated:
         print_info("已自动生成会话密钥（引擎与 webUI 同值注入，密钥不落日志）")
-    if args.with_engine:
+    if with_engine:
         api_file = Path(__file__).resolve().parent.parent / "api.py"
         print_info(f"启动引擎 {api_file} (端口 {engine_port})")
         engine_env = os.environ.copy()
@@ -968,7 +1020,7 @@ def _cmd_webui(args: argparse.Namespace) -> int:
         env["LINGCLAUDE_API_KEYS"] = api_key
     # 远程访问（2026-09-27）：webui-server 默认绑 127.0.0.1。--remote 显式开启
     # 0.0.0.0 监听（安全基线：远程暴露必须是显式动作）+ host_guard 白名单注入。
-    if getattr(args, "remote", False):
+    if remote:
         env["LINGCLAUDE_WEBUI_BIND"] = "0.0.0.0"
     # 模型信息注入（daemon 化 /config /models 数据源）：Python 侧解析 config.yaml
     # （Rust 不引 YAML 依赖），只传非敏感字段；api_key 只给 has_api_key 布尔。
@@ -1003,11 +1055,15 @@ def _cmd_webui(args: argparse.Namespace) -> int:
             env=env,
         )
     print_info(f"webui-server 已启动 (pid {webui_proc.pid})，日志 {log_path}")
+    # 登记进 atexit registry：daemon 线程承载时 finally 可能被强杀跳过，
+    # 进程退出时由 _cleanup_webui_procs 兜底终止，避免子进程残留。
+    _register_webui_procs(webui_proc, engine_proc)
 
     # 4. 就绪探测
     if not _wait_for_http(f"http://127.0.0.1:{port}/status", timeout=15.0):
         print_error(f"webui-server 端口 {port} 未就绪，查看日志 {log_path}")
         _terminate_procs(webui_proc, engine_proc)
+        _unregister_webui_procs(webui_proc, engine_proc)
         return 1
 
     # 5. /mint 拿带 token 的 URL
@@ -1025,7 +1081,7 @@ def _cmd_webui(args: argparse.Namespace) -> int:
         print_kv("engine(api.py)", f"pid {engine_proc.pid} port {engine_port}")
 
     # 6. 打开浏览器（尽力而为）
-    if args.open and not args.no_open:
+    if open_browser:
         for opener in ("xdg-open", "open"):
             if shutil.which(opener):
                 try:
@@ -1043,7 +1099,19 @@ def _cmd_webui(args: argparse.Namespace) -> int:
         print_info("收到 Ctrl+C，停止服务")
     finally:
         _terminate_procs(webui_proc, engine_proc)
+        _unregister_webui_procs(webui_proc, engine_proc)
     return 0
+
+
+def _cmd_webui(args: argparse.Namespace) -> int:
+    """CLI 子命令 `lingclaude webui`：薄壳，委托 launch_webui()。"""
+    return launch_webui(
+        port=args.port,
+        engine_port=args.engine_port,
+        remote=getattr(args, "remote", False),
+        with_engine=args.with_engine,
+        open_browser=args.open and not args.no_open,
+    )
 
 
 # ---- R-toolbar-logfix (2026-09-23): root 文件兜底，根治 lastResort 裸写 ----

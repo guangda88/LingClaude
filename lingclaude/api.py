@@ -109,13 +109,16 @@ _WORKING_DIR = Path(os.getcwd())
 app = FastAPI(title="灵克 API", version="0.2.2", description="灵字辈编程助手API")
 
 # 限制 CORS 配置
-# F4 修复:webui 默认端口 13458 必须放行。env LINGCLAUDE_CORS_ORIGINS 可覆盖。
+# F4 修复:webui 默认端口 23458 必须放行（2026-09-27 对齐：Rust/CLI/openapi 同值）。
+# 13458 为旧二进制兼容保留；env LINGCLAUDE_CORS_ORIGINS 可覆盖。
 # F8 决策锁定(2026-08-29):api.py 全部端点只用 GET/POST,allow_methods 不含
 # PUT/PATCH;e2e test_cors_methods_cover_all_routes 防回归。
 _default_cors_origins = (
     "http://localhost:3000,"  # npm dev server
-    "http://localhost:13458,"  # webui default
-    "http://127.0.0.1:13458,"  # webui default loopback
+    "http://localhost:23458,"  # webui default (2026-09-27)
+    "http://127.0.0.1:23458,"  # webui default loopback
+    "http://localhost:13458,"  # legacy webui (旧二进制兼容)
+    "http://127.0.0.1:13458,"  # legacy webui loopback
     "http://localhost:8700"  # engine self-loopback
 )
 _cors_env = os.environ.get("LINGCLAUDE_CORS_ORIGINS", _default_cors_origins)

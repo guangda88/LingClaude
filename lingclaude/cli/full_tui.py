@@ -366,6 +366,9 @@ class FullTuiSession:
         # 2026-09-22: Shift+Tab 模式环回调（repl 装配时经 install_mode_toggler
         # 注入；键位按下时才读取，注入时序无关）
         self._mode_toggler: Callable[[], None] | None = None
+        # 2026-09-27: Ctrl+T 任务面板显隐回调（repl 装配时经
+        # install_todo_panel_toggler 注入；键位按下时才读取，注入时序无关）
+        self._todo_panel_toggler: Callable[[], None] | None = None
         self._interrupt = threading.Event()
         # 2026-09-18 多行输入增强:构造 UI 前改写 PT 输入序列表，让
         # Ctrl+Enter / Shift+Enter 复用下方 Esc+Enter 换行 chord
@@ -565,6 +568,16 @@ class FullTuiSession:
         def _on_hard_resync(event: Any) -> None:
             self.hard_resync()
 
+        # Ctrl+T 任务面板显隐切换（2026-09-27）：翻转 status.show_todo_panel，
+        # 渲染层 toolbar_fragments 据此决定 ⚙{ip}·{pd} 角标输出。回调由 repl
+        # 注入（install_todo_panel_toggler），未注入时静默空转——TUI 层不
+        # import status/repl，保持解耦（与 Shift+Tab 模式环同款注入模式）。
+        @self._kb.add("c-t")
+        def _on_toggle_todo_panel(event: Any) -> None:
+            toggler = self._todo_panel_toggler
+            if toggler is not None:
+                toggler()
+
         @self._kb.add("c-c")
         def _on_ctrl_c(event: Any) -> None:
             buf = event.app.layout.current_buffer
@@ -630,6 +643,20 @@ class FullTuiSession:
             target=self._run_app, daemon=True, name="full-tui-app",
         )
         self._app_thread.start()
+        # C-fix（2026-09-27 鼠标残码根治）: 进程终态兜底 —— 解释器正常退出
+        # （含未捕获异常路径，这类路径不经过 _hard_exit_after_close）时，
+        # atexit 回调先于 daemon 线程冻结执行，此处补发增强模式复位，防
+        # PT 全屏线程被硬杀后鼠标上报模式残留（移动鼠标刷序列码的病灶）。
+        # 幂等：重复注册/重复执行均无害（复位序列可重入）。
+        try:
+            import atexit as _atexit
+            from lingclaude.engine.lineedit import (
+                reset_terminal_key_modes as _reset_modes,
+            )
+
+            _atexit.register(_reset_modes)
+        except Exception:  # noqa: BLE001 — 增强路径，绝不反噬启动
+            pass
         # P2-3（2026-09-20，TUI 优化方案）: 全屏健康自检 —— 1s 后未驻留
         # （启动即死/从未进入运行态）时 stderr 显式留痕，消除「用户不知情
         # 被降级成简易输入模式」的静默失败。
@@ -983,6 +1010,16 @@ class FullTuiSession:
                 except Exception:  # noqa: BLE001
                     pass
                 self._stdout_proxy = None
+            # C-fix（2026-09-27 鼠标残码根治）: app 线程任何形式的终态
+            # （异常死亡/外部 exit）都在线程侧幂等补发终端增强模式复位
+            # （kitty 键盘/焦点/鼠标上报）。正常路径 close() 已复位，此处
+            # 双保险；isatty 防御与静默失败内置于 reset_terminal_key_modes。
+            try:
+                from lingclaude.engine.lineedit import reset_terminal_key_modes
+
+                reset_terminal_key_modes()
+            except Exception:  # noqa: BLE001 — 增强路径，绝不反噬线程收尾
+                pass
 
     def _load_paste_store(self) -> None:
         """C(2026-09-26): 启动时回灌粘贴注册表（富历史重水化）。
@@ -1157,6 +1194,10 @@ class FullTuiSession:
     def install_mode_toggler(self, toggler: Callable[[], None]) -> None:
         """2026-09-22: 注入 Shift+Tab 模式环回调（模式切换提示经 stdout 代理进输出窗）。"""
         self._mode_toggler = toggler
+
+    def install_todo_panel_toggler(self, toggler: Callable[[], None]) -> None:
+        """2026-09-27: 注入 Ctrl+T 任务面板显隐回调。"""
+        self._todo_panel_toggler = toggler
 
     def interrupt_event(self) -> threading.Event:
         return self._interrupt

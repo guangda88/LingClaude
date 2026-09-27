@@ -12,7 +12,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
     response::Response,
     Json,
@@ -452,14 +452,19 @@ pub(crate) async fn mcp_status_get() -> Response {
     ok_json(json!({"servers": [], "trusted": true, "blocked": []}))
 }
 
-/// GET /tunnel/status — bind 可达性 + 远程 URL（复用请求 token 拼接）。
-pub(crate) async fn tunnel_status_get(State(state): State<AppState>, headers: HeaderMap) -> Response {
+/// GET /tunnel/status — bind 可达性 + 远程 URL。
+///
+/// V10 清偿（2026-09-27 安全审计 S2）：旧实现把**会话 cookie 值**拼进
+/// `?token=` 返回响应体（CWE-598 凭证明文外泄 + 语义错误：会话 token 不是
+/// handoff token，该 URL 经中间件消费必失败）。现改为现场签发一次性
+/// handoff token 拼 URL——功能真实可用，会话凭证不再离开 cookie。
+pub(crate) async fn tunnel_status_get(State(state): State<AppState>) -> Response {
     let bind_host = state.proc.bind_host.as_str();
     let loopback = matches!(bind_host, "127.0.0.1" | "localhost" | "::1");
     let reachable = !loopback;
-    let token = token_from_request(&state, &headers);
     let remote_url = if reachable {
-        token.map(|t| format!("http://{bind_host}:{}/?token={t}", state.port))
+        let t = state.tokens.mint_handoff();
+        Some(format!("http://{bind_host}:{}/?token={t}", state.port))
     } else {
         None
     };
@@ -471,24 +476,6 @@ pub(crate) async fn tunnel_status_get(State(state): State<AppState>, headers: He
         "remote_url": remote_url,
         "qr_svg": null,
     }))
-}
-
-/// 从 Cookie 或 Authorization 头提取 webui token（/tunnel/status 拼远程 URL 用）。
-fn token_from_request(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    if let Some(auth) = headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()) {
-        if let Some(t) = auth.strip_prefix("Bearer ") {
-            return Some(t.trim().to_string());
-        }
-    }
-    let cookie = headers.get(header::COOKIE).and_then(|h| h.to_str().ok())?;
-    let name = state.cookie_name();
-    for pair in cookie.split(';') {
-        let pair = pair.trim();
-        if let Some(v) = pair.strip_prefix(&format!("{name}=")) {
-            return Some(v.to_string());
-        }
-    }
-    None
 }
 
 // ─── fs / command ────────────────────────────────────────────────────────
@@ -649,10 +636,12 @@ pub(crate) async fn live_message_post(State(state): State<AppState>, body: axum:
         }
         Ok(resp) => {
             let status = resp.status();
+            // V10 清偿（审计 H3）：引擎错误 body 不透传浏览器，只记审计。
             let text = resp.text().await.unwrap_or_default();
+            state.audit.log_event("error", &format!("live_message engine HTTP {status}: {text}"), Some(&sid));
             state.proc.active_chats.lock().unwrap().remove(&sid);
             state.proc.publish(json!({"type": "error", "message": format!("engine HTTP {status}")}));
-            err_msg(StatusCode::BAD_GATEWAY, format!("engine HTTP {status}: {text}"))
+            err_msg(StatusCode::BAD_GATEWAY, format!("engine HTTP {status}"))
         }
         Err(e) => {
             state.proc.active_chats.lock().unwrap().remove(&sid);
@@ -676,6 +665,10 @@ pub(crate) async fn live_stop_post(State(state): State<AppState>, body: axum::bo
     let Some(sid) = req.session_id.filter(|s| !s.is_empty()) else {
         return err_msg(StatusCode::BAD_REQUEST, "session_id is required");
     };
+    // V10 清偿（审计 H2）：同 /chat/stop，session_id 拼 URL 前白名单校验。
+    if !crate::chat_api::is_safe_session_id(&sid) {
+        return err_msg(StatusCode::BAD_REQUEST, "session_id contains invalid characters");
+    }
     let mut builder = state
         .client
         .post(format!("{}/sessions/{sid}/stop", state.lingclaude_base))
@@ -858,7 +851,11 @@ mod tests {
     }
 
     async fn req_json(app: axum::Router, method: &str, uri: &str, body: &str) -> (StatusCode, serde_json::Value) {
-        let builder = Request::builder().method(method).uri(uri);
+        // V10（审计 M1）：host_guard 收紧后缺 Host 一律 403——测试请求显式带。
+        let builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("host", "127.0.0.1");
         let req = if body.is_empty() {
             builder.body(axum::body::Body::empty()).unwrap()
         } else {

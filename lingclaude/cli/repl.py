@@ -1048,12 +1048,25 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 # 2026-09-21: 工具轮数上 toolbar + 摘要行（atomcode 语义）
                 observed_rounds += 1
                 status.bump_turns()
-                # 模型名动态刷新（修「/model 切换后 toolbar 名字不变」）
+                # 模型名动态刷新——显示「当前生效模型」而非启动固定名。
+                # 2026-09-27 根治：旧实现取 engine._last_resolved_config，
+                # 该属性全项目从未赋值（死代码）→ 恒回落 provider 启动名，
+                # /model --pin k3-256k 后 toolbar 仍显示 glm-5.3-flash。
+                # 正确语义：pin 优先（get_pinned_model_name），未 pin 回落
+                # provider._config.model；写裸名，[PINNED] 装饰由 status.py
+                # 渲染层负责（根治旧 _status_refresh f"{pinned} [PINNED]" 的
+                # 双重拼接累积）。
                 try:
-                    _rc = getattr(engine, "_last_resolved_config", None) \
-                        or (getattr(engine._provider, "_config", None) if engine._provider else None)
-                    if _rc and getattr(_rc, "model", ""):
-                        status.set_model(str(_rc.model))
+                    _pinned = engine.get_pinned_model_name()
+                    if _pinned:
+                        status.set_model(str(_pinned))
+                        status.set_pinned(True)
+                    else:
+                        _rc = getattr(engine._provider, "_config", None) if engine._provider else None
+                        if _rc and getattr(_rc, "model", ""):
+                            status.set_model(str(_rc.model))
+                        status.set_pinned(False)
+                    status.clear_degraded("model")
                 except Exception:  # noqa: BLE001 — 名字刷新失败不阻塞轮循环
                     status.mark_degraded("model")  # 2026-09-25 P0: 可见降级
                 # 2026-09-15（会话问题重构 P1-1）: round 边界消费挂起队列。
@@ -1062,6 +1075,11 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
                 _consume_queue_round(ctx, int(event.get("round_idx", 0)))
                 if ctx.processor.quit_requested:
                     interrupted = True
+                    # C-fix（2026-09-27 鼠标残码根治）: 生成期 quit 与其他退出
+                    # 路径（:1574 / :1592）对齐 —— 先 _bye() 确定性关全屏 app
+                    # （内含终端模式复位与 stdout 还原），再 break。否则 daemon
+                    # app 线程被 os._exit 硬杀，鼠标上报模式残留到 shell。
+                    _bye(ctx, newline_first=True)
                     print("\n[已中止]")
                     break
                 continue
@@ -1495,6 +1513,32 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             )
             session.install_mode_toggler(lambda: shift_mode(session))
         except Exception:  # noqa: BLE001 — 模式键安装失败不阻塞交互
+            pass
+
+        # 2026-09-27: Ctrl+T 任务面板显隐——翻转 status.show_todo_panel（渲染层
+        # 消费，角标随下一帧消失/复现）；FallbackSession 无此方法，吞掉不阻塞。
+        try:
+            def _toggle_todo_panel() -> None:
+                cur = getattr(ctx.status, "show_todo_panel", True)
+                ctx.status.set_todo_panel_visible(not cur)
+                # 反馈通道对齐 shift_mode（mode_cycle.py:141，同款键位注入家族）：
+                # 全屏期 session.append_output 进输出窗（屏幕可见、零裸写撕屏），
+                # 裸终端 sys.stdout 直写。不用 _warn_raw——那是 full_tui 私有的
+                # 文件日志通道（logger.warning 落 host_root.log，屏幕不可见），
+                # 且 repl.py 未导入该符号，首按 Ctrl+T 即 NameError（2026-09-27 事故）。
+                msg = f"[任务面板] {'显示' if not cur else '隐藏'}（Ctrl+T 切换）"
+                write = getattr(ctx.session, "append_output", None)
+                if callable(write):
+                    write(msg)
+                else:
+                    try:
+                        sys.stdout.write(f"\n{msg}\n")
+                        sys.stdout.flush()
+                    except (OSError, ValueError):
+                        pass
+
+            session.install_todo_panel_toggler(_toggle_todo_panel)
+        except Exception:  # noqa: BLE001 — 面板键安装失败不阻塞交互
             pass
 
         # H17-TUI: pump 会话级启动 — PT 形态下唯一 stdin 读者（H17 架构：PT

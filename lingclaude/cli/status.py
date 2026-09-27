@@ -39,6 +39,10 @@ class StatusModel:
     # 每秒由 _toolbar_snapshot 从 TodoStore 聚合喂入（(status_value, content) 元组），
     # 渲染层 toolbar_fragments 在状态行上方展开为多行清单。空元组 = 不占版面。
     todo_items: tuple[tuple[str, str], ...] = ()
+    # 2026-09-27: 任务面板显隐开关（Ctrl+T 切换，full_tui.py 绑定）——渲染层
+    # 据此决定是否输出 ⚙{ip}·{pd} 汇总角标；喂入链路（set_todo_items）不受影响，
+    # 隐藏期间数据照常聚合，重新显示时即刻反映最新计数（无 stale 窗口）。
+    show_todo_panel: bool = True
     # 2026-09-22: 状态球（对标 atomcode）——运行状态三色，渲染层映射绿/黄/红：
     #   "busy"   生成中（streaming 或活跃任务）→ 黄
     #   "blocked" 阻塞/中断（interrupt_event 置位）→ 红（优先级最高）
@@ -75,6 +79,8 @@ class StatusModel:
                 perm_mode=self.perm_mode,
                 # 2026-09-22: todo panel 明细随快照透传（元组不可变，浅拷贝安全）
                 todo_items=self.todo_items,
+                # 2026-09-27: 面板显隐开关透传（bool 不可变，浅拷贝安全）
+                show_todo_panel=self.show_todo_panel,
                 # 2026-09-22: 状态球三色透传（str 不可变，浅拷贝安全）
                 state_level=self.state_level,
                 # 2026-09-22: plan 叠加态透传（bool 不可变，浅拷贝安全）
@@ -124,6 +130,11 @@ class StatusModel:
         norm = tuple(tuple(x) for x in items) if items else ()
         with self._lock:
             self.todo_items = norm
+
+    # 2026-09-27: 任务面板显隐切换（Ctrl+T）——只动渲染开关，不清数据。
+    def set_todo_panel_visible(self, visible: bool) -> None:
+        with self._lock:
+            self.show_todo_panel = visible
 
     # 2026-09-22: 状态球喂入（对标 atomcode）——_toolbar_snapshot 每秒判定后调用。
     # level ∈ {"idle","busy","blocked"}；未知值按 idle 处理（渲染层兜绿）。
@@ -310,7 +321,9 @@ def toolbar_fragments(s: StatusModel):
     _pd_n = sum(
         1 for _st, _ in _todo_items if _st == "pending" or _st not in _KNOWN
     )
-    if _ip_n or _pd_n:
+    # 2026-09-27: 显隐开关（Ctrl+T）——隐藏时不输出角标；getattr 兜底 True
+    # （旧版快照对象缺字段时保持旧行为=显示，向后兼容）。
+    if (getattr(s, "show_todo_panel", True)) and (_ip_n or _pd_n):
         _todo_badge = ("class:accent", f" ⚙{_ip_n}·{_pd_n}")
     # 2026-09-22: 状态球（对标 atomcode）——状态行最前一粒绿/黄/红圆点，
     # 一眼标定运行状态：idle=绿 / busy=黄 / blocked=红。优先级 blocked > busy > idle，
@@ -376,7 +389,10 @@ def toolbar_fragments(s: StatusModel):
         act = s.task_active if len(s.task_active) <= 18 else s.task_active[:17] + "…"
         frag.append(("class:accent", f" │ 🔄 {act}"))
     # todo 汇总角标挂行尾（与 🔄 相邻，任务语义聚拢）
-    if _ip_n or _pd_n:
+    # 2026-09-27: 消费条件与赋值点（:326）保持同一显隐开关——旧码两处均为
+    # 纯计数条件天然同步，引入开关后必须两侧同改，否则隐藏时有任务会
+    # UnboundLocalError（_todo_badge 未赋值即消费，test_panel_hidden 实抓）。
+    if (getattr(s, "show_todo_panel", True)) and (_ip_n or _pd_n):
         frag.append(_todo_badge)
     # 2026-09-26 P1-6: 段界贪心折行——超终端宽时在 │ 段界断行成多行，
     # toolbar 自动长高，信息不再被 PT 剪裁（详见 _wrap_fragments docstring）

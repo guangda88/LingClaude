@@ -296,6 +296,51 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
             else:
                 print("[可用模型] TaskRouter 未加载或无 provider")
 
+    def _cmd_webui(self, arg: str = "") -> None:
+        """/webui — 启动 WebUI（默认远程访问 0.0.0.0 + 引擎，后台运行不卡 REPL）。
+
+        /webui            远程模式（默认）：0.0.0.0 + 自动拉引擎 + 打印可分享 token URL
+        /webui --local    仅本机 127.0.0.1 + 开浏览器
+        /webui --port N   指定 webUI 端口（默认 23458）
+        /webui --no-engine 不自动拉起引擎（假定 8700 已跑）
+
+        安全防护（webui-server auth.rs 已落地，本层叠加）：
+          - /mint 按 ConnectInfo peer-IP 收口（仅本机可签发 handoff，远程靠分享 URL）
+          - host_guard Host 白名单 + LAN IP 自动注入 + 缺 Host 403
+          - handoff 一次性 + 5min TTL + 24h cookie；mint 限流 10 次/分钟
+        """
+        import shlex as _shlex
+        from lingclaude.cli import app as _app
+
+        args = _shlex.split(arg) if arg and arg.strip() else []
+        remote = "--local" not in args          # 默认远程
+        open_browser = "--local" in args        # 本机模式才开浏览器
+        with_engine = "--no-engine" not in args  # 默认自动拉引擎
+        port = 23458
+        if "--port" in args:
+            try:
+                port = int(args[args.index("--port") + 1])
+            except (IndexError, ValueError):
+                print("[用法] /webui [--local] [--port N] [--no-engine]")
+                return
+
+        mode = "远程(0.0.0.0)" if remote else "本机(127.0.0.1)"
+        print(f"[webui] 启动中：{mode} port={port} engine={'auto' if with_engine else 'external'}")
+        if remote:
+            print("[webui] 远程访问已启用——token URL 即凭证，仅分享给可信设备；"
+                  "/mint 仅本机可签发，远程靠下方 URL 进入")
+
+        def _run() -> None:
+            rc = _app.launch_webui(
+                port=port, engine_port=8700,
+                remote=remote, with_engine=with_engine,
+                open_browser=open_browser,
+            )
+            print(f"[webui] 服务已退出 (rc={rc})")
+
+        t = threading.Thread(target=_run, daemon=True, name="webui-launch")
+        t.start()
+
     def _cmd_openrouter(self, arg: str) -> None:
         """P1-8（2026-09-21）: OpenRouter 一键接入（学 atomcode 同款体验）。
 
@@ -582,6 +627,8 @@ _register("/compact", "_cmd_compact", "手动压缩上下文（未达阈值时�
 _register("/model", "_cmd_model", "查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复）")
 _register("/schedule", "_cmd_schedule", "定时任务注册/列出/取消")
 _register("/openrouter", "_cmd_openrouter", "OpenRouter 一键接入：/openrouter [status|logout|models]")
+_register("/webui", "_cmd_webui",
+          "启动 WebUI（默认远程 0.0.0.0+引擎，后台）：/webui [--local|--port N|--no-engine]")
 _register("/lsp", "_cmd_lsp", "LSP 服务器注册/删除/握手检查：/lsp add|remove|check")
 _register("/checkpoint", "_cmd_checkpoint", "手动保存 checkpoint")
 _register("/recover", "_cmd_recover", "恢复最近中断的工具轮 checkpoint")

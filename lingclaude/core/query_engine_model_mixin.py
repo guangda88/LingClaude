@@ -145,14 +145,14 @@ class QueryEngineModelMixin:
                     system_prompt=base.system_prompt,
                 )
             else:
-                # 允许钉住未知模型（直接用当前配置的 key/url），由后续调用验证
-                pinned_cfg = ModelConfig(
-                    model=target,
-                    api_key=base.api_key,
-                    base_url=base.base_url,
-                    max_tokens=base.max_tokens,
-                    temperature=base.temperature,
-                    system_prompt=base.system_prompt,
+                # 拒绝钉住路由表未注册的模型名——原设计「允许钉未知模型、由后续
+                # 调用验证」会导致 toolbar 显示不存在的模型（如 k3-256），直到
+                # 请求时才 401。pin 成功就必须是服务端认识的模型。
+                return Result.fail(
+                    f"模型 '{target}' 未在任何 provider 注册（路由表查无此名），"
+                    f"拒绝钉住。可用 /model --list 查看可钉模型；"
+                    f"若确为新上线模型，请先将其加入路由表。",
+                    code="UNKNOWN_MODEL",
                 )
 
             # 验证 provider 可用性

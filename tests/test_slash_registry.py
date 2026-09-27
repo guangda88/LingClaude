@@ -54,7 +54,7 @@ class TestRegistrySingleSource:
                      "/lsp", "/resume", "/continue", "/session",
                      "/checkpoint", "/recover", "/rewind", "/quit", "/exit",
                      "/fork", "/share", "/tasks", "/todo", "/plan",
-                     "/history", "/openrouter", "/resync", "/multi"):
+                     "/history", "/openrouter", "/resync", "/multi", "/webui"):
             assert name in SLASH_REGISTRY, f"{name} 未注册"
 
     def test_registry_handlers_are_real_methods(self) -> None:

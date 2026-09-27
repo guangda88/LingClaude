@@ -190,12 +190,14 @@ class TestAuth:
 
 class TestF4CorsOrigin:
     def test_cors_allows_webui_default_port(self, api_client):
-        r = api_client.options("/status", headers={
-            "Origin": "http://localhost:13458",
-            "Access-Control-Request-Method": "GET",
-        })
-        assert r.status_code in (200, 204)
-        assert "13458" in r.headers.get("access-control-allow-origin", "")
+        # 2026-09-27 起默认端口 23458（api.py CORS 白名单同步）
+        for origin in ("http://localhost:23458", "http://127.0.0.1:23458"):
+            r = api_client.options("/status", headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+            })
+            assert r.status_code in (200, 204)
+            assert origin in r.headers.get("access-control-allow-origin", "")
 
     def test_cors_allows_localhost_3000(self, api_client):
         r = api_client.options("/status", headers={

@@ -19,6 +19,18 @@ use std::time::Duration;
 
 use crate::AppState;
 
+/// V10 清偿（审计 H2）：session_id 拼进引擎 URL 前的白名单校验——
+/// 仅允许安全字符，堵 `../`/query 注入改写法往引擎的请求路径。
+pub(crate) fn is_safe_session_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        // 含 '.' 但不允许路径穿越段
+        && id != ".."
+        && !id.contains("..")
+}
+
 #[derive(Deserialize)]
 struct ChatRequest {
     /// 前端传的是自身生成的 requestId，不是引擎 session_id（引擎当前无会话
@@ -185,8 +197,11 @@ pub(crate) async fn chat_sse(State(state): State<AppState>, body: axum::body::By
                             }
                         }
                         Err(e) => {
+                            // V10 清偿（审计 A6/B-4）：错误路径也要结算活跃会话，
+                            // 否则引擎流中断后 active_chats 永久残留。
                             let msg = format!("stream read failed: {e}");
-                            state.audit.log_event("error", &msg, None);
+                            state.audit.log_event("error", &msg, Some(&sid_for_stream));
+                            state.proc.clear_active(&sid_for_stream);
                             yield Ok(error_event(msg));
                             break;
                         }
@@ -195,14 +210,18 @@ pub(crate) async fn chat_sse(State(state): State<AppState>, body: axum::body::By
             }
             Ok(resp) => {
                 let status = resp.status();
+                // V10 清偿（审计 H3）：引擎错误 body 不透传浏览器，只记审计。
                 let text = resp.text().await.unwrap_or_default();
-                let msg = format!("lingclaude engine HTTP {status}: {text}");
-                state.audit.log_event("error", &msg, None);
-                yield Ok(error_event(msg));
+                state.audit.log_event("error", &format!("chat_sse engine HTTP {status}: {text}"), Some(&sid_for_stream));
+                // V10 清偿（审计 A6/B-4）：引擎拒绝时结算活跃会话。
+                state.proc.clear_active(&sid_for_stream);
+                yield Ok(error_event(format!("lingclaude engine HTTP {status}")));
             }
             Err(e) => {
                 let msg = format!("lingclaude engine unreachable: {e}");
-                state.audit.log_event("error", &msg, None);
+                state.audit.log_event("error", &msg, Some(&sid_for_stream));
+                // V10 清偿（审计 A6/B-4）：引擎不可达时结算活跃会话。
+                state.proc.clear_active(&sid_for_stream);
                 yield Ok(error_event(msg));
             }
         }
@@ -291,6 +310,11 @@ pub(crate) async fn chat_stop(State(state): State<AppState>, body: axum::body::B
             return (StatusCode::BAD_REQUEST, "session_id is required").into_response();
         }
     };
+    // V10 清偿（2026-09-27 审计 H2）：session_id 直接拼进引擎 URL，含
+    // `../`、`?`、`#` 时可改写发往引擎的请求路径（受限 SSRF）。白名单收紧。
+    if !is_safe_session_id(&session_id) {
+        return (StatusCode::BAD_REQUEST, "session_id contains invalid characters").into_response();
+    }
 
     let url = format!("{}/sessions/{session_id}/stop", state.lingclaude_base);
     let mut builder = state.client.post(&url).header("Content-Type", "application/json");
@@ -320,8 +344,11 @@ pub(crate) async fn chat_stop(State(state): State<AppState>, body: axum::body::B
         }
         Ok(resp) => {
             let status = resp.status();
+            // V10 清偿（审计 H3）：引擎错误 body 不透传浏览器（可能含内部
+            // 路径/上游 provider 报错），只记审计；对外只回状态码。
             let text = resp.text().await.unwrap_or_default();
-            (StatusCode::BAD_GATEWAY, format!("engine HTTP {status}: {text}")).into_response()
+            state.audit.log_event("error", &format!("chat_stop engine HTTP {status}: {text}"), None);
+            (StatusCode::BAD_GATEWAY, format!("engine HTTP {status}")).into_response()
         }
         Err(e) => {
             (StatusCode::BAD_GATEWAY, format!("engine unreachable: {e}")).into_response()

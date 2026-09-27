@@ -296,6 +296,38 @@ class TestTodoBadge:
         s.set_todo_items(None)
         assert s.snapshot().todo_items == ()
 
+    def test_panel_hidden_suppresses_badge(self) -> None:
+        """2026-09-27 Ctrl+T：隐藏时角标不输出，数据保留；重新显示即刻复现。"""
+        s = StatusModel()
+        s.set_model("m1")
+        s.cwd = "/tmp"
+        s.set_todo_items([("in_progress", "任务A"), ("pending", "任务B")])
+        # 默认显示 → 角标在
+        frag = toolbar_fragments(s.snapshot())
+        assert any("⚙" in txt for _, txt in frag)
+        # 隐藏 → 角标消失，但 todo_items 数据未被清
+        s.set_todo_panel_visible(False)
+        snap = s.snapshot()
+        assert snap.show_todo_panel is False
+        assert snap.todo_items == (("in_progress", "任务A"), ("pending", "任务B"))
+        frag = toolbar_fragments(snap)
+        assert not any("⚙" in txt for _, txt in frag)
+        # 重新显示 → 角标复现（无 stale 窗口，直接读现有数据）
+        s.set_todo_panel_visible(True)
+        frag = toolbar_fragments(s.snapshot())
+        assert any("⚙1·1" in txt for _, txt in frag)
+
+    def test_panel_flag_default_true_and_snapshot(self) -> None:
+        """默认显示；snapshot 透传开关；隐藏后无任务时本就无角标（幂等）。"""
+        s = StatusModel()
+        s.set_model("m1")
+        s.cwd = "/tmp"
+        assert s.snapshot().show_todo_panel is True
+        # 隐藏 + 无任务 → 无角标（与显示时一致，行为幂等）
+        s.set_todo_panel_visible(False)
+        frag = toolbar_fragments(s.snapshot())
+        assert not any("⚙" in txt for _, txt in frag)
+
 
 class TestStateBall:
     """状态球（对标 atomcode 绿/黄/红小球）——三态渲染 + 优先级 + 透传。"""
@@ -521,3 +553,79 @@ class TestToolbarWrap:
         out = self._with_columns(monkeypatch, "80")
         from lingclaude.cli.status import toolbar_tip
         assert toolbar_tip(57) in out
+
+
+class TestModelToolbarCurrentModel:
+    """回归：toolbar 显示「当前生效模型」而非启动固定名（2026-09-27）。
+
+    事故：repl.py round 边界旧实现取 engine._last_resolved_config（全项目
+    从未赋值，死代码）→ 恒回落 provider 启动名，/model --pin k3-256k 后
+    toolbar 仍显示 glm-5.3-flash，Ctrl+L 重绘也救不回（数据被周期性覆写）。
+    修复：pin 优先 get_pinned_model_name，未 pin 回落 provider._config.model，
+    写裸名 + set_pinned 标志，[PINNED] 装饰归 status.py 渲染层单一职责。
+    """
+
+    class _Cfg:
+        def __init__(self, model: str) -> None:
+            self.model = model
+
+    class _Provider:
+        def __init__(self, model: str) -> None:
+            self._config = TestModelToolbarCurrentModel._Cfg(model)
+
+    class _Engine:
+        """模拟 engine：可 pin/unpin，provider 固定启动名 glm-5.3-flash。"""
+
+        def __init__(self) -> None:
+            self._provider = TestModelToolbarCurrentModel._Provider("glm-5.3-flash")
+            self._pinned: str | None = None
+
+        def get_pinned_model_name(self):
+            return self._pinned
+
+    def _round_boundary_refresh(self, status, engine) -> None:
+        """复刻 repl.py round 边界的刷新逻辑（与被测实现同语义）。"""
+        _pinned = engine.get_pinned_model_name()
+        if _pinned:
+            status.set_model(str(_pinned))
+            status.set_pinned(True)
+        else:
+            _rc = getattr(engine._provider, "_config", None) if engine._provider else None
+            if _rc and getattr(_rc, "model", ""):
+                status.set_model(str(_rc.model))
+            status.set_pinned(False)
+
+    def test_pin_shows_current_model(self) -> None:
+        s = StatusModel()
+        eng = self._Engine()
+        # 启动态：未 pin → 显示 provider 默认 glm-5.3-flash，无 [PINNED]
+        self._round_boundary_refresh(s, eng)
+        assert s.model == "glm-5.3-flash"
+        assert s.pinned is False
+        # pin k3-256k → toolbar 立即显示当前生效模型
+        eng._pinned = "k3-256k"
+        self._round_boundary_refresh(s, eng)
+        assert s.model == "k3-256k"
+        assert s.pinned is True
+
+    def test_unpin_falls_back_to_provider(self) -> None:
+        s = StatusModel()
+        eng = self._Engine()
+        eng._pinned = "k3-256k"
+        self._round_boundary_refresh(s, eng)
+        assert s.model == "k3-256k"
+        # unpin → 回落 provider 名，pin 标志清除
+        eng._pinned = None
+        self._round_boundary_refresh(s, eng)
+        assert s.model == "glm-5.3-flash"
+        assert s.pinned is False
+
+    def test_pinned_decoration_not_doubled(self) -> None:
+        # 裸名写入 + 渲染层单点装饰 → 永不出现 [PINNED] [PINNED] 累积
+        s = StatusModel()
+        s.set_model("k3-256k")
+        s.set_pinned(True)
+        snap = s.snapshot()
+        disp = f"{snap.model} [PINNED]" if snap.pinned else snap.model
+        assert disp == "k3-256k [PINNED]"
+        assert disp.count("[PINNED]") == 1

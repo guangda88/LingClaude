@@ -3,7 +3,7 @@
 
 Catches cross-document inconsistencies that previously slipped through:
   - Guard count (H1-H14 vs H1-H16) — actual file has H1-H16
-  - Port numbers (13458 vs 13460 for webui)
+  - Port numbers (23458 for webui; 13458 trae_proxy / 13460 均为历史口径)
   - Threshold constants (0.6/0.4 trust weights, 4000 char cap, -900 oom)
   - Version numbers
   - Cross-doc broken links (file existence)
@@ -163,7 +163,7 @@ def _format_range(ids: list[str]) -> str:
 # Authoritative port values from code
 PORT_AUTHORITATIVE: dict[str, int] = {
     "lingclaude engine": 8700,
-    "webui default": 13458,
+    "webui default": 23458,  # 2026-09-27 对齐：CLI(app.py)/Rust(main.rs)/openapi.json 三处同值
     "proxy21 llm route": 8765,
     "lingtong+ provider": 8900,  # from metacognitive_guards.md H1/H7
     "lingxi": 8001,
@@ -173,7 +173,7 @@ PORT_AUTHORITATIVE: dict[str, int] = {
 
 # Map of "the actual default port" per service — to detect "default X" claims
 PORT_PATTERN = re.compile(
-    r"(?:默认|default)[^a-zA-Z0-9]{0,8}(1\d{4})",  # "默认 13458" or "default 13458"
+    r"(?:默认|default)[^a-zA-Z0-9]{0,8}([12]\d{4})",  # "默认 23458" or "default 13458"（[12] 前缀覆盖 2xxxx，否则 23458 类主张永不校验——本次漂移存活的机制根源）
     re.IGNORECASE,
 )
 
@@ -181,7 +181,7 @@ PORT_PATTERN = re.compile(
 # All known ports for each service — used to detect "default X" claims
 # where X is in the service's port range but not the actual default.
 SERVICE_PORTS: dict[str, set[int]] = {
-    "webui": {13458, 13460},            # 13458 = real default, 13460 = alternate
+    "webui": {23458, 13460},            # 23458 = 真默认（2026-09-27 起）；13460 = 历史口径（旧文档仍引用）
     "lingclaude engine": {8700},
     "proxy21": {8765},
     "lingtong+ provider": {8900},
@@ -328,7 +328,7 @@ def check_links(files: Iterable[Path]) -> list[Finding]:
 
 KNOWN_SLASH_COMMANDS = {
     "/help", "/?", "/clear", "/compact", "/model", "/schedule", "/lsp",
-    "/resume", "/continue", "/quit", "/exit",
+    "/resume", "/continue", "/quit", "/exit", "/webui",
     "/checkpoint", "/recover",  # R5 阶段1+2：手动 checkpoint + 工具轮中断 resume
 }
 

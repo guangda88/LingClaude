@@ -4,7 +4,7 @@
 检查项（2026-09-09 起）:
   1. lingxi node 进程数/RSS 基线（2026-09-09 事故: 65 个残留累计 2GB 无监控）
   2. lingclaude-bus-poll.service 存活 + /var/tmp 快照新鲜度（/tmp wrapper 事故修复）
-  3. 关键端口: 8765 proxy3 / 9530 灵忆 MCP / 13460 webui
+  3. 关键端口: 8765 proxy3 / 9530 灵忆 MCP / 23458 webui
      (13458 trae_proxy 已于 2026-09-26 退役摘除——配额策略变更后服务无意义，
       代码留存 /home/ai/llm-proxy/trae_proxy.py 仅供学习)
   4. lingclaude-daemon-watch.service 存活
@@ -38,7 +38,7 @@ LOG = Path("/home/ai/lingclaude/logs/health_inspect.log")
 LINGXI_MAX_PROCS = 20
 LINGXI_MAX_RSS_MB = 1200
 
-PORTS = {"8765": "proxy3", "9530": "lingmemory-mcp", "13460": "webui"}  # 2026-09-26 摘除 13458 trae-proxy（已退役）
+PORTS = {"8765": "proxy3", "9530": "lingmemory-mcp", "23458": "webui"}  # webui 默认 23458（2026-09-27 对齐，原巡检口径 13460 系历史误记）；13458 trae-proxy 与 webui 无关
 SNAPSHOT = Path("/var/tmp/lingbus_pending_lingclaude.json")
 
 PORT_PROBE_ROUNDS = 3

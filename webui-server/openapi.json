@@ -7,8 +7,8 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:13458",
-      "description": "本机默认（注意：13458 同时是 trae_proxy 硬编码端口，共存时须改用其他端口，如 23458）"
+      "url": "http://127.0.0.1:23458",
+      "description": "本机默认（23458：13458 是 trae_proxy 硬编码端口，共存冲突，CLI/Rust 两侧默认均已对齐 23458）"
     }
   ],
   "components": {

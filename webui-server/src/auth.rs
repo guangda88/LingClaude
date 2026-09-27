@@ -7,12 +7,13 @@
 //! 4. 之后所有非静态请求经 `auth_middleware` 校验会话 cookie，失败 401
 
 use axum::{
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{header, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -35,7 +36,15 @@ pub(crate) struct TokenStore {
     handoff: RwLock<HashMap<String, Instant>>,
     /// 会话 token（cookie 值）→ 过期时刻
     sessions: RwLock<HashMap<String, Instant>>,
+    /// V10（审计 B-8）：mint 限流——同一 peer 在窗口内的签发次数。
+    /// 防批量 mint 挤兑合法会话（MAX_SESSIONS 驱逐最旧）。
+    mint_quota: RwLock<HashMap<String, (Instant, u32)>>,
 }
+
+/// V10（审计 B-8）：mint 限流参数——每 peer 每分钟最多签发次数。
+/// CLI 单次启动只调一次，正常用户多点几次链接也够用。
+const MINT_RATE_WINDOW: Duration = Duration::from_secs(60);
+const MINT_RATE_MAX: u32 = 10;
 
 fn purge_expired(map: &mut HashMap<String, Instant>, now: Instant) {
     map.retain(|_, exp| *exp > now);
@@ -55,6 +64,33 @@ impl TokenStore {
         }
         w.insert(t.clone(), now + HANDOFF_TTL);
         t
+    }
+
+    /// V10（审计 B-8）：mint 限流检查——同一 peer 在 60s 窗口内最多
+    /// MINT_RATE_MAX 次签发。返回 true=允许，false=超限。
+    pub(crate) fn mint_rate_allow(&self, peer_key: &str) -> bool {
+        let now = Instant::now();
+        let mut w = self.mint_quota.write().unwrap();
+        // 顺手清理过期窗口（低频写，无性能问题）
+        w.retain(|_, (window_start, _)| now.duration_since(*window_start) < MINT_RATE_WINDOW);
+        match w.get_mut(peer_key) {
+            Some((window_start, count)) => {
+                if now.duration_since(*window_start) >= MINT_RATE_WINDOW {
+                    *window_start = now;
+                    *count = 1;
+                    true
+                } else if *count < MINT_RATE_MAX {
+                    *count += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+            None => {
+                w.insert(peer_key.to_string(), (now, 1));
+                true
+            }
+        }
     }
 
     /// 一次性：消费即移除。
@@ -84,11 +120,15 @@ impl TokenStore {
     }
 
     /// 中间件校验会话 cookie。
+    ///
+    /// V10 清偿（2026-09-27 审计 B-7）：旧实现每请求都拿**写锁**并 retain
+    /// 全表 purge——读路径互斥+O(n) 清扫，高频下 RwLock 写端饥饿构成 DoS 面。
+    /// 现改为纯读锁校验；过期条目惰性留给 mint_session 时的 purge 清理
+    /// （过期 token 即便留在表里也无法通过 `exp > now` 判定，无安全影响）。
     pub(crate) fn validate_session(&self, t: &str) -> bool {
-        let mut w = self.sessions.write().unwrap();
-        purge_expired(&mut w, Instant::now());
-        match w.get(t) {
-            Some(exp) if *exp > Instant::now() => true,
+        let r = self.sessions.read().unwrap();
+        match r.get(t) {
+            Some(exp) => *exp > Instant::now(),
             _ => false,
         }
     }
@@ -106,8 +146,49 @@ impl TokenStore {
 }
 
 /// `/mint` 端点返回一次性 token URL（webui 启动时由 CLI 侧调用并打开浏览器）。
-/// 无鉴权是设计使然 — token 本身就是凭证；TTL+上限兜底防滥用。
-pub(crate) async fn mint_token(State(state): State<AppState>) -> Response {
+///
+/// V10 清偿（2026-09-27 安全审计 S1）：**仅 loopback peer 可签发**。
+/// 此前 /mint 完全公开，绑 0.0.0.0 远程模式下任何能 TCP 连上的人 GET /mint
+/// 即得 handoff → 换会话 → 完整控制（含 /fs/mkdir、/cd、引擎执行）。
+/// host_guard 对直连客户端无效（Host 头任意伪造），故此处按 ConnectInfo
+/// 的真实 peer IP 判定——伪造不了的属性。
+///
+/// ConnectInfo 缺失（集成测试 oneshot 无 peer 地址）视为 loopback 放行：
+/// 测试无网络面，签发语义不变。
+pub(crate) async fn mint_token(
+    State(state): State<AppState>,
+    connect_info: Option<ConnectInfo<SocketAddr>>,
+) -> Response {
+    // peer key：有 ConnectInfo 用真实 IP，无（测试 oneshot）用固定键。
+    let peer_key = match &connect_info {
+        Some(ConnectInfo(addr)) => {
+            if !addr.ip().is_loopback() {
+                state.audit.log_request(
+                    "GET",
+                    "/mint",
+                    None,
+                    403,
+                    Some("mint from non-loopback peer"),
+                );
+                return (
+                    StatusCode::FORBIDDEN,
+                    "/mint only available from loopback — use the CLI on the host machine\n",
+                )
+                    .into_response();
+            }
+            addr.ip().to_string()
+        }
+        None => "test-peer".to_string(),
+    };
+    // V10（审计 B-8）：限流——防批量 mint 挤兑合法会话。
+    if !state.tokens.mint_rate_allow(&peer_key) {
+        state.audit.log_request("GET", "/mint", None, 429, Some("mint rate limited"));
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many mint requests — retry later\n",
+        )
+            .into_response();
+    }
     let token = state.tokens.mint_handoff();
     (
         StatusCode::OK,
@@ -151,12 +232,14 @@ fn is_static_asset(path: &str) -> bool {
 /// Host 头白名单判定（V7 清偿 2026-09-24：堵 DNS rebinding 读响应体）。
 ///
 /// 恶意网页经 rebinding 可使 `http://127.0.0.1:{port}/mint` 变同源请求，
-/// 读到 handoff token 响应体。仅放行 loopback 命名；**缺 Host 头放行**——
-/// 直连 TCP 客户端与集成测试 oneshot 请求可不带 Host，而 rebinding 攻击
-/// 必然携带攻击者域名的 Host，防御目标不受影响。
+/// 读到 handoff token 响应体。仅放行 loopback 命名。
+///
+/// V10 改判（2026-09-27 审计 M1）：缺 Host 头**不再放行**——HTTP/1.1 规定
+/// Host 为必需头，浏览器/正常客户端必然携带；直连攻击者省 Host 即可绕过
+/// 白名单的旧前提不成立。集成测试 oneshot 一律显式带 Host。
 fn is_allowed_host(host_header: Option<&str>, allowed_hosts: &[String]) -> bool {
     let Some(raw) = host_header else {
-        return true;
+        return false;
     };
     // 取 host 段（忽略端口——本服务端口可变，伪造 loopback 命名无收益）。
     // RFC 3986：IPv6 字面量在 Host 中必须带方括号，故先剥端口再剥括号。
@@ -202,8 +285,12 @@ fn handoff_grant(state: &AppState, query: &str) -> Response {
     } else {
         format!("/?{}", rest.join("&"))
     };
+    // V10 清偿（2026-09-27 审计 B-3）：**故意不带 Secure**——本服务是纯 HTTP，
+    // 带 Secure 的 cookie 在非 localhost 的 http:// 源下浏览器不回发（经 IP
+    // 直连的远程访问会反复 401，排障时容易把 token 留在 URL，反而加重
+    // CWE-598）。对齐 atomcode-daemon lib.rs:1582-1585 的同款取舍。
     let cookie = format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}; Secure",
+        "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
         state.cookie_name(),
         session,
         SESSION_TTL.as_secs(),

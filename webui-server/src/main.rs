@@ -204,7 +204,7 @@ async fn main() {
     let port: u16 = std::env::args()
         .nth(1)
         .and_then(|s| s.parse().ok())
-        .unwrap_or(13458);
+        .unwrap_or(23458); // 2026-09-27 对齐 CLI 默认（13458 是 trae_proxy 硬编码端口，历史冲突）
 
     // P4.2: 审计日志接线 — JSONL 落盘（P4 前仅在 audit.rs 定义、零调用）。
     // 路径: LINGCLAUDE_WEBUI_AUDIT_LOG 覆盖, 默认项目 .lingclaude/webui-audit.jsonl。
@@ -259,7 +259,19 @@ async fn main() {
     let addr = format!("{bind_host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     println!("lingclaude-webui listening on http://{addr}");
-    axum::serve(listener, app).await.unwrap();
+    if bind_host != "127.0.0.1" && bind_host != "localhost" && bind_host != "::1" {
+        eprintln!(
+            "⚠️  非 loopback 绑定（{bind_host}）：/mint 已按 peer IP 收口，\
+             远程主机无法自行取 token——请在本机经 CLI 输出链接进入。\
+             确认暴露面符合预期再继续。"
+        );
+    }
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 #[cfg(test)]
@@ -273,7 +285,7 @@ mod tests {
             tokens: Arc::new(TokenStore::default()),
             audit: Arc::new(audit::AuditLogger::new(std::env::temp_dir().join("lingclaude-webui-test-audit.jsonl"))),
             allowed_hosts: vec![],
-            port: 13458,
+            port: 23458, // 与生产默认一致（cookie 名派生自端口，见 cookie_name_is_port_scoped）
             enforce_token: true,
             lingclaude_base: "http://127.0.0.1:1".to_string(), // 测试中不应被真实访问
             lingclaude_api_key: None,
@@ -290,6 +302,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/status")
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -305,6 +318,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .method("POST")
                     .uri("/chat")
                     .header(header::CONTENT_TYPE, "application/json")
@@ -327,6 +341,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/mint")
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -347,6 +362,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/")
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -360,6 +376,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri(format!("/?token={token}"))
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -389,6 +406,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/status")
                     .header(header::COOKIE, format!("{}={}", state.cookie_name(), session))
                     .body(axum::body::Body::empty())
@@ -407,6 +425,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri(format!("/?token={token}"))
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -426,6 +445,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/index.html")
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -442,10 +462,69 @@ mod tests {
     #[test]
     fn cookie_name_is_port_scoped() {
         let state = test_state();
-        assert_eq!(state.cookie_name(), "atomcode_webui_13458");
+        assert_eq!(state.cookie_name(), "atomcode_webui_23458");
     }
 
     // ---- V7/V9 清偿（2026-09-24 双报告交叉审计）----
+
+    // ---- V10 清偿（2026-09-27 安全审计）----
+
+    #[tokio::test]
+    async fn missing_host_header_is_forbidden() {
+        // V10（M1）：缺 Host 头一律 403——HTTP/1.1 规定 Host 必需，
+        // 直连攻击者省 Host 绕过白名单的旧前提不成立。
+        let app = build_router(test_state());
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/mint")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "缺 Host 头必须 403");
+    }
+
+    #[tokio::test]
+    async fn mint_rate_limit_kicks_in() {
+        // V10（B-8）：同 peer 60s 窗口内最多 MINT_RATE_MAX 次签发，超限 429。
+        // （oneshot 无 ConnectInfo，统一落在 "test-peer" 键上。）
+        let state = test_state();
+        for i in 0..12 {
+            let app = build_router(state.clone());
+            let resp = app
+                .oneshot(
+                    Request::builder()
+                        .header("host", "127.0.0.1")
+                        .uri("/mint")
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if i < 10 {
+                assert_eq!(resp.status(), StatusCode::OK, "前 10 次 mint 应放行（第 {i} 次）");
+            } else {
+                assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS, "超限必须 429（第 {i} 次）");
+            }
+        }
+    }
+
+    #[test]
+    fn session_id_whitelist() {
+        // V10（H2）：stop 端点 session_id 白名单——堵路径注入。
+        use crate::chat_api::is_safe_session_id;
+        assert!(is_safe_session_id("abc-123_DEF.9"));
+        assert!(!is_safe_session_id(""));
+        assert!(!is_safe_session_id("../etc"));
+        assert!(!is_safe_session_id("a/../b"));
+        assert!(!is_safe_session_id(".."));
+        assert!(!is_safe_session_id("a?b"));
+        assert!(!is_safe_session_id("a#b"));
+        assert!(!is_safe_session_id("a/b"));
+        assert!(!is_safe_session_id(&"x".repeat(200)));
+    }
 
     #[tokio::test]
     async fn rebinding_host_gets_403_on_mint() {
@@ -466,7 +545,7 @@ mod tests {
 
     #[tokio::test]
     async fn loopback_and_localhost_hosts_allowed() {
-        for host in ["127.0.0.1:13458", "localhost:13458", "[::1]:13458"] {
+        for host in ["127.0.0.1:23458", "localhost:23458", "[::1]:23458"] {
             let app = build_router(test_state());
             let resp = app
                 .oneshot(
@@ -490,6 +569,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/api/users.json")
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -508,6 +588,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri(format!("/?token={token}"))
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -521,7 +602,9 @@ mod tests {
             .and_then(|v| v.to_str().ok())
             .expect("handoff 必须种会话 cookie")
             .to_string();
-        assert!(set_cookie.contains("Secure"), "V8 清偿：会话 cookie 必须带 Secure flag: {set_cookie}");
+        // V10 改判（2026-09-27 审计 B-3）：纯 HTTP 服务带 Secure 会破坏非
+        // localhost 远程访问（浏览器不回发），故故意省略——对齐 atomcode。
+        assert!(!set_cookie.contains("Secure"), "V10：纯 HTTP 服务 cookie 不带 Secure: {set_cookie}");
         assert!(set_cookie.contains("HttpOnly"));
         assert!(set_cookie.contains("SameSite=Strict"));
     }
@@ -535,6 +618,7 @@ mod tests {
             let resp = app
                 .oneshot(
                     Request::builder()
+                        .header("host", "127.0.0.1")
                         .uri(uri)
                         .body(axum::body::Body::empty())
                         .unwrap(),
@@ -552,6 +636,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/status")
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -570,6 +655,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri(format!("/?token={token}"))
                     .body(axum::body::Body::empty())
                     .unwrap(),
@@ -589,6 +675,7 @@ mod tests {
         let resp = app
             .oneshot(
                 Request::builder()
+                    .header("host", "127.0.0.1")
                     .uri("/status")
                     .header(header::COOKIE, cookie_kv)
                     .body(axum::body::Body::empty())

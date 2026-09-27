@@ -218,11 +218,11 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     "mimo": {
         # Xiaomi MiMo token plan (key 前缀 tp-).套餐 key 走 token-plan-cn 域名直连,
-        # 不是小米 AI 开放平台。ASR/TTS 走独立音频端点,本路由仅含 2 个对话模型。
+        # 不是小米 AI 开放平台。ASR/TTS 走独立音频端点,本路由仅含对话模型。
         "type": "openai",
         "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
-        "model": "mimo-v2.5-pro",
-        "models": ["mimo-v2.5-pro", "mimo-v2.5"],
+        "model": "mimo-v2.6-pro",
+        "models": ["mimo-v2.6-pro", "mimo-v2.6-flash", "mimo-v2.5-pro", "mimo-v2.5"],
     },
     "siliconflow": {
         "type": "openai",
