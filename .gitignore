@@ -106,3 +106,7 @@ lingclaude/data/
 # 2026-09-26: self_audit_trigger 运行时指纹目录（hooks 每次审计自动刷新，
 # 改动永不确定，裹进业务提交只会制造噪音）——实况：今日 default.json 已第 3 次被误列 M
 data/arch_ledger/arch_audit_state/
+# 2026-09-28 (外部审计卫生项): 未加引号包安装重定向笔误产物（=1.4.0 等）
+=*
+# 2026-09-28 (外部审计卫生项): "> null" 误写相对路径产物（应为 /dev/null）
+/null/
