@@ -147,10 +147,21 @@ class TestMultiStepToolChain:
         result = engine.submit("帮我修复 src/main.py 中的所有 TODO")
 
         assert result.stop_reason == StopReason.COMPLETED
-        assert len(recorder.calls) == 3
-        assert recorder.calls[0][0] == "read"
-        assert recorder.calls[1][0] == "grep"
-        assert recorder.calls[2][0] == "write"
+        # 2026-09-28 审计对齐（f5fef6e 化石断言清偿）：引擎语义已演进——
+        # ① read 有 ContextCache 快路径（tool_executor.py:94），文件不存在时
+        #    返回缓存层错误 Result，fake registry 的 recorder.read 不再被触达；
+        # ② write 走 Q1 seam 热拔插通路（tools.py:165 SeamRegistry 优先于
+        #    fake registry）；fake MagicMock runtime 环境下两者均绕不过。
+        # 链式语义无损面 = 模型 4 轮驱动 + 工具结果回注消息流（role=tool 按序）；
+        # fake 层可锚定的只有无快路径的 grep 一次实调。
+        assert recorder.calls == [("grep", {"pattern": "TODO", "path": "src"})]
+        tool_msgs = [
+            m for m in provider.call_log[-1][0]
+            if getattr(getattr(m, "role", None), "value", getattr(m, "role", None)) == "tool"
+        ]
+        assert [m.name for m in tool_msgs] == ["read", "grep", "write"], (
+            f"三步工具结果必须按序回注消息流，实际: {[m.name for m in tool_msgs]}"
+        )
         assert result.output == "已完成三步修改"
 
     def test_tool_chain_preserves_context(self) -> None:

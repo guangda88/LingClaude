@@ -79,7 +79,11 @@ class TestRecoverWiring:
     """R5 checkpoint 核心能力必须有 CLI 入口；否则误杀后用户无法恢复工具轮。"""
 
     def test_recover_has_completer_and_handler(self):
-        app_py = Path("/home/ai/lingclaude/lingclaude/cli/commands.py").read_text(encoding="utf-8")
-        assert '"/recover"' in app_py
-        assert 'name == "/recover"' in app_py
-        assert "resume_interrupted()" in app_py
+        # P4.1 注册表化（dfc227e 方案A）后：commands.py 只有 _register 行，
+        # handler/恢复逻辑在 _commands_checkpoint.py。两处拼接检查对齐现状，
+        # 语义不变（入口登记 + handler 接线 + 恢复能力可达）。
+        commands_py = Path("/home/ai/lingclaude/lingclaude/cli/commands.py").read_text(encoding="utf-8")
+        checkpoint_py = Path("/home/ai/lingclaude/lingclaude/cli/_commands_checkpoint.py").read_text(encoding="utf-8")
+        assert '"/recover"' in commands_py  # 注册表登记（补全+help 派生）
+        assert '_register("/recover", "_cmd_recover"' in commands_py  # handler 接线
+        assert "resume_interrupted()" in checkpoint_py  # R5 恢复能力实际可达

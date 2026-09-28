@@ -413,10 +413,15 @@ def test_golden_c2_stream_identical_tool_rounds_loop_abort(tmp_path) -> None:
     events = list(engine.stream_call_model("场景C2提问"))
 
     snap = _snapshot(engine, provider, hooks, engine._journal_dir)
-    # R1/R2 完整轮 + R3 在 round_end 前被打转熔断截断
+    # R1/R2 完整轮 + R3 在 round_end 前被打转熔断截断。
+    # 96aeaa7（2026-09-23 截断打标）后：_FakeProvider finish 无 reason →
+    # round_finish_reason="" 不在 _BENIGN_FINISH_REASONS → elif 分支在
+    # round_end 前多发一个 ⚠️ 打标 text_delta（事件序基线随之 +1）。
     assert _types(events) == [
         "text_delta", "tool_call_start", "tool_call_end", "round_end",
-        "text_delta", "tool_call_start", "tool_call_end", "round_end",
+        "text_delta", "tool_call_start", "tool_call_end",
+        "text_delta",  # 96aeaa7 截断/异常 reason 打标（空 reason 亦命中）
+        "round_end",
         "text_delta", "tool_call_start", "tool_call_end",
         "text_delta", "done",
     ]

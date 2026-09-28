@@ -104,7 +104,12 @@ class TestOptimizationDaemon:
         assert result.data is None
 
     def test_run_cycle_user_trigger(self, tmp_path):
-        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        # 2026-09-28 (外部审计 flake 收口): target 封闭到 tmp 空目录（同 L99-101
+        # test_run_cycle_no_trigger 既有先例）。原 target="." 会扫真实仓库
+        # （81k+ 行），高负载下 collect_metrics 阶段偶发越过 45s 超时红线——
+        # 本用例只验证「用户触发 → 优化执行 → cycle 记录」链路，trigger 与
+        # optimizer 均已 mock，target 内容不参与断言，空目录语义等价且稳定。
+        daemon = OptimizationDaemon(target=str(tmp_path), state_dir=tmp_path)
 
         mock_result = OptimizationResult(
             success=True,

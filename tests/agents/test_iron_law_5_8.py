@@ -266,10 +266,12 @@ def test_tool_crash_isolated_in_tool_result():
     assert "bash" in result.tools_used     # 已执行即入账
     assert result.rounds == 2
     # 工具输出必须是结构化 JSON（role=tool 消息，含 EXECUTION_ERROR 语义）
+    # P1 槽化（1c2c514）后消息流为 ModelMessage dataclass（frozen），不再 dict，
+    # 用属性访问；role 为 MessageRole 枚举，比对取 .value。
     tool_msg = [m for m in agent._provider.seen_messages[-1]
-                if m.get("role") == "tool" and m.get("name") == "bash"]
+                if getattr(m.role, "value", m.role) == "tool" and m.name == "bash"]
     assert tool_msg, "工具结果必须回注消息流"
-    payload = json.loads(tool_msg[0]["content"])
+    payload = json.loads(tool_msg[0].content)
     assert payload["error_code"] == "EXECUTION_ERROR"  # ToolError.to_dict 扁平形状
     assert payload["error"]  # 错误消息保留可诊断
 

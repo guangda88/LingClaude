@@ -18,6 +18,14 @@ warnings.filterwarnings("ignore", category=DeprecationWarning,
                         message=r"ToolDefinition\(handler=\.\.\.\) 已废弃.*")
 
 
+def pytest_addoption(parser):
+    """--run-live 开关（2026-09-28 审计补）：live 用例默认跳过，显式放行才跑。"""
+    parser.addoption(
+        "--run-live", action="store_true", default=False,
+        help="运行 @pytest.mark.live 用例（需真实外部服务在跑，如 Ghidra 8081）",
+    )
+
+
 def pytest_collection_modifyitems(config, items):
     """no_xdist 标记落地机制（xdist-state-write-race 债清偿，2026-09-24）。
 
@@ -28,10 +36,18 @@ def pytest_collection_modifyitems(config, items):
       - 其他用例不受影响，仍按默认负载分配；
       - 未安装 xdist 时无 xdist_group 语义，标记为纯声明（无害）。
     新增需串行的测试：直接标 @pytest.mark.no_xdist 即可，无需手写 group。
+
+    附带（2026-09-28 审计补）：live 用例默认跳过——test_agent_ghidra.py 的
+    test_live_backend_endpoints 需 Ghidra headless 8081 在跑，无服务时
+    Connection refused 红全量套件；--run-live 显式放行。
     """
+    run_live = config.getoption("--run-live", default=False)
+    skip_live = pytest.mark.skip(reason="live 用例需真实外部服务（--run-live 放行）")
     for item in items:
         if item.get_closest_marker("no_xdist") is not None:
             item.add_marker(pytest.mark.xdist_group("no_xdist_serial"))
+        if not run_live and item.get_closest_marker("live") is not None:
+            item.add_marker(skip_live)
 
 
 @pytest.fixture(autouse=True)

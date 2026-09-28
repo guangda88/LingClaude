@@ -73,6 +73,9 @@ where = ["."]
 include = ["lingclaude*"]
 
 [tool.pytest.ini_options]
+# 2026-09-28 QUAL：plugins/tools/*/test_*.py 幽灵测试已登记 arch_debt/ghost-tests-plugins-tools.json。
+# 暂不入 testpaths——这些测试用 `from plugin import` 裸导入，testpaths 收集态
+# sys.path 不含各插件目录会 ImportError。修复需改测试为包导入或加 conftest 钩子（见台账）。
 testpaths = ["tests"]
 asyncio_mode = "auto"
 # 全局单测熔断（2026-09-26 hang 事故防线）：pytest-timeout 2.4.0。
@@ -87,6 +90,9 @@ markers = [
     # pytest_collection_modifyitems 落地为 xdist_group("no_xdist_serial")，
     # xdist 下按 loadgroup 绑组串行；未装 xdist 时单进程本就串行，无操作。
     "no_xdist: 本测试需单进程串行执行（xdist 下自动绑入专属 loadgroup）",
+    # live 标记注册（2026-09-28 审计补）：需真实外部服务（如 Ghidra 8081）的
+    # 用例。默认跳过，--run-live 显式放行（conftest pytest_collection_modifyitems 落地）。
+    "live: 需真实外部服务在跑的用例（默认跳过，--run-live 放行）",
 ]
 filterwarnings = [
     # T3 handler 解耦迁移期：存量测试直传 ToolDefinition(handler=...) 的

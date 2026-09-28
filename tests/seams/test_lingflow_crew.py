@@ -84,6 +84,7 @@ def test_status_unknown_crew(crew):
 
 
 # ── 端到端（真实 AGENT 缝 + 控制流原语）────────────────────────────
+@pytest.mark.live  # 步骤1 真缝派单需 Ghidra headless 8081 在跑（2026-09-28 审计补标）
 def test_dispatch_e2e(crew):
     cid = crew.create_crew(["crew-e2e-test"])
     res = crew.dispatch(cid, task="", mode="sequential")
