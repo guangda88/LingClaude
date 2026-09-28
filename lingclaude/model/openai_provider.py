@@ -137,6 +137,9 @@ class OpenAIProvider(ModelProvider):
         self._config = config or ModelConfig()
         self._encoder: Any = None
         self._retry_policy = GlmRetryPolicy()
+        # P1-20260928: 硬配额 429 归因埋点计数（inprocess 并行子代理放大耗尽
+        # 排障需要区分「主会话独享耗尽」vs「并行放大耗尽」）。
+        self._hard_quota_fail_count: int = 0
         if config:
             self._retry_policy.configure_primary(config.model)
 
@@ -213,7 +216,14 @@ class OpenAIProvider(ModelProvider):
             # 2026-09-16: 硬性配额耗尽（GLM 1308 5h 限额等）——退避重试无意义
             # （重置时间在小时级），直接终止让上层切 provider，不再空烧 60s。
             if is_hard_quota_error(error_text):
-                logger.warning("硬配额耗尽，跳过退避重试直接失败: %s", error_text[:120])
+                self._hard_quota_fail_count += 1
+                logger.warning(
+                    "硬配额耗尽，跳过退避重试直接失败: %s "
+                    "[hard_quota_exhausted path=stream count=%d circuit_429=%d]",
+                    error_text[:120],
+                    self._hard_quota_fail_count,
+                    self._retry_policy._circuit_consecutive_429,
+                )
                 yield {"type": "error", "error": f"硬配额耗尽（需等待重置或切换 provider）: {error_text}"}
                 return
 
@@ -442,7 +452,14 @@ class OpenAIProvider(ModelProvider):
                 # 429 分支）——GLM 1308 5h 限额退避重试无意义，直接失败让
                 # 上层切 provider，不再空烧 60s。
                 if is_hard_quota_error(error):
-                    logger.warning("硬配额耗尽，跳过退避重试直接失败: %s", error[:120])
+                    self._hard_quota_fail_count += 1
+                    logger.warning(
+                        "硬配额耗尽，跳过退避重试直接失败: %s "
+                        "[hard_quota_exhausted path=sync count=%d circuit_429=%d]",
+                        error[:120],
+                        self._hard_quota_fail_count,
+                        self._retry_policy._circuit_consecutive_429,
+                    )
                     return Result.fail(f"硬配额耗尽（需等待重置或切换 provider）: {error}")
 
                 if attempt < max_retries:

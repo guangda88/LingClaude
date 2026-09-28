@@ -184,10 +184,22 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "models": ["deepseek-chat", "deepseek-reasoner"],
     },
     "minimax": {
+        # 2026-09-28: 按官方文档（platform.minimaxi.com/docs）全量刷新。
+        # 旧配置 api.minimax.chat + abab6.5s-chat 是历史端点/历史模型，
+        # 现官方 base_url 为 https://api.minimax.cn/v1（OpenAI 兼容）。
+        # Token Plan key 前缀 tp-；M3.1-Flash-Preview 暂时仅 Token Plan
+        # 和 MiniMax Code 提供（官方 Note）。深度思考默认开启，
+        # OpenAI 兼容下用 reasoning_effort 调节（low/medium/high/xhigh/max），
+        # 传 effort: none 或 thinking disabled 会 400。
         "type": "openai",
-        "base_url": "https://api.minimax.chat/v1",
-        "model": "abab6.5s-chat",
-        "models": ["abab6.5s-chat", "abab7-chat"],
+        "base_url": "https://api.minimax.cn/v1",
+        "model": "MiniMax-M3.1-Flash-Preview",
+        "models": [
+            "MiniMax-M3.1-Flash-Preview",
+            "MiniMax-M3",
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed",
+        ],
     },
     "nvidia": {
         "type": "openai",

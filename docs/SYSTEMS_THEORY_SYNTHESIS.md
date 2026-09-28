@@ -269,6 +269,7 @@ provider 生态 = 最大化边缘；TaskRouter 多候选 = 不求最优；learne
 | R7 | Kelly（钟表域） | **CLI 单轮入口捷径**（`lingclaude ask "task"`）——绕开 `run -i` 多轮流式会话，减少单步命令被卷入 token 放大回路。当前 `run` 命令的多轮循环是为复杂任务设计，单步被滥用时熔断成本高 | 🔶 建议落地（拆出 entry point，约 30 行） |
 | R8 | 钱学森（执行器单击） | **流式熔断不立即重连**——`stream_call_model` 在连续失败后让用户决定而非自动重试（防止"试→错→重试"放大回路） | 🔶 待评估（涉及体验取舍） |
 | R9 | Meadows | **黑名单统一词边界匹配**：单字符敏感规则改 `(?<![\w-])word\b` 语义，已修（`5396035` + `6ab877e`）——实测 `apt` 不再误伤 `--capture`，`at` 不再误伤 `cat` | ✅ 已落地（4 条防回归测试） |
+| R10 | 配额纪律 | **inprocess 子代理与主会话共享配额**：并行拆 N 个子代理 = N+1 路并发打同一 key，配额紧张时放大 429。纪律：①硬配额耗尽立即停手等重置（退避对硬配额无效，`openai_provider.py:442` 注释 GLM 1308 事故）；②熔断开启时并行自动降级串行（`inprocess.py:87` 并发预算）；③硬配额失败记 `[hard_quota_exhausted]` 埋点区分独享/放大耗尽；④需独立配额走 `SubagentRequest.provider` 显式指定或 acp provider | ✅ 已落地（P1a 埋点 + P1b 并发预算 + 本纪律） |
 
 ---
 

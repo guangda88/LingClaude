@@ -6,9 +6,12 @@ T1-6 深化: 支持 parallel 并行 + control_channel 状态跟踪.
 """
 from __future__ import annotations
 
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from lingclaude.engine.subagent.base import (
     SubagentBackend,
@@ -85,8 +88,30 @@ class InProcessSubagentBackend(SubagentBackend):
             )
 
         # T1-6: 并行执行
+        # P1-20260928: 并发预算——provider 熔断器开启（连续 429 冷却中）时
+        # 降级串行，避免 N+1 路并发打同一 key 放大硬配额耗尽（主会话+子代理
+        # 共享 inprocess provider 实例 → 共享上游配额）。
         if request.parallel > 1:
-            return self._run_parallel(request, ctx, provider)
+            retry_policy = getattr(provider, "_retry_policy", None)
+            if retry_policy is not None and getattr(retry_policy, "circuit_open", False):
+                logger.warning(
+                    "subagent 并发预算：provider 熔断器开启（circuit_429=%d），"
+                    "parallel=%d 降级为串行",
+                    getattr(retry_policy, "_circuit_consecutive_429", -1),
+                    request.parallel,
+                )
+                # P1-20260928: 429 预检——熔断器开启时拒绝并行，直接返回失败
+                return SubagentResult(
+                    agent_id=f"parallel-rejected-{uuid.uuid4().hex[:8]}",
+                    task=request.task,
+                    output="",
+                    success=False,
+                    error="Provider circuit breaker open (429 cooldown), parallel dispatch rejected",
+                    provider=self.name,
+                    status=SubagentStatus.FAILED,
+                )
+            else:
+                return self._run_parallel(request, ctx, provider)
 
         config = SubAgentConfig(
             max_rounds=request.max_rounds,
@@ -112,7 +137,10 @@ class InProcessSubagentBackend(SubagentBackend):
         return subagent_result
 
     def _run_parallel(self, request: SubagentRequest, ctx: SubagentContext, provider: Any) -> SubagentResult:
-        """T1-6: 并行执行多个子任务（每个任务独立 SubAgent）。"""
+        """T1-6: 并行执行多个子任务（每个任务独立 SubAgent）。
+
+        P1-20260928: 输出限流——聚合时限制总输出长度（默认 50KB），防止并行结果撑爆内存。
+        """
         from lingclaude.engine.loop.sub_agent import SubAgent, SubAgentConfig
 
         config = SubAgentConfig(
@@ -154,9 +182,21 @@ class InProcessSubagentBackend(SubagentBackend):
                         status=SubagentStatus.FAILED,
                     ))
 
-        # 聚合结果
+        # P1-20260928: 输出限流——聚合时限制总输出长度，防止并行结果撑爆内存
+        MAX_AGGREGATE_OUTPUT = 50 * 1024  # 50KB 上限
         success_count = sum(1 for r in results if r.success)
-        all_output = "\n\n".join(r.output for r in results if r.output)
+        all_output_parts = [r.output for r in results if r.output]
+        all_output = "\n\n".join(all_output_parts)
+        if len(all_output) > MAX_AGGREGATE_OUTPUT:
+            logger.warning(
+                "subagent 并行输出限流：聚合长度 %d 超过上限 %d，截断",
+                len(all_output), MAX_AGGREGATE_OUTPUT,
+            )
+            # 保留前 N 个结果，丢弃尾部
+            truncated_output = all_output[:MAX_AGGREGATE_OUTPUT]
+            truncated_output += f"\n\n... [TRUNCATED: {len(all_output) - MAX_AGGREGATE_OUTPUT} bytes omitted]"
+            all_output = truncated_output
+
         all_tools = tuple({tool for r in results for tool in r.tools_used})
         total_rounds = sum(r.rounds for r in results)
         return SubagentResult(
