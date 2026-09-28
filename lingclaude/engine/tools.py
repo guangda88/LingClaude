@@ -34,6 +34,29 @@ _PLUGIN_LOAD_LOCK = threading.Lock()
 _PLUGIN_LOAD_DONE = False
 _PLUGIN_LOAD_ERROR = ""
 
+# ── P7 (2026-09-28): 新落盘拾取触发器（进程级单例，延迟构造）──────────────
+# 挂点在 execute() 惰性兜底处（下方 _ensure_tool_plugins_loaded() 旁）：每次工具
+# 调用经 check() 节流扫描 plugins/tools + plugins/agents，diff 出新增插件目录
+# → 触发装载。拉取式（无后台线程）、fail-soft（异常不穿透工具执行）。
+# 注意诚实边界：add-only「新落盘拾取」，非「已加载代码热替换」（见 hot_reload_trigger 文档）。
+_HOT_RELOAD_TRIGGER: "object | None" = None
+
+
+def _get_hot_reload_trigger() -> "object":
+    """进程级 HotReloadTrigger 单例（延迟构造 + 延迟 import，S3 纪律）。"""
+    global _HOT_RELOAD_TRIGGER
+    if _HOT_RELOAD_TRIGGER is None:
+        from lingclaude.engine.hot_reload_trigger import HotReloadTrigger
+
+        _HOT_RELOAD_TRIGGER = HotReloadTrigger()
+    return _HOT_RELOAD_TRIGGER
+
+
+def _reset_hot_reload_trigger() -> None:
+    """清空触发器单例（仅测试用，防跨用例目录状态泄漏）。"""
+    global _HOT_RELOAD_TRIGGER
+    _HOT_RELOAD_TRIGGER = None
+
 
 def _ensure_tool_plugins_loaded() -> bool:
     """工具插片惰性装载（收口点，幂等）。
@@ -129,6 +152,11 @@ class ToolRegistry:
         # 若首调用时 warm 线程尚未装完, 此处同步补装再走 seam (仅对内部已知工具
         # 回填; NOT_FOUND 早退在前, 未知名不触发装载)。
         _ensure_tool_plugins_loaded()
+        # P7: 新落盘拾取（节流，fail-soft——触发器异常不阻断工具执行）。
+        try:
+            _get_hot_reload_trigger().check()
+        except Exception:  # noqa: BLE001 —— 热更是增强通路，不反噬主执行
+            logger.debug("hot-reload check failed", exc_info=True)
         # Q1 (2026-09-14): 主干热路径走 seam —— 同名覆盖即热拔插。
         # 先查 SeamRegistry.TOOL 槽位。但本注册表 register() 时自己会注册指向自身的
         # _ToolSeamProxy（tools.py register），若直接走它会造成 execute→proxy→execute 死循环。
