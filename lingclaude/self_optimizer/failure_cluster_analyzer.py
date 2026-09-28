@@ -323,13 +323,19 @@ class FailureClusterAnalyzer:
             result.error = f"knowledge write: {e}"
 
         # 追加 backlog（修复建议待执行队列）
+        # 2026-09-28 断点④闭环补：按 cluster_key 去重——此前每轮全量重扫 error_log
+        # 会把同一聚类无限追加（实测 49 条 = 49 簇，但含 5 类重复 hypothesis）。
+        # 已有未执行的同 key 条目不重复追加（pending/executing 态视为「在队」）。
         try:
             self.backlog_path.parent.mkdir(parents=True, exist_ok=True)
+            existing_pending_keys = self._read_pending_cluster_keys()
+            new_items = [c for c in actionable if c.cluster_key not in existing_pending_keys]
             with self.backlog_path.open("a", encoding="utf-8") as f:
-                for c in actionable:
+                for c in new_items:
                     f.write(json.dumps({
                         "at": datetime.now().isoformat(),
                         "type": "failure_cluster_fix",
+                        "status": "pending",  # 断点④：BacklogExecutor 消费后改 executed/skipped
                         "cluster_key": c.cluster_key,
                         "tool": c.tool_name,
                         "occurrences": c.occurrences,
@@ -339,6 +345,8 @@ class FailureClusterAnalyzer:
                         "sample": c.sample_message,
                     }, ensure_ascii=False) + "\n")
                     result.backlog_appended += 1
+            if not new_items and actionable:
+                logger.debug("backlog 无新增（%d 簇已在队列中）", len(actionable))
         except OSError as e:
             logger.warning("backlog 写入失败: %s", e)
             result.error = (result.error + f" | backlog: {e}").strip(" |")
@@ -349,6 +357,35 @@ class FailureClusterAnalyzer:
             result.rules_written, result.backlog_appended,
         )
         return result
+
+    # ------------------------------------------------------------------ #
+    # 辅助：读取 backlog 中 pending/executing 状态的 cluster_key 集合
+    # ------------------------------------------------------------------ #
+    def _read_pending_cluster_keys(self) -> set[str]:
+        """读 backlog 里未终结（pending/executing）状态的 cluster_key。
+
+        用于去重：同一聚类在队列中已有待执行项时，不重复追加。
+        返回空集表示无 pending（或 backlog 文件不存在/损坏——fail-soft）。
+        """
+        keys: set[str] = set()
+        if not self.backlog_path.exists():
+            return keys
+        try:
+            with self.backlog_path.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    status = entry.get("status", "pending")
+                    if status in ("pending", "executing"):
+                        keys.add(entry.get("cluster_key", ""))
+        except OSError:
+            pass  # fail-soft：读失败就当无 pending，让 analyzer 继续追加
+        return keys
 
 
 def analyze_failure_clusters(

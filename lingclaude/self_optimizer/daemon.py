@@ -483,6 +483,23 @@ class OptimizationDaemon:
         except Exception as _rev_err:  # noqa: BLE001 — 验证失败不阻断优化
             logger.debug("[断点②] 规则行为回放跳过（fail-soft）: %s", _rev_err)
 
+        # ---- 断点④（2026-09-28）：backlog 修复建议自动执行 ------------------
+        # 断点③产的修复建议（backlog）经白名单匹配后自动执行验证动作，
+        # 结果回写 backlog 条目 status。不可自动执行的标 skipped 等人工。
+        # fail-soft：执行失败不阻断优化主流程。
+        try:
+            from lingclaude.self_optimizer.backlog_executor import BacklogExecutor
+            bxe = BacklogExecutor()
+            bxe_result = bxe.execute()
+            if bxe_result.executed or bxe_result.skipped:
+                logger.info(
+                    "[断点④] backlog 自动执行：total=%d executed=%d skipped=%d failed=%d",
+                    bxe_result.total, bxe_result.executed,
+                    bxe_result.skipped, bxe_result.failed,
+                )
+        except Exception as _bxe_err:  # noqa: BLE001 — 执行失败不阻断优化
+            logger.debug("[断点④] backlog 执行跳过（fail-soft）: %s", _bxe_err)
+
         if not result.success:
             # ---- P1.5 失败入档（2026-09-17，借鉴 OpenEvolve artifact side-channel）----
             # 失败方案入档（含原因与当次参数），下轮 build_context 引用——
