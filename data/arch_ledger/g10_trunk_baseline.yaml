@@ -1,0 +1,28 @@
+# G10 主干直构棘轮基线（口径 A，2026-09-28 裁定）
+#
+# 裁定：tool_handlers/*.py 是主干装配的插片（J1 合法变化面），不入 G10 扫描面。
+# G10 防的是「主干装配焊死」，分三区：
+#
+#   assembly_layer    严格区：插片类构造只允许出现在 SLOT_WIRING_MANIFEST
+#                     注册的工厂函数体内（_initial_* / assemble_*）。
+#                     基线 0 违规，只降不升。
+#   controlled_rebuild 受控重建区：引擎层模型切换/pin 时的 provider 重建，
+#                     是设计好的行为。基线计数只降不升。
+#   loop_locals       循环层局部构造区：函数内临时对象（非装配期直构，
+#                     不焊死主干）。基线计数只降不升。
+#
+# 棘轮纪律：命中基线外新增构造即红；合法减少构造后须同步下调基线（只紧不松）。
+
+assembly_layer:
+  # 主干本体 + 装配器：插片构造只允许在 manifest 工厂函数体内
+  - lingclaude/engine/coding.py
+  - lingclaude/engine/coding_wiring.py
+
+controlled_rebuild:
+  # create_provider 受控重建点（AST 函数锚定，防行号漂移）
+  lingclaude/core/query_engine.py: 1                # _resolve / 模型解析处
+  lingclaude/core/query_engine_model_mixin.py: 2    # switch_model / pin_model 各一处
+
+loop_locals:
+  # _ToolLoopDetector() 函数内局部构造（run_turn_body × 2）
+  lingclaude/engine/loop/loop_body.py: 2

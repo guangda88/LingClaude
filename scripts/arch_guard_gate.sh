@@ -41,6 +41,7 @@ OUT="$("$PY" -m pytest -q \
   "tests/test_iron_law_guards.py::test_m3_dependency_direction" \
   "tests/test_p5_slot_guards.py::TestSlotBudgetGuard" \
   "tests/test_p5_slot_guards.py::TestG10NoInlineConstruction" \
+  "tests/test_p5_slot_guards.py::TestG10TrunkBaseline" \
   "tests/test_p5_slot_guards.py::TestRegistrationDatafication" \
   -x --no-header -p no:cacheprovider 2>&1)"
 RC=$?
