@@ -31,6 +31,9 @@ class CacheEntry:
     read_count: int = 0
     first_read_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_read_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    # 缓存写入时的磁盘 mtime_ns + size（失效校验用，免全文 hash）。
+    file_mtime_ns: int = 0
+    file_size: int = -1
 
 
 @dataclass(frozen=True)
@@ -115,6 +118,14 @@ class ContextCache:
             )
         """)
 
+        # 失效校验指纹列（2026-09-28）：ALTER 幂等加列，旧库自动迁移。
+        for col, decl in (("file_mtime_ns", "INTEGER NOT NULL DEFAULT 0"),
+                          ("file_size", "INTEGER NOT NULL DEFAULT -1")):
+            try:
+                cursor.execute(f"ALTER TABLE cache_entries ADD COLUMN {col} {decl}")
+            except Exception:  # noqa: BLE001 — 列已存在（duplicate column）时忽略
+                pass
+
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_last_read_at
             ON cache_entries(last_read_at)
@@ -147,6 +158,24 @@ class ContextCache:
         now = datetime.now(timezone.utc)
         return (now - last_read) > timedelta(hours=self.ttl_hours)
 
+    def _disk_unchanged(self, entry: CacheEntry) -> bool:
+        """缓存条目对应的磁盘文件是否未变更（mtime+size 快速比对）。
+
+        文件被外部改动后 mtime/size 变化 → 视为已失效，触发重读。
+        stat 一次远便宜于全文 hash，长会话重读路径的热路径优化。
+        任何 stat 失败（文件被删等）一律视为已变更（fail-safe 重读，
+        由重读路径抛 FileNotFoundError 给上层）。
+        """
+        if entry.file_mtime_ns == 0 and entry.file_size == -1:
+            # 无指纹条目（DB 历史数据）：无法校验磁盘是否已变，视为失效重读。
+            # 重读后以带指纹的新条目覆盖，一次性自愈；此后命中走快速校验。
+            return False
+        try:
+            st = Path(entry.file_path).stat()
+        except OSError:
+            return False
+        return st.st_mtime_ns == entry.file_mtime_ns and st.st_size == entry.file_size
+
     def read_file(
         self,
         file_path: str,
@@ -167,8 +196,8 @@ class ContextCache:
         if not force_refresh and file_path in self._memory_cache:
             entry = self._memory_cache[file_path]
 
-            if not self._is_expired(entry):
-                # 命中内存缓存
+            if not self._is_expired(entry) and self._disk_unchanged(entry):
+                # 命中内存缓存（且磁盘未变更）
                 self._update_read_count(file_path)
                 self._memory_cache.move_to_end(file_path)  # LRU
                 return entry.content, True
@@ -179,7 +208,8 @@ class ContextCache:
 
         if not force_refresh:
             cursor.execute("""
-                SELECT file_hash, content, read_count, first_read_at, last_read_at
+                SELECT file_hash, content, read_count, first_read_at, last_read_at,
+                       file_mtime_ns, file_size
                 FROM cache_entries
                 WHERE file_path = ?
             """, (file_path,))
@@ -193,20 +223,24 @@ class ContextCache:
                     read_count=row[2],
                     first_read_at=row[3],
                     last_read_at=row[4],
+                    file_mtime_ns=row[5] or 0,
+                    file_size=row[6] if row[6] is not None else -1,
                 )
 
-                if not self._is_expired(entry):
-                    # 命中磁盘缓存
+                if not self._is_expired(entry) and self._disk_unchanged(entry):
+                    # 命中磁盘缓存（且磁盘未变更；旧条目无指纹时 _disk_unchanged
+                    # 保守返回 True 维持旧行为）
                     self._update_read_count(file_path)
                     self._memory_cache[file_path] = entry
                     self._memory_cache.move_to_end(file_path)
                     conn.close()
                     return entry.content, True
 
-        # 缓存未命中，读取文件
+        # 缓存未命中，读取文件（stat 一次拿指纹 + 读内容，指纹供后续命中校验）
         try:
+            st = Path(file_path).stat()
             content = Path(file_path).read_text(encoding="utf-8")
-        except (FileNotFoundError, PermissionError, UnicodeDecodeError) as e:
+        except (FileNotFoundError, PermissionError, UnicodeDecodeError, OSError) as e:
             conn.close()
             raise FileNotFoundError(f"无法读取文件 {file_path}: {e}")
 
@@ -217,10 +251,12 @@ class ContextCache:
 
         cursor.execute("""
             INSERT OR REPLACE INTO cache_entries
-            (file_path, file_hash, content, read_count, first_read_at, last_read_at)
+            (file_path, file_hash, content, read_count, first_read_at, last_read_at,
+             file_mtime_ns, file_size)
             VALUES (?, ?, ?, COALESCE((SELECT read_count FROM cache_entries WHERE file_path = ?), 0) + 1,
-                    COALESCE((SELECT first_read_at FROM cache_entries WHERE file_path = ?), ?), ?)
-        """, (file_path, file_hash, content, file_path, file_path, now, now))
+                    COALESCE((SELECT first_read_at FROM cache_entries WHERE file_path = ?), ?), ?, ?, ?)
+        """, (file_path, file_hash, content, file_path, file_path, now, now,
+              st.st_mtime_ns, st.st_size))
 
         safe_commit(conn)
         conn.close()
@@ -233,6 +269,8 @@ class ContextCache:
             read_count=1,
             first_read_at=now,
             last_read_at=now,
+            file_mtime_ns=st.st_mtime_ns,
+            file_size=st.st_size,
         )
 
         # LRU 管理

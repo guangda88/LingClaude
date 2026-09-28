@@ -47,8 +47,8 @@ SPECS: tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name='read',
-        description='Read file contents with line numbers, offset/limit support',
-        parameters={'path': {'type': 'string'}, 'offset': {'type': 'integer'}, 'limit': {'type': 'integer'}, 'line_numbers': {'type': 'boolean'}},
+        description='Read file contents with line numbers, offset/limit support. Repeated read of an unchanged file returns a short reference (content omitted); pass force_refresh=1 or offset/limit to get content again.',
+        parameters={'path': {'type': 'string'}, 'offset': {'type': 'integer'}, 'limit': {'type': 'integer'}, 'line_numbers': {'type': 'boolean'}, 'force_refresh': {'type': 'boolean', 'description': 'Bypass re-read short-circuit and return full content'}},
         handler_attr='_read_handler',
         security_scope='read',
         concurrency_safe=True,

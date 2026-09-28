@@ -123,13 +123,35 @@ class ToolExecutor:
                 if preflight is not None:
                     return parse_tool_result(preflight, tool_name=name)
             try:
-                content, cache_hit = self._engine._cache.read_file(kwargs["path"])
+                # 长会话重读强制层（2026-09-28，诊断报告优化点1）：缓存命中（内容 hash
+                # 未变）时不再回全文——模型本会话已读过该内容，重读只回惰性引用，
+                # 把 35.7% 的文件重读 token 税打下来。文件被改后 hash 变化自动 miss
+                # → 返回新全文，天然安全。逃生门：force_refresh=1 强刷；或带
+                # offset/limit 窗口读（模型明确要局部时不短路，交给瘦身读窗口）。
+                force_refresh = bool(kwargs.get("force_refresh"))
+                has_window = kwargs.get("offset") not in (None, 0) or kwargs.get("limit") is not None
+                content, cache_hit = self._engine._cache.read_file(
+                    kwargs["path"], force_refresh=force_refresh
+                )
                 is_dup = self._engine._monitor.record_file_read(kwargs["path"], content)
                 self._engine._dementia_detector.record_file_read(kwargs["path"])
                 if cache_hit:
                     self._engine._session_cache_hits += 1
                     logger.debug("ContextCache hit for %s (duplicate=%s)", kwargs["path"], is_dup)
-                result_dict = {"content": content, "cache_hit": cache_hit}
+                short_circuit = cache_hit and not force_refresh and not has_window
+                if short_circuit:
+                    result_dict = {
+                        "path": kwargs["path"],
+                        "cache_hit": True,
+                        "content_omitted": True,
+                        "lines": content.count("\n") + (1 if content else 0),
+                        "message": (
+                            "文件内容与本次会话此前读取一致（未变更），已省略重复内容。"
+                            "如需重看: force_refresh=1；或窗口读: offset/limit。"
+                        ),
+                    }
+                else:
+                    result_dict = {"content": content, "cache_hit": cache_hit}
                 # NanoJev 契约消费层（消费点⑨ 执行是否成功 Noul 门控，2026-09-22）：
                 # 工具结果挂 success_verdict（P(成功)+依据，0 LLM token 本地先验）。
                 # fail-soft：门控异常不影响工具结果本身（不挂字段，保持原结果）。
