@@ -18,6 +18,8 @@ from fastapi.responses import StreamingResponse  # noqa: E402
 from fastapi.security import APIKeyHeader  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
+from lingclaude import __version__  # noqa: E402  — 版本单一来源（包级）
+
 # T0-3: 会话级审批回路 — 决策经 record_permission_decision 写入会话 store，
 # CodingRuntime.execute_tool / sensitive_path_gate 通过 get_permission_store 读取（同一注册表）
 from lingclaude.core.permissions import record_permission_decision
@@ -106,7 +108,7 @@ def _validate_path(path: Path, base_dir: Path) -> Path:
 
 _WORKING_DIR = Path(os.getcwd())
 
-app = FastAPI(title="灵克 API", version="0.2.2", description="灵字辈编程助手API")
+app = FastAPI(title="灵克 API", version=__version__, description="灵字辈编程助手API")
 
 # 限制 CORS 配置
 # F4 修复:webui 默认端口 23458 必须放行（2026-09-27 对齐：Rust/CLI/openapi 同值）。
@@ -219,7 +221,7 @@ class WriteFileRequest(BaseModel):
 async def root():
     return {
         "name": "灵克 (lingclaude)",
-        "version": "0.2.1",
+        "version": __version__,
         "role": "AI 编程助手",
         "endpoints": ["/ask", "/analyze", "/exec", "/read-file", "/write-file", "/status"],
     }
@@ -229,7 +231,7 @@ async def root():
 async def get_status(api_key: str = Security(verify_api_key)):
     return {
         "status": "online",
-        "version": "0.2.2",
+        "version": __version__,
         "projects": _list_projects(),
         "auth_required": bool(_VALID_API_KEYS),
     }

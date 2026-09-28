@@ -464,6 +464,23 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
                             ),
                         }
                         resolved_config = next_cfg
+                        # 2026-09-27: 降级切换生效时同步更新 provider._config.model，
+                        # 让 _toolbar_snapshot 的每秒解析能拿到实际生效模型名
+                        # （如 GLM-5.3-Flash），toolbar 不再恒显示启动名
+                        # glm-5.3-flash。仅在真实切换（名字不同）时写，避免
+                        # 冗余赋值。runtime_model 语义见 StatusModel 字段注释。
+                        try:
+                            _pv = getattr(engine, "_provider", None)
+                            if _pv is not None:
+                                _pvc = getattr(_pv, "_config", None)
+                                if (
+                                    _pvc is not None
+                                    and getattr(_pvc, "model", "")
+                                    and _pvc.model != next_cfg.model
+                                ):
+                                    _pvc.model = next_cfg.model
+                        except Exception:  # noqa: BLE001 — 名字同步失败不阻塞降级
+                            logger.debug("toolbar 模型名同步失败", exc_info=True)
                         continue
                     logger.warning(
                         "降级门禁拦截切换 → %s: %s（维持原候选走熔断轨）",

@@ -25,6 +25,7 @@
 """
 from __future__ import annotations
 
+import os
 import socket
 import statistics
 import subprocess
@@ -97,6 +98,51 @@ def _listening_ports() -> list[str]:
     return sh(["ss", "-tln"]).splitlines()
 
 
+def _netns_hint(port: str) -> str:
+    """端口在本机"未监听"时的归因探针：查找是否有进程在其它 netns 监听该端口。
+
+    背景（2026-09-27 proxy3 8765 误诊复盘）：沙箱(bwrap --unshare-net)内运行本脚本时，
+    ss/curl 看不到宿主 netns 的 LISTEN，会把健康服务误报为「未监听」，曾引发十几轮排查。
+    探针逻辑：从 /proc/net/tcp{,6} 找该端口的 socket inode → 反查持有该 inode 的进程 →
+    比对其 netns 与本进程 netns。不同即确诊「目标在隔离 netns，非服务故障」。
+    全程软失败：任何异常返回空串，绝不让巡检脚本在受限环境崩掉。
+    """
+    try:
+        target_hex = f"{int(port):04X}"
+        inodes: set[str] = set()
+        for table in ("/proc/net/tcp", "/proc/net/tcp6"):
+            try:
+                for ln in Path(table).read_text().splitlines()[1:]:
+                    parts = ln.split()
+                    # 字段: sl local_address rem_address st ... inode(索引9)
+                    if len(parts) > 9 and parts[1].endswith(f":{target_hex}") and parts[3] == "0A":
+                        inodes.add(parts[9])
+            except OSError:
+                continue
+        if not inodes:
+            return ""
+        mine = os.readlink("/proc/self/ns/net")
+        for pid_dir in Path("/proc").iterdir():
+            if not pid_dir.name.isdigit():
+                continue
+            try:
+                for fd in (pid_dir / "fd").iterdir():
+                    link = os.readlink(fd)
+                    if link.startswith("socket:[") and link[8:-1] in inodes:
+                        theirs = os.readlink(pid_dir / "ns" / "net")
+                        if theirs != mine:
+                            return (
+                                f"⚠️ 检测到 pid={pid_dir.name} 在隔离 netns({theirs}) 监听该端口，"
+                                f"本进程 netns({mine}) 不可达——非服务故障，需 netns 桥接或换主机侧巡检"
+                            )
+                        return ""  # 同 netns 内确有监听，原告警成立
+            except (OSError, PermissionError):
+                continue
+        return ""
+    except Exception:
+        return ""
+
+
 def inspect() -> tuple[list[str], list[str]]:
     oks: list[str] = []
     alerts: list[str] = []
@@ -138,7 +184,8 @@ def inspect() -> tuple[list[str], list[str]]:
         elif any(f":{port} " in ln or f":{port}\t" in ln for ln in listening):
             alerts.append(f"端口 {port}({name}) 监听但 connect 全失败(进程可能僵死)")
         else:
-            alerts.append(f"端口 {port}({name}) 未监听")
+            hint = _netns_hint(port)
+            alerts.append(f"端口 {port}({name}) 未监听{(' — ' + hint) if hint else ''}")
 
     # 4. daemon watch
     dw = sh(["systemctl", "--user", "is-active", "lingclaude-daemon-watch.service"]).strip()
