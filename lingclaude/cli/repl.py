@@ -277,15 +277,23 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
                     status.clear_degraded("model")
                 else:
                     status.set_pinned(False)
-                    _prov_cfg = (
-                        getattr(_engine._provider, "_config", None)  # noqa: SLF001
-                        if _engine is not None and getattr(_engine, "_provider", None)
-                        else None
-                    )
-                    _m = str(getattr(_prov_cfg, "model", "") or "")
-                    if _m:
-                        status.set_model(_m)
-                        status.set_runtime_model(_m)
+                    # 2026-09-28 方案 B：优先读 engine._current_model_name（降级后同步），
+                    # 兜底读 _provider._config.model（启动值）。_current_model_name 由
+                    # loop_body.py 降级成功时更新，解决 P1 槽化后 toolbar 恒显示旧名问题。
+                    _current = str(getattr(_engine, "_current_model_name", "") or "")
+                    if _current:
+                        status.set_model(_current)
+                        status.set_runtime_model(_current)
+                    else:
+                        _prov_cfg = (
+                            getattr(_engine._provider, "_config", None)  # noqa: SLF001
+                            if _engine is not None and getattr(_engine, "_provider", None)
+                            else None
+                        )
+                        _m = str(getattr(_prov_cfg, "model", "") or "")
+                        if _m:
+                            status.set_model(_m)
+                            status.set_runtime_model(_m)
                     status.clear_degraded("model")
             except Exception:  # noqa: BLE001 — 名字解析失败留旧值，登记降级
                 status.mark_degraded("model")

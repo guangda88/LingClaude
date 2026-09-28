@@ -399,6 +399,7 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     WiringSpec("_l5_orchestrator", lambda ctx: None, phase="state", note="L5 编排器 lazy init 槽"),
     WiringSpec("_pinned_model_config", lambda ctx: None, phase="state", note="钉定模型槽"),
     WiringSpec("_pinned_model_expires", lambda ctx: 0.0, phase="state", note="钉定模型过期时间戳"),
+    WiringSpec("_current_model_name", lambda ctx: "", phase="state", note="运行时当前生效模型名（F12f 降级后同步，供 toolbar 实时解析）"),
     WiringSpec("_mv1_violations", lambda ctx: [], phase="state", note="D8 MV1 违规记录(灵信 L-b seq 归因)"),
     WiringSpec("_usage", lambda ctx: _make_usage(), phase="state", note="UsageSummary 累积"),
     # -- collaborator：类实例协作者（29 项，插片候选）--

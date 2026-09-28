@@ -30,6 +30,7 @@ EXPECTED_ATTRS = {
     "_history_epoch", "_loop_hooks",
     "_degradation_alerts", "_l5_orchestrator",
     "_pinned_model_config", "_pinned_model_expires", "_mv1_violations",
+    "_current_model_name",  # 2026-09-28: F12f 降级后 toolbar 同步，方案 B
     "_usage", "_write_lock",
     # collaborator (29)  ← P3 新增 state_store
     "_behavior", "_intel_collector", "_session_persister", "_session_runtime",
@@ -67,7 +68,7 @@ def _make_ctx(engine):
 
 class TestManifestIntegrity:
     def test_manifest_covers_exactly_55(self):
-        assert len(WIRING_MANIFEST) == 58  # 2026-09-26: −_memory_engine（回收，recycled-memory-engine-20260926）；2026-09-21: +_history_epoch +_loop_hooks
+        assert len(WIRING_MANIFEST) == 59  # 2026-09-28: +_current_model_name（F12f 降级后 toolbar 同步，方案 B）；2026-09-26: −_memory_engine（回收，recycled-memory-engine-20260926）；2026-09-21: +_history_epoch +_loop_hooks
 
     def test_manifest_attrs_match_frozen_set(self):
         attrs = {spec.attr for spec in WIRING_MANIFEST}
@@ -78,7 +79,7 @@ class TestManifestIntegrity:
         assert len(attrs) == len(set(attrs)), "manifest 存在重复条目"
 
     def test_phase_vocabulary_conserved(self):
-        counts = {"state": 27, "collaborator": 29, "parameterized": 2}  # 2026-09-26: state 28→27(−_memory_engine)；2026-09-21: +_history_epoch +_loop_hooks
+        counts = {"state": 28, "collaborator": 29, "parameterized": 2}  # 2026-09-28: state 27→28(+_current_model_name，F12f 方案 B)；2026-09-26: state 28→27(−_memory_engine)；2026-09-21: +_history_epoch +_loop_hooks
         actual: dict[str, int] = {}
         for spec in WIRING_MANIFEST:
             assert spec.phase in counts, f"未知 phase: {spec.phase}"
@@ -94,7 +95,7 @@ class TestAssembleSemantics:
     def test_assemble_bare_engine_all_attrs_present(self):
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
-        assert len(wired) == 58  # 2026-09-26: −_memory_engine；2026-09-21: +_history_epoch +_loop_hooks
+        assert len(wired) == 59  # 2026-09-28: +_current_model_name（F12f 方案 B）；2026-09-26: −_memory_engine；2026-09-21: +_history_epoch +_loop_hooks
         for attr in EXPECTED_ATTRS:
             assert hasattr(engine, attr), f"装配后缺 {attr}"
 
@@ -145,7 +146,7 @@ class TestAssembleSemantics:
         engine = _bare_engine()
         wired = assemble(_make_ctx(engine))
         assert engine.audit_collector is not None
-        assert len(wired) == 58  # 2026-09-26: −_memory_engine；2026-09-21: +_history_epoch +_loop_hooks
+        assert len(wired) == 59  # 2026-09-28: +_current_model_name（F12f 方案 B）；2026-09-26: −_memory_engine；2026-09-21: +_history_epoch +_loop_hooks
 
     def test_overrides_state_phase_also_injectable(self):
         """P2.d: overrides 对 state 条目同样生效。

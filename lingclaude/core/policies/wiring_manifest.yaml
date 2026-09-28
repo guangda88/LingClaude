@@ -102,8 +102,12 @@ manifest:
     factory: 
     phase: state
     note: "钉定模型过期时间戳"
+  - attr: _current_model_name
+    factory:
+    phase: state
+    note: "运行时当前生效模型名（F12f 降级后同步，供 toolbar 实时解析）"
   - attr: _mv1_violations
-    factory: 
+    factory:
     phase: state
     note: "D8 MV1 违规记录(灵信 L-b seq 归因)"
   - attr: _usage

@@ -139,3 +139,16 @@ def test_fallback_gate_blocked_still_breaks() -> None:
     # 第一跳失败 + 门禁拦截 → 直接 error，不走到第二跳
     assert any(e["type"] == "error" for e in events)
     assert provider.calls == ["glm"]  # 第二跳从未被调用
+
+
+def test_fallback_syncs_current_model_name() -> None:
+    """方案 B（2026-09-28）：降级成功时 engine._current_model_name 同步更新，
+    toolbar 不再恒显示启动名（frozen ModelProviderConfig 不可写，改走引擎态）。"""
+    provider = _ScriptedProvider(["error", "success"])
+    engine = _Engine(provider, ["glm", "volcengine"])
+    engine._current_model_name = ""  # 模拟 QueryEngine 装配初值
+    events = _collect(engine)
+    assert any(e["type"] == "done" for e in events)
+    assert engine._current_model_name == "volcengine", (
+        f"降级后 _current_model_name 应为备选名，实际: {engine._current_model_name!r}"
+    )
