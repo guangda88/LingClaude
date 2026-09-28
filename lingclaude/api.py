@@ -575,6 +575,13 @@ async def exec_cmd(req: ExecRequest):
 
 @app.post("/read-file")
 async def read_file(path: str, api_key: str = Security(verify_api_key)):
+    # 2026-09-28 SEC-M3 修复：/read-file 联动 sensitive_path_gate（此前只校验
+    # 工作目录边界，可读工作目录内 .env/api_keys 等密钥文件——凭据外泄闭环）。
+    from lingclaude.engine.sensitive_path_gate import check_sensitive_path
+
+    is_sensitive, reason = check_sensitive_path(path)
+    if is_sensitive:
+        raise HTTPException(403, f"拒绝访问敏感路径: {reason}")
     p = _validate_path(Path(path), _WORKING_DIR)
     if not p.exists():
         raise HTTPException(404, f"文件不存在: {path}")
@@ -589,6 +596,12 @@ async def read_file(path: str, api_key: str = Security(verify_api_key)):
 
 @app.post("/write-file")
 async def write_file(req: WriteFileRequest, api_key: str = Security(verify_api_key)):
+    # 2026-09-28 SEC-M3 修复：写操作同样拦截敏感路径（防覆写密钥/配置文件）。
+    from lingclaude.engine.sensitive_path_gate import check_sensitive_path
+
+    is_sensitive, reason = check_sensitive_path(req.path)
+    if is_sensitive:
+        raise HTTPException(403, f"拒绝写入敏感路径: {reason}")
     p = _validate_path(Path(req.path), _WORKING_DIR)
     if not p.parent.exists():
         p.parent.mkdir(parents=True, exist_ok=True)

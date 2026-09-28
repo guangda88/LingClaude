@@ -50,6 +50,10 @@ SENSITIVE_MARKERS: tuple[str, ...] = (
     "vendor/.env",
     ".aws/credentials",
     ".kube/config",
+    # 2026-09-28 SEC-M3 补充：API key 存储文件（lingclaude 自身凭据外泄闭环）
+    "api_keys.env",
+    "api_keys.json",
+    "/api_keys",
 )
 
 # 特殊规则：.env 仅当在路径中（非文件名）
