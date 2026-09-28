@@ -36,6 +36,7 @@ import base64
 import logging
 import os
 import re
+import signal
 import sys
 import threading
 import time
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 from lingclaude.cli.input_queue import EOF_SENTINEL
 from lingclaude.cli.interface import (
     PT_TUI_STYLE,
+    _extract_sgr_styles,
     _fallback_strip_ansi,
     _patch_pt_modifier_enter,
     _strip_ansi_text,
@@ -119,7 +121,78 @@ _PASTE_STORE_MAX = 200
 
 _OSC52_DEBUG = os.environ.get("LING_OSC52_DEBUG", "") not in ("", "0", "false")
 
+# ── 信号级终端复位（2026-09-27，仿 atomcode signal_restore.rs）──────────
+# 被 SIGTERM/SIGHUP 直接杀进程时，Python 层 finally/atexit 全部不执行，
+# PT 已进的备用屏/鼠标上报/隐藏光标全部残留（鼠标残码事故的最后一类
+# 未覆盖路径）。handler 里只做 async-signal-safe 近似操作：os.write 一段
+# 静态字节串（无分配、无锁、无任意 Python 调用），然后恢复默认 disposition
+# 并 re-raise 保持退出码语义。SIGINT 不碰——那是 Ctrl+C 打断机制的。
+_SIGNAL_RESTORE_SEQ = (
+    b"\x1b[<u"            # kitty 键盘协议 pop
+    b"\x1b[=0;1u"         # kitty flags 清零
+    b"\x1b[?1004l"        # 焦点上报 off
+    b"\x1b[?1000l\x1b[?1003l\x1b[?1015l\x1b[?1006l"  # 鼠标上报全关
+    b"\x1b[?2004l"        # bracketed paste off
+    b"\x1b[?1049l"        # 退出备用屏（自动恢复主屏内容）
+    b"\x1b[?25h"          # 显示光标
+    b"\x1b[0m"            # SGR 全复位
+)
+
+
+def _signal_restore_handler(signum: int, frame: Any) -> None:
+    """SIGTERM/SIGHUP handler：仅 signal-safe 写复位序列，再恢复默认终止。"""
+    try:
+        os.write(1, _SIGNAL_RESTORE_SEQ)
+    except Exception:  # noqa: BLE001 — 终端已关（SIGHUP 常态）：放弃即走
+        pass
+    try:
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+    except Exception:  # noqa: BLE001 — re-raise 失败则直接退出
+        os._exit(128 + signum)
+
+
+def _install_signal_restore() -> None:
+    """装 SIGTERM/SIGHUP 复位 handler（幂等；非主线程静默放弃）。"""
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, _signal_restore_handler)
+        except (ValueError, OSError):  # 非主线程 / 不支持的信号
+            pass
+
+
 if _HAS_PROMPT_TOOLKIT:
+
+    def _style_range(
+        fragments: list[tuple], lo: int, hi: int, add: str
+    ) -> list[tuple]:
+        """对 fragments 的显示列区间 [lo, hi) 追加样式串 add（SGR 白名单）。
+
+        与 _reverse_range 同构（按绝对显示列切 fragment），区别是不限定
+        reverse 而是合并任意样式串；事件样式（*rest）原样透传。
+        """
+        out: list[tuple] = []
+        pos = 0
+        for style, txt, *rest in fragments:
+            w = len(txt)
+            seg_lo, seg_hi = pos, pos + w
+            pos = seg_hi
+            a = max(seg_lo, lo)
+            b = min(seg_hi, hi)
+            if a >= b:  # 无交集
+                out.append((style, txt, *rest))
+                continue
+            pre = txt[: a - seg_lo]
+            mid = txt[a - seg_lo : b - seg_lo]
+            post = txt[b - seg_lo :]
+            if pre:
+                out.append((style, pre, *rest))
+            if mid:
+                merged = f"{style} {add}" if style else add
+                out.append((merged, mid, *rest))
+            if post:
+                out.append((style, post, *rest))
+        return out
 
     def _reverse_range(
         fragments: list[tuple], lo: int, hi: int | None
@@ -165,6 +238,22 @@ if _HAS_PROMPT_TOOLKIT:
 
         def apply_transformation(self, ti: TransformationInput) -> Transformation:
             sess = self._session
+            row = ti.lineno
+            # 受限富文本（2026-09-27）：先按样式表上 SGR 色，再做拖选反色。
+            spans = sess._style_map.get(row)
+            if spans:
+                frags = ti.fragments
+                for lo, hi, st in spans:
+                    frags = _style_range(frags, lo, hi, st)
+                ti = TransformationInput(
+                    ti.buffer_control,
+                    ti.document,
+                    lineno=row,
+                    source_to_display=ti.source_to_display,
+                    fragments=frags,
+                    width=ti.width,
+                    height=ti.height,
+                )
             start = sess._sel_start
             end = sess._sel_end
             if start is None or end is None or start == end:
@@ -278,7 +367,9 @@ class _StdoutProxy:
             # 处理安全：多字节字符的首/续字节均不落 0x40-0x7E）。
             data = self._esc_hold + s.encode("utf-8", errors="replace")
             self._esc_hold = b""
-            data, hold, _ = _fallback_strip_ansi(data, False)
+            # keep_sgr=True（2026-09-27 受限富文本）：SGR 保留，供写窗层
+            # _extract_sgr_styles 解析成列区间样式表；非 SGR CSI 仍吞。
+            data, hold, _ = _fallback_strip_ansi(data, False, keep_sgr=True)
             self._esc_hold = hold
             s2 = data.decode("utf-8", errors="replace")
             for ch in s2:
@@ -411,6 +502,17 @@ class FullTuiSession:
         self._out_lock = threading.Lock()
         self._pending_lines: list[str] = []
         self._area_lock = threading.Lock()
+        # 受限富文本（2026-09-27）：输出窗行号→列区间样式表。行文本入
+        # Buffer（无 ESC），SGR 样式单独存这里，渲染时 _SgrStyleProcessor
+        # 按 (行,列起,列止) 上色——零字符污染，不碰 PT 布局（processor 插
+        # \n 会被 document.line_count 错位，实码验证见 interface.py 注释）。
+        # 写侧持 _out_lock 序列化；读侧（渲染线程）持 _style_lock，双锁
+        # 分离避免渲染与行搬运互等。
+        self._style_map: dict[int, list[tuple[int, int, str]]] = {}
+        self._style_lock = threading.Lock()
+        # 与 _pending_lines 平行的样式暂存队列（_out_lock 保护，元素与
+        # pending 行一一对应）；drain 时按起始行号并入 _style_map。
+        self._style_spans_pending: list[list[tuple[int, int, str]]] = []
         # Raw 看门狗节流游标（2026-09-26 假死根治）：见 _check_tty_raw_drift。
         # app 活着但终端被外部踩回 canonical 时，PT 逐键读者收不到任何事件，
         # 表现为整屏假死（19:20-19:45 事故）——等待循环每轮顺带检测自愈。
@@ -639,6 +741,10 @@ class FullTuiSession:
         sys.stdout = self._stdout_proxy
         self._running = True
         self._ever_started = True
+        # 信号级终端复位（2026-09-27）：覆盖 SIGTERM/SIGHUP 直接杀进程时
+        # finally/atexit 全部不执行的残留场景（ac signal_restore.rs 同型）。
+        # 原子操作失败（非主线程等）静默放弃，与兜底链其他层互不依赖。
+        _install_signal_restore()
         self._app_thread = threading.Thread(
             target=self._run_app, daemon=True, name="full-tui-app",
         )
@@ -1150,22 +1256,31 @@ class FullTuiSession:
     def _write_via_buffer(self, s: str) -> None:
         if not s:
             return
-        # 2026-09-20 乱码修复：append_output 直通路径此前无清洗，模型回复
-        # 内嵌 SGR 序列（\x1b[1;4m…）落 TextArea 被渲染成 '?[1;4m' 明文。
-        # 汇聚点统一剥 ANSI（stdout 代理已剥过，幂等无害）。
-        s = _strip_ansi_text(s)
-        frag: list[str] = []
+        # 2026-09-27 受限富文本重写：SGR 不再盲剥——逐行解析成「净化文本
+        # + 列区间样式表」。净化文本走旧 pending 队列入 Buffer（零 ESC，
+        # TextArea 渲染 '?[1;4m' 明文的病根消除）；样式随行暂存
+        # _style_spans_pending（与 pending 行一一对应），drain 时按起始
+        # 行号落 _style_map 供渲染 processor 消费。非 SGR CSI/SS3/孤立
+        # ESC 仍整体吞（旧行为不变）；半行滞留 flush() 兜底不变。
+        stashed: list[tuple[str, list[tuple[int, int, str]]]] = []
+        cur_text: list[str] = []
         with self._out_lock:
             for ch in s:
                 if ch == "\n":
-                    self._pending_lines.append("".join(frag))
-                    frag.clear()
+                    text, spans = _extract_sgr_styles("".join(cur_text))
+                    stashed.append((text, spans))
+                    cur_text.clear()
                 elif ch == "\r":
-                    frag.clear()
+                    cur_text.clear()
                 else:
-                    frag.append(ch)
-            if frag:
-                self._pending_lines.append("".join(frag))
+                    cur_text.append(ch)
+            if cur_text:
+                text, spans = _extract_sgr_styles("".join(cur_text))
+                stashed.append((text, spans))
+            # 与旧实现对齐：空行（ch=='\n' 连续）也占行——stashed 不含
+            # 空串行会压缩行数，破坏 _flush_line 的行边界契约。
+            self._pending_lines.extend(t for t, _ in stashed)
+            self._style_spans_pending.extend(sp for _, sp in stashed)
         self._drain_output_to_area()
 
     def _drain_output_to_area(self) -> None:
@@ -1175,8 +1290,11 @@ class FullTuiSession:
                 return
             lines = self._pending_lines
             self._pending_lines = []
+            # 样式与行同队列出（_write_via_buffer 保证一一对应）
+            spans_list = self._style_spans_pending
+            self._style_spans_pending = []
         if lines:
-            self._append_output_lines(lines)
+            self._append_output_lines(lines, spans_list)
 
     # ── PromptSessionInterface 协议 ──
     def push_to_history(self, text: str) -> None:
@@ -1347,6 +1465,9 @@ class FullTuiSession:
         明文。与 _write_via_buffer 同用一剥离器（幂等，双洗无害）。
         """
         text = "\n".join(_strip_ansi_text(line) for line in lines)
+        # 2026-09-27 受限富文本：整体替换 = 旧样式表全部失效，清空防错位。
+        with self._style_lock:
+            self._style_map.clear()
         self._out_buffer.set_document(Document(text, 0), bypass_readonly=True)
         self._out_buffer.cursor_position = len(text)
         self._follow_output = True
@@ -1400,13 +1521,20 @@ class FullTuiSession:
         except Exception:  # noqa: BLE001 — 滚动异常不反噬事件循环
             pass
 
-    def _append_output_lines(self, lines: list[str]) -> None:
+    def _append_output_lines(
+        self,
+        lines: list[str],
+        spans_list: list[list[tuple[int, int, str]]] | None = None,
+    ) -> None:
         """追加行进输出窗（跨线程安全：_area_lock 串行化读改写）。
 
         行数超限丢最旧行；Application 未运行时仅更新缓冲（不渲染，无害）。
         跟随模式：光标钉回文末（新输出可见）；回看模式：光标行保持不变
         （set_document 会重置光标，必须显式恢复），仅当旧行被裁掉时按裁剪
         量上移光标修正视口锚点。
+
+        2026-09-27 受限富文本：spans_list 与 lines 一一对应（无则全 None），
+        按最终行号写入 _style_map；首部被裁时行号整体平移 dropped。
         """
         try:
             with self._area_lock:
@@ -1414,6 +1542,7 @@ class FullTuiSession:
                 old_text = buf.text
                 old_row = buf.document.cursor_position_row
                 all_lines = old_text.split("\n") if old_text else []
+                old_count = len(all_lines)
                 all_lines.extend(lines)
                 dropped = 0
                 if len(all_lines) > MAX_OUTPUT_LINES:
@@ -1421,6 +1550,27 @@ class FullTuiSession:
                     all_lines = all_lines[-MAX_OUTPUT_LINES:]
                 new_text = "\n".join(all_lines)
                 buf.set_document(Document(new_text, 0), bypass_readonly=True)
+                # ── 样式表同步（2026-09-27 受限富文本）──
+                if spans_list is None:
+                    spans_list = [None] * len(lines)  # type: ignore[list-item]
+                if dropped:
+                    for _ in range(dropped):
+                        if spans_list:
+                            spans_list.pop(0)
+                    with self._style_lock:
+                        if dropped >= old_count:
+                            self._style_map.clear()
+                        else:
+                            self._style_map = {
+                                row - dropped: sp
+                                for row, sp in self._style_map.items()
+                                if row - dropped >= 0
+                            }
+                base = max(0, old_count - dropped)
+                with self._style_lock:
+                    for i, sp in enumerate(spans_list):
+                        if sp:
+                            self._style_map[base + i] = list(sp)
                 if self._follow_output or not new_text:
                     buf.cursor_position = len(new_text)
                 else:

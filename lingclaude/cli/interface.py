@@ -108,21 +108,24 @@ _MAPPED_SEQUENCES = False
 # P0-2（2026-09-20）: 降级读路径的转义清洗状态机（TUI 优化方案 P0-2/P1-2）。
 # 内核 read 可把 \x1b[200~ 等序列切在任意字节边界（\x1b[200~ab / cd\x1b[201~
 # 两片、甚至 \x1b[200 单独成片），startswith/单次 replace 均会漏剥。
-def _fallback_strip_ansi(data: bytes, in_paste: bool) -> tuple[bytes, bytes, bool]:
+def _fallback_strip_ansi(
+    data: bytes, in_paste: bool, keep_sgr: bool = False
+) -> tuple[bytes, bytes, bool]:
     """清洗一个 read 分片：返回 (正文, 待拼接的不完整序列尾部, 新 in_paste)。
 
-    - \x1b[200~/\x1b[201~：任何位置出现都剥离；开/闭标记计数奇偶翻转
-      in_paste（支持标记拆片——老代码 startswith 只认分片首位）；
-    - 其他 CSI：读到终结字节(0x40-0x7E)整体吞（含粘贴标记本身，它们以 ~
-      结束天然被吞——先计数再吞，状态机语义不受影响）；
-    - 尾部不完整序列（孤立 \x1b / \x1b[..无终结字节 / \x1b[200 等）扣下，
-      由调用方与下一分片拼接后再判定。
+    keep_sgr=False（默认）：所有 CSI 全吞（历史行为，零回归）。
+    keep_sgr=True（2026-09-27 受限富文本）：SGR（ESC[...m，final='m'）
+    保留进正文——由 _extract_sgr_styles 在写窗层二次解析成列区间样式表；
+    非 SGR CSI 仍吞。仅 _StdoutProxy 降级路径使用 True（原始 stdout 的
+    探测器/进度条需要 SGR 到达解析器），主路径保持 False。
     """
     # ⚠ \x1bO（SS3 前缀，DECCKM 应用光标模式方向键）必须在此列——
     # 否则 ESC+O 拆片时 'O' 被误吞、final 字节漏成正文（实测场景 8）。
+    # 2026-09-27 keep_sgr：补 \x1b[3 / \x1b[30 前缀——SGR（如 \x1b[31m）
+    # 跨片（b"\x1b[3"+b"1mXY"）时旧表无此前缀，后半截 "1m" 漏成正文（实测）。
     for p in (
         b"\x1b[200", b"\x1b[201", b"\x1b[20", b"\x1b[2", b"\x1b[",
-        b"\x1bO", b"\x1b",
+        b"\x1b[3", b"\x1b[30", b"\x1bO", b"\x1b",
     ):
         if data.endswith(p):
             hold = p
@@ -138,16 +141,19 @@ def _fallback_strip_ansi(data: bytes, in_paste: bool) -> tuple[bytes, bytes, boo
     n = len(data)
     while i < n:
         if data[i] == 0x1B:
-            # ESC+[...final(0x40-0x7E)：CSI 整体吞；ESC+O：SS3 三字节吞
-            # （DECCKM 应用光标模式方向键 \x1bOA/B/C/D，只吞两字节会漏尾字节）；
-            # ESC+其他：吞两字节。到片尾仍无终结字节：扣下待拼接（正常不会
-            # 发生——hold 已扣尾，此分支兜底数据中间态）。
+            # ESC+[...final(0x40-0x7E)：CSI 整体吞（keep_sgr 时 SGR 例外，
+            # 序列原样保留）；ESC+O：SS3 三字节吞（DECCKM 应用光标模式方向
+            # 键 \x1bOA/B/C/D，只吞两字节会漏尾字节）；ESC+其他：吞两字节。
+            # 到片尾仍无终结字节：扣下待拼接（正常不会发生——hold 已扣尾，
+            # 此分支兜底数据中间态）。
             j = i + 1
             if j < n and data[j] == 0x5B:  # '['
                 k = j + 1
                 while k < n and not (0x40 <= data[k] <= 0x7E):
                     k += 1
                 if k < n:
+                    if keep_sgr and data[k] == 0x6D:  # 'm' = SGR final
+                        out.extend(data[i : k + 1])
                     i = k + 1
                     continue
                 break  # 不完整 CSI（不应发生，防御）
@@ -159,6 +165,85 @@ def _fallback_strip_ansi(data: bytes, in_paste: bool) -> tuple[bytes, bytes, boo
         out.append(data[i])
         i += 1
     return bytes(out), hold, in_paste
+
+
+def _sgr_params_to_style(params: str) -> str | None:
+    """SGR 参数串 → PT 样式字符串（白名单）；空/全 reset 返回 None。
+
+    受限富文本（2026-09-27 性价比两步之一）：输出窗不渲染裸 SGR（会被
+    PT 画成 '?[1;4m' 明文），而是写入时把 SGR 转成 PT fragment 样式。
+    白名单只收最常用安全子集：粗体/斜体/下划线/删除线/反转 + 基础 8 色
+    前景（30-37/90-97）与背景（40-47/100-107）+ 39/49 默认色 + 0 清除。
+    不支持：256/24bit 色（38;5;n / 38;2;r;g;b）——降级为默认色，防恶意
+    超长参数串；未知参数忽略（对齐终端宽容语义）。
+    """
+    if not params:
+        return None
+    try:
+        parts = [int(p) if p else 0 for p in params.split(";")]
+    except ValueError:  # 非数字参数串（异常构造）：整体放弃
+        return None
+    if len(parts) > 32:  # 防御：超长参数串拒绝
+        return None
+    fg: list[str] = []
+    bg: list[str] = []
+    mods: list[str] = []
+    i = 0
+    n = len(parts)
+    while i < n:
+        p = parts[i]
+        if p == 0:
+            fg.clear(); bg.clear(); mods.clear()  # noqa: E701 — SGR 0 全清
+        elif p in (1, 2):
+            if "bold" not in mods:
+                mods.append("bold")
+        elif p == 3 and "italic" not in mods:
+            mods.append("italic")
+        elif p == 4 and "underline" not in mods:
+            mods.append("underline")
+        elif p == 9 and "strike" not in mods:
+            mods.append("strike")
+        elif p == 7 and "reverse" not in mods:
+            mods.append("reverse")
+        elif p == 22:
+            mods[:] = [m for m in mods if m != "bold"]
+        elif p == 23:
+            mods[:] = [m for m in mods if m != "italic"]
+        elif p == 24:
+            mods[:] = [m for m in mods if m != "underline"]
+        elif p == 29:
+            mods[:] = [m for m in mods if m != "strike"]
+        elif p == 27:
+            mods[:] = [m for m in mods if m != "reverse"]
+        elif 30 <= p <= 37 or 90 <= p <= 97:
+            _fi = p - 30 if p < 90 else p - 90
+            fg = [("ansibright" if p >= 90 else "ansi") + _SGR_BASE[_fi]]
+        elif p == 39:
+            fg.clear()
+        elif 40 <= p <= 47 or 100 <= p <= 107:
+            _bi = p - 40 if p < 100 else p - 100
+            bg = [("bg:ansibright" if p >= 100 else "bg:ansi") + _SGR_BASE[_bi]]
+        elif p == 49:
+            bg.clear()
+        elif p in (38, 48):
+            # 扩展色：按参数长度跳过（38;5;n / 38;2;r;g;b），不产生样式
+            if i + 1 < n and parts[i + 1] == 5:
+                i += 2
+            elif i + 1 < n and parts[i + 1] == 2:
+                i += 4
+            # 形态非法（38;7 之类）：不跳，交给循环忽略
+        # 其余（掩码/字体选择等）忽略
+        i += 1
+    out = []
+    if fg:
+        out.extend(fg)
+    if bg:
+        out.extend(bg)
+    out.extend(mods)
+    return " ".join(out) if out else None
+
+
+_SGR_BASE = ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
 
 
 def _strip_ansi_text(s: str) -> str:
@@ -203,6 +288,78 @@ def _strip_ansi_text(s: str) -> str:
             out.append(ch)
         i += 1
     return "".join(out)
+
+
+# ── 2026-09-27 受限富文本：SGR→列区间样式表 ─────────────────────────────
+# 设计（PT3 BufferControl 实码验证）：UIContent 行数固定取 document.line_count
+# （controls.py create_content），processor 插 \n 必然布局错位 → 行内样式
+# 不能用字符 marker + \n 方案。改用「清洗后零字符污染 + 列区间样式表 +
+# processor 按列上色」：SGR 与文本在写入层分离存储，渲染层合成。
+
+
+def _extract_sgr_styles(line: str) -> tuple[str, list[tuple[int, int, str]]]:
+    """单遍扫描：提取 SGR 白名单样式 → (净化文本, [(start,end,style)])。
+
+    - SGR（ESC[...m）：白名单内 → 开新样式段；SGR 0/空 → 复位结算；
+      非白名单（256/24bit 色等）→ 忽略不切段；
+    - 其他 CSI / SS3 / 孤立 ESC / 截断序列：整体吞（对齐 _strip_ansi_text
+      的「残骸比半截参数更糟」语义）；
+    - 返回文本保证零 ESC；列区间 = 净化文本 codepoint 索引（等宽=显示列）。
+    """
+    if "\x1b" not in line and not any(
+        ord(ch) < 32 and ch != "\t" for ch in line
+    ):
+        return line, []  # 快速路径：无 ESC 且无 C0 噪声（对齐 _strip_ansi_text）
+    clean: list[str] = []
+    spans: list[tuple[int, int, str]] = []
+    cur_style: str | None = None
+    span_start = 0
+    clean_len = 0
+    i = 0
+    n = len(line)
+    while i < n:
+        ch = line[i]
+        if ch != "\x1b":
+            # C0 控制字符（除 \t）替换为空格——对齐 _strip_ansi_text 防 '?'
+            # 渲染噪声语义（\n/\r 不会到这：调用方按行拆分/清frag）
+            if ord(ch) < 32 and ch != "\t":
+                clean.append(" ")
+                clean_len += 1
+            else:
+                clean.append(ch)
+                clean_len += 1
+            i += 1
+            continue
+        j = i + 1
+        if j < n and line[j] == "[":
+            k = j + 1
+            while k < n and not (0x40 <= ord(line[k]) <= 0x7E):
+                k += 1
+            if k >= n:  # 截断 CSI：吞到行尾
+                i = n
+                continue
+            if line[k] == "m":
+                params = line[j + 1 : k]
+                st = _sgr_params_to_style(params)
+                if st or params in ("", "0"):
+                    # 段边界：白名单开新样式 / SGR 0 全复位——结算上一段
+                    if cur_style and clean_len > span_start:
+                        spans.append((span_start, clean_len, cur_style))
+                    cur_style = st
+                    span_start = clean_len
+                # 非白名单 SGR：忽略不切段
+                i = k + 1
+                continue
+            i = k + 1  # 非 SGR CSI：整体吞
+            continue
+        if j < n and line[j] == "O":
+            i = min(j + 2, n)  # SS3：吞两字节
+            continue
+        i = j  # 孤立 ESC：吞
+    text = "".join(clean)
+    if cur_style and len(text) > span_start:
+        spans.append((span_start, clean_len, cur_style))
+    return text, spans
 
 
 

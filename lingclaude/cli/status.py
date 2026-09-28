@@ -20,6 +20,13 @@ class StatusModel:
     """可变状态容器。主循环在关键节点更新，toolbar 回调读取。"""
 
     model: str = "?"
+    # 2026-09-27: 用户定义语义——toolbar 的 LLM 名显示此值：
+    #   pinned → = 钉住的模型名；未 pinned → = 当前实际生效模型名
+    #   （含 F12f 降级后的备选名，如 GLM-5.3-Flash）。
+    # 由 _toolbar_snapshot 每秒从 engine 实时解析喂入，替换旧 model 字段
+    # （旧 model 在 round_end 一次性写入，降级切换后不会更新）。
+    # 空串 = 尚未解析到（渲染层回落 s.model 兼容旧行为）。
+    runtime_model: str = ""
     cwd: str = ""
     ctx_tokens: int = 0
     ctx_window: int = 0  # 0 = 未知，占比显示 n/a
@@ -43,6 +50,11 @@ class StatusModel:
     # 据此决定是否输出 ⚙{ip}·{pd} 汇总角标；喂入链路（set_todo_items）不受影响，
     # 隐藏期间数据照常聚合，重新显示时即刻反映最新计数（无 stale 窗口）。
     show_todo_panel: bool = True
+    # 2026-09-27 Ctrl+T 复活面板：真开关（任务面板行显隐）。旧名
+    # show_todo_panel 退役——它只控 ⚙ 角标，导致 Ctrl+T「无效」观感
+    # （P1-5 后角标是唯一受控物，翻转无面板可看）。渲染层读此字段时
+    # getattr 兜底：缺失回落旧 show_todo_panel，再回落 True（旧快照兼容）。
+    show_task_panel: bool = True
     # 2026-09-22: 状态球（对标 atomcode）——运行状态三色，渲染层映射绿/黄/红：
     #   "busy"   生成中（streaming 或活跃任务）→ 黄
     #   "blocked" 阻塞/中断（interrupt_event 置位）→ 红（优先级最高）
@@ -65,6 +77,8 @@ class StatusModel:
         with self._lock:
             return StatusModel(
                 model=self.model,
+                # 2026-09-27: runtime_model 透传（str 不可变，浅拷贝安全）
+                runtime_model=self.runtime_model,
                 cwd=self.cwd,
                 ctx_tokens=self.ctx_tokens,
                 ctx_window=self.ctx_window,
@@ -81,6 +95,9 @@ class StatusModel:
                 todo_items=self.todo_items,
                 # 2026-09-27: 面板显隐开关透传（bool 不可变，浅拷贝安全）
                 show_todo_panel=self.show_todo_panel,
+                # 2026-09-27 Ctrl+T 复活面板：主开关透传（渲染层 getattr
+                # 缺失时回落 show_todo_panel——旧快照对象兼容）
+                show_task_panel=self.show_task_panel,
                 # 2026-09-22: 状态球三色透传（str 不可变，浅拷贝安全）
                 state_level=self.state_level,
                 # 2026-09-22: plan 叠加态透传（bool 不可变，浅拷贝安全）
@@ -116,6 +133,11 @@ class StatusModel:
         with self._lock:
             self.pinned = pinned
 
+    def set_runtime_model(self, name: str) -> None:
+        """2026-09-27: 喂入 toolbar 实际显示模型名（用户定义语义字段）。"""
+        with self._lock:
+            self.runtime_model = name
+
     # 2026-09-17 第3级b: 任务面板常驻数据喂入（主循环每轮从 TodoStore 聚合后调用）
     def set_task_panel(self, in_progress: int, pending: int, active: str) -> None:
         with self._lock:
@@ -132,8 +154,16 @@ class StatusModel:
             self.todo_items = norm
 
     # 2026-09-27: 任务面板显隐切换（Ctrl+T）——只动渲染开关，不清数据。
+    # 双开关同步写（show_task_panel 主 + show_todo_panel 兼容旧消费点）。
     def set_todo_panel_visible(self, visible: bool) -> None:
         with self._lock:
+            self.show_task_panel = visible
+            self.show_todo_panel = visible
+
+    # 2026-09-27 Ctrl+T 新开关的标准写入口（与上者等价，语义名对齐新字段）。
+    def set_task_panel_visible(self, visible: bool) -> None:
+        with self._lock:
+            self.show_task_panel = visible
             self.show_todo_panel = visible
 
     # 2026-09-22: 状态球喂入（对标 atomcode）——_toolbar_snapshot 每秒判定后调用。
@@ -201,6 +231,11 @@ _TOOLBAR_TIPS: tuple[str, ...] = (
     # ── EVOLVE-BLOCK: toolbar_tips end ─────────────────────────────────────
 )
 _TIP_EVERY_TURNS = 20
+
+# 2026-09-27 Ctrl+T 复活面板：面板行数上限（不含表头/汇总行）。
+# 超限收敛为「…另有 N 项」提示，全量走 /tasks——防多任务清单重新霸占
+# 状态栏（P1-5 退役的初衷不回退，只恢复受限可见性）。
+TASK_PANEL_MAX_ITEMS = 4
 
 
 def toolbar_tip(turns: int) -> str:
@@ -348,9 +383,17 @@ def toolbar_fragments(s: StatusModel):
     cwd_display = s.cwd
     if len(cwd_display) > 28:
         cwd_display = "…" + cwd_display[-27:]
-    model_display = s.model
+    # 2026-09-27 用户定义语义（见 StatusModel.runtime_model 字段注释）：
+    #   pinned     → 显示钉住的模型名 + [PINNED]
+    #   未 pinned  → 显示 runtime_model（当前实际生效模型，含降级备选），
+    #                空则回落 s.model（旧启动值，兼容快照缺新字段）。
+    _runtime = getattr(s, "runtime_model", "") or ""
     if s.pinned:
-        model_display = f"{s.model} [PINNED]"
+        model_display = f"{_runtime or s.model} [PINNED]"
+    elif _runtime:
+        model_display = _runtime
+    else:
+        model_display = s.model
     frag.append(("class:accent", f" {model_display} "))
     frag.append(("", f"│ {cwd_display} "))
     # 上下文：k 格式 token 数 + 占比（atomcode 的 169.8k/262k tok (65%) 形态）
@@ -394,6 +437,37 @@ def toolbar_fragments(s: StatusModel):
     # UnboundLocalError（_todo_badge 未赋值即消费，test_panel_hidden 实抓）。
     if (getattr(s, "show_todo_panel", True)) and (_ip_n or _pd_n):
         frag.append(_todo_badge)
+    # 2026-09-27 Ctrl+T 复活面板真身：P1-5 退役逐项清单后 Ctrl+T 只能翻转
+    # ⚙ 角标（无面板可看=「无效」观感的根因）。恢复受限面板——状态行上方
+    # 最多 TASK_PANEL_MAX_ITEMS 行：in_progress 优先、pending 次之（组内保持
+    # 原序），超限收敛为汇总提示行（全量仍走 /tasks）。数据零新 I/O：复用
+    # _toolbar_snapshot 已喂入的 todo_items（快照元组 (状态, 名)）。
+    _show_panel = getattr(s, "show_task_panel", None)
+    if _show_panel is None:  # 旧快照缺新字段：回落旧开关再回落 True
+        _show_panel = getattr(s, "show_todo_panel", True)
+    if _show_panel and (_ip_n or _pd_n):
+        _MARK = {"in_progress": ("class:green", "▸"), "pending": ("", "·")}
+        _panel: list[tuple[str, str]] = [
+            ("class:accent", f"── 任务面板 {max(_ip_n, 1)}/{_ip_n + _pd_n} (Ctrl+T 隐藏)"),
+            ("", "\n"),
+        ]
+        _shown = 0
+        for _st, _name in _todo_items:  # 组间序：in_progress 先于 pending/未知
+            if _shown >= TASK_PANEL_MAX_ITEMS:
+                break
+            _m = _MARK.get(_st)  # completed/cancelled/未知不占面板行
+            if _m is None:
+                continue
+            if _shown:
+                _panel.append(("", "\n"))
+            _nm = _name if len(_name) <= 36 else _name[:35] + "…"
+            _panel.append((_m[0], f"{_m[1]} {_nm}"))
+            _shown += 1
+        _hidden = (_ip_n + _pd_n) - _shown
+        if _hidden > 0:
+            _panel.append(("", "\n"))
+            _panel.append(("", f"  …另有 {_hidden} 项（/tasks 看全量）"))
+        frag = _panel + [("class:sep", "\n")] + frag
     # 2026-09-26 P1-6: 段界贪心折行——超终端宽时在 │ 段界断行成多行，
     # toolbar 自动长高，信息不再被 PT 剪裁（详见 _wrap_fragments docstring）
     try:

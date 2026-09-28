@@ -260,6 +260,35 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
                 status.clear_degraded("cwd")
             except Exception:  # noqa: BLE001 — cwd 探测炸静默留旧值
                 status.mark_degraded("cwd")
+            # 2026-09-27: runtime_model 实时解析（用户定义语义，见
+            # StatusModel.runtime_model 字段注释）——pinned → 钉住模型名；
+            # 未 pinned → 当前实际生效模型（含 F12f 降级备选，如
+            # GLM-5.3-Flash）。替换旧 round_end 一次性写入逻辑（降级切换后
+            # 不更新 → toolbar 恒显示启动名）。每秒随 heavy 块喂入，零额外 I/O。
+            try:
+                _engine = ctx.engine
+                _pinned_name = (
+                    _engine.get_pinned_model_name() if _engine is not None else None
+                )
+                if _pinned_name:
+                    status.set_model(str(_pinned_name))
+                    status.set_pinned(True)
+                    status.set_runtime_model(str(_pinned_name))
+                    status.clear_degraded("model")
+                else:
+                    status.set_pinned(False)
+                    _prov_cfg = (
+                        getattr(_engine._provider, "_config", None)  # noqa: SLF001
+                        if _engine is not None and getattr(_engine, "_provider", None)
+                        else None
+                    )
+                    _m = str(getattr(_prov_cfg, "model", "") or "")
+                    if _m:
+                        status.set_model(_m)
+                        status.set_runtime_model(_m)
+                    status.clear_degraded("model")
+            except Exception:  # noqa: BLE001 — 名字解析失败留旧值，登记降级
+                status.mark_degraded("model")
         # 2026-09-22: todo panel 明细喂入（常驻 toolbar 上方，对标 atomcode）。
         # TodoStore 用 threading.local 连接（engine/todo.py Bug B 修复），
         # PT 渲染线程查询安全；1s 节流与 token 估算同块，零额外 I/O 顾虑。
@@ -1519,8 +1548,12 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
         # 消费，角标随下一帧消失/复现）；FallbackSession 无此方法，吞掉不阻塞。
         try:
             def _toggle_todo_panel() -> None:
-                cur = getattr(ctx.status, "show_todo_panel", True)
-                ctx.status.set_todo_panel_visible(not cur)
+                # 2026-09-27 Ctrl+T 复活面板：主开关 show_task_panel（旧行
+                # show_todo_panel 兼容回落），setter 双写两字段。
+                cur = getattr(ctx.status, "show_task_panel", None)
+                if cur is None:
+                    cur = getattr(ctx.status, "show_todo_panel", True)
+                ctx.status.set_task_panel_visible(not cur)
                 # 反馈通道对齐 shift_mode（mode_cycle.py:141，同款键位注入家族）：
                 # 全屏期 session.append_output 进输出窗（屏幕可见、零裸写撕屏），
                 # 裸终端 sys.stdout 直写。不用 _warn_raw——那是 full_tui 私有的

@@ -225,7 +225,7 @@ class TestTodoBadge:
         assert "⚙" not in text  # 无任务无角标（无逐项清单的当前形态）
 
     def test_badge_counts_ip_and_pending(self) -> None:
-        """有未完成项时输出单行汇总角标，不逐项展开。"""
+        """有未完成项时输出单行汇总角标（角标语义不变）。"""
         s = StatusModel()
         s.set_model("m1")
         s.cwd = "/tmp"
@@ -235,10 +235,13 @@ class TestTodoBadge:
         frag = toolbar_fragments(s.snapshot())
         text = "".join(x[1] for x in frag)
         assert "⚙1·1" in text  # 单行角标：1 进行中 + 1 待办
-        # 2026-09-26 P1-6: 「不得逐项展开」改由明细文本缺席守护——
-        # 折行（\n）属 P1-6 预期行为，不再以换行符为违规判据
-        assert "迁移钩子替换" not in text  # 明细不进 toolbar
-        assert "跑全量回归" not in text  # 明细不进 toolbar
+        # 2026-09-27 契约更新（用户推翻 P1-5）：恢复受限任务面板（≤4 项），
+        # 「明细完全不进 toolbar」守卫退役；全量仍走 /tasks，面板超限收敛。
+        assert "迁移钩子替换" in text  # 面板可见（in_progress 优先）
+        assert "跑全量回归" in text  # 面板可见
+        # 明细行只在面板区，不重复出现在状态行（无双重显示）
+        status_line = text.split("\n")[-1]
+        assert "迁移钩子替换" not in status_line.replace("任务面板 1/2", "")
 
     def test_completed_and_cancelled_not_counted(self) -> None:
         """completed/cancelled 不计入角标；未知态兜底 pending 计入。"""
@@ -516,9 +519,14 @@ class TestToolbarWrap:
         return self._render(toolbar_fragments(self._rich_model().snapshot()))
 
     def test_wide_terminal_single_line(self, monkeypatch) -> None:
-        # 宽屏（300 列）：零折行，与折行前渲染逐字符一致（零回归面）
+        # 宽屏（300 列）：状态行零折行。2026-09-27 任务面板（多行）恢复后，
+        # 「全局无 \n」守卫改为「面板行之外无 \n」——面板行数 = 表头+任务行+汇总。
         out = self._with_columns(monkeypatch, "300")
-        assert "\n" not in out
+        lines = out.split("\n")
+        status = lines[-1]
+        assert "●" in status  # 状态行（末行）不含 \n
+        # 面板总行数守卫：表头 1 + 任务行 + 汇总 ≤ 6（TASK_PANEL_MAX_ITEMS=4）
+        assert len(lines) - 1 <= 6, lines
 
     def test_narrow_terminal_wraps_within_width(self, monkeypatch) -> None:
         from lingclaude.cli.status import _display_width
