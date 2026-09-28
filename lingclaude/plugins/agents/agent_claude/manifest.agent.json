@@ -1,0 +1,44 @@
+{
+  "name": "agent/claude",
+  "target": "claude-code",
+  "display_name": "Claude Code 外包工人",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cli-subprocess",
+    "mode": "print",
+    "call_timeout_s": 600,
+    "prompt_mode": "arg",
+    "command": [
+      "/usr/local/bin/claude",
+      "-p",
+      "--output-format",
+      "text"
+    ],
+    "command_note": "外部 agent 桥 2026-09-28：claude -p 非交互模式（prompt 作位置参数）。不加 --dangerously-skip-permissions（写权限不下放，只读建议面）。"
+  },
+  "stop_layer": {
+    "kernel": "外部 agent 桥（claude-code 2.1.241，Anthropic）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "与 agent/codex 同模板：cli-subprocess 型，共享 CliAgentPluginBase。"
+  },
+  "capabilities": [
+    "code_generation",
+    "code_review",
+    "reasoning"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 10,
+    "method": "version_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:claude",
+  "org_member": "claude-code",
+  "notes": "外部 agent 插片批2 第3家（2026-09-28）。headless 已实测（MiniMax-M3 通道返回正常）。"
+}

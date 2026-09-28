@@ -1,0 +1,48 @@
+{
+  "name": "agent/codex",
+  "target": "codex-cli",
+  "display_name": "Codex 外包工人",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cli-subprocess",
+    "mode": "exec",
+    "call_timeout_s": 600,
+    "command": [
+      "/home/ai/.npm-global/bin/codex",
+      "exec",
+      "--skip-git-repo-check",
+      "-s",
+      "read-only",
+      "-c",
+      "model_provider=\"kimi\"",
+      "-c",
+      "model=\"k3\""
+    ],
+    "command_note": "外部 agent 桥 2026-09-28：默认 kimi/k3 通道（ZHIPU 配额 429 至 09-29 18:03，恢复后可改回 ZAI/glm）。prompt 走 stdin。"
+  },
+  "stop_layer": {
+    "kernel": "外部 agent 桥（codex-cli 0.155.1，providers: kimi/ZAI/minimax 直连）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "非 MCP 型：不走 McpAgentPluginBase（codex exec 是一次性子进程，无 stdio 长连接）。record 家法与缺席查语义对齐 agent_family。"
+  },
+  "capabilities": [
+    "code_generation",
+    "code_review",
+    "reasoning"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 10,
+    "method": "version_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:codex",
+  "org_member": "codex",
+  "notes": "外部 agent 插片首例（用户 2026-09-27 指令）。后续 crush/opencode/claude/qwen 按同模板复制，改 command 与超时即可。"
+}

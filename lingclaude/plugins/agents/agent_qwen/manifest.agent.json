@@ -1,0 +1,41 @@
+{
+  "name": "agent/qwen",
+  "target": "qwen-code",
+  "display_name": "Qwen Code 外包工人",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cli-subprocess",
+    "mode": "prompt",
+    "call_timeout_s": 600,
+    "prompt_mode": "arg",
+    "command": [
+      "/home/ai/.npm-global/bin/qwen",
+      "-p"
+    ],
+    "command_note": "外部 agent 桥 2026-09-28：qwen -p 非交互模式（prompt 作位置参数）。⚠️ 前置条件：qwen 尚未配置 auth type（2026-09-28 实测报 'No auth type is selected'）——首次使用需先在主机完成 qwen 登录配置，缺席查会捕获该状态。"
+  },
+  "stop_layer": {
+    "kernel": "外部 agent 桥（qwen-code 0.19.2，QwenLM）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "与 agent/codex 同模板：cli-subprocess 型，共享 CliAgentPluginBase。"
+  },
+  "capabilities": [
+    "code_generation",
+    "code_review"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 10,
+    "method": "version_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:qwen",
+  "org_member": "qwen-code",
+  "notes": "外部 agent 插片批2 第4家（2026-09-28）。headless 待 auth 配置后生效——插件已就位，auth 缺席时 run 返回 failed 并入账（不假活）。"
+}

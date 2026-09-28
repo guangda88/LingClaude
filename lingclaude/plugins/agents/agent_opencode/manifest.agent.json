@@ -1,0 +1,40 @@
+{
+  "name": "agent/opencode",
+  "target": "opencode-cli",
+  "display_name": "OpenCode 外包工人",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cli-subprocess",
+    "mode": "run",
+    "call_timeout_s": 600,
+    "command": [
+      "/usr/local/bin/opencode",
+      "run"
+    ],
+    "command_note": "外部 agent 桥 2026-09-28：opencode run 非交互模式（prompt 作位置参数，prompt_mode=arg）。"
+  },
+  "stop_layer": {
+    "kernel": "外部 agent 桥（opencode 1.18.29，sst）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "与 agent/codex 同模板：cli-subprocess 型，共享 CliAgentPluginBase。"
+  },
+  "capabilities": [
+    "code_generation",
+    "code_review"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 10,
+    "method": "version_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:opencode",
+  "org_member": "opencode",
+  "notes": "外部 agent 插片批2 第2家（2026-09-28）。headless 已实测（zen-free/big-pickle 返回正常）。"
+}

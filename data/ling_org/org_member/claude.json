@@ -1,0 +1,12 @@
+{
+  "id": "claude",
+  "name": "claude",
+  "state": "active",
+  "created": "2026-09-28T00:00:00+00:00",
+  "first_layer_access": true,
+  "plug_seam_key": "agent/claude",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "first_layer_at": "2026-09-28T00:00:00+00:00",
+  "note": "外部 agent CLI 插片（Claude Code 外包工人），cli-subprocess 只读沙箱型，2026-09-28 批2 对账补登记"
+}

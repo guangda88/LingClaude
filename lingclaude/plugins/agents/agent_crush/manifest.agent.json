@@ -1,0 +1,40 @@
+{
+  "name": "agent/crush",
+  "target": "crush-cli",
+  "display_name": "Crush 外包工人",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cli-subprocess",
+    "mode": "run",
+    "call_timeout_s": 600,
+    "command": [
+      "/home/ai/.npm-global/bin/crush",
+      "run"
+    ],
+    "command_note": "外部 agent 桥 2026-09-28：crush run 非交互模式（prompt 走 stdin 管道）。不加 --yolo（写权限不下放，只读建议面）。"
+  },
+  "stop_layer": {
+    "kernel": "外部 agent 桥（crush v0.90.0，charmbracelet）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "与 agent/codex 同模板：cli-subprocess 型，不继承 McpAgentPluginBase；record 家法/缺席查/fail-soft 对齐。"
+  },
+  "capabilities": [
+    "code_generation",
+    "code_review"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 10,
+    "method": "version_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:crush",
+  "org_member": "crush",
+  "notes": "外部 agent 插片批2 第1家（2026-09-28）。crush headless 已实测（1+1=2 返回正常）。"
+}
