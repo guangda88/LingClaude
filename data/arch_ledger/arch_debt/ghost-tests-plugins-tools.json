@@ -1,0 +1,16 @@
+{
+  "id": "ghost-tests-plugins-tools",
+  "title": "plugins/tools/*/test_*.py 幽灵测试——pyproject testpaths 不收集，CI 假绿",
+  "severity": "medium",
+  "status": "open",
+  "created": "2026-09-28",
+  "due": "2026-11-30",
+  "source": "codex 质量审计 2026-09-28（quality_audit_20260928.md §2）",
+  "evidence": "6 个文件：lingclaude/plugins/tools/{ast,bash,file_ops,git,read,web}/test_*_plugin.py，各 2 用例全可独立通过（2026-09-28 实测 12 passed）。但 pyproject.toml testpaths=[\"tests\"] 使 CI 永不收集——插件层看起来有测试覆盖实则没有。",
+  "resolution_paths": [
+    "路①（推荐）：tests/plugins_tools/ 建软链或 conftest 收集钩子，把 6 文件纳入 CI",
+    "路②：改测试为包内可移入 tests/ 的形态（from plugin import → 相对/绝对包 import）",
+    "路③：删除这些测试，在 tests/ 下重建等价覆盖"
+  ],
+  "note": "修复只需一次 git mv 或 conftest 钩子；当前最大风险是「以为有测试实际没跑」的假安全感"
+}
