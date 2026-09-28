@@ -1,0 +1,10 @@
+{
+  "guard": "M1",
+  "file": "core/slot.py",
+  "lines": null,
+  "state": "active",
+  "granted": "2026-09-28",
+  "permanent": true,
+  "permanent_reason": "主干自有语义：Slot 机制本就调度 provider/session/memory 原语（model_provider/todo_store/session_runtime 三槽 + slot_swap 台账），词汇命中是机制语义本身而非领域概念泄漏。2026-09-28 用户裁定：永久豁免。",
+  "reason": "P1 Slot 机制主干语义（provider/session/memory 调度原语）"
+}

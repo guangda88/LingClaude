@@ -1,0 +1,10 @@
+{
+  "guard": "M1",
+  "file": "core/light_channel.py",
+  "lines": null,
+  "state": "active",
+  "granted": "2026-09-28",
+  "permanent": true,
+  "permanent_reason": "主干自有语义：LightChannel 是配置读穿通道原语（policy/command/session/tool 配置段惰性重建），词汇命中是通道调度语义本身而非领域概念泄漏。2026-09-28 用户裁定：永久豁免。",
+  "reason": "P3 轻通道主干语义（配置读穿 + digest 惰性重建原语）"
+}

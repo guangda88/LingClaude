@@ -55,7 +55,9 @@ class SubagentToolsMixin:
             # provider=缝 key（如 agent/ghidra）即可派单。fail-soft：桥故障只
             # 告警，inprocess/acp 内置后端照常可用（L1 语义：缺席不崩）。
             try:
-                from lingclaude.plugins.agents.seam_bridge import install_family_backends
+                # G11 合规（2026-09-28）：桥机制已归位 engine/subagent/seam_backend.py
+                # （主干机制，不 import 插件目录；插件侧 seam_bridge.py 为兼容壳）
+                from lingclaude.engine.subagent.seam_backend import install_family_backends
                 install_family_backends(manager)
             except Exception:  # noqa: BLE001 —— 桥故障不阻断内置后端派单
                 pass
