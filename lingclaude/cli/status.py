@@ -1,7 +1,9 @@
 """P1: 状态栏数据模型 — 单一数据源，主循环写，bottom_toolbar 读。
 
-上下文占比口径（2026-09-22 ctx 口径修复后）：
-分母 = config.context_window_tokens，缺省回退 128_000（repl.py 代码级回退）；
+上下文占比口径（2026-09-28 查表化后）：
+分母 = resolve_context_window(engine)（core/context_window.py）：
+  显式配置 context_window_tokens > 模型查表 > provider 前缀兜底 > 128K。
+  原硬编码 128_000 已废（glm-5.3-flash 官方 1M，虚高 7.8×）。
 max_budget_tokens 是会话累计预算，不再充当窗口分母。
 分子 = turn 内最后成功请求轮的真实 prompt_tokens（provider 未回传 usage
 时为负哨兵 → 消费方走字符估算）。

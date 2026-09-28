@@ -382,7 +382,9 @@ def _refresh_ctx_tokens(ctx: _ReplCtx) -> None:
         # 分子哨兵：_last_turn_input<0 = provider 未回传 usage 的估算兜底
         # （单轮 prompt 粗估），回退字符估算，防口径污染。
         _real = int(getattr(engine, "_last_turn_input", 0) or 0)
-        _win = int(getattr(engine.config, "context_window_tokens", None) or 0) or 128_000
+        # 2026-09-28: 改用模型查表（glm-5.3-flash 官方 1M，此前硬编码 128K 虚高 7.8×）
+        from lingclaude.core.context_window import resolve_context_window
+        _win = resolve_context_window(engine)
         if _real > 0:
             status.set_ctx(_real, _win)
         else:
@@ -1505,11 +1507,12 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     try:
         from lingclaude.core.tool_executor import _estimate_message_tokens
 
+        from lingclaude.core.context_window import resolve_context_window
+
         status.set_ctx(
             _estimate_message_tokens(engine._messages),
-            # 分母同 _refresh_ctx_tokens 二次修复口径：真实模型窗口，
-            # max_budget_tokens 是累计预算不是窗口（修 toolbar 949%）
-            int(getattr(engine.config, "context_window_tokens", None) or 0) or 128_000,
+            # 分母同 _refresh_ctx_tokens 口径：模型查表（2026-09-28）
+            resolve_context_window(engine),
         )
     except Exception:  # noqa: BLE001 — token 估算失败不阻塞交互启动
         pass
