@@ -221,6 +221,7 @@ def build_dynamic_system_suffix(
     tool_call_count: int = 0,
     current_query: str = "",
     model_switch_note: dict[str, Any] | None = None,
+    session_id: str = "",
 ) -> str:
     """动态上下文尾随块（原 build_adaptive_system_prompt 的 SESSION_CONTEXT+extras）。
 
@@ -348,6 +349,16 @@ def build_dynamic_system_suffix(
                 extras.append(
                     "\n📚 已学经验:\n" + "\n".join(rule_lines)
                 )
+                # ---- 断点②：记录热路注入事件（归纳→验证的回放自变量）----
+                # fail-soft：记录失败绝不阻断 prompt 构建。
+                try:
+                    for r in result.data:
+                        if r.confidence > 0.5 and r.description in _seen_descs:
+                            kb.record_injection(
+                                r.id, session_id=session_id, keyword=keyword, lane="hot"
+                            )
+                except Exception as _inj_err:  # noqa: BLE001
+                    logger.debug("规则注入记录失败（fail-soft）: %s", _inj_err)
         all_result = kb.get_all_rules(limit=3)
         if all_result.is_ok and all_result.data:
             existing_descs = {r.description for r in (result.data or [])}
@@ -361,6 +372,15 @@ def build_dynamic_system_suffix(
                 extras.append(
                     "\n📚 通用经验:\n" + "\n".join(general_lines)
                 )
+                # ---- 断点②：记录冷路注入事件 ----
+                try:
+                    for r in all_result.data:
+                        if r.confidence > 0.7 and r.description not in existing_descs:
+                            kb.record_injection(
+                                r.id, session_id=session_id, keyword=keyword, lane="cold"
+                            )
+                except Exception as _inj_err:  # noqa: BLE001
+                    logger.debug("冷路注入记录失败（fail-soft）: %s", _inj_err)
         kb.close()
     except Exception as e:
         logger.warning("knowledge base close failed: %s", e)

@@ -465,6 +465,24 @@ class OptimizationDaemon:
         except Exception as _fca_err:  # noqa: BLE001 — 归因失败不阻断优化
             logger.debug("[断点③] 失败聚类分析跳过（fail-soft）: %s", _fca_err)
 
+        # ---- 断点②（2026-09-28）：规则行为回放验证 ------------------------
+        # 断点③产的 draft 规则经热路注入后，此处回放「注入前后同类失败密度」，
+        # 验证规则是否真的改变了行为：改善→升 active，无效→降权，持续无效→退役。
+        # 这是「从记录经验到改变行为」的最后一厘米。fail-soft：验证失败不阻断。
+        try:
+            from lingclaude.self_optimizer.rule_effect_verifier import (
+                RuleEffectVerifier,
+            )
+            rev = RuleEffectVerifier()
+            rev_result = rev.verify(write=True)
+            if rev_result.promoted or rev_result.deprecated:
+                logger.info(
+                    "[断点②] 规则行为回放：改善 %d，升 active %d，退役 %d",
+                    rev_result.improved, rev_result.promoted, rev_result.deprecated,
+                )
+        except Exception as _rev_err:  # noqa: BLE001 — 验证失败不阻断优化
+            logger.debug("[断点②] 规则行为回放跳过（fail-soft）: %s", _rev_err)
+
         if not result.success:
             # ---- P1.5 失败入档（2026-09-17，借鉴 OpenEvolve artifact side-channel）----
             # 失败方案入档（含原因与当次参数），下轮 build_context 引用——

@@ -60,6 +60,27 @@ class KnowledgeBase:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_rules_quality ON rules(quality_score)"
         )
+
+        # ---- 断点②（2026-09-28）：规则注入事件表 ------------------------
+        # 记录「哪条规则、何时、被注入到哪个 session」——归纳→验证的回放自变量。
+        # 此前规则生命周期只有「写入/读取」两端，缺「注入」环节，导致无法验证
+        # 「注入后行为是否真的改变」（rule_injection 全局搜索零命中）。
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS rule_injection (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id TEXT NOT NULL,
+                session_id TEXT NOT NULL DEFAULT '',
+                keyword TEXT NOT NULL DEFAULT '',
+                lane TEXT NOT NULL DEFAULT 'hot',
+                injected_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rule_injection_rule ON rule_injection(rule_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rule_injection_time ON rule_injection(injected_at)"
+        )
         conn.commit()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -251,6 +272,63 @@ class KnowledgeBase:
         except Exception as e:
             logger.warning("更新规则状态失败: %s", rule_id, exc_info=True)
             return Result.fail(f"Failed to update rule status: {e}", code="DB_ERROR")
+
+    def update_rule_confidence(self, rule_id: str, confidence: float) -> Result[bool]:
+        """更新规则置信度（断点②行为回放验证的降权/升权入口）。"""
+        try:
+            confidence = max(0.0, min(1.0, confidence))
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE rules SET confidence = ?, updated_at = ? WHERE id = ?",
+                (confidence, datetime.now().isoformat(), rule_id),
+            )
+            safe_commit(conn)
+            return Result.ok(cursor.rowcount > 0)
+        except Exception as e:
+            logger.warning("更新规则置信度失败: %s", rule_id, exc_info=True)
+            return Result.fail(f"Failed to update rule confidence: {e}", code="DB_ERROR")
+
+    def record_injection(
+        self,
+        rule_id: str,
+        *,
+        session_id: str = "",
+        keyword: str = "",
+        lane: str = "hot",
+    ) -> Result[bool]:
+        """记录一次规则注入事件（断点②：归纳→验证的回放自变量）。
+
+        fail-soft：任何失败只记日志返回 fail，绝不阻断 prompt 构建主流程。
+        """
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO rule_injection (rule_id, session_id, keyword, lane, injected_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (rule_id, session_id, keyword[:200], lane, datetime.now().isoformat()),
+            )
+            safe_commit(conn)
+            return Result.ok(True)
+        except Exception as e:
+            logger.warning("记录规则注入失败: %s", rule_id, exc_info=True)
+            return Result.fail(f"Failed to record injection: {e}", code="DB_ERROR")
+
+    def get_first_injection_time(self, rule_id: str) -> Result[str | None]:
+        """取规则首次注入时间（断点②回放的前后窗口分界点）。"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT MIN(injected_at) FROM rule_injection WHERE rule_id = ?",
+                (rule_id,),
+            )
+            row = cursor.fetchone()
+            return Result.ok(row[0] if row and row[0] else None)
+        except Exception as e:
+            logger.warning("查询首次注入时间失败: %s", rule_id, exc_info=True)
+            return Result.fail(f"Failed to get first injection: {e}", code="DB_ERROR")
 
     def delete_rule(self, rule_id: str) -> Result[bool]:
         try:
