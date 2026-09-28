@@ -622,6 +622,88 @@ def test_g11_no_core_import_plugins():
     )
 
 
+
+# ── G11b 动态加载盲区守卫（2026-09-28，外部审计 B1 收口）────────────────────
+# 病灶：G11 仅扫 ast.Import/ImportFrom，M3 仅扫 __import__/import_module 的
+#       字符串字面量首参——importlib.util.spec_from_file_location(name, path)
+#       以「模块名+文件路径」配对加载，完全绕过两条守卫。任何开发者可复制
+#       seam_backend.py:164-169 的兜底模式，让 core/engine 加载任意插件实现
+#       （含 plugins/ 目录外的伪装文件）而不被抓。
+# 豁免通道：data/arch_ledger/arch_exemption/G11b:<file>.json，reason 必填，
+#           review_due 到期必复审（与 M3 豁免台账同源对称）。
+_G11B_EXEMPTION_DIR = ROOT / "data" / "arch_ledger" / "arch_exemption"
+
+
+def _g11b_exempted(rel_file: str, lineno: int) -> bool:
+    """查 G11b 行级豁免台账（文件名级豁免，行号仅入诊断不参与匹配）。"""
+    import json as _json
+    entry = _G11B_EXEMPTION_DIR / f"G11b:{rel_file.replace('/', '__')}.json"
+    if not entry.is_file():
+        return False
+    try:
+        data = _json.loads(entry.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 —— 台账损坏视同无豁免（从严）
+        return False
+    if not data.get("reason") or not data.get("review_due"):
+        return False  # 缺字段的豁免不生效（豁免必须显式完整）
+    lines = data.get("lines")
+    return True if lines is None else lineno in lines
+
+
+def test_g11b_no_spec_from_file_location_bypass():
+    """G11b：主干不得经 spec_from_file_location 动态加载插件实现（补 G11/M3 盲区）。
+
+    判定：core/engine 下 .py 中出现 importlib.util.spec_from_file_location 调用，
+    且其首个参数（模块名）为字符串字面量且以 lingclaude.plugins 开头 → 红。
+    非字面量模块名（变量拼接）同样报黄名单（无法静态判定，须人工豁免登记）。
+    """
+    offenders = []
+    for root_dir in ("core", "engine"):
+        d = SRC / root_dir
+        if not d.is_dir():
+            continue
+        for f in sorted(d.rglob("*.py")):
+            if f.name == "__init__.py":
+                continue
+            tree = _parse(f)
+            if tree is None:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                # 匹配 spec_from_file_location / importlib.util.spec_from_file_location
+                name = ""
+                if isinstance(func, ast.Attribute):
+                    name = func.attr
+                elif isinstance(func, ast.Name):
+                    name = func.id
+                if name != "spec_from_file_location":
+                    continue
+                if not node.args:
+                    continue
+                first = node.args[0]
+                rel = _label(f)
+                if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                    if first.value == "lingclaude.plugins" or first.value.startswith(
+                        "lingclaude.plugins."
+                    ):
+                        if not _g11b_exempted(rel, node.lineno):
+                            offenders.append(
+                                f"{rel}:{node.lineno}:spec_from_file_location({first.value!r}, ...)"
+                            )
+                else:
+                    # 非字面量模块名：无法静态排除插件路径，强制人工豁免
+                    if not _g11b_exempted(rel, node.lineno):
+                        offenders.append(
+                            f"{rel}:{node.lineno}:spec_from_file_location(<动态模块名>, ...) 无法静态判定，须豁免登记"
+                        )
+    assert not offenders, (
+        "主干经 spec_from_file_location 动态加载插件实现（G11/M3 共同盲区，"
+        "外部审计 B1）——须改经 PluginLoader/seam 间接入口，或登记 G11b 豁免: "
+        f"{offenders}"
+    )
+
 def test_g12_plugins_self_contained():
     """G12：plugins/ 每插件自包含 manifest（载体完整性）。
 

@@ -146,26 +146,16 @@ def reload_agent_plugins(store: Any = None) -> Any:
 
     主干侧调用点（hot_reload_trigger 等）只允许 import 本函数，不允许直接
     import lingclaude.plugins.agents（G11：主干不 import 插件实现，只经
-    PluginLoader 入口）。实现上优先复用 sys.modules 中已加载的
-    registry_loader 单例（装配器模块是幂等单例，重扫需拿同一份状态）；
-    缺席时退 importlib 按文件路径装载（不经包 import，对齐 PluginLoader
-    的 spec_from_file_location 通路语义）；load_all 幂等（同名覆盖）。
+    PluginLoader/seam 间接入口）。2026-09-28 B2 修复后走标准包 import
+    （幂等、单例、入 sys.modules），与 registry_loader 内部 load_all 的
+    import_module 通路同源；load_all 幂等（同名覆盖）。
     """
-    import sys
+    import importlib
 
-    module = sys.modules.get("lingclaude.plugins.agents.registry_loader")
-    if module is None:
-        import importlib.util
-        from pathlib import Path
-
-        agents_loader_path = (
-            Path(__file__).resolve().parents[2] / "plugins" / "agents" / "registry_loader.py"
-        )
-        spec = importlib.util.spec_from_file_location(
-            "lingclaude.plugins.agents.registry_loader", agents_loader_path
-        )
-        if spec is None or spec.loader is None:
-            return {"loaded": [], "skipped": {"registry_loader": "spec load failed"}}
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+    # 2026-09-28 B2 修复：移除 spec_from_file_location 兜底（事实前提双重证伪——
+    # 前提1「plugins/ 无 __init__.py 包 import 必失败」被 PEP 420 命名空间包证伪；
+    # 前提2「sys.modules key 一致防双副本」被「exec_module 不写 sys.modules」证伪）。
+    # 改走标准包 import（幂等、单例、入 sys.modules），与 registry_loader 内部
+    # load_all 的 import_module 通路同源（registry_loader.py:83）。
+    module = importlib.import_module("lingclaude.plugins.agents.registry_loader")
     return module.load_all(store=store)

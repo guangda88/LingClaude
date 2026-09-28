@@ -1,0 +1,10 @@
+{
+  "kind": "arch_debt",
+  "location": "lingclaude/cli/repl.py:389,1506 | cli/commands.py:210 | cli/_commands_checkpoint.py:173 | cli/_commands_history.py:63 | cli/repl_turn.py:306 | self_optimizer/daemon.py:1125",
+  "reason": "外部审计 B2（claude 架构审计 2026-09-28）：cli/ 与 self_optimizer/ 共 7 处穿透 core 私有符号（_estimate_message_tokens×3、_ts_slug、_project_dir_name、_get_l5_auditor、_atomic_write_json），不在 G1/G10/G11 任一守卫面。私有符号无兼容承诺，core 内部重构（铁律 4 修剪）会静默打破 cli/self_optimizer——跨层契约脆弱点。",
+  "due": "2026-11-30",
+  "resolve_hint": "两路择一并新增守卫防回归：①符号公共化——7 个私有符号去下划线前缀升入 core 公开面（改 3 文件 import 即清），同步在 docs 或 core/__init__ 声明公开契约；②新增 P_CLI_CORE_PRIVATE 守卫——AST 扫 cli/+self_optimizer/ 对 lingclaude.core.* 私有符号（_前缀）的 import，存量 7 处走 arch_exemption/P_CLI_CORE_PRIVATE 行级豁免（与 M3/G11b 台账同源），新增即红。建议路②+逐步①：守卫先钉死增量，存量按铁律 4 节奏随修剪清偿。验收：新守卫测试绿 + 负向植入验证 + 7 处台账登记。",
+  "state": "open",
+  "created": "2026-09-28T13:55:00+08:00",
+  "source": "claude 外部架构审计（~/.claude/plans/python-ai-velvety-babbage.md §6 B2）"
+}
