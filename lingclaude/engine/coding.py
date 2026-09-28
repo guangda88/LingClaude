@@ -40,6 +40,100 @@ from lingclaude.engine.tool_handlers import (
 )
 
 
+def _user_input_timeout() -> float:
+    """request_user_input TTY 路径超时秒数（环境变量可调，默认 120）。
+
+    B 方案兜底：超时后降级为默认答案而非挂起。设为 <=0 表示不超时（慎用）。
+    """
+    import os
+
+    raw = os.environ.get("LINGCLAUDE_USER_INPUT_TIMEOUT", "120")
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return 120.0
+    return val if val > 0 else float("inf")
+
+
+def _read_line_with_timeout(stdin: Any, timeout_s: float) -> str | None:
+    """select 轮询读一行，超时返回 None（B 方案核心，替代裸 input()）。
+
+    仅在 stdin 是真实 tty 时调用（handler 已判定）。select 不可用时回退
+    input()（保持原语义，超时保护仅在不支持 select 的平台失效）。
+    """
+    import math
+    import select
+
+    if math.isinf(timeout_s):
+        return input()
+    try:
+        fd = stdin.fileno()
+    except (OSError, ValueError, AttributeError):
+        return input()  # 无 fd（如 StringIO 伪 tty）：select 不可用，回退
+    try:
+        r, _, _ = select.select([fd], [], [], timeout_s)
+    except (OSError, ValueError):
+        return input()  # select 失败回退（不静默挂死，至少维持原行为）
+    if not r:
+        return None  # 超时
+    return input()
+
+
+def _record_tui_deadlock_incident(timeout: bool = False) -> None:
+    """把 request_user_input TUI 死锁/超时事件落一条 LearnedRule（fail-soft）。
+
+    隔壁进程 1170371 实录：TUI 模式调用 request_user_input 死锁、Ctrl+C/D
+    无效只能 kill。此类死锁已发生多次，落库让断点③聚类归因能识别前兆。
+    任何异常静默吞掉（logger.warning），绝不阻断工具主流程。
+    """
+    try:
+        import logging
+
+        from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
+        from lingclaude.self_optimizer.learner.models import (
+            FeedbackCategory,
+            LearnedRule,
+            Pattern,
+        )
+
+        kind = "timeout" if timeout else "tui_deadlock"
+        kb = KnowledgeBase()
+        try:
+            rule = LearnedRule(
+                id="request_user_input_tui_deadlock",
+                name="request_user_input 死锁前兆",
+                description=(
+                    "request_user_input 在 full-screen TUI（prompt_toolkit 接管终端、"
+                    "stdout 被替换为 _StdoutProxy）下调用会死锁：stdin 仍是 tty 故走 "
+                    "input() C 级阻塞，SIGINT/Ctrl+D 无效，只能 kill 进程"
+                    "（2026-09-28 隔壁进程 1170371 实录，Ctrl+C/D 均无效）。"
+                    "已在 handler 入口按 stdout 非 tty 指纹熔断为降级提示，"
+                    "TTY 路径加 select 超时兜底。此类死锁已发生多次。"
+                    if not timeout
+                    else
+                    "request_user_input TTY 路径用户输入超时，已降级为默认答案"
+                    "（选项 1）。用户可直接文字回复覆盖，loop 不再挂起。"
+                ),
+                category=FeedbackCategory.TOOL_ERROR,
+                pattern=Pattern(
+                    context_keywords=("request_user_input", "tui", "deadlock", kind),
+                    tool_support=("request_user_input",),
+                ),
+                tools=("request_user_input",),
+                frequency=1,
+                confidence=0.9,
+                quality_score=0.9,
+                status="active",
+            )
+            kb.add_rule(rule)
+        finally:
+            kb.close()
+    except Exception as exc:  # noqa: BLE001 — 落库失败绝不反噬工具主流程
+        logging.getLogger(__name__).warning(
+            "record tui deadlock incident failed: %s", exc
+        )
+
+
 class CodingRuntime(
     BashToolsMixin, FileToolsMixin, SearchToolsMixin, GitToolsMixin,
     SubagentToolsMixin, BackgroundToolsMixin, WebToolsMixin,
@@ -305,6 +399,34 @@ class CodingRuntime(
                 prompt += f"  {i}. {label}\n"
             prompt += "请输入选项编号（多个用逗号分隔）："
 
+        # ── A. TUI 死锁熔断（2026-09-28）─────────────────────────────────────
+        # full_tui 运行期间用 prompt_toolkit 接管终端输入（raw mode + 事件循环），
+        # 并把 sys.stdout 替换为 _StdoutProxy（无 fd、isatty()=False）。此时
+        # sys.stdin 仍指向真实 tty（isatty=True），若继续走 input() 会 C 级阻塞
+        # 且 SIGINT 无效（隔壁进程 1170371 实录：Ctrl+C/D 都杀不掉，只能 kill）。
+        # 检测指纹：stdout 已被替换为非 tty 代理 → 交互输入通道被 TUI 独占，
+        # request_user_input 在此模式下必然死锁，熔断为降级提示。
+        try:
+            _stdout = sys.stdout
+            _stdout_tty = bool(_stdout and _stdout.isatty())
+        except (ValueError, OSError):
+            _stdout_tty = False
+        if not _stdout_tty:
+            _record_tui_deadlock_incident()
+            return {
+                "ok": False,
+                "pending": False,
+                "degraded": True,
+                "answer": None,
+                "prompt": prompt,
+                "error": (
+                    "request_user_input 在当前前端（TUI/full-screen）下不可用："
+                    "交互输入通道被终端 UI 独占，input() 会死锁。"
+                    "请直接在对话中用文字回复（含选项编号或自由文本），"
+                    "不要用 request_user_input 工具。"
+                ),
+            }
+
         print(prompt, flush=True)
         stdin = sys.stdin
         try:
@@ -324,11 +446,32 @@ class CodingRuntime(
                 "error": "stdin not a tty; interactive input unavailable",
             }
 
+        # ── B. TTY 路径超时兜底（2026-09-28）────────────────────────────────
+        # 裸 input() 是 C 级阻塞，无超时、SIGINT 也可能失效（终端状态异常时）。
+        # 改用 select 轮询：超时（默认 120s，LINGCLAUDE_USER_INPUT_TIMEOUT 可调）
+        # 后降级为默认答案（single/multiple 取选项 1），绝不无限挂起整条 loop。
+        timeout_s = _user_input_timeout()
         try:
-            # 2026-09-18 方向键/历史修复：权限问答 input() 挂 readline，
-            # 交互确认时方向键/历史可用（增强路径，失败静默）。
             ensure_readline()
-            answer = input().strip()
+            answer = _read_line_with_timeout(stdin, timeout_s)
+            if answer is None:
+                # 超时：降级为默认答案，不挂起、不 raise
+                default_answer: str | list[str] | None = None
+                if options:
+                    default_answer = options[0].get("label")
+                _record_tui_deadlock_incident(timeout=True)
+                return {
+                    "ok": True,
+                    "answer": default_answer,
+                    "mode": mode,
+                    "degraded": True,
+                    "timed_out": True,
+                    "note": (
+                        f"input timed out after {timeout_s}s; "
+                        f"defaulted to first option. 用户可直接文字回复覆盖。"
+                    ),
+                }
+            answer = answer.strip()
             add_history_line(answer)
         except (EOFError, KeyboardInterrupt):
             return {
