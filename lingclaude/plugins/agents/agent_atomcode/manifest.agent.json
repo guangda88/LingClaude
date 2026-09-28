@@ -1,0 +1,46 @@
+{
+  "name": "agent/atomcode",
+  "target": "atomcode-cli",
+  "display_name": "AtomCode 外部 Agent 桥",
+  "version": "0.1.0",
+  "trust_level": "T2",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "cli-subprocess",
+    "mode": "exec",
+    "call_timeout_s": 600,
+    "command": [
+      "/home/ai/.local/bin/atomcode",
+      "-p",
+      "{prompt}",
+      "--ephemeral",
+      "--output-format",
+      "text"
+    ],
+    "prompt_mode": "arg",
+    "command_note": "plugin_forge 生成（2026-09-28）：atomcode headless arg 模式。headless 未实测，首次派单前需人工验证。"
+  },
+  "stop_layer": {
+    "kernel": "AtomGit AtomCode CLI（OAuth 登录，CodingPlan 模型）",
+    "seams": [
+      "family_agent"
+    ],
+    "implementations": 1,
+    "note": "cli-subprocess 型，共享 CliAgentPluginBase；record 家法/缺席查/fail-soft 对齐 agent_family。"
+  },
+  "capabilities": [
+    "code_generation",
+    "code_review",
+    "architecture_audit"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 10,
+    "method": "version_check",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:atomcode",
+  "org_member": "atomcode",
+  "notes": "plugin_forge 生成插片（批3实战：forge 回路首个真实业务单（替代手工复制））。 ⚠️ headless 未实测——首个 run 可能返回 failed（缺席查语义，不假活）。"
+}
