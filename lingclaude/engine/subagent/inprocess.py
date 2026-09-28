@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 from lingclaude.engine.subagent.base import (
     SubagentBackend,
@@ -17,6 +18,24 @@ from lingclaude.engine.subagent.base import (
     SubagentStatus,
 )
 import uuid
+
+
+def _resolve_provider(model_provider: Any) -> Any:
+    """P1: 兼容 SlotHandle（调用时解析）与裸 provider 实例。
+
+    主干 model_provider 已入槽（coding.py 持 SlotHandle），ctx.model_provider
+    可能是 SlotHandle —— 这里解析成真实 provider；裸实例则原样返回（向后兼容）。
+    """
+    if model_provider is None:
+        return None
+    # duck-typing：SlotHandle 有 instance() 解析入口；裸 provider 没有
+    instance_fn = getattr(model_provider, "instance", None)
+    if callable(instance_fn):
+        try:
+            return instance_fn()
+        except Exception:  # noqa: BLE001 — 解析失败按 None 处理（No model provider）
+            return None
+    return model_provider
 
 
 class InProcessSubagentBackend(SubagentBackend):
@@ -52,15 +71,28 @@ class InProcessSubagentBackend(SubagentBackend):
                 status=SubagentStatus.FAILED,
             )
 
+        # P1 (2026-09-28): ctx.model_provider 可能是 SlotHandle（调用时解析），
+        # 这里解析成真实 provider 实例再交给 SubAgent（ SubAgent 调 .complete()）。
+        provider = _resolve_provider(ctx.model_provider)
+        if provider is None:
+            return SubagentResult(
+                agent_id="",
+                task=request.task,
+                output="",
+                success=False,
+                error="No model provider",
+                status=SubagentStatus.FAILED,
+            )
+
         # T1-6: 并行执行
         if request.parallel > 1:
-            return self._run_parallel(request, ctx)
+            return self._run_parallel(request, ctx, provider)
 
         config = SubAgentConfig(
             max_rounds=request.max_rounds,
             allowed_tools=ctx.allowed_tools,
         )
-        agent = SubAgent(config=config, runtime=ctx.runtime, provider=ctx.model_provider,
+        agent = SubAgent(config=config, runtime=ctx.runtime, provider=provider,
                          hooks=getattr(ctx.runtime, "hooks", None) if ctx.runtime is not None else None)
         result = agent.run(request.task, request.context)
         subagent_result = SubagentResult(
@@ -79,7 +111,7 @@ class InProcessSubagentBackend(SubagentBackend):
             self._register_running(result.agent_id, subagent_result)
         return subagent_result
 
-    def _run_parallel(self, request: SubagentRequest, ctx: SubagentContext) -> SubagentResult:
+    def _run_parallel(self, request: SubagentRequest, ctx: SubagentContext, provider: Any) -> SubagentResult:
         """T1-6: 并行执行多个子任务（每个任务独立 SubAgent）。"""
         from lingclaude.engine.loop.sub_agent import SubAgent, SubAgentConfig
 
@@ -91,7 +123,7 @@ class InProcessSubagentBackend(SubagentBackend):
         results: list[SubagentResult] = []
 
         def _run_one(i: int) -> SubagentResult:
-            agent = SubAgent(config=config, runtime=ctx.runtime, provider=ctx.model_provider,
+            agent = SubAgent(config=config, runtime=ctx.runtime, provider=provider,
                          hooks=getattr(ctx.runtime, "hooks", None) if ctx.runtime is not None else None)
             task = f"{request.task} [parallel-{i+1}/{num_parallel}]"
             result = agent.run(task, request.context)

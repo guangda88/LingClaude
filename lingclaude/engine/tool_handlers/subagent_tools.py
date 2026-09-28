@@ -28,6 +28,9 @@ class SubagentToolsMixin:
             SubagentRequest,
         )
 
+        # P1 (2026-09-28): 改持 SlotHandle（self._model_provider 已是 SlotHandle 别名，
+        # 调用时惰性解析）——根治 subagent_tools 值快照：主干 swap 后子代理解析到
+        # 新实例，不再持旧 provider 引用。
         ctx = SubagentContext(
             runtime=self,
             model_provider=self._model_provider,

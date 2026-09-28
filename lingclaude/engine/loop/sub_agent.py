@@ -96,12 +96,14 @@ class SubAgent:
                 error="No runtime available",
             )
 
-        messages: list[dict[str, str]] = []
+        from lingclaude.core.model_types import MessageRole, ModelMessage
+
+        messages: list[ModelMessage] = []
         system = self.config.system_prompt
         if context:
             system += f"\n\nContext:\n{context}"
-        messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": task})
+        messages.append(ModelMessage(role=MessageRole.SYSTEM, content=system))
+        messages.append(ModelMessage(role=MessageRole.USER, content=task))
 
         all_tools_used: list[str] = []
         for round_idx in range(self.config.max_rounds):
@@ -143,14 +145,11 @@ class SubAgent:
                     rounds=round_idx + 1,
                 )
 
-            messages.append({
-                "role": "assistant",
-                "content": response.content or "",
-                "tool_calls": [
-                    {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
-                    for tc in response.tool_calls
-                ],
-            })
+            messages.append(ModelMessage(
+                role=MessageRole.ASSISTANT,
+                content=response.content or "",
+                tool_calls=tuple(response.tool_calls) if response.tool_calls else None,
+            ))
 
             for tc in response.tool_calls[: self.config.max_tools_per_round]:
                 if tc.name not in self.config.allowed_tools:
@@ -159,12 +158,12 @@ class SubAgent:
                     tool_output = self._execute_tool(tc.name, tc.arguments)
                     all_tools_used.append(tc.name)
 
-                messages.append({
-                    "role": "tool",
-                    "name": tc.name,
-                    "content": tool_output,
-                    "tool_call_id": tc.id,
-                })
+                messages.append(ModelMessage(
+                    role=MessageRole.TOOL,
+                    name=tc.name,
+                    content=tool_output,
+                    tool_call_id=tc.id,
+                ))
 
         return SubAgentResult(
             agent_id=agent_id, task=task,
