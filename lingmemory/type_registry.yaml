@@ -1,3 +1,23 @@
+slot_swap:
+  description: 一次槽 swap 的热更审计记录（灵元 P6/C4：热更历史成为可 query 的真相）
+  default_state: recorded
+  states:
+  - recorded
+  transitions: []
+  data_schema:
+    slot:
+      required: true
+      type: string
+      description: 槽名（model_provider/todo_store/session_runtime）
+    epoch:
+      required: true
+      type: integer
+      description: swap 后的槽 epoch
+    reason:
+      required: true
+      type: string
+      description: swap 原因（manual/config/...）
+
 task:
   description: 一个任务目标（诉求→满足）
   default_state: created

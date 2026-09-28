@@ -39,6 +39,9 @@ OUT="$("$PY" -m pytest -q \
   "tests/test_p04_arch_guards.py::test_g1_core_engine_imports_count_baseline" \
   "tests/test_p04_arch_guards.py::test_g2_no_new_sys_path_insert" \
   "tests/test_iron_law_guards.py::test_m3_dependency_direction" \
+  "tests/test_p5_slot_guards.py::TestSlotBudgetGuard" \
+  "tests/test_p5_slot_guards.py::TestG10NoInlineConstruction" \
+  "tests/test_p5_slot_guards.py::TestRegistrationDatafication" \
   -x --no-header -p no:cacheprovider 2>&1)"
 RC=$?
 echo "$OUT" | tail -6
@@ -46,7 +49,7 @@ echo "$OUT" | tail -6
 if [ $RC -ne 0 ]; then
   echo ""
   echo "════════════════════════════════════════════════"
-  echo "✗ 架构守卫门禁拦截：G1/G2/M3 存在红灯（见上）"
+  echo "✗ 架构守卫门禁拦截：G1/G2/M3/槽预算/G10直构 存在红灯（见上）"
   echo "  处置：修复违规 / 按台账纪律归因后调基线（只紧不松）"
   echo "  紧急旁路：LINGCLAUDE_SKIP_ARCH_GATE=1 git commit ...（留痕）"
   echo "════════════════════════════════════════════════"

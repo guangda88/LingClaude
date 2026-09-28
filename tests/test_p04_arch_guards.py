@@ -33,6 +33,12 @@ SRC = ROOT / "lingclaude"
 # 诊断输出保留行号清单（帮人定位），但行号不再参与匹配判定。
 CORE_ENGINE_IMPORT_BASELINE = {
     "core/l5_audit.py": 1,               # :88
+    # 2026-09-28 (P5 台账登记): core/light_channel.py 是 P3 轻通道策略工厂层
+    # （verify_cadence/loop_detector/pattern_recognizer 的 build+digest 工厂），
+    # 工厂函数内惰性 import engine 插片类 —— 对位 wiring.py 工厂纪律（白名单内）。
+    # 设计属性：轻通道实现类留 engine，策略工厂层持有 digest+惰性构建契约。
+    # 棘轮只缩不放：若轻通道实现迁 core 或槽化，同步下调本条目。
+    "core/light_channel.py": 2,          # :85 :103（P3 轻通道工厂，台账登记）
     "core/mcp_tools.py": 4,              # :77 :133 :158 :159
     "core/model_call.py": 6,             # :81 :102 :200 :302 :366 :456（P0-A 过渡态集中地）
     "core/prior_verifier.py": 1,         # :128
