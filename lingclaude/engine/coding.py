@@ -47,43 +47,79 @@ class CodingRuntime(
 ):
     def __init__(self, config: lingclaudeConfig | None = None, model_provider: Any | None = None) -> None:
         self.config = config or lingclaudeConfig()
-        self._model_provider = model_provider
-        self._pattern_recognizer = PatternRecognizer()
-        self.verification_gate = VerificationGate()
-        self._setup_tools()
-        # P0-1: todo store (session-scoped SQLite)
-        # 2026-09-17 修复 (硬编码绝对路径): 原 /home/ai/lingclaude/data 换机即崩，
-        # 与 safe_db.fallback_dir 的项目根相对定位哲学冲突 —— 改为
-        # 项目根(本文件 parents[2])/data，并保留 env 覆盖口。
-        import os as _os
+        # P1 (2026-09-28): model_provider 入槽 —— 第一个真插片走 Slot 重机械。
+        # 主干不再持 provider 实例，改持 SlotHandle（调用时解析，根治快照泄漏）。
+        # 换 provider/config model 经 SlotManager.rebuild 零重启生效（swap 协议）。
+        # 初始实例仍惰性自建（api.py/bus_responder/mcp 等路径构建 CodingRuntime
+        # 时不传 provider，子代理 ctx 继承到 None 直接失败）；自建失败保持 None
+        # （fail-soft，子代理仍报原错误而非新异常）。
+        from lingclaude.core.slot import SlotManager
 
-        env_data = _os.environ.get("LINGCLAUDE_DATA_DIR")
-        if env_data:
-            data_dir = Path(env_data)
-        else:
-            data_dir = Path(__file__).resolve().parents[2] / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        session_id = getattr(self.config, "session_id", "default")
-        self._todo_store = TodoStore(data_dir / "todos.db", session_id=session_id)
+        self._slot_manager = SlotManager()
+        # P4: 构造入参存下来，供 SLOT_WIRING_MANIFEST 的 model_provider 工厂读取
+        # （_initial_model_provider 优先用这个注入值，与 P1 内联逻辑逐字对齐）。
+        self._injected_model_provider = model_provider
+        # P3 (2026-09-28): 轻通道 4 件接 LightChannelRuntime —— PolicyLoader 配置读穿
+        # + digest 惰性重建（策略调参零重启）。pattern_recognizer / verification_gate
+        # 用保形状包装器（代理到惰性重建的内部实例），消费点零改动。
+        from lingclaude.engine.light_channel_runtime import (
+            LazyLoopDetector,
+            LazyPatternRecognizer,
+            LazyVerificationGate,
+            LazyVerifyCadence,
+            LightChannelRuntime,
+        )
+
+        from lingclaude.core.config import VerificationConfig
+
+        self._light = LightChannelRuntime(
+            verification_base=(
+                self.config.verification
+                if self.config.verification is not None
+                else VerificationConfig()
+            )
+        )
+        self._pattern_recognizer = LazyPatternRecognizer(self._light.pattern_recognizer)
+        # P0: 走 from_config 工厂（主干绕过工厂裸调是 verification 配置不生效的根因）。
+        # P3: verification_gate 走轻通道，config.verification 为基线 + 策略外置叠加，
+        # 二者同时生效（config.yaml 为主，策略文件调参零重启覆盖）。
+        self.verification_gate = LazyVerificationGate(self._light.verification_gate)
+        # P4: 3 个真插片槽注册数据化（SLOT_WIRING_MANIFEST），在 _setup_tools 前完成
+        # —— 工厂可能引用 config；工具装配在注册后进行。轻通道先行（时序要求）。
+        from lingclaude.engine.coding_wiring import (
+            CodingWiringContext,
+            assemble_coding_slots,
+        )
+
+        assemble_coding_slots(
+            CodingWiringContext(runtime=self, sandbox_policy=None),
+            self._slot_manager,
+        )
+        # P4: _model_provider 已由 assemble_coding_slots setattr（attr="_model_provider"）。
+        # subagent_tools 经 self._model_provider 拿 SlotHandle；句柄解析到当前代际。
+        self._setup_tools()
+        # P4: todo_store 槽已在开头统一注册（SLOT_WIRING_MANIFEST）。此处只建派生物。
+        # _todo_handlers 是派生物：随源槽一次重算（变化频率绑定 todo_store）
         self._todo_handlers = _make_todo_handlers(self._todo_store)
-        # P1-1: LSP provider (lazy init on first use)
-        # 2026-09-17 codex P1-1: 生产路径已改走 LspSessionPool（engine/lsp_session.py），
-        # 本槽位恒 None，仅为 legacy 注入路径（测试/宿主显式预置 provider）保留。
-        self._lsp_provider: StdioLspProvider | None = None
-        self._lsp_workspace_root: Path | None = None
+        # P0 (2026-09-28): _lsp_provider 死槽移除 —— 恒 None 且生产走 LspSessionPool，
+        # 徒占主干一个直构位。legacy 注入路径由 lsp_tools 的 getattr 兜底承载
+        # （tool_handlers/lsp_tools.py:60 读 getattr(self, '_lsp_provider', None)）。
 
         # P0.2 (E1 修活熔断): 5b 分支的真实依赖 — 此前从未初始化,
         # execute_tool._blocks 里对 _session_runtime/_loop_detector 的双重
         # hasattr 永远为 False，observe_denial 熔断是死代码（V3 §三 E1）。
-        self._loop_detector = _ToolLoopDetector()
+        # P3: loop_detector 走轻通道（保形状包装器，阈值外置策略可热更）
+        self._loop_detector = LazyLoopDetector(self._light.loop_detector)
         self._denial_abort_log: str | None = None
         # 5b 第一道门: log_denial 桥（复用 SessionRuntime→DataFlywheel，不造新文件）。
         # session_id 兜底 "default"，与 execute_tool 里 permission store 的取法一致。
         self.session_id = getattr(self.config, "session_id", "default")
-        self._session_runtime = SessionRuntime(self)
+        # P4: session_runtime 槽已在开头统一注册（SLOT_WIRING_MANIFEST）。
+        # 句柄经 getattr 透明代理，lifecycle mixin / subagent_tools 访问零改动。
         # P2 (2026-09-18): VerifyCadenceHook — 编辑后未验证 nudge + 死循环检测。
         # T0 零推理（纯字符串匹配），独立开关 LINGCLAUDE_VERIFY_CADENCE（默认开）。
-        self._verify_cadence = VerifyCadenceHook()
+        # P3: 走轻通道（保形状包装器，env 开关迁入 YAML 策略可热更）
+        self._verify_cadence = LazyVerifyCadence(self._light.verify_cadence)
 
     def close(self) -> None:
         """释放资源（进程退出/会话结束调用）。
