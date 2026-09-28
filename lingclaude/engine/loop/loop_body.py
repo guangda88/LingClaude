@@ -379,10 +379,13 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
         usage: Any = ModelUsage()
         round_finish_reason = ""
 
-        # F12f:同回合失败换候选 — 最多尝试 2 个 provider。
+        # F12f:同回合失败换候选 — 遍历候选链（2026-09-28 从"只切一跳"放宽）。
         # 首选失败且尚无任何文本输出时,重新 resolve(TaskRouter round-robin
         # 前进即自动换下一候选)+ record_error,不让单点故障直接甩给用户。
-        for cfg_attempt in range(2):
+        # 降级链健康度门禁(441行起)仍逐跳把关,熔断 slot 由 resolve 跳过,
+        # 故放宽上限不会盲切到死节点,只会让失败轮有机会沉到更深候选。
+        _MAX_FALLBACK_ATTEMPTS = 6  # 候选链长度上限（超出即放弃本轮）
+        for cfg_attempt in range(_MAX_FALLBACK_ATTEMPTS):
             round_text_parts.clear()
             round_tool_calls.clear()
             stream_error = None
@@ -431,8 +434,8 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
                 resolved_config, "error", stream_error,
             )
 
-            # 尚无输出 → 换下一候选重试一次
-            if cfg_attempt == 0 and not round_text_parts:
+            # 尚无输出 → 换下一候选重试（遍历候选链，每跳仍过探活门禁）
+            if not round_text_parts:
                 next_cfg, _ = engine._resolve_model_config(prompt)
                 if next_cfg and (
                     (next_cfg.model, next_cfg.base_url)
