@@ -139,3 +139,33 @@ def install_family_backends(manager: Any, only_keys: list[str] | None = None) ->
             skipped[key] = f"{type(e).__name__}: {e}"
             logger.warning("AgentSeamBackend 装配失败 %s: %s", key, e)
     return {"installed": installed, "skipped": skipped}
+
+
+def reload_agent_plugins(store: Any = None) -> Any:
+    """agent 插件目录重扫装载 — engine 内间接入口（G11 合规通路）。
+
+    主干侧调用点（hot_reload_trigger 等）只允许 import 本函数，不允许直接
+    import lingclaude.plugins.agents（G11：主干不 import 插件实现，只经
+    PluginLoader 入口）。实现上优先复用 sys.modules 中已加载的
+    registry_loader 单例（装配器模块是幂等单例，重扫需拿同一份状态）；
+    缺席时退 importlib 按文件路径装载（不经包 import，对齐 PluginLoader
+    的 spec_from_file_location 通路语义）；load_all 幂等（同名覆盖）。
+    """
+    import sys
+
+    module = sys.modules.get("lingclaude.plugins.agents.registry_loader")
+    if module is None:
+        import importlib.util
+        from pathlib import Path
+
+        agents_loader_path = (
+            Path(__file__).resolve().parents[2] / "plugins" / "agents" / "registry_loader.py"
+        )
+        spec = importlib.util.spec_from_file_location(
+            "lingclaude.plugins.agents.registry_loader", agents_loader_path
+        )
+        if spec is None or spec.loader is None:
+            return {"loaded": [], "skipped": {"registry_loader": "spec load failed"}}
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    return module.load_all(store=store)

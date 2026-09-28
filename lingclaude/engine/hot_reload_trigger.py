@@ -109,9 +109,12 @@ class HotReloadTrigger:
         return {"tools_loaded": ok}
 
     def _default_agents_reload(self) -> Any:
-        from lingclaude.plugins.agents import registry_loader  # 延迟 import
+        # G11 合规：不直接 import lingclaude.plugins.agents，经 engine 内
+        # 间接入口（seam_backend.reload_agent_plugins，内部走 importlib
+        # 按路径装载，对齐 PluginLoader 通路语义）。
+        from lingclaude.engine.subagent.seam_backend import reload_agent_plugins
 
-        return registry_loader.load_all(store=self._store)
+        return reload_agent_plugins(store=self._store)
 
     # ------------------------------------------------------------------
     # 主通路：节流 diff 扫描
