@@ -446,6 +446,25 @@ class OptimizationDaemon:
         result = self.optimizer.optimize(request)
         duration = time.monotonic() - start
 
+        # ---- 断点③（2026-09-28）：失败聚类自动归因 ------------------------
+        # 每轮优化后扫 error_log，同型失败跨会话聚类 → 产 LearnedRule(draft)
+        # + backlog 修复建议。把「13 连败人工查 journal」机制化为 daemon 自动
+        # 发现。fail-soft：聚类失败不阻断优化主流程（节流每轮一次，量级亚秒）。
+        try:
+            from lingclaude.self_optimizer.failure_cluster_analyzer import (
+                FailureClusterAnalyzer,
+            )
+            fca = FailureClusterAnalyzer(min_occurrences=3, min_sessions=2)
+            fca_result = fca.analyze(write=True)
+            if fca_result.actionable:
+                logger.info(
+                    "[断点③] 失败聚类归因：可行动 %d 簇，入库规则 %d，backlog +%d",
+                    fca_result.actionable, fca_result.rules_written,
+                    fca_result.backlog_appended,
+                )
+        except Exception as _fca_err:  # noqa: BLE001 — 归因失败不阻断优化
+            logger.debug("[断点③] 失败聚类分析跳过（fail-soft）: %s", _fca_err)
+
         if not result.success:
             # ---- P1.5 失败入档（2026-09-17，借鉴 OpenEvolve artifact side-channel）----
             # 失败方案入档（含原因与当次参数），下轮 build_context 引用——
