@@ -45,6 +45,24 @@ class CodingWiringSpec:
     note: str = ""
 
 
+@dataclass(frozen=True)
+class CodingSlotWiringSpec:
+    """P4: 真插片槽注册条目（装配数据化，消灭 __init__ 内联注册）。
+
+    slot_name: 注册进 SlotManager 的槽名（预算 ≤8 守卫）。
+    attr:      装配到 runtime 的属性名（通常 = slot_name）。
+    initial:   工厂，返回槽的初始实例（None 表示惰性/失败时占位）。
+    transparent: True → 透明句柄（method 形状代理，消费点零改动）；
+                 False → 普通 SlotHandle（调用时 .instance() 解析）。
+    """
+
+    slot_name: str
+    attr: str
+    initial: Callable[[CodingWiringContext], Any]
+    transparent: bool = False
+    note: str = ""
+
+
 # ---------------------------------------------------------------------------
 # 工厂（构造语义与原 _setup_tools() 逐字对齐）
 # ---------------------------------------------------------------------------
@@ -143,6 +161,57 @@ def _make_tool_pipeline(ctx: CodingWiringContext) -> Any:
         critical_tools=CRITICAL_TOOLS,
         timeout_seconds=ctx.runtime.config.optimizer.timeout_seconds,
     )
+
+
+# ---------------------------------------------------------------------------
+# P4: 真插片槽工厂（initial 工厂；注册进 SlotManager，热更走 swap 协议）
+# ---------------------------------------------------------------------------
+def _initial_model_provider(ctx: CodingWiringContext) -> Any:
+    """model_provider 初始实例：优先构造入参，否则惰性自建（fail-soft None）。
+
+    与 P1 内联逻辑逐字对齐：api.py/bus_responder/mcp 等路径构建时不传 provider，
+    这里读 config.model + env/凭据池自建；失败保持 None（子代理报原错误）。
+    """
+    injected = getattr(ctx.runtime, "_injected_model_provider", None)
+    if injected is not None:
+        return injected
+    try:
+        from lingclaude.model.factory import create_provider
+
+        result = create_provider(ctx.runtime.config.model)
+        if result.is_ok and result.data is not None:
+            return result.data
+    except Exception:  # noqa: BLE001 — provider 构建失败不阻断 runtime
+        pass
+    return None
+
+
+def _resolve_data_dir(ctx: CodingWiringContext) -> Any:
+    """data_dir 解析（装配上下文字段，P4 数据化；与 __init__ 内联逻辑逐字对齐）。"""
+    import os
+    from pathlib import Path
+
+    env_data = os.environ.get("LINGCLAUDE_DATA_DIR")
+    if env_data:
+        data_dir = Path(env_data)
+    else:
+        data_dir = Path(__file__).resolve().parents[2] / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
+def _initial_todo_store(ctx: CodingWiringContext) -> Any:
+    from lingclaude.engine.todo import TodoStore
+
+    data_dir = _resolve_data_dir(ctx)
+    session_id = getattr(ctx.runtime.config, "session_id", "default")
+    return TodoStore(data_dir / "todos.db", session_id=session_id)
+
+
+def _initial_session_runtime(ctx: CodingWiringContext) -> Any:
+    from lingclaude.core.session_runtime import SessionRuntime
+
+    return SessionRuntime(ctx.runtime)
 
 
 class LazyToolPlugins:
@@ -262,3 +331,42 @@ def assemble_coding(ctx: CodingWiringContext, overrides: dict[str, Any] | None =
         setattr(ctx.runtime, spec.attr, spec.factory(ctx))
         wired.append(spec.attr)
     return wired
+
+
+# ---------------------------------------------------------------------------
+# P4: SLOT_WIRING_MANIFEST —— 3 个真插片槽注册数据化（装配/热更统一通路）
+# 主干 __init__ 不再内联注册，改遍历本 manifest（消灭"插片注册"双轨制）。
+# 注：4 轻通道（verification/pattern/loop/cadence）因时序须在 _setup_tools 前，
+#     保留在 __init__ 第一段，由 LightChannelRuntime 统一持有（亦是单通路）。
+# ---------------------------------------------------------------------------
+SLOT_WIRING_MANIFEST: tuple[CodingSlotWiringSpec, ...] = (
+    CodingSlotWiringSpec(
+        "model_provider", "_model_provider", _initial_model_provider,
+        transparent=False, note="L1 模型 provider（主会话/子代理共用，swap 零重启）",
+    ),
+    CodingSlotWiringSpec(
+        "todo_store", "_todo_store", _initial_todo_store,
+        transparent=True, note="L2 session SQLite（swap=同库重连不丢状态）",
+    ),
+    CodingSlotWiringSpec(
+        "session_runtime", "_session_runtime", _initial_session_runtime,
+        transparent=True, note="L1 会话运行时（引擎引用不变量，swap 重注）",
+    ),
+)
+
+
+def assemble_coding_slots(ctx: CodingWiringContext, slot_manager: Any) -> list[str]:
+    """按 SLOT_WIRING_MANIFEST 注册 3 个真插片槽，返回注册槽名。
+
+    装配语义与 __init__ 原内联注册逐字对齐；热更走 SlotManager.swap（统一协议）。
+    """
+    registered: list[str] = []
+    for spec in SLOT_WIRING_MANIFEST:
+        handle = slot_manager.register(
+            spec.slot_name,
+            initial=spec.initial(ctx),
+            transparent=spec.transparent,
+        )
+        setattr(ctx.runtime, spec.attr, handle)
+        registered.append(spec.slot_name)
+    return registered

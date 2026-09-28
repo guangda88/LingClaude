@@ -1,0 +1,31 @@
+# 灵元 P3: CodingRuntime 轻通道插片策略（verification_gate / pattern_recognizer /
+# loop_detector / verify_cadence 无状态对象，PolicyLoader digest 惰性重建）。
+# 改本文件不重启进程，下个调用点生效（policy_loader mtime watch 热更）。
+#
+# 语义：verification_gate 段是 config.verification（P0 主干通路）的外置叠加层。
+#   字段留 null（或缺省）= 沿用 config.yaml 的值；填具体值 = 覆盖（策略调参零重启）。
+
+verification_gate:
+  enabled: null          # null = 沿用 config.verification.enabled（默认 true）
+  syntax_check: null
+  test_run: null
+  blocked_extensions: null
+  max_tool_calls_per_session: null
+
+verify_cadence:
+  # env LINGCLAUDE_VERIFY_CADENCE 优先级高于本文件（保留运行时开关口）
+  enabled: true
+
+loop_detector:
+  # streak 计数声明易失（swap 清零可接受，文档化）；阈值外置
+  denial_threshold: 2
+
+pattern_recognizer:
+  # detectors 注册数据化（register_detector 上提为 manifest 列表）
+  detectors:
+    - long_method
+    - unused_variable
+    - hardcoded_secret
+    - duplicate_code
+    - empty_block
+    - complexity
