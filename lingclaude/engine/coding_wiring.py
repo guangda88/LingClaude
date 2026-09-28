@@ -370,3 +370,22 @@ def assemble_coding_slots(ctx: CodingWiringContext, slot_manager: Any) -> list[s
         setattr(ctx.runtime, spec.attr, handle)
         registered.append(spec.slot_name)
     return registered
+
+
+def _initial_model_provider_hotreload() -> Any:
+    """model_provider 热更重建设实例（2026-09-28 环 3 接通，G10 合规外移）。
+
+    从 coding.py __init__ 外移：__init__ 裸调 create_provider( 会触发 G10 直构棘轮红
+    （真插片必须走 SLOT_WIRING_MANIFEST / `_initial_` 前缀工厂函数）。每次调用都
+    load_config() 读「当前 config.yaml」（不经装配期注入快照），保证 rebuild 出的
+    实例与热更后的文件一致（needs_rebuild 的 cfg 判据亦来自 load_config）。
+
+    作为 HotReloadTrigger.register_config_slot 的无参工厂直接传入。
+    """
+    from lingclaude.core.config import load_config
+    from lingclaude.model.factory import create_provider
+
+    result = create_provider(load_config().model)
+    if result.is_ok and result.data is not None:
+        return result.data
+    return None  # fail-soft：构建失败保持 None（与 _initial_model_provider 同语义）

@@ -97,6 +97,16 @@ class CodingRuntime(
         )
         # P4: _model_provider 已由 assemble_coding_slots setattr（attr="_model_provider"）。
         # subagent_tools 经 self._model_provider 拿 SlotHandle；句柄解析到当前代际。
+        # 环 3 接线（2026-09-28）：把 model_provider 槽注册进进程级 config 热更通路，
+        # config.yaml model 变化 → HotReloadTrigger.check() 自动 rebuild（零重启换 provider）。
+        # 工厂外移 coding_wiring（G10 合规：__init__ 不裸调 create_provider）——
+        # 热更工厂直接 load_config() 读「当前 config.yaml」（不经装配期注入快照）。
+        from lingclaude.engine import tools as _tools_mod
+        from lingclaude.engine.coding_wiring import _initial_model_provider_hotreload
+
+        _tools_mod.register_config_slot(
+            "model_provider", self._slot_manager, _initial_model_provider_hotreload
+        )
         self._setup_tools()
         # P4: todo_store 槽已在开头统一注册（SLOT_WIRING_MANIFEST）。此处只建派生物。
         # _todo_handlers 是派生物：随源槽一次重算（变化频率绑定 todo_store）

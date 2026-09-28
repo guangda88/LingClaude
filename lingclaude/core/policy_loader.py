@@ -57,10 +57,46 @@ _DATA_CACHE: dict[str, dict[str, Any]] = {}
 # {绝对路径: monotonic 时间戳}
 _LAST_CHECK_BY_PATH: dict[str, float] = {}
 
+# 热更监听器：[(name, listener)]，策略文件变化时回调（灵元「变化走接缝」环 2）。
+# listener(name, data) 由热更通路调用；保持纯 core（仅标准库），listener 本身
+# 可以是 engine/槽层闭包 —— 依赖方向仍是 engine→core（调用方注入），core 不 import engine。
+import threading
+
+_LISTENERS_LOCK = threading.RLock()
+_LISTENERS: list[tuple[str, Any]] = []  # (策略名, callable(name, data))
+
+
+def add_listener(name: str, listener: Any) -> None:
+    """注册策略热更监听器：策略 <name> 文件变化时回调 listener(name, data)。
+
+    幂等（同名同 callable 不重复注册）。listener 异常不阻断热更主链路（fail-soft）。
+    """
+    with _LISTENERS_LOCK:
+        for n, fn in _LISTENERS:
+            if n == name and fn is listener:
+                return
+        _LISTENERS.append((name, listener))
+
+
+def _notify(name: str, data: dict[str, Any]) -> None:
+    """策略 <name> 变化 → 通知所有监听者（fail-soft，单监听器异常不影响其余）。"""
+    with _LISTENERS_LOCK:
+        listeners = [fn for n, fn in _LISTENERS if n == name]
+    for fn in listeners:
+        try:
+            fn(name, data)
+        except Exception:  # noqa: BLE001 — 监听器故障不反噬热更通路
+            logger.warning("PolicyLoader listener(%s) 回调失败", name, exc_info=True)
+
 
 def policies_dir() -> Path:
     """策略目录（测试可 monkeypatch _POLICIES_DIR 覆盖）。"""
     return _POLICIES_DIR
+
+
+def _policy_name_for_key(key: str) -> str:
+    """缓存 key（绝对路径）→ 策略名（文件名去 .yaml）。监听器按名匹配。"""
+    return Path(key).stem
 
 
 def _resolve_path(name: str) -> Path | None:
@@ -93,8 +129,13 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _load(name: str) -> dict[str, Any]:
-    """强制重读一次（不做缓存判断），返回 dict。"""
+def _load(name: str, *, notify: bool = False) -> dict[str, Any]:
+    """强制重读一次（不做缓存判断），返回 dict。
+
+    :param notify: True 时视为「热更通路」——读到新数据后回调监听器（环 2）。
+                   首次加载/装配期显式 load() 传 False，避免误触发槽 rebuild
+                   覆盖装配注入值（子代理 provider 继承）。
+    """
     path = _resolve_path(name)
     if path is None:
         return {}
@@ -110,6 +151,8 @@ def _load(name: str) -> dict[str, Any]:
             stamp = (0, 0)
         _MTIME_CACHE[str(path)] = stamp
         _DATA_CACHE[str(path)] = data
+        if notify:
+            _notify(name, data)
     else:
         # 读失败：清缓存，下次重试
         _MTIME_CACHE.pop(str(path), None)
@@ -157,7 +200,7 @@ def get(name: str) -> dict[str, Any]:
 
     if _changed(path):
         logger.info("PolicyLoader: 策略文件变更 %s，热重载", path)
-        return _load(name)
+        return _load(name, notify=True)
     return _DATA_CACHE.get(key, {})
 
 
@@ -193,6 +236,7 @@ def hot_update() -> bool:
             _LAST_CHECK_BY_PATH.pop(key, None)
             if new_data != old_data:
                 logger.info("PolicyLoader: hot_update 刷新 %s（内容变化）", path)
+                _notify(_policy_name_for_key(key), new_data)
                 reloaded = True
         else:
             _MTIME_CACHE.pop(key, None)
@@ -201,7 +245,9 @@ def hot_update() -> bool:
 
 
 def reset() -> None:
-    """清空全部缓存（仅测试用）。"""
+    """清空全部缓存与监听器（仅测试用，防跨用例监听器/缓存状态泄漏）。"""
     _MTIME_CACHE.clear()
     _DATA_CACHE.clear()
     _LAST_CHECK_BY_PATH.clear()
+    with _LISTENERS_LOCK:
+        _LISTENERS.clear()

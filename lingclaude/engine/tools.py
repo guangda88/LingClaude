@@ -58,6 +58,45 @@ def _reset_hot_reload_trigger() -> None:
     _HOT_RELOAD_TRIGGER = None
 
 
+def register_config_slot(slot_name: str, slot_manager: Any, factory: Any) -> None:
+    """环 3 接线口（2026-09-28 接通）：把一个槽注册进进程级 config 热更通路。
+
+    CodingRuntime 装配后调用，注册 model_provider 等槽；此后 config.yaml 变化
+    时 HotReloadTrigger.check() 自动 needs_rebuild→rebuild（零重启换 provider）。
+    fail-soft：触发器未就绪/异常不阻断装配。
+    """
+    try:
+        _get_hot_reload_trigger().register_config_slot(slot_name, slot_manager, factory)
+    except Exception:  # noqa: BLE001 —— 热更注册失败不影响 runtime 可用
+        logger.debug("register_config_slot(%s) 失败", slot_name, exc_info=True)
+
+
+def swap_config_slot(slot_name: str, new_instance: Any, *, reason: str = "manual_switch") -> bool:
+    """双轨归位（2026-09-28）：主会话 switch_model 成功后同步共享 model_provider 槽。
+
+    QueryEngine（core 层）不直接持 CodingRuntime 槽，经本进程级口反向同步——
+    主会话切模型后，子代理经槽解析到同一新 provider，消除「主/子 provider 漂移」。
+    fail-soft：槽未注册 / 触发器未就绪 → 返回 False（不影响主会话切换本身）。
+
+    注：本函数定义在 engine 层，core 的 QueryEngineModelMixin 通过延迟 import 调用
+    （函数内 import，G1 棘轮对 core→engine import 计数；此处为反向同步的合法接缝，
+    调用点记 core→engine 白名单）。
+    """
+    try:
+        trigger = _HOT_RELOAD_TRIGGER
+        if trigger is None:
+            return False
+        entry = trigger._config_slots.get(slot_name)
+        if entry is None:
+            return False
+        slot_manager, _factory = entry
+        slot_manager.slot(slot_name).swap(new_instance, reason=reason)
+        return True
+    except Exception:  # noqa: BLE001 —— 同步失败不影响主会话切换
+        logger.debug("swap_config_slot(%s) 失败", slot_name, exc_info=True)
+        return False
+
+
 def _ensure_tool_plugins_loaded() -> bool:
     """工具插片惰性装载（收口点，幂等）。
 

@@ -212,3 +212,129 @@ class TestRealDefaultActions:
         t.check(force=True)
         # 重扫后 done 标志被置位（exactly-once 语义恢复），证明重扫确实发生
         assert _tools._PLUGIN_LOAD_DONE is True
+
+
+# ---------------------------------------------------------------------------
+# 环 2 / 环 3（2026-09-28 接通热更断链）：config 变化 → SlotManager.rebuild
+# ---------------------------------------------------------------------------
+from lingclaude.core.slot import SlotManager
+
+
+class TestConfigSlotRebuild:
+    """环 3：注册槽 + config 变化 → rebuild。用注入 provider/工厂隔离外部副作用。"""
+
+    def test_config_change_triggers_rebuild(self, tmp_path):
+        (tmp_path / "t").mkdir(); (tmp_path / "a").mkdir()
+        from lingclaude.engine.hot_reload_trigger import HotReloadTrigger
+        sm = SlotManager()
+        sm.register("model_provider", initial={"v": "old"})
+        t = HotReloadTrigger(tools_dir=tmp_path/"t", agents_dir=tmp_path/"a", config_check_interval=0.0)
+        # config 变化：old -> new（digest 不同 → needs_rebuild True）
+        t._config_provider = lambda: {"v": "new"}
+        t._config_yaml_changed = lambda: True
+        made = []
+        t.register_config_slot("model_provider", sm, lambda: made.append(1) or {"v": "new"})
+        out = {}
+        t._check_config_rebuild(out)
+        assert made, "config 变化未触发工厂重建"
+        assert out.get("config_rebuilt") == ["model_provider"]
+        # 槽实例已换新
+        assert sm.get("model_provider") == {"v": "new"}
+
+    def test_config_unchanged_no_rebuild(self, tmp_path):
+        (tmp_path / "t").mkdir(); (tmp_path / "a").mkdir()
+        from lingclaude.engine.hot_reload_trigger import HotReloadTrigger
+        sm = SlotManager()
+        sm.register("model_provider", initial={"v": "same"})
+        t = HotReloadTrigger(tools_dir=tmp_path/"t", agents_dir=tmp_path/"a", config_check_interval=0.0)
+        t._config_provider = lambda: {"v": "same"}  # digest 相同 → 不重建
+        t._config_yaml_changed = lambda: True
+        made = []
+        t.register_config_slot("model_provider", sm, lambda: made.append(1) or {"v": "same"})
+        out = {}
+        t._check_config_rebuild(out)
+        assert not made, "config 未变化不应触发 rebuild"
+        assert "config_rebuilt" not in out
+
+    def test_register_config_slot_idempotent_override(self, tmp_path):
+        from lingclaude.engine.hot_reload_trigger import HotReloadTrigger
+        t = HotReloadTrigger(tools_dir=tmp_path, agents_dir=tmp_path)
+        sm1, sm2 = SlotManager(), SlotManager()
+        t.register_config_slot("model_provider", sm1, lambda: 1)
+        t.register_config_slot("model_provider", sm2, lambda: 2)  # 覆盖
+        assert t._config_slots["model_provider"][0] is sm2
+
+    def test_rebuild_failure_fail_soft(self, tmp_path):
+        (tmp_path / "t").mkdir(); (tmp_path / "a").mkdir()
+        from lingclaude.engine.hot_reload_trigger import HotReloadTrigger
+        sm = SlotManager()
+        sm.register("model_provider", initial={"v": "old"})
+        t = HotReloadTrigger(tools_dir=tmp_path/"t", agents_dir=tmp_path/"a", config_check_interval=0.0)
+        t._config_provider = lambda: {"v": "new"}
+        t._config_yaml_changed = lambda: True
+
+        def boom():
+            raise RuntimeError("provider 构建失败")
+
+        t.register_config_slot("model_provider", sm, boom)
+        out = {}
+        t._check_config_rebuild(out)  # 不抛穿
+        assert "config_errors" in out and "model_provider" in out["config_errors"]
+        assert sm.get("model_provider") == {"v": "old"}  # 旧实例不动
+
+
+class TestPolicyLoaderListener:
+    """环 2：policy_loader.add_listener + hot_update/get 变化时回调。"""
+
+    def setup_method(self):
+        from lingclaude.core import policy_loader
+
+        policy_loader.reset()
+        self.pl = policy_loader
+
+    def teardown_method(self):
+        self.pl.reset()
+
+    def _write(self, tmp_path, monkeypatch, name, data):
+        monkeypatch.setattr(self.pl, "_POLICIES_DIR", tmp_path)
+        p = tmp_path / f"{name}.yaml"
+        import yaml
+
+        p.write_text(yaml.safe_dump(data), encoding="utf-8")
+        return p
+
+    def test_hot_update_notifies_listener(self, tmp_path, monkeypatch):
+        seen = []
+        self.pl.add_listener("mypol", lambda n, d: seen.append((n, d)))
+        self._write(tmp_path, monkeypatch, "mypol", {"k": 1})
+        self.pl.get("mypol")  # 首次加载（建缓存，不通知）
+        assert seen == []
+        # 改内容 → hot_update 应通知
+        self._write(tmp_path, monkeypatch, "mypol", {"k": 2})
+        assert self.pl.hot_update() is True
+        assert seen and seen[-1][0] == "mypol" and seen[-1][1] == {"k": 2}
+
+    def test_add_listener_idempotent(self):
+        calls = []
+        fn = lambda n, d: calls.append(n)
+        self.pl.add_listener("x", fn)
+        self.pl.add_listener("x", fn)  # 重复注册去重
+        self.pl._notify("x", {})
+        assert calls == ["x"]
+
+    def test_listener_exception_fail_soft(self):
+        def boom(n, d):
+            raise RuntimeError("listener 故障")
+
+        seen = []
+        self.pl.add_listener("y", boom)
+        self.pl.add_listener("y", lambda n, d: seen.append(n))
+        self.pl._notify("y", {})  # 不抛穿，其余监听器照常
+        assert seen == ["y"]
+
+    def test_reset_clears_listeners(self):
+        seen = []
+        self.pl.add_listener("z", lambda n, d: seen.append(n))
+        self.pl.reset()
+        self.pl._notify("z", {})
+        assert seen == []

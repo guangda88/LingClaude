@@ -43,6 +43,7 @@ CORE_ENGINE_IMPORT_BASELINE = {
     "core/model_call.py": 6,             # :81 :102 :200 :302 :366 :456（P0-A 过渡态集中地）
     "core/prior_verifier.py": 1,         # :128
     "core/query_engine_turn_mixin.py": 2,  # :164 :303
+    "core/query_engine_model_mixin.py": 1,  # :85（2026-09-28 双轨归位：switch_model 同步 model_provider 槽，延迟 import engine.tools.swap_config_slot）
     "core/tool_executor.py": 0,          # 2026-09-24 清偿：:161 延迟导入（32d8d44，9-12），基线 1→0
     "core/wiring.py": 2,                 # :199 :218
 }
@@ -843,3 +844,65 @@ def test_evolve_block_paired():
         nb, ne = text.count(b), text.count(e)
         assert nb == ne == 1, f"EVOLVE-BLOCK 锚点未成对或重复: {rel} begin={nb} end={ne}"
         assert text.index(b) < text.index(e), f"EVOLVE-BLOCK 顺序颠倒: {rel}"
+
+
+def test_g16_rebuild_wired_production():
+    """G16 调用图连通性守卫（2026-09-28，对齐 CC 审计发现的「已建未接」盲区）。
+
+    背景：SlotManager.rebuild / PolicyLoader 监听器 曾「协议、测试、record 落账齐全，
+    但生产侧零调用」——守卫冻住了代码形态，却冻不住调用图连通性。本守卫把
+    「热更核心接缝必须在生产代码被实际接线」固化为防线，防回流。
+
+    断言（全部针对生产代码，排除 tests/ 与 .bak）：
+      1. SlotManager.rebuild 必须在 slot.py 之外被生产代码调用（config 热更通路）；
+      2. HotReloadTrigger 必须提供 register_config_slot（config→槽注册口）；
+      3. tools.register_config_slot 必须被生产装配代码调用（CodingRuntime 接线）；
+      4. policy_loader 必须提供 add_listener（环 2 监听器口）。
+    """
+    import re
+
+    prod_globs = ["lingclaude/**/*.py"]
+
+    def _prod_files():
+        for pat in prod_globs:
+            for f in ROOT.glob(pat):
+                if ".bak" in f.suffixes or f.name.endswith(".bak"):
+                    continue
+                yield f
+
+    # 1. rebuild 生产侧调用（排除 slot.py 定义点）
+    rebuild_calls = []
+    for f in _prod_files():
+        if f.name == "slot.py":
+            continue
+        text = f.read_text(encoding="utf-8")
+        for i, line in enumerate(text.splitlines(), 1):
+            if re.search(r"\.rebuild\(", line) or re.search(r"\bneeds_rebuild\(", line):
+                rebuild_calls.append(f"{f.relative_to(ROOT)}:{i}")
+    assert rebuild_calls, (
+        "G16 违规：SlotManager.rebuild/needs_rebuild 在生产代码零调用——"
+        "热更协议已建未接（调用图断裂）。须在 engine 层 config 热更通路接线。"
+    )
+
+    # 2/3/4. 关键接缝存在性
+    hrt = (SRC / "engine" / "hot_reload_trigger.py").read_text(encoding="utf-8")
+    assert "def register_config_slot" in hrt, "G16 违规：HotReloadTrigger 缺 register_config_slot（环3 注册口）"
+
+    tools_src = (SRC / "engine" / "tools.py").read_text(encoding="utf-8")
+    assert "def register_config_slot" in tools_src, "G16 违规：tools.py 缺进程级 register_config_slot 接线口"
+
+    # register_config_slot 必须被 tools.py 之外的生产装配代码调用
+    reg_calls = []
+    for f in _prod_files():
+        if f.name == "tools.py":
+            continue
+        text = f.read_text(encoding="utf-8")
+        if "register_config_slot(" in text:
+            reg_calls.append(str(f.relative_to(ROOT)))
+    assert reg_calls, (
+        "G16 违规：tools.register_config_slot 无生产装配调用方——"
+        "model_provider 槽未接入 config 热更通路（CodingRuntime 接线缺失）。"
+    )
+
+    pl = (SRC / "core" / "policy_loader.py").read_text(encoding="utf-8")
+    assert "def add_listener" in pl, "G16 违规：policy_loader 缺 add_listener（环2 监听器口）"

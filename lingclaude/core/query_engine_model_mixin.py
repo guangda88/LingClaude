@@ -78,6 +78,15 @@ class QueryEngineModelMixin:
                 return provider_result
             self._provider = provider_result.data
             self._model_config = new_cfg
+            # 双轨归位（2026-09-28）：主会话切模型后同步共享 model_provider 槽，
+            # 让子代理经槽解析到同一新 provider（消除主/子 provider 漂移）。
+            # fail-soft：槽未注册/同步失败不影响主会话切换本身。
+            try:
+                from lingclaude.engine.tools import swap_config_slot
+
+                swap_config_slot("model_provider", provider_result.data, reason="manual_switch")
+            except Exception:  # noqa: BLE001 —— 同步是增强通路，不阻断切换
+                logger.debug("model_provider 槽同步失败（不影响主会话切换）", exc_info=True)
             # 同步 config.model（供 /model 显示与 tool_executor 读取）
             try:
                 if hasattr(self.config, "model"):
