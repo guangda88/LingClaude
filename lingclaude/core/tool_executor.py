@@ -42,6 +42,19 @@ class ToolExecutor:
     def __init__(self, engine) -> None:
         self._engine = engine
 
+    def _resolve_context_window(self) -> int:
+        """解析上下文窗口（2026-09-28 查表化，替代硬编码 128K / max_budget_tokens 兜底）。"""
+        from lingclaude.core.context_window import _DEFAULT_FALLBACK, resolve_context_window
+
+        win = resolve_context_window(self._engine)
+        # 查表未命中（返回全局兜底值）时回退 max_budget_tokens（保持 T1-1 原语义）
+        if win == _DEFAULT_FALLBACK:
+            cfg = getattr(self._engine, "config", None)
+            budget = getattr(cfg, "max_budget_tokens", None)
+            if budget and isinstance(budget, (int, float)) and budget > 0:
+                return int(budget)
+        return win
+
     def _execute_tool(self, name: str, arguments_json: str) -> str:
         """执行工具，返回模型可见的 JSON 字符串（序列化边界）。"""
         tr = self._execute_tool_typed(name, arguments_json)
@@ -225,8 +238,8 @@ class ToolExecutor:
                 config=CompressionConfig(
                     max_messages=target_max,
                     level=CompressionLevel.SUMMARY,
-                    # T1-1 深化: 按模型窗口动态预算（优先 context_window_tokens）
-                    model_window_tokens=getattr(self._engine.config, "context_window_tokens", None) or getattr(self._engine.config, "max_budget_tokens", None),
+                    # T1-1 深化: 按模型窗口动态预算（2026-09-28 查表化）
+                    model_window_tokens=self._resolve_context_window(),
                     use_llm_summary=getattr(self._engine.config, "use_llm_summary", False),
                     provider=getattr(self._engine, "_provider", None),
                 ),
