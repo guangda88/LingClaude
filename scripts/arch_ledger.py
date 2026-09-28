@@ -29,7 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -89,6 +89,9 @@ def exemption_add(guard: str, rel_path: str, reason: str, lines: list[int] | Non
     payload = {
         "guard": guard, "file": rel_path, "reason": reason,
         "granted": date.today().isoformat(), "state": "active",
+        # 铁律 4 债务语法：豁免须带复审账期（守卫 test_exemptions_not_past_review 强制），
+        # 否则入册即触发「豁免无 review_due」红。默认 30 天复审周期，与存量豁免同款。
+        "review_due": (date.today() + timedelta(days=30)).isoformat(),
     }
     if lines:
         payload["lines"] = lines  # 行级豁免（M2/M3）；缺省=整文件（M1）

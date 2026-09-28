@@ -795,6 +795,7 @@ def test_g14_plugin_loader_dirs_under_plugins():
 G15_WRITE_COUNT_CAPS = {
     "self_optimizer/advisor.py": 1,      # :197 优化报告 md
     "self_optimizer/audit_watch.py": 1,  # :38 值守状态 json
+    "self_optimizer/backlog_executor.py": 1,  # :252 backlog 执行状态 json（断点④白名单回写）
     "self_optimizer/daemon.py": 4,       # :130 state json / :837 patch json / :842 config yaml / :951 policy yaml
 }
 
