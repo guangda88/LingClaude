@@ -1,0 +1,10 @@
+{
+  "kind": "review_scheduled",
+  "location": "data/arch_ledger/arch_exemption/ 全目录（87 条 M1 行级豁免，by_due_date 2026-10-17）",
+  "reason": "豁免复审批量到期事件提前排期：87 条集中在 2026-10-17 到期（granted 09-17 + 30 天窗）。不提前拆批，届时 gate 会一次性拦截全部待复审提交，形成排障墙",
+  "due": "2026-10-10",
+  "resolve_hint": "按 exemption_review_calendar.json schedule_20261017.batches 三批执行（core → engine/cli → 其余），每条过三问（理由仍成立/范围收窄/摘除转正），结论回写豁免文件 state 并更新日历计数；注意先对照 09-30 五提交改动面，被新实现自然清偿的直接摘除",
+  "state": "open",
+  "created": "2026-09-30T22:50:00+08:00",
+  "resolution": ""
+}
