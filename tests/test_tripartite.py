@@ -19,8 +19,9 @@ def test_collect_cycle001_inputs_uses_real_records():
     # 去重防双计：ratchet(裸名) 与 exemption(core/X.py) 描述同 4 件，归并后 migrated 恰为 4；
     # 9666f90 棘轮二格五桥销账 → migrated 4+5=9、observing 102→97（2026-09-25 账本演进实测）
     assert report["migrated"] == 9
-    # removed 状态是回收不是 pending（l5_conversation_loop/loop_seam 实测 state=removed）
-    assert report["recycled"] == 3
+    # 2026-09-26 棘轮三格（853a153）：goal_receipt + manifest_lock 轻回收（state=recycled）。
+    # 映射表同步补 "recycled"→recycled；全豁免文件状态为 recycled/recycled=6。
+    assert report["recycled"] == 6
     # 通用载体文件名归一防碰撞：五桥 file=plugins/memory/<桥>/bridge.py 不得并成一个 bridge
     assert {"lingmemory_bridge", "lingmemory_l7_bridge", "lingmemory_memstore_bridge",
             "lingmemory_token_bridge", "lingmemory_experience_bridge"} <= items
