@@ -623,6 +623,7 @@ _register("/help", "_cmd_help", "本帮助；/help <命令> 查单条用法", al
 _register("/clear", "_cmd_clear", "清空会话上下文")
 _register("/multi", "_cmd_multi", "多行输入模式（'.' 结束提交；平时用 Esc+Enter 换行）")
 _register("/resync", "_cmd_resync", "全量重绘输出窗（全屏 TUI）")
+# /policy 已迁斜杠插件（slash_plugins/policy.py），由模块尾 loader 挂载
 _register("/compact", "_cmd_compact", "手动压缩上下文（未达阈值时明确提示）")
 _register("/model", "_cmd_model", "查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复）")
 _register("/schedule", "_cmd_schedule", "定时任务注册/列出/取消")
@@ -651,6 +652,14 @@ SLASH_REGISTRY["/exit"] = SlashCommand(
     name="/exit", handler=None, desc="退出（/quit 同义）", aliases=(),
     needs_args=False, arg_hint="",
 )
+
+# A(2026-09-30) 斜杠命令插件化（方案 A）：挂载点必须在补全清单派生之前，
+# 插件命令才能进 SLASH_COMPLETER_WORDS；运行中新增插件由 /policy reload 重扫。
+try:
+    from lingclaude.cli.slash_plugin_loader import load_slash_plugins as _lsp
+    _lsp()
+except Exception as _e:  # noqa: BLE001 — 插件加载失败不拖垮 CLI 启动
+    print(f"[slash 插件加载失败] {_e}")
 
 SLASH_COMPLETER_WORDS = []
 _seen: set[str] = set()

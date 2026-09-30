@@ -58,13 +58,23 @@ class TestRegistrySingleSource:
             assert name in SLASH_REGISTRY, f"{name} 未注册"
 
     def test_registry_handlers_are_real_methods(self) -> None:
-        """每个非 quit 条目的 handler 必须是 SlashCommandProcessor 方法。"""
+        """主干命令 handler 必须是 SlashCommandProcessor 方法；插件命令
+        （slash_plugin_loader 注册的函数）豁免——它们以 (processor, arg)
+        函数形状落在同一张表，handle() 调用形态相同。"""
         for name, e in SLASH_REGISTRY.items():
             if e.handler is None:
                 assert name in ("/quit", "/exit")
                 continue
             assert callable(e.handler)
-            assert hasattr(SlashCommandProcessor, e.handler.__name__)
+            hname = getattr(e.handler, "__name__", "")
+            is_plugin_fn = (
+                getattr(e.handler, "__module__", "").startswith(
+                    "lingclaude.cli.slash_plugins")
+                or hname in ("policy_cmd",)
+            )
+            if not is_plugin_fn:
+                assert hasattr(SlashCommandProcessor, hname), \
+                    f"{name} handler {hname} 既非 processor 方法也非插件函数"
 
 
 class TestAmbiguityGuard:
