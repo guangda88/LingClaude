@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core.context_engine import SUMMARY_HEADLINE
 from lingclaude.core.models import UsageSummary
 from lingclaude.core.redact import redact as _redact_text
 from lingclaude.core.session import Session
@@ -62,13 +63,26 @@ class SessionPersister:
         )
         engine._transcript = list(session.messages)
         engine._conversation.clear()
-        # 2026-09-21 (前缀缓存优化 P0-2): 恢复路径同样在写入点脱敏——
-        # 旧会话可能残留明文 key（升级前落盘），保持 A1b 保险语义。
-        for i in range(0, len(session.messages) - 1, 2):
-            user_msg = _redact_text(session.messages[i])
-            asst_msg = _redact_text(session.messages[i + 1]) if i + 1 < len(session.messages) else ""
-            engine._conversation.append(("user", user_msg))
-            engine._conversation.append(("assistant", asst_msg))
+        # 2026-09-29 (会话恢复角色错位修复):
+        # - 压缩摘要落盘为首条（system 语义），单独处理；
+        # - 剩余严格成对；奇数尾条按 assistant 补上（压缩后 assistant 收尾是常态）。
+        msgs = session.messages
+        pos = 0
+        # 首条：摘要 → system
+        if msgs and _is_summary(msgs[0]):
+            engine._conversation.append(("system", _redact_text(msgs[0])))
+            pos = 1
+        # 成对循环
+        while pos < len(msgs):
+            engine._conversation.append(("user", _redact_text(msgs[pos])))
+            pos += 1
+            if pos < len(msgs):
+                engine._conversation.append(("assistant", _redact_text(msgs[pos])))
+                pos += 1
+            else:
+                # 奇数尾条：assistant 收尾（压缩后常态），不丢弃
+                engine._conversation.append(("assistant", ""))
+                break
         return True
 
     def clear_checkpoint(self) -> None:
@@ -220,3 +234,13 @@ class SessionPersister:
             "messages": cd.raw_messages,
             "conversation": cd.saved_conversation,
         }
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_summary(msg: str) -> bool:
+    """判断消息是否为压缩摘要（与 context_engine.is_summary_entry 同一锚点）。"""
+    return msg.lstrip().startswith(SUMMARY_HEADLINE)

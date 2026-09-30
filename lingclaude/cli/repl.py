@@ -1158,12 +1158,24 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         # pump 模式下 Ctrl+C 承担中断语义（Esc 让位给输入框）
         interrupted = True
         print("\n[已打断]")
+        # 2026-09-30 原位上色收尾：打断轮不走 done 分支，轮次标记就地作废
+        try:
+            session.drop_stream_mark()
+        except Exception:  # noqa: BLE001 — 非 TUI 会话无此方法
+            pass
     finally:
         # H17-TUI 修复: 清理入 finally — 流中非 KeyboardInterrupt 异常（网络错等）
         # 也不泄漏监听线程。审计#6: 先停线程再清 interrupt。
         # pump 会话级运行，此处不再 stop（唯一 stdin 读者地位不变）。
         _wd.stop()  # N5b: 流收尾（正常/打断/异常），watchdog 停表
         session.set_streaming(False)  # 流结束，恢复阻塞 prompt()
+        # 2026-09-30 原位上色：流已结束，未消费的轮次标记一律作废——
+        # error 事件等收尾路径不走 done 分支，残留标记会让下一轮
+        # replace_turn_styled 误替换上一轮旧段。
+        try:
+            session.drop_stream_mark()
+        except Exception:  # noqa: BLE001 — 非 TUI 会话无此方法
+            pass
         # 2026-09-18 误杀修复:流结束同步撤销生成期活跃标志 —— 之后进入
         # 空闲期，_maybe_stall_escape 恢复正常判定（真卡死仍会被捕获）。
         try:
@@ -1527,6 +1539,27 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     )
     # P3（2026-09-20）: /resync 需要访问会话对象（全屏 TUI 的 resync 原语）。
     ctx.processor.session = session
+    # 2026-09-29: /resume·/continue·/session switch 恢复会话后自动重绘输出窗
+    # （SESSION_RESUME 钩子消费者）——对齐 --continue 启动回放，恢复即可见
+    # 完整对话而非停留旧会话内容。非 TUI 会话（无 resync）静默 no-op。
+    from lingclaude.core.hooks import HookType as _HookType
+
+    def _on_session_resume(hctx: Any) -> None:
+        resync = getattr(session, "resync", None)
+        if callable(resync):
+            try:
+                resync()
+            except Exception:  # noqa: BLE001 — 重绘失败不阻断恢复主路径
+                _logger.exception("tui resync on session_resume failed")
+
+    if getattr(engine, "_hooks", None) is not None:
+        # 先注销同名钩子再注册（幂等，防 REPL 重入重复注册）
+        engine._hooks.unregister("tui_resync_on_session_resume")
+        engine._hooks.register(
+            "tui_resync_on_session_resume",
+            _HookType.SESSION_RESUME,
+            _on_session_resume,
+        )
     ctx.input_pump = InputPump(session, ctx.input_queue, prompt_text=lambda: _status_prompt(ctx))
     ctx.pump_mode = False
 

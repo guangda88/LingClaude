@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 from lingclaude.cli.repl_turn import _record_long_task_metrics
+from lingclaude.core.hooks import HookContext, HookType
 import json as _json
 import shlex
 
@@ -29,6 +30,30 @@ def _next_fork_tag() -> str:
     if rodir.exists() and any(rodir.glob(f"{tag}*.jsonl")):
         tag += f"-{os.getpid() % 10000}"
     return tag
+
+
+def _fire_session_resume_hooks(engine: Any, target_id: str, note: str = "") -> None:
+    """触发 SESSION_RESUME 钩子（2026-09-29 补齐）。
+
+    此前 /resume·/continue·/session switch 恢复会话后只替换了内存上下文，
+    钩子消费者（如 TUI 输出窗 resync 回放）收不到任何事件——恢复成功但
+    界面停留在旧会话内容。此处统一触发点：钩子管理器缺席/触发异常均
+    静默跳过（恢复主路径绝不因钩子故障失败）。
+    """
+    hooks = getattr(engine, "_hooks", None)
+    if hooks is None:
+        return
+    try:
+        hooks.trigger(HookContext(
+            hook_type=HookType.SESSION_RESUME,
+            session_id=target_id,
+            resumed=True,
+            resumed_from_snapshot=target_id,
+            metadata={"note": note} if note else {},
+        ))
+    except Exception:  # noqa: BLE001 — 钩子故障不阻断恢复主路径
+        logging.getLogger(__name__).exception(
+            "session_resume hook trigger failed (session=%s)", target_id)
 
 # Step 3: Tab 补全清单（F2 修复:删 /undo — handler 缺失不得留在补全里误导用户）
 SLASH_COMPLETER_WORDS = [
@@ -91,6 +116,12 @@ class SlashCommandSessionMixin:
                 print(f"  - {s.get('session_id', '')[:8]} | {s.get('summary', '')}")
             return
         if engine._session_persister.load_session(target_id):
+            # 2026-09-29: switch 补齐 /resume 同款钩子——此前 switch 成功后
+            # 静默跳过，TUI resync 等钩子消费者收不到事件，界面停留旧会话。
+            _fire_session_resume_hooks(
+                engine, target_id,
+                note="/session switch 补齐 /resume 同款钩子（2026-09-29）",
+            )
             print(f"[会话已切换] {target_id[:8]}（{len(engine._conversation)} 轮对话；当前上下文已替换）")
         else:
             print(f"[会话切换失败] {target_id} 不存在或已损坏（当前上下文未受影响）")
@@ -133,21 +164,12 @@ class SlashCommandSessionMixin:
                     print(f"  - {s.get('session_id')} | {s.get('created_at', '')}")
                 return
         if engine._session_persister.load_session(target_id):
-            # 方案C v4: 恢复成功 → SESSION_RESUME 钩子（快照来源与会话 ID 随钩子传播；
-            # 无注册钩子时零开销——HookManager.trigger 对空表 no-op）
-            try:
-                from lingclaude.core.hooks import HookContext, HookType
-                hooks_mgr = getattr(engine, "_hooks", None)
-                if hooks_mgr is not None:
-                    hooks_mgr.trigger(HookContext(
-                        hook_type=HookType.SESSION_RESUME,
-                        session_id=target_id,
-                        resumed=True,
-                        resumed_from_snapshot=target_id,
-                    ))
-            except Exception:  # noqa: BLE001 钩子失败不阻断恢复主路径
-                logging.getLogger(__name__).exception(
-                    "SESSION_RESUME hook failed (session=%s)", target_id)
+            _fire_session_resume_hooks(
+                engine, target_id,
+                note="/session switch 补齐 /resume 同款钩子（2026-09-29）："
+                     "此前只有 /resume 触发 SESSION_RESUME，/session switch 静默跳过，"
+                     "TUI resync 等钩子消费者收不到事件。",
+            )
             # 验证台账锚点注入（2026-09-21 幻觉审计治理 层3）：恢复的不是
             # 「我记得验证过」，而是带 digest 的台账原文——压缩丢证据、
             # 恢复后无依据撤回（发作B）都失去土壤。台账缺席/故障静默跳过。

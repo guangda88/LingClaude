@@ -18,6 +18,7 @@ class _StubEngine:
         self._messages = messages
         self._usage = UsageSummary()
         self._transcript = list(messages)
+        self._conversation: list[tuple[str, str]] = []
 
 
 class TestAtomicSave:
@@ -119,3 +120,111 @@ class TestEmptySessionSkip:
         loaded = sm2.load(sess.session_id)
         assert loaded.is_ok
         assert loaded.data.messages == ("a", "b")
+
+
+# ---------------------------------------------------------------------------
+# 会话恢复角色配对回归（2026-09-29）
+# ---------------------------------------------------------------------------
+# 根因：压缩摘要落盘为首条，破坏严格成对假设 → 消息错位 + 尾条丢弃。
+# 修复：首条摘要 → system；剩余成对；奇数尾条 → assistant（不丢弃）。
+# ---------------------------------------------------------------------------
+
+
+class TestConversationRoleRecovery:
+    """load_session 后 _conversation 角色配对正确性。"""
+
+    def test_odd_length_with_summary_first(self, tmp_path: Path) -> None:
+        """奇数长度 + 首条摘要：首条 system，剩余成对，尾条不丢。"""
+        messages = [
+            "## 压缩摘要（前 5 轮对话）\n\n...",
+            "用户问题 A",
+            "助手回复 A",
+            "用户问题 B",
+            "助手回复 B",
+            "用户问题 C",
+        ]
+        engine = _StubEngine(tmp_path, messages=messages)
+        sp = SessionPersister(engine)
+        sp.persist_session()  # 先落盘
+        # 新 engine 重新加载
+        engine2 = _StubEngine(tmp_path, messages=[], session_id="abc123")
+        sp2 = SessionPersister(engine2)
+        ok = sp2.load_session("abc123")
+        assert ok
+        conv = engine2._conversation
+        assert conv[0] == ("system", messages[0])
+        assert conv[1] == ("user", messages[1])
+        assert conv[2] == ("assistant", messages[2])
+        assert conv[3] == ("user", messages[3])
+        assert conv[4] == ("assistant", messages[4])
+        assert conv[5] == ("user", messages[5])
+        assert conv[6] == ("assistant", "")  # 奇数尾条补空，不丢弃
+        assert len(conv) == 7
+
+    def test_odd_length_no_summary(self, tmp_path: Path) -> None:
+        """奇数长度无摘要：首条 user，剩余成对，尾条补空。"""
+        messages = [
+            "用户问题 A",
+            "助手回复 A",
+            "用户问题 B",
+        ]
+        engine = _StubEngine(tmp_path, messages=messages)
+        sp = SessionPersister(engine)
+        sp.persist_session()  # 先落盘
+        engine2 = _StubEngine(tmp_path, messages=[], session_id="abc123")
+        sp2 = SessionPersister(engine2)
+        ok = sp2.load_session("abc123")
+        assert ok
+        conv = engine2._conversation
+        assert conv[0] == ("user", messages[0])
+        assert conv[1] == ("assistant", messages[1])
+        assert conv[2] == ("user", messages[2])
+        assert conv[3] == ("assistant", "")  # 奇数尾条补空
+        assert len(conv) == 4
+
+    def test_even_length_preserved(self, tmp_path: Path) -> None:
+        """偶数长度：严格成对，无补空。"""
+        messages = [
+            "## 压缩摘要（前 2 轮对话）\n\n...",
+            "用户 A",
+            "助手 A",
+            "用户 B",
+            "助手 B",
+        ]
+        engine = _StubEngine(tmp_path, messages=messages)
+        sp = SessionPersister(engine)
+        sp.persist_session()  # 先落盘
+        engine2 = _StubEngine(tmp_path, messages=[], session_id="abc123")
+        sp2 = SessionPersister(engine2)
+        ok = sp2.load_session("abc123")
+        assert ok
+        conv = engine2._conversation
+        assert conv[0] == ("system", messages[0])
+        assert conv[1] == ("user", messages[1])
+        assert conv[2] == ("assistant", messages[2])
+        assert conv[3] == ("user", messages[3])
+        assert conv[4] == ("assistant", messages[4])
+        assert len(conv) == 5
+
+    def test_empty_tail_dropped_before(self, tmp_path: Path) -> None:
+        """旧版丢弃行为已修复：尾条 assistant 补空而非丢弃。"""
+        # 22 条场景模拟（摘要 + 10 对 + 1 奇数尾条）
+        messages = ["## 压缩摘要（前 10 轮对话）\n\n..."]
+        for i in range(10):
+            messages.append(f"用户 {i}")
+            messages.append(f"助手 {i}")
+        messages.append("用户 10（奇数尾条）")
+        assert len(messages) == 22  # 1 + 10*2 + 1
+
+        engine = _StubEngine(tmp_path, messages=messages)
+        sp = SessionPersister(engine)
+        sp.persist_session()  # 先落盘
+        engine2 = _StubEngine(tmp_path, messages=[], session_id="abc123")
+        sp2 = SessionPersister(engine2)
+        ok = sp2.load_session("abc123")
+        assert ok
+        conv = engine2._conversation
+        # 旧版：range(0, 21, 2) 丢弃 msgs[21]
+        # 新版：尾条补空，不丢
+        assert conv[-1] == ("assistant", "")  # 奇数尾条补空
+        assert conv[-2] == ("user", messages[21])  # 最后一条 user 保留
