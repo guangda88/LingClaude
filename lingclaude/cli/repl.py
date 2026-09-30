@@ -565,8 +565,9 @@ def _read_input(ctx: _ReplCtx) -> str:
         ensure_readline()
         _log_fallback_once()
         _wd = _arm_input_watchdog("fallback_read/input()")
+        _prompt = _status_prompt(ctx) if get_output_format() == "plain" else "灵克> "
         try:
-            _line = input(_status_prompt(ctx) if get_output_format() == "plain" else "灵克> ")
+            _line = input(_prompt)
             if _line.strip():
                 ctx.session.push_to_history(_line)
                 add_history_line(_line)
@@ -579,9 +580,13 @@ def _read_input(ctx: _ReplCtx) -> str:
             # H17-输入泵修复:multiline 模式下 Ctrl+C 等特殊序列跨多字节，
             # 残留字节会触发循环报错导致用户无法继续输入。
             # 清空缓冲区（最多 4KB）后重试一次 prompt，再失败才放弃。
+            # 2026-09-30 纠偏（input-freeze 覆盖债清偿时发现）：重试原用
+            # ctx.session.prompt——恰是本路径绕开的损坏 PT session，违背
+            # 隔离读设计。改与主读同源的裸 input()；若真有可用 PT session，
+            # 根本不会进 fallback 分支。
             _drain_stdin_buffer()
             try:
-                return ctx.session.prompt(_status_prompt(ctx))
+                return input(_prompt)
             except UnicodeDecodeError:
                 print("[输入编码错误，请检查终端编码设置]")
                 return ""
