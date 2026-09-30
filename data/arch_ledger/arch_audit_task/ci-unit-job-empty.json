@@ -2,6 +2,7 @@
   "severity": "P3",
   "finding": "tests/unit目录空缺，CI unit job每次跑0测试空转（观察期job）。补最小hermetic单测或撤销该job",
   "source": "返审2026-09-17c",
-  "state": "open",
-  "created": "2026-09-17T09:45:37+00:00"
+  "state": "resolved",
+  "created": "2026-09-17T09:45:37+00:00",
+  "resolution": "2026-09-30 选『补最小hermetic单测』分支：tests/unit/test_hermetic_minimal.py 9用例（SGR映射6 + _tuned兜底3，纯函数零IO零网络），CI unit job 不再空转；9/9 绿实测"
 }

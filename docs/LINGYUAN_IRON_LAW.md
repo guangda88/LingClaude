@@ -46,7 +46,7 @@
 
 > 实证样例（lingclaude）：
 > `bash` 工具插片内部 = wrap 组装薄内核 + `SandboxProvider` Protocol
-> （BwrapProvider / NoopProvider 子插片）；`StateStore` 插片内部 =
+> （BwrapSandboxProvider / NoopProvider 子插片）；`StateStore` 插片内部 =
 > 2T3A 原语内核 + JsonFile / LingYi 后端子插片。
 
 ### 铁律 3：变化的全部走接缝，主干零 diff
@@ -258,7 +258,7 @@ holder/check_paths 五原语）+ `scripts/worktree_node.py`（代码层 worktree
 - ~~✗ `engine/tool_handlers/bash_tools.py` handler 返回裸 `dict{"error":...}`，未走 ToolResult 协议~~（已清偿：commit 6291b53 全量迁移，G4 换代后 tool_handlers/ 零裸 dict，2026-09-17 基线更正）
 
 **J2 可拔插可证**
-- ✅ `sandbox_provider.py`：BwrapProvider ↔ NoopProvider 可互换，bash 内核不感知（探测降级缓存独立）
+- ✅ `sandbox_provider.py`：BwrapSandboxProvider ↔ NoopProvider 可互换，bash 内核不感知（探测降级缓存独立）
 - ✅ `state_store.py`：JsonFileBackend ↔ LingYiBackend 按协议可换，StateStore 原语不变
 - ✗ `memory_engine.py`/`layered_memory.py` 等直连存储介质——拔掉即断，未走 StateStore（P3 迁移欠账）
 
