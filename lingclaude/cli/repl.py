@@ -221,6 +221,23 @@ def _status_prompt(ctx: _ReplCtx) -> str:
     return "灵克> "
 
 
+def reset_loop_interrupted(engine: Any, status: Any) -> None:
+    """2026-10-01: 用户提交新输入时复位熔断/循环中断红点（latch 清除点）。
+
+    engine._loop_interrupted 与 status.loop_interrupted 双 latch 一并翻回；
+    双方缺属性（headless/测试桩）安全跳过——清除失败不阻塞主循环。
+    """
+    try:
+        engine._loop_interrupted = False
+    except Exception:  # noqa: BLE001 — 清除失败不阻塞主循环
+        pass
+    try:
+        if getattr(status, "loop_interrupted", False):
+            status.clear_loop_interrupted()
+    except Exception:  # noqa: BLE001 — 清除失败不阻塞主循环
+        pass
+
+
 def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
     """工具栏回调的状态快照（2026-09-16 常驻全屏 TUI 配套）。
 
@@ -346,6 +363,15 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
             status.clear_degraded("state")
         except Exception:  # noqa: BLE001 — 状态球判定失败不阻塞渲染
             status.mark_degraded("state")
+        # 2026-10-01: 熔断/循环中断红点喂入——engine 检测层置位的 latch 读到
+        # 状态模型，渲染层据此点亮 🔴中断 段；engine 无此属性（headless/旧
+        # 装配/测试桩）时为 False 零动作。getattr 全防御，失败静默（红点缺失
+        # ≠ 反噬快照链）。status 侧是 latch：只置不清，清在用户下次提交。
+        try:
+            if bool(getattr(ctx.engine, "_loop_interrupted", False)):
+                status.set_loop_interrupted()
+        except Exception:  # noqa: BLE001 — 红点喂入失败不阻塞渲染
+            pass
         pending = ctx.input_queue.pending() if ctx.input_queue is not None else 0
         full_tui = getattr(ctx.session, "pending_submissions", None)
         if callable(full_tui):
@@ -989,11 +1015,15 @@ def _shutdown_pump(ctx: _ReplCtx) -> None:
             os._exit(0)
 
 
-def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
+def _run_stream_turn(
+    ctx: _ReplCtx, prompt: str, image_content: tuple[str, str] | None = None,
+) -> str:
     """执行一轮流式 turn（Esc 打断/watchdog/逐轮落盘/指标收尾）。
 
     返回 _TURN_QUIT（退出请求）或 ""（继续主循环）。原 _interactive_loop
-    if engine._provider: 分支原样迁移。"""
+    if engine._provider: 分支原样迁移。
+    TUI 图片粘贴（2026-10-01）：image_content 非 None 时附到用户消息。
+    """
     engine = ctx.engine
     status = ctx.status
     session = ctx.session
@@ -1016,6 +1046,9 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
     ctx.turn_finalized = False
     usage_t0 = dict(engine.get_stats().get("usage") or {})  # P1.1: delta 基线
     status.set_task("生成中")
+    # 2026-10-01: 熔断/循环中断红点清除——用户已开始新输入（能到达此处 =
+    # 提交了新 turn），旧中断标记完成使命。双 latch 一并复位，见助手 docstring。
+    reset_loop_interrupted(engine, status)
     # 后台线程监听 Esc（生成态 stdin 空闲），set 后中断生成；
     # 仅 TTY 启动，且用 _esc_stop 保证回合结束线程必退（审计#6）
     _esc_stop = threading.Event()
@@ -1068,7 +1101,7 @@ def _run_stream_turn(ctx: _ReplCtx, prompt: str) -> str:
         # pump 线程异步收集用户输入（方向键等），主线程不被 session.prompt()
         # 卡死，防止 pump 线程 + 主线程双阻塞导致假死。
         session.set_streaming(True)
-        for event in engine.stream_call_model(prompt):
+        for event in engine.stream_call_model(prompt, image_content=image_content):
             _wd.touch(str(event.get("type", "")))
             # 2026-09-18 误杀修复:流事件即活跃证据 —— 压住「生成期心跳停滞
             # + 用户预打字使 stdin 可读」的失活误判窗口。
@@ -1679,12 +1712,26 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             continue
 
         if engine._provider:
-            action = _run_stream_turn(ctx, prompt)
+            # TUI 图片粘贴（2026-10-01）：从 session 提取 pending images 并 drain
+            image_content: tuple[str, str] | None = None
+            s = ctx.session
+            if hasattr(s, "_pending_images") and s._pending_images:
+                raw_bytes, mime = s._pending_images.pop()
+                # _pending_images 存 raw bytes；发给模型需要 base64 字符串
+                import base64 as _b64
+                image_content = (_b64.b64encode(raw_bytes).decode("ascii"), mime)
+            action = _run_stream_turn(ctx, prompt, image_content=image_content)
             if action == _TURN_QUIT:
                 _bye(ctx, newline_first=True)
                 break
         else:
-            result = engine.submit(prompt)
+            image_content = None
+            s = ctx.session
+            if hasattr(s, "_pending_images") and s._pending_images:
+                raw_bytes, mime = s._pending_images.pop()
+                import base64 as _b64
+                image_content = (_b64.b64encode(raw_bytes).decode("ascii"), mime)
+            result = engine.submit(prompt, image_content=image_content)
             print(f"\n{result.output}\n")
             if result.stop_reason.value == "max_turns_reached":
                 print(f"[会话结束: {result.stop_reason.value}]")

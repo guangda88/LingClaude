@@ -167,6 +167,22 @@ class ModelCallMixin:
             self._task_router.record_error(pname, error or "")
         return pname
 
+    def _mark_loop_interrupted(self) -> None:
+        """2026-10-01: 熔断/循环中断发生时点亮 TUI 状态栏红点（latch 型）。
+
+        双写：engine._loop_interrupted 布尔（快照轮询源，TUI 装配后有 status
+        时才存在）+ status.set_loop_interrupted() 直推（装配了状态对象时立即
+        生效不等下一秒快照）。无状态对象（headless/旧装配/测试桩）静默跳过
+        ——标记是纯可观测增强，绝不反噬中断主路径。
+        """
+        self._loop_interrupted = True
+        _st = getattr(self, "_status", None)
+        if _st is not None:
+            try:
+                _st.set_loop_interrupted()
+            except Exception:  # noqa: BLE001 — 可观测增强不反噬主路径
+                pass
+
     def _hard_interrupt_message(
         self, scope: str, consecutive_failures: int,
     ) -> str:
@@ -182,6 +198,7 @@ class ModelCallMixin:
         """
         if scope == "model_call":
             logger.warning("硬中断触发: 连续模型调用失败 %d 次，强制停止", consecutive_failures)
+            self._mark_loop_interrupted()  # 2026-10-01: TUI 状态栏红点（latch）
             # 2026-09-27 补 context：scope/failures/provider 名，修复观测盲区（归因网络类失败）
             provider_name = getattr(getattr(self, "_provider", None), "name", "") or ""
             self._log_to_flywheel(
@@ -191,6 +208,7 @@ class ModelCallMixin:
             return f"[硬中断] 连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。"
         if scope == "tool_loop_call":
             logger.warning("硬中断触发: 连续工具失败 %d 次，强制停止", consecutive_failures)
+            self._mark_loop_interrupted()  # 2026-10-01: TUI 状态栏红点（latch）
             # 2026-09-27 补 context：scope/failures，区分工具循环 vs 模型调用失败
             self._log_to_flywheel(
                 "hard_interrupt", f"连续工具失败 {consecutive_failures} 次", tool_name="tool_loop",
@@ -199,21 +217,26 @@ class ModelCallMixin:
             return f"\n[硬中断] 连续工具调用失败 {consecutive_failures} 次，自动停止。"
         if scope == "model_stream":
             logger.warning("硬中断触发(stream): 连续模型调用失败 %d 次，强制停止", consecutive_failures)
+            self._mark_loop_interrupted()  # 2026-10-01: TUI 状态栏红点（latch）
             return f"连续模型调用失败 {consecutive_failures} 次，自动停止。请检查模型服务状态。"
         # tool_loop_stream
         logger.warning("硬中断触发(stream): 连续工具失败 %d 次，强制停止", consecutive_failures)
+        self._mark_loop_interrupted()  # 2026-10-01: TUI 状态栏红点（latch）
         return f"连续工具调用失败 {consecutive_failures} 次，自动停止。"
 
 
-    def _call_model(self, prompt: str) -> str:
+    def _call_model(
+        self, prompt: str, image_content: tuple[str, str] | None = None,
+    ) -> str:
         """P0-A L0 批次 5（2026-09-22）：循环体迁 engine/loop/loop_body.run_call_model_loop。
 
         本方法保留为薄委托壳（L0 语义等价：QueryEngine 经 mixin 调用面不变，
         循环体逐字迁移、self→engine 显式参数）。契约 §二：core 只允许
         from lingclaude.engine.loop import <白名单名>。
+        TUI 图片粘贴（2026-10-01）：image_content 非 None 时附到用户消息。
         """
         from lingclaude.engine.loop.loop_body import run_call_model_loop
-        return run_call_model_loop(self, prompt)
+        return run_call_model_loop(self, prompt, image_content=image_content)
 
     def _log_model_request(self, prompt: str, messages: list, tools: Any) -> int:
         """MV-1 L-a: model-visible means logged. 返回 seq 供事后断言。"""
@@ -309,13 +332,16 @@ class ModelCallMixin:
         """D8: 结构化违规记录 (seq/reason/timestamp), 灵信 L-b 按 seq 归因用。"""
         return tuple(self._mv1_violations)
 
-    def stream_call_model(self, prompt: str) -> Generator[dict[str, Any], None, None]:
+    def stream_call_model(
+        self, prompt: str, image_content: tuple[str, str] | None = None,
+    ) -> Generator[dict[str, Any], None, None]:
         """P0-A L0 批次 5（2026-09-22）：循环体迁 engine/loop/loop_body.run_stream_call_model_loop。
 
         薄委托壳（L0 语义等价），循环体逐字迁移见 loop_body.py。
+        TUI 图片粘贴（2026-10-01）：image_content 非 None 时附到用户消息。
         """
         from lingclaude.engine.loop.loop_body import run_stream_call_model_loop
-        yield from run_stream_call_model_loop(self, prompt)
+        yield from run_stream_call_model_loop(self, prompt, image_content=image_content)
 
     def _should_hallucination_correct(
         self, prompt: str, used_tools: bool, messages: list | None = None,

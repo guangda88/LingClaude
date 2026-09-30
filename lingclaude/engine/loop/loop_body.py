@@ -179,14 +179,16 @@ def _resolve_max_tool_rounds(engine: Any) -> int:
     return AGENT_MAX_TOOL_ROUNDS
 
 
-def run_call_model_loop(engine: Any, prompt: str) -> str:
+def run_call_model_loop(
+    engine: Any, prompt: str, image_content: tuple[str, str] | None = None,
+) -> str:
     """`ModelCallMixin._call_model` 循环体（L0 逐字迁移，self→engine）。"""
     # A(2026-09-23): 续写状态初始化（与流式路径对称）
     continuation_used = 0
     continuation_buffer = ""
     # R9 清理(2026-09-16): 原此处有 decision = engine._router.route(prompt),
     # 结果在下一行就被 _resolve_model_config 的返回值覆盖, 纯死计算, 删除。
-    messages = engine._build_messages(prompt)
+    messages = engine._build_messages(prompt, image_content=image_content)
     tools = engine._build_openai_tools(query=prompt)
     resolved_config, decision = engine._resolve_model_config(prompt)
     # P1（2026-09-20，atomcode inflight 快照借鉴）: turn_start 即落 checkpoint
@@ -307,6 +309,7 @@ def run_call_model_loop(engine: Any, prompt: str) -> str:
             if verdict == "warn":
                 messages.append(ModelMessage(role=MessageRole.USER, content=_LOOP_WARN_HINT))
             elif verdict == "abort":
+                engine._mark_loop_interrupted()  # 2026-10-01: TUI 状态栏红点（latch）
                 return engine._finalize_turn(
                     prompt,
                     (response.content or "") + _LOOP_ABORT_MSG,
@@ -336,9 +339,11 @@ def run_call_model_loop(engine: Any, prompt: str) -> str:
     return engine._finalize_turn(prompt, content, used_tools, total_input, total_output, resolved_config, total_cached, ctx_input_tokens=last_round_input or None)
 
 
-def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, Any], None, None]:
+def run_stream_call_model_loop(
+    engine: Any, prompt: str, image_content: tuple[str, str] | None = None,
+) -> Generator[dict[str, Any], None, None]:
     """`ModelCallMixin.stream_call_model` 循环体（L0 逐字迁移，self→engine）。"""
-    messages = engine._build_messages(prompt)
+    messages = engine._build_messages(prompt, image_content=image_content)
     tools = engine._build_openai_tools()
     resolved_config, _ = engine._resolve_model_config(prompt)
     # P1（2026-09-20，atomcode inflight 快照借鉴）: turn_start 即落 checkpoint
@@ -659,6 +664,7 @@ def run_stream_call_model_loop(engine: Any, prompt: str) -> Generator[dict[str, 
                 # 避免只有模型看到提示、用户毫无感知直到熔断。
                 yield {"type": "text_delta", "text": "[循环检测] 首次原地打转，已注入纠偏提醒（换方式/拆小任务/直接作答），下一轮仍重复将熔断。\n"}
             elif verdict == "abort":
+                engine._mark_loop_interrupted()  # 2026-10-01: TUI 状态栏红点（latch）
                 yield {"type": "text_delta", "text": _LOOP_ABORT_MSG}
                 yield {"type": "done", "content": response_content + _LOOP_ABORT_MSG,
                        "usage": {"input_tokens": total_input, "output_tokens": total_output,

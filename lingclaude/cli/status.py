@@ -72,6 +72,12 @@ class StatusModel:
     # try 块失败时在此登记源名，渲染层点亮红字降级行，替代原「静默 pass」
     # （静默吞 = 状态字段无声消失 + 证据销毁，full_tui.py 旧 950 行事故同款）。
     degraded: tuple[str, ...] = ()
+    # 2026-10-01 熔断/循环中断红点：engine 发生打转熔断或连续失败硬中断时置
+    # True（latch 型），下次用户提交输入时清零。渲染层据此在状态行显示红点段
+    # 「🔴中断」——中断文本会随 scrollback 滚走，红点常驻直到用户开始新输入，
+    # 解决"熔断发生时用户在别处、回来只看到静止界面不知发生过中断"的可观测缺口。
+    # bool 不可变，快照浅拷贝安全；旧快照对象缺字段由渲染层 getattr 兜 False。
+    loop_interrupted: bool = False
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> "StatusModel":
@@ -106,6 +112,8 @@ class StatusModel:
                 plan_active=self.plan_active,
                 # 2026-09-25: 状态源降级清单透传（元组不可变，浅拷贝安全）
                 degraded=self.degraded,
+                # 2026-10-01: 熔断/循环中断红点透传（bool 不可变，浅拷贝安全）
+                loop_interrupted=self.loop_interrupted,
             )
 
     # ---- 更新方法（主循环调用） ----
@@ -173,6 +181,17 @@ class StatusModel:
     def set_state_level(self, level: str) -> None:
         with self._lock:
             self.state_level = level if level in ("idle", "busy", "blocked") else "idle"
+
+    # 2026-10-01: 熔断/循环中断红点（latch 型）——engine 检测层在打转熔断 /
+    # 连续失败硬中断发生时置 True；快照每秒读入渲染层点亮 🔴中断 段；
+    # 下次用户提交输入时由主循环调 clear_loop_interrupted 复位。
+    def set_loop_interrupted(self) -> None:
+        with self._lock:
+            self.loop_interrupted = True
+
+    def clear_loop_interrupted(self) -> None:
+        with self._lock:
+            self.loop_interrupted = False
 
     # 2026-09-21: 借鉴 atomcode toolbar —— 缓存命中率 + 权限模式喂入
     def set_cache_pct(self, pct: int) -> None:
@@ -369,6 +388,11 @@ def toolbar_fragments(s: StatusModel):
     # 2026-09-25 渲染防腐：长跑进程历史脏 set 喂 None（interface.py:133 记录过
     _sl = getattr(s, "state_level", "idle")
     frag.append((_STATE_STYLE.get(_sl, "class:green"), "●"))
+    # 2026-10-01: 熔断/循环中断红点段——latch 型：打转熔断或连续失败硬中断
+    # 发生后常驻状态行（🔴中断），用户开始新输入时清除。中断文本随 scrollback
+    # 滚走后此段是唯一残留标记；旧快照缺字段兜 False（向后兼容，永不炸渲染）。
+    if getattr(s, "loop_interrupted", False):
+        frag.append(("class:red", " 🔴中断 │"))
     # 权限模式前缀（atomcode 的 ⏵⏵ auto 语义）——读运行时实际模式，未知则不显示
     perm = getattr(s, "perm_mode", "")
     if perm:
