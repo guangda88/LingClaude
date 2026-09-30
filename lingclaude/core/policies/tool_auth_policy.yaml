@@ -79,5 +79,35 @@ tiers:
 # 超时后视为拒绝，防止用户无响应时永久阻塞
 pre_approve_timeout: 120
 
+# ── 凭证泄漏守卫（atomcode hooks.json block-credential-leak 同款）────────
+# P1a（2026-10-01）：外部 Agent 联审结论（cc/codex/crush/opencode 四家）——自托管
+# agent 最常见事故=日志/上下文泄漏密钥，正则守卫堵在此层。
+# block_patterns：用 re.search 匹配，命中即 block（即使 tier=auto）。
+# 匹配对象=工具参数字符串（完整 args JSON string）。
+credential_leak_guard:
+  enabled: true
+  block_patterns:
+    # OpenAI / Anthropic / OpenRouter
+    - "sk-[A-Za-z0-9_-]{20,}"
+    - "sk-ant-[A-Za-z0-9_-]{20,}"
+    # Bearer token
+    - "(?i)bearer\\s+[A-Za-z0-9_-]+"
+    # AWS
+    - "AKIA[A-Z0-9]{16}"
+    - "(?i)aws_access_key\\s*[=:]\\s*[A-Za-z0-9/+=]+"
+    - "(?i)aws_secret\\s*[=:]\\s*[A-Za-z0-9/+=]+"
+    # Google Cloud
+    - "(?i)AIza[A-Za-z0-9_-]{35,}"
+    - "(?i)google.*api[_-]?key\\s*[=:]\\s*[A-Za-z0-9_-]+"
+    # Generic secret patterns
+    - "(?i)(api[_-]?key|secret[_-]?key|access[_-]?token|auth[_-]?token)\\s*[=:]\\s*['\"]?[A-Za-z0-9_-]{16,}['\"]?"
+    # 云厂商 SDK token（JSON args 里是 "minimax_api_key": "xxx"，正则匹配 key 名）
+    - "sk-[A-Za-z0-9_-]{32,}"
+    - "(?i)minimax[_-]?api[_-]?key[\"']?\\s*[=:]"
+    - "(?i)zhipu[_-]?api[_-]?key[\"']?\\s*[=:]"
+    - "(?i)deepseek[_-]?api[_-]?key[\"']?\\s*[=:]"
+    - "(?i)kimi[_-]?api[_-]?key[\"']?\\s*[=:]"
+    - "(?i)volc[_-]?(coding|engine)?[_-]?api[_-]?key[\"']?\\s*[=:]"
+
 # ── 审计开关───────────────────────────────────────────────────
 audit_enabled: true

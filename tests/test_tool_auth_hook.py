@@ -162,3 +162,82 @@ class TestDecisionFields:
         from lingclaude.core.tool_auth_hook import check_tool_call
         d = check_tool_call("unknown_tool_xyz", {})
         assert "未命中" in d.reason or d.reason != ""
+
+
+# ── P1a credential_leak_guard 专项测试 ─────────────────────────────────
+
+_MOCK_POLICY_LEAK = {
+    "tiers": {
+        "auto": {"description": "只读", "tools": ["Read"]},
+        "ask": {"description": "bash", "tools": ["bash"]},
+    },
+    "credential_leak_guard": {
+        "enabled": True,
+        "block_patterns": [
+            "sk-[A-Za-z0-9_-]{20,}",
+            # 匹配 JSON args 里的 key 名（JSON 序列化后是 "minimax_api_key":"值"）
+            r'(?i)minimax[_-]?api[_-]?key["\']?\s*[=:]',
+        ],
+    },
+    "audit_enabled": True,
+}
+
+
+class TestCredentialLeakGuard:
+    """P1a credential_leak_guard：工具参数命中正则即 block，无论档位。"""
+
+    def test_openai_key_blocked(self) -> None:
+        import lingclaude.core.tool_auth_hook as _hook
+        global _MOCK_POLICY
+        _MOCK_POLICY = dict(_MOCK_POLICY_LEAK)
+        _hook._policy_cache = None
+
+        from lingclaude.core.tool_auth_hook import check_tool_call, Tier
+        # Read 是 auto 档，但参数里有 sk-... → 仍被 block
+        d = check_tool_call("Read", {"path": "/tmp", "key": "sk-abcdefghijklmnopqrstuvwxyz"})
+        assert d.tier == Tier.BLOCK, f"auto 档工具参数含 sk- 应被 block，实际: {d.tier}"
+        assert "凭证泄漏守卫" in d.reason
+
+    def test_minimax_key_blocked(self) -> None:
+        import lingclaude.core.tool_auth_hook as _hook
+        global _MOCK_POLICY
+        _MOCK_POLICY = dict(_MOCK_POLICY_LEAK)
+        _hook._policy_cache = None
+
+        from lingclaude.core.tool_auth_hook import check_tool_call, Tier
+        d = check_tool_call("bash", {"command": "echo hi", "minimax_api_key": "mm-key-123456"})
+        assert d.tier == Tier.BLOCK
+
+    def test_no_key_passes_through(self) -> None:
+        import lingclaude.core.tool_auth_hook as _hook
+        global _MOCK_POLICY
+        _MOCK_POLICY = dict(_MOCK_POLICY_LEAK)
+        _hook._policy_cache = None
+
+        from lingclaude.core.tool_auth_hook import check_tool_call, Tier
+        d = check_tool_call("Read", {"path": "/tmp/test.txt"})
+        assert d.tier == Tier.AUTO, "无凭证参数应走正常档位"
+
+    def test_guard_disabled_passes_through(self) -> None:
+        import lingclaude.core.tool_auth_hook as _hook
+        global _MOCK_POLICY
+        _MOCK_POLICY = {
+            "tiers": {"auto": {"description": "只读", "tools": ["Read"]}},
+            "credential_leak_guard": {"enabled": False, "block_patterns": ["sk-"]},
+            "audit_enabled": True,
+        }
+        _hook._policy_cache = None
+
+        from lingclaude.core.tool_auth_hook import check_tool_call, Tier
+        d = check_tool_call("Read", {"path": "/tmp", "key": "sk-abcdefghijklmnopqrstuvwxyz"})
+        assert d.tier == Tier.AUTO, "guard disabled 时 sk- 参数应放行"
+
+    def test_audit_on_leak_block(self) -> None:
+        import lingclaude.core.tool_auth_hook as _hook
+        global _MOCK_POLICY
+        _MOCK_POLICY = dict(_MOCK_POLICY_LEAK)
+        _hook._policy_cache = None
+
+        from lingclaude.core.tool_auth_hook import check_tool_call
+        d = check_tool_call("bash", {"cmd": "echo", "api_key": "sk-openai-test-key-here-12345678"})
+        assert d.audit_written is True, "leak block 必须写台账"

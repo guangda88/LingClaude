@@ -99,6 +99,47 @@ def _match_tool(tool_patterns: list[str], tool_name: str) -> bool:
     return False
 
 
+def _check_credential_leak(tool_name: str, tool_args: dict[str, Any]) -> Decision | None:
+    """凭证泄漏守卫（P1a）：工具参数命中正则立即 block，写台账。
+
+    调用时机：在 tier 查表之前。无论档位是什么，只要命中 block_patterns
+    就直接拒绝——即使工具被标记为 auto 也强制 block。
+    返回 None = 未命中（放行），返回 Decision = 已 block（上层直接返回）。
+    """
+    try:
+        policy = _get_policy()
+        guard_cfg = policy.get("credential_leak_guard", {})
+        if not guard_cfg.get("enabled", False):
+            return None
+        block_patterns = guard_cfg.get("block_patterns", [])
+        if not block_patterns:
+            return None
+
+        # 把参数字典序列化为字符串（JSON string，匹配对象 = 完整 args JSON）
+        args_str = _json.dumps(tool_args, ensure_ascii=False) if isinstance(tool_args, dict) else str(tool_args)
+        # 也检查 tool_name（防止工具名本身就是凭证片段）
+        combined = f"{tool_name} {args_str}"
+
+        for pat in block_patterns:
+            try:
+                if re.search(pat, combined):
+                    policy_id = _build_policy_id(policy)
+                    _write_audit(Tier.BLOCK, tool_name, tool_args, policy_id)
+                    return Decision(
+                        tier=Tier.BLOCK,
+                        tool_name=tool_name,
+                        policy_id=policy_id,
+                        reason=f"凭证泄漏守卫命中: {pat[:40]}",
+                        audit_written=True,
+                    )
+            except re.error:
+                continue
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"credential_leak_guard 检查异常: {e}")
+        return None
+
+
 def _write_audit(tier: Tier, tool_name: str, tool_args: dict[str, Any], policy_id: str) -> None:
     """裁决链入台账（arch_ledger），失败静默，不阻塞工具执行。"""
     try:
@@ -139,6 +180,11 @@ def check_tool_call(tool_name: str, tool_args: dict[str, Any] | None = None) -> 
     """
     if tool_args is None:
         tool_args = {}
+
+    # ── P1a: credential_leak_guard 优先拦截（任何档位之上）──────────────
+    leak_decision = _check_credential_leak(tool_name, tool_args)
+    if leak_decision is not None:
+        return leak_decision
 
     try:
         policy = _get_policy()
