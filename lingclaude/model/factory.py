@@ -55,6 +55,10 @@ def _detect_provider(cfg: ModelConfig) -> str:
         return "anthropic"
     if "glm" in model or "deepseek" in model or "qwen" in model:
         return "openai"
+    # 2026-09-28: minimax 套餐（MiniMax-M3 / M2.7 / M2.7-HS / M3.1-Flash-Preview），
+    # OpenAI 兼容协议，base_url 与 key 见 task_router._KNOWN_PROVIDER_DEFAULTS["minimax"]。
+    if "minimax" in model:
+        return "minimax"
     return "openai"
 
 
@@ -95,6 +99,14 @@ def _get_env_key(provider: str) -> str:
             or os.environ.get("ZHIPU_API_KEY", "")
             or _key_store_get("ANTHROPIC_API_KEY")
             or _key_store_get("ZHIPU_API_KEY")
+        )
+    # 2026-09-28: minimax 套餐 key 兜底（与 task_router._PROVIDER_ENV_KEY_MAP 同源）。
+    # 正常路径下 task_router.find_provider_by_model 已从 _pinfo.api_key 注入，
+    # 此分支是 provider 显式指定 ("minimax") 但 api_key 缺失时的兜底。
+    if provider == "minimax":
+        return (
+            os.environ.get("MINIMAX_API_KEY", "")
+            or _key_store_get("MINIMAX_API_KEY")
         )
     return ""
 

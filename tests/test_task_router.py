@@ -128,6 +128,31 @@ class TestTaskRouter(unittest.TestCase):
             self.assertFalse(r2._slots.get("glm").is_available, code)
         path.unlink()
 
+    def test_hard_quota_minimax_cools_until_reset(self):
+        """2026-09-28: MiniMax 月度配额 429 —— 识别为硬配额且熔断到 reset at
+        时刻（英文句式），不再是 3 次退避空烧 + 2h 兜底转回撞墙。"""
+        import time as _t
+
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        minimax_err = json.dumps({"error": {
+            "code": "AccountQuotaExceeded",
+            "message": ("You have exceeded the monthly usage quota. "
+                        "It will reset at 2026-10-06 23:59:59 +0800 CST."),
+            "type": "TooManyRequests",
+        }})
+        # 夹具无 minimax provider——用 cheap 作载体，测的是 record_error
+        # 硬配额熔断机制本身（熔断时长与 provider 无关）
+        router.record_error("cheap", minimax_err)
+        slot = router._slots.get("cheap")
+        self.assertIsNotNone(slot)
+        self.assertFalse(slot.is_available, "硬配额后必须熔断")
+        remaining = slot.cooldown_until - _t.monotonic()
+        # 到 2026-10-06 约 8 天：远大于 2h 兜底（7200s），小于 9 天
+        self.assertGreater(remaining, 7200.0 * 2, "应解析到重置时刻而非 2h 兜底")
+        self.assertLess(remaining, 9 * 86400.0)
+        path.unlink()
+
     def test_f12j_soft_error_still_three_strikes(self):
         """F12j:瞬态错误保持 3 击语义，一两此失败不熔断。"""
         path = self._make_config()

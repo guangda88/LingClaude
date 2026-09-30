@@ -172,6 +172,30 @@ def _register_builtins() -> None:
     except ImportError:  # pragma: no cover
         logger.warning("ProviderRegistry: glm provider 注册失败（openai_provider 不可用）")
 
+    # 2026-09-28: minimax 套餐（MiniMax-M3 / M2.7 / M2.7-HS / M3.1-Flash-Preview），
+    # OpenAI 兼容协议，base_url = https://api.minimax.cn/v1（与 task_router
+    # _KNOWN_PROVIDER_DEFAULTS["minimax"] 同源）。key 走 MINIMAX_API_KEY。
+    # 注意：factory._detect_provider 已通过 "minimax" 关键字前缀识别本 provider，
+    # 切换路径 (/model MiniMax-M3) 才能不落回 openai + 智谱 base_url。
+    try:
+        from lingclaude.model.openai_provider import OpenAIProvider as _MiniMaxOpenAIProvider
+
+        def _minimax_factory(config: ModelConfig) -> ModelProvider:
+            if not config.base_url:
+                config = ModelConfig(
+                    model=config.model,
+                    api_key=config.api_key,
+                    base_url="https://api.minimax.cn/v1",
+                    max_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    system_prompt=config.system_prompt,
+                )
+            return _MiniMaxOpenAIProvider(config)
+
+        ProviderRegistry.register("minimax", _MiniMaxOpenAIProvider, factory=_minimax_factory)
+    except ImportError:  # pragma: no cover
+        logger.warning("ProviderRegistry: minimax provider 注册失败（openai_provider 不可用）")
+
     # local: 签名不同（model_path），用构造器适配
     try:
         from lingclaude.model.local_provider import LocalModelProvider

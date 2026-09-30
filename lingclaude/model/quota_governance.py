@@ -88,14 +88,14 @@ def extract_window_from_error(provider: str, error_detail: str) -> Optional[Quot
     m = _HARD_QUOTA_RE.search(error_detail)
     kind = "unknown"
     low = error_detail.lower()
-    if "1310" in error_detail or "月" in error_detail:
+    if "1310" in error_detail or "月" in error_detail or "monthly" in low:
         kind = "monthly"
     elif "周" in error_detail:
         kind = "weekly"
     elif "1308" in error_detail or "5h" in low or "5小时" in error_detail:
         kind = "5h"
     if m:
-        ts = m.group(1) or m.group(2)
+        ts = m.group(1) or m.group(2) or m.group(3)
         try:
             reset_at = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
             return QuotaWindow(provider=provider, reset_at=reset_at,

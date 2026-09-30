@@ -109,7 +109,14 @@ _HARD_ERROR_COOLDOWN = 1800.0  # 30min
 # 重置时刻在小时级，30min 冷却会在重置前到期反复撞墙。按错误文本里的
 # 重置时间戳熔断到该时刻（+60s 缓冲），期间路由直接走下一候选。
 # 解析失败退回 2h 默认冷却。
-_HARD_QUOTA_RE = re.compile(r"重置时间[^\d]*([\d-]+ [\d:]+)|(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[^\d]{0,8}重置")
+# 2026-09-28: 第 3 支 2026-09-28 MiniMax 实测报文体 "It will reset at
+# 2026-10-06 23:59:59 +0800 CST"——旧两支均要求中文锚点「重置」，英文句式
+# 解析失败退 2h 兜底（配额实际 8 天后重置，2h 后路由转回再撞墙）。
+_HARD_QUOTA_RE = re.compile(
+    r"重置时间[^\d]*([\d-]+ [\d:]+)"
+    r"|(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})[^\d]{0,8}重置"
+    r"|reset at\s*(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})"
+)
 _HARD_QUOTA_FALLBACK_COOLDOWN = 7200.0  # 2h
 
 
@@ -120,7 +127,7 @@ def _hard_quota_cooldown_seconds(error_detail: str) -> float | None:
         return None
     m = _HARD_QUOTA_RE.search(error_detail or "")
     if m:
-        ts = m.group(1) or m.group(2)
+        ts = m.group(1) or m.group(2) or m.group(3)
         try:
             from datetime import datetime
             reset_at = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")

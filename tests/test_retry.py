@@ -1,6 +1,7 @@
 """Tests for lingclaude.model.retry"""
 from __future__ import annotations
 
+import json
 import unittest
 
 from lingclaude.model.retry import (
@@ -50,6 +51,22 @@ class TestIsHardQuotaError(unittest.TestCase):
     def test_not_hard_quota_429(self):
         # 普通限流不能误判为硬配额（否则退避重试被跳过）
         self.assertFalse(is_hard_quota_error("HTTP 429 Too Many Requests"))
+
+    def test_minimax_monthly_quota_real_error(self):
+        # 2026-09-28 实测：MiniMax 月度配额耗尽 429（驼峰 code lower 后无空格，
+        # 旧 marker "quota exceeded" 不命中 → 3 次退避空烧 + 降级链失效）
+        err = json.dumps({"error": {
+            "code": "AccountQuotaExceeded",
+            "message": ("You have exceeded the monthly usage quota. "
+                        "It will reset at 2026-10-06 23:59:59 +0800 CST."),
+            "type": "TooManyRequests",
+        }})
+        self.assertTrue(is_hard_quota_error(err))
+
+    def test_minimax_quota_no_false_positive_on_transient(self):
+        # 瞬态 RPM 限流（同 provider）不得命中硬配额标记
+        self.assertFalse(is_hard_quota_error(
+            'HTTP 429: {"error":{"message":"rate limit: requests per minute"}}'))
 
     def test_not_hard_quota_busy(self):
         self.assertFalse(is_hard_quota_error("模型访问量过大，请稍后再试"))

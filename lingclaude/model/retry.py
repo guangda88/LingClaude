@@ -291,6 +291,11 @@ def is_hard_quota_error(error_text: str) -> bool:
         "billing_hard_limit",
         "套餐限额",
         "5 小时的使用上限",
+        # 2026-09-28: MiniMax 月度配额耗尽（AccountQuotaExceeded，2026-09-28 实测
+        # 漏判导致 3 次退避空烧 + 降级链失效）——错误体驼峰 code lower 后为
+        # "accountquotaexceeded"，旧 marker "quota exceeded" 因空格不命中。
+        "accountquotaexceeded",
+        "monthly usage quota",  # "You have exceeded the monthly usage quota."
     ]
     if any(m in lower for m in hard_markers):
         return True
