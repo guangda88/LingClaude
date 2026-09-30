@@ -23,6 +23,7 @@ from lingclaude.core.config import load_config
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.ops.rss_watchdog import check_rss_watchdog, sample_rss_mb
 from lingclaude.self_optimizer.daemon import OptimizationDaemon
+from lingclaude.core.tool_auth_hook import check_tool_call, Tier, Decision
 import json
 
 if TYPE_CHECKING:
@@ -236,6 +237,10 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
         observed_tool_calls = 0
         observed_tool_errors = 0
         observed_text_deltas = 0
+        # P0: tool_auth 四档策略状态（repl_turn.py 函数局部，跨事件共享）
+        _blocked_tools: set[str] = set()  # 本轮被 block 的工具名集合
+        _pending_blocked = False           # 本轮有 block 事件（影响 tool_call_end 渲染）
+        _pending_pre_approve = False       # 本轮有 pre_approve 待确认
         observed_stream_error = False
         turn_output_tokens = 0  # N5: 本轮(非累计) output token, done 事件携带
         turn_t0 = time.monotonic()  # P1.1: turn 级耗时计时起点
@@ -256,6 +261,25 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
                 _handle_stream_event(event)
                 if event.get("type") == "tool_call_start":
                     observed_tool_calls += 1
+                    # ── P0 PreToolUse hook（灵元 R2：工具授权四档策略）─────────────
+                    tool_name = event.get("name", "")
+                    try:
+                        tool_args = json.loads(event.get("arguments", "{}"))
+                    except (json.JSONDecodeError, TypeError):
+                        tool_args = {}
+                    decision: Decision = check_tool_call(tool_name, tool_args)
+                    if decision.tier == Tier.BLOCK:
+                        _stream_write(f"\n  🔒 [{tool_name}] 已拒绝（block 档位）：{decision.reason}\n")
+                        # 注入伪错误结果：让 model 看到工具"执行失败"，跳过真实执行
+                        _blocked_tools.add(tool_name)
+                        _pending_blocked = True
+                    elif decision.tier == Tier.PRE_APPROVE:
+                        _stream_write(f"\n  ⏸  [{tool_name}] 预审中（pre_approve 档位）：{decision.reason}\n")
+                        _stream_write(f"  ⚠  请在下一轮确认是否执行此工具，或 /cancel 取消\n")
+                        _pending_pre_approve = True
+                    elif decision.tier == Tier.ASK:
+                        _stream_write(f"\n  ❓ [{tool_name}] 需确认（ask 档位）：{decision.reason}\n")
+                        _stream_write(f"  ⚠  请在下一轮确认是否执行\n")
                 if event.get("type") == "tool_call_end" and event.get("is_error"):
                     observed_tool_errors += 1
                 if event.get("type") == "text_delta":

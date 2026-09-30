@@ -1,0 +1,83 @@
+# 工具授权四档策略（灵元 R2 P0：守卫升级为策略对象）
+# 2026-10-01：外部 Agent 联审结论（cc/codex/crush/opencode 四家独立提出）
+# 核心原则：裁决点钉在可观测、可记账的单次工具调用上，安全从软约束变硬约束
+#
+# 四档语义：
+#   auto       — 执行前无需用户确认（read-only 类，风险极低）
+#   pre_approve— 执行前需用户显式批准（可逆写，高风险写）
+#   ask        — 执行前询问用户意图（外部发送，数据出境）
+#   block      — 拒绝执行，交还用户决策（破坏性操作）
+#
+# 裁决结果连同策略 ID 入台账，审计从"记动作"升级为"记裁决链"
+
+# ── 工具档位矩阵（工具名正则或精确匹配）─────────────────────────
+# 正则用 re.fullmatch，精确用字符串字面量
+# 正则写法示例："edit_file|write_file" → 命中多个工具
+
+tiers:
+  # ── 档位 A：只读，自动放行 ──────────────────────────────────────
+  auto:
+    description: "只读类工具，执行前无需确认"
+    tools:
+      - "Read"
+      - "read"
+      - "read_file"
+      - "grep"
+      - "glob"
+      - "lsp"
+      - "bash_lingxi"          # 内部 MCP，只读读态
+      - "ask_question"         # 知识查询
+      - "domain_query"         # 知识查询
+      - "safe_db_query"        # 只读查询
+      - "git_log"
+      - "git_status"
+      - "git_blame"
+      - "git_diff"
+
+  # ── 档位 P：可逆写，需预审 ──────────────────────────────────────
+  pre_approve:
+    description: "可逆写操作，执行前需用户预批准"
+    tools:
+      - "edit_file"
+      - "write_file"
+      - "edit"
+      - "write"
+      - "file_insert"
+      - "file_delete_lines"
+      - "file_undo"
+      - "ast_replace"
+      - "edit_code"
+      - "write_file"
+      - "replace_function"
+      - "apply_LINE_EDIT"      # 可能的内部工具名
+
+  # ── 档位 Q：外部发送，询问 ──────────────────────────────────────
+  ask:
+    description: "外部发送/网络操作，执行前询问用户意图"
+    tools:
+      - "bash"
+      - "bash_lingxi"          # 已列 read-only，但 bash 可构造恶意命令
+      - "execute_command"
+      - "run_bash"
+      - "subprocess"           # 潜在危险
+      - "submit_feedback"
+      - "submit_search_feedback"
+
+  # ── 档位 X：破坏性操作，直接拒绝 ───────────────────────────────
+  block:
+    description: "破坏性操作，直接拒绝执行，交还用户"
+    tools:
+      - "delete_file"
+      - "rm"
+      - "drop_table"
+      - "truncate"
+      - "systemctl"
+      - "kill_process"
+      - "os.system"            # 潜在危险 Python 调用
+
+# ── 预审确认超时（秒）──────────────────────────────────────────
+# 超时后视为拒绝，防止用户无响应时永久阻塞
+pre_approve_timeout: 120
+
+# ── 审计开关───────────────────────────────────────────────────
+audit_enabled: true
