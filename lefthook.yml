@@ -73,6 +73,14 @@ pre-push:
       priority: 15
     # 2026-09-10 测试分层（第3步）: 全量 pytest 移到 pre-push 门禁（无 exclude）。
     # pre-commit 只跑快子集（.audit/exclude_tests.txt 排除慢测试），全量兜底在此。
+    # 2026-09-30 资源预检（push-gate-host-resource-precheck ②）：宿主
+    # MemAvailable<4G 时 earlyoom/swap 满会成批杀 worker，环境病误报代码红
+    # （push-gate-xdist-spin 改判实录）。预检失败=结构性挡门，不是警告。
+    pre-push-resource-precheck:
+      run: bash scripts/pre_push_resource_gate.sh
+      priority: 18
+    # 2026-09-30 --timeout=300 接线（债单①）：pytest-timeout 已装未接线，
+    # 09-24 三次 push 全部死于单测试卡死拖垮整门。
     full-pytest:
-      run: python3 -m pytest tests/ --tb=line -q -n $(nproc)
+      run: python3 -m pytest tests/ --tb=line -q --timeout=300 -n $(nproc)
       priority: 20

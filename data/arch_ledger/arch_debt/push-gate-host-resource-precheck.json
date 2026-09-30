@@ -6,5 +6,6 @@
   "resolve_hint": "①lefthook full-pytest 接 --timeout=300；②把 safe_push.sh 的 MemAvailable<4G 预警机制化进 pre-push 预检（当前仅脚本内提示，钩子自身不检查）；③push 流程纪律以 docs/runbooks/PUSH_SOP.md 为准：timeout≥7200 显式、输出直写文件不走管道、旁路必留痕、远端状态以 ls-remote 实测为准；④端到端验证：钩子链在资源紧张与宽裕两种宿主状态下各真实跑完一次。",
   "state": "open",
   "created": "2026-09-24T17:45:00+00:00",
-  "resolution": ""
+  "resolution": "",
+  "progress": "①②③已落（2026-09-30）：full-pytest 接 --timeout=300（lefthook.yml）；新增 scripts/pre_push_resource_gate.sh 挂 pre-push priority=18（MemAvailable<4G 结构性挡门，exit 1；/proc 不可读保守放行 exit 2），safe_push.sh L3 警告升级为硬门；SOP 纪律已在 PUSH_SOP。④模拟侧已绿：MEMINFO_FILE/MIN_AVAIL_KB 测试缝注入双状态 6/6（test_push_resource_gate.py）+ 宿主真实冒烟 16G 放行；真实钩子链端到端 push 待执行（须主进程/宿主，沙箱无网络）"
 }
