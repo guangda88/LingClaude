@@ -14,6 +14,19 @@ PROXY_API_KEY = os.environ.get("LLM_PROXY_KEY", "")
 PROBE_TIMEOUT = 30
 
 
+def _probe_timeout() -> float:
+    """探针超时可调参（2026-09-30 E13 外置）：tuning.llm_probe_timeout 热更。
+
+    函数级 import：core/llm_probe 处于 core/__init__ 部分初始化链上，
+    模块级 import policy_loader 会加重初始化顺序耦合。
+
+    :returns: yaml 值钳位 [1, 300]；未配置/坏值回退代码默认 30
+    """
+    from lingclaude.core import policy_loader
+
+    return float(policy_loader._tuned("llm_probe_timeout", PROBE_TIMEOUT, lo=1.0, hi=300.0))
+
+
 def probe_llm_completion(model: str = "glm-4-flash", max_tokens: int = 10) -> dict:
     """端到端LLM探针：发completion请求，验证200 OK + 非空content。
 
@@ -44,7 +57,7 @@ def probe_llm_completion(model: str = "glm-4-flash", max_tokens: int = 10) -> di
 
     t0 = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=_probe_timeout()) as resp:
             data = json.loads(resp.read())
             latency_ms = (time.time() - t0) * 1000
 

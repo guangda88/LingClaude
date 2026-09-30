@@ -576,6 +576,18 @@ def _self_test(spec: ForgeSpec, manifest: dict[str, Any], plugin_src: str) -> di
 # 声明已完成必须附当轮验证证据）。
 _HEADLESS_PROBE_TIMEOUT_S = 60
 
+from lingclaude.core import policy_loader  # noqa: E402 — 常量区后统一 import
+
+
+def _headless_probe_timeout() -> float:
+    """headless 探针超时可调参（2026-09-30 E13 外置）：tuning.headless_probe_timeout。
+
+    :returns: yaml 值钳位 [2, 300]；未配置/坏值回退代码默认 60
+    """
+    return float(policy_loader._tuned(
+        "headless_probe_timeout", _HEADLESS_PROBE_TIMEOUT_S, lo=2.0, hi=300.0
+    ))
+
 
 def _probe_cli_headless(spec: ForgeSpec) -> tuple[bool, str]:
     """cli_agent headless 探针：最小 prompt 单次调用。
@@ -589,9 +601,9 @@ def _probe_cli_headless(spec: ForgeSpec) -> tuple[bool, str]:
     try:
         r = subprocess.run(cmd, input="ping\n" if spec.prompt_mode == "stdin" else None,
                            capture_output=True, text=True,
-                           timeout=_HEADLESS_PROBE_TIMEOUT_S)
+                           timeout=_headless_probe_timeout())
     except subprocess.TimeoutExpired:
-        return False, f"headless 探针超时（>{_HEADLESS_PROBE_TIMEOUT_S}s）"
+        return False, f"headless 探针超时（>{_headless_probe_timeout():g}s）"
     except OSError as e:
         return False, f"headless 探针无法启动: {e}"
     out = (r.stdout or "").strip()
@@ -618,10 +630,10 @@ def _probe_mcp_initialize(spec: McpWrapSpec) -> tuple[bool, str]:
                                                   "version": "1.0.0"}}})
     try:
         r = subprocess.run(cmd, input=probe + "\n", capture_output=True,
-                           text=True, timeout=_HEADLESS_PROBE_TIMEOUT_S,
+                           text=True, timeout=_headless_probe_timeout(),
                            cwd=spec.cwd or None)
     except subprocess.TimeoutExpired:
-        return False, f"initialize 握手超时（>{_HEADLESS_PROBE_TIMEOUT_S}s）"
+        return False, f"initialize 握手超时（>{_headless_probe_timeout():g}s）"
     except OSError as e:
         return False, f"initialize 握手无法启动: {e}"
     resp = None

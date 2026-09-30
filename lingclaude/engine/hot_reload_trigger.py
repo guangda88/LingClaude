@@ -37,6 +37,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from lingclaude.core import policy_loader
+
 logger = logging.getLogger(__name__)
 
 # 拉取式扫描节流（秒）：对齐 policy_loader._WATCH_INTERVAL 量级，
@@ -83,10 +85,21 @@ class HotReloadTrigger:
         on_agents_reload: Callable[[], Any] | None = None,
         config_provider: Callable[[], Any] | None = None,
         config_factory: Callable[[Any], Any] | None = None,
-        config_check_interval: float = 30.0,
+        config_check_interval: float | None = None,
         store: Any = None,
-        scan_interval: float = _SCAN_INTERVAL,
+        scan_interval: float | None = None,
     ) -> None:
+        # E13 外置（2026-09-30）：两间隔默认参改调用时求值——显式注入优先（测试
+        # 传 0.0 等假值照用），None → tuning.scan_interval / tuning.scan_config_interval
+        # （yaml 热更），未配置回退代码默认（_SCAN_INTERVAL / 30.0）
+        if scan_interval is None:
+            scan_interval = float(
+                policy_loader._tuned("scan_interval", _SCAN_INTERVAL, lo=2.0, hi=600.0)
+            )
+        if config_check_interval is None:
+            config_check_interval = float(
+                policy_loader._tuned("scan_config_interval", 30.0, lo=2.0, hi=600.0)
+            )
         self._enabled = enabled
         self._tools_dir = tools_dir or TOOLS_PLUGINS_DIR
         self._agents_dir = agents_dir or AGENTS_PLUGINS_DIR

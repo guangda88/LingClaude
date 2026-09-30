@@ -29,3 +29,31 @@ pattern_recognizer:
     - duplicate_code
     - empty_block
     - complexity
+
+# ---------------------------------------------------------------------------
+# 调参外置（P1/P2 2026-09-30）：policy_loader._tuned(key, default, lo, hi)
+# 原则：留 null/缺省 = 沿用代码内置默认；填值 = 覆盖（零重启热更）。
+# 安全参数已带钳位（如 stream_line_buf_max 下限 1024），填超界值自动钳回。
+# ---------------------------------------------------------------------------
+tuning:
+  # --- 节流间隔（秒）：三个 30s watcher 的节奏（P1）---
+  watch_interval: null            # policy_loader._WATCH_INTERVAL（策略 mtime 检查节流）
+  hot_reload_interval: null       # model_call._HOT_RELOAD_INTERVAL（config.yaml 热重载节流）
+  scan_interval: null             # hot_reload_trigger._SCAN_INTERVAL（插件目录扫描节流）
+  scan_config_interval: null      # hot_reload_trigger config_check_interval（config 变化→slot 重建节流）
+
+  # --- 阈值类（P1）---
+  dedup_threshold: null           # verify_cadence 重复调用死循环告警阈值
+  drift_reset_threshold: null     # tripartite 相邻快照漂移重置阈值（0.35）
+  doom_loop_threshold: null       # failure_triage 同错误循环重构判定阈值
+  tool_event_max: null            # tool_pipeline 事件环形缓冲上限
+
+  # --- 缓冲/存储上限（P2）---
+  stream_line_buf_max: null       # repl_io 无换行流强制断行上限（字节）
+  paste_store_max: null           # full_tui 粘贴注册表条目上限
+  poll_interval: null             # background 后台任务轮询间隔（秒）
+
+  # --- 探针超时（秒，P2）---
+  llm_probe_timeout: null         # llm_probe.PROBE_TIMEOUT
+  headless_probe_timeout: null    # plugin_forge headless/握手探针超时
+  provider_probe_timeout: null    # provider_probe 探活超时

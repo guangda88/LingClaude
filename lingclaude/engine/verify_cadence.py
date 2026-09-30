@@ -26,6 +26,8 @@ import json
 import os
 from collections import deque
 
+from lingclaude.core import policy_loader
+
 # 写向工具（成功 = 产生 pending 验证义务）
 VERIFY_TOOLS: frozenset[str] = frozenset({
     "edit", "write", "file_create", "file_insert", "file_delete_lines",
@@ -79,7 +81,11 @@ class VerifyCadenceHook:
         # 死循环检测：窗口内同 key 已出现 ≥ 阈值-1 次，本次即触发
         count = sum(1 for k in self._recent if k == key)
         self._recent.append(key)
-        if count + 1 >= DEDUP_THRESHOLD and self._loop_nudged_key != key:
+        # E13 外置（2026-09-30）：阈值走 tuning.dedup_threshold，代码常量只兜底
+        threshold = policy_loader._tuned(
+            "dedup_threshold", DEDUP_THRESHOLD, lo=2, hi=50
+        )
+        if count + 1 >= threshold and self._loop_nudged_key != key:
             self._loop_nudged_key = key
             return (
                 f"[verify_cadence] 检测到重复调用: {tool_name} 同参数已在最近 "

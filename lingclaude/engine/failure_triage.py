@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from lingclaude.core import policy_loader
+
 
 class TriageClass:
     """失败类别（枚举面，对齐 NanoJev 三类 + 简单拼写第四类）。"""
@@ -94,7 +96,7 @@ def triage_failure(
     error_text: str,
     history: list[str] | None = None,
     *,
-    loop_threshold: int = _DOOM_LOOP_THRESHOLD,
+    loop_threshold: int | None = None,
 ) -> TriageVerdict:
     """分诊一条测试/编译失败（纯字符串主分类，0 模型调用）。
 
@@ -102,6 +104,12 @@ def triage_failure(
     次 → doom loop）。三类判定优先级：循环重构 > 依赖缺失 > 瞬时 > 语法/格式。
     返回 UNCLASSIFIED 时由调用方决定是否走 spec_decision 兜底门控（_gate_escalate）。
     """
+    # E13 外置（2026-09-30）：显式传参优先；None → tuning.doom_loop_threshold（yaml
+    # 热更），未配置回退代码常量 _DOOM_LOOP_THRESHOLD（def 时快照→调用时求值）
+    if loop_threshold is None:
+        loop_threshold = policy_loader._tuned(
+            "doom_loop_threshold", _DOOM_LOOP_THRESHOLD, lo=2, hi=20
+        )
     text = error_text or ""
     hist = history or []
 
@@ -206,7 +214,7 @@ def triage_and_dispose(
     error_text: str,
     history: list[str] | None = None,
     *,
-    loop_threshold: int = _DOOM_LOOP_THRESHOLD,
+    loop_threshold: int | None = None,
 ) -> TriageVerdict:
     """分诊 + 未分类兜底门控一站式入口（消费方调用此，不直接调 triage_failure）。"""
     verdict = triage_failure(error_text, history, loop_threshold=loop_threshold)

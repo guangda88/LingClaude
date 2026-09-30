@@ -33,6 +33,16 @@ logger = logging.getLogger(__name__)
 # Popen.communicate 超时后重试是文档化安全操作，不会丢失已读输出。
 _POLL_INTERVAL = 0.5
 
+from lingclaude.core import policy_loader  # noqa: E402 — 常量区后统一 import
+
+
+def _poll_interval() -> float:
+    """轮询间隔可调参（2026-09-30 E13 外置）：tuning.poll_interval 热更。
+
+    :returns: yaml 值钳位 [0.05, 5.0]；未配置/坏值回退代码默认 0.5
+    """
+    return float(policy_loader._tuned("poll_interval", _POLL_INTERVAL, lo=0.05, hi=5.0))
+
 
 class JobStatus(str, Enum):
     PENDING = "pending"
@@ -121,7 +131,7 @@ class BackgroundTaskManager:
             stdout = stderr = ""
             while True:
                 try:
-                    stdout, stderr = proc.communicate(timeout=_POLL_INTERVAL)
+                    stdout, stderr = proc.communicate(timeout=_poll_interval())
                     break  # 自然结束
                 except subprocess.TimeoutExpired:
                     pass

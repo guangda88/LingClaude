@@ -37,13 +37,17 @@ _TOOL_EVENT_BUFFER: list[dict[str, Any]] = []
 _TOOL_EVENT_LOCK = threading.Lock()
 _TOOL_EVENT_MAX = 200
 
+from lingclaude.core import policy_loader  # noqa: E402 — 常量区后统一 import
+
 
 def record_tool_event(event: dict[str, Any]) -> None:
     """记录一条工具执行增量事件（tool_start / tool_result / state）。"""
     with _TOOL_EVENT_LOCK:
         _TOOL_EVENT_BUFFER.append(event)
-        if len(_TOOL_EVENT_BUFFER) > _TOOL_EVENT_MAX:
-            del _TOOL_EVENT_BUFFER[: len(_TOOL_EVENT_BUFFER) - _TOOL_EVENT_MAX]
+        # E13 外置（2026-09-30）：上限走 tuning.tool_event_max，代码常量只兜底
+        event_max = policy_loader._tuned("tool_event_max", _TOOL_EVENT_MAX, lo=50, hi=10000)
+        if len(_TOOL_EVENT_BUFFER) > event_max:
+            del _TOOL_EVENT_BUFFER[: len(_TOOL_EVENT_BUFFER) - event_max]
 
 
 def read_tool_events(since: int = 0) -> tuple[list[dict[str, Any]], int]:

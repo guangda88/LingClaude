@@ -32,6 +32,16 @@ _HOT_RELOAD_INTERVAL = 30.0  # 秒；节流，避免每轮读盘
 _last_hot_reload_check = [0.0]
 
 
+def _hot_reload_interval() -> float:
+    """节流间隔可调参（2026-09-30 E13 外置）：tuning.hot_reload_interval 热更。
+
+    :returns: yaml 值钳位 [2, 600]；未配置/坏值回退代码默认 30.0
+    """
+    from lingclaude.core import policy_loader as _pl
+
+    return float(_pl._tuned("hot_reload_interval", _HOT_RELOAD_INTERVAL, lo=2.0, hi=600.0))
+
+
 def _maybe_hot_reload_config(engine: Any) -> None:
     """配置热重载：config 文件 mtime 变化时重建 engine.config 的 max_turns。
 
@@ -43,7 +53,7 @@ def _maybe_hot_reload_config(engine: Any) -> None:
     import time as _time
 
     now = _time.monotonic()
-    if now - _last_hot_reload_check[0] < _HOT_RELOAD_INTERVAL:
+    if now - _last_hot_reload_check[0] < _hot_reload_interval():
         return
     _last_hot_reload_check[0] = now
     try:

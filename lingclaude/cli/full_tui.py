@@ -44,13 +44,18 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
+from lingclaude.core import policy_loader
+
 logger = logging.getLogger(__name__)
 
 from lingclaude.cli.input_queue import EOF_SENTINEL
 from lingclaude.cli.interface import (
     PT_TUI_STYLE,
+    _col_to_char_index,
+    _disp_width,
     _extract_sgr_styles,
     _fallback_strip_ansi,
+    _line_disp_width,
     _patch_pt_modifier_enter,
     _strip_ansi_text,
 )
@@ -170,11 +175,13 @@ if _HAS_PROMPT_TOOLKIT:
 
         与 _reverse_range 同构（按绝对显示列切 fragment），区别是不限定
         reverse 而是合并任意样式串；事件样式（*rest）原样透传。
+        显示列坐标：全角字符占 2 列（_disp_width，2026-09-29 CJK 对齐），
+        与 _extract_sgr_styles 产出的 span 列号同坐标系。
         """
         out: list[tuple] = []
         pos = 0
         for style, txt, *rest in fragments:
-            w = len(txt)
+            w = _line_disp_width(txt)  # 全角=2/半角=1；旧 len(txt) 全角行错位
             seg_lo, seg_hi = pos, pos + w
             pos = seg_hi
             a = max(seg_lo, lo)
@@ -182,9 +189,12 @@ if _HAS_PROMPT_TOOLKIT:
             if a >= b:  # 无交集
                 out.append((style, txt, *rest))
                 continue
-            pre = txt[: a - seg_lo]
-            mid = txt[a - seg_lo : b - seg_lo]
-            post = txt[b - seg_lo :]
+            # 显示列→字符下标（全角切点落字符边界，2026-09-29 CJK 对齐）
+            ci_a = _col_to_char_index(txt, a - seg_lo)
+            ci_b = _col_to_char_index(txt, b - seg_lo)
+            pre = txt[:ci_a]
+            mid = txt[ci_a:ci_b]
+            post = txt[ci_b:]
             if pre:
                 out.append((style, pre, *rest))
             if mid:
@@ -197,16 +207,25 @@ if _HAS_PROMPT_TOOLKIT:
     def _reverse_range(
         fragments: list[tuple], lo: int, hi: int | None
     ) -> list[tuple]:
-        """对 fragments 的显示列区间 [lo, hi)（hi=None 到行尾）追加 reverse。
+        """对 fragments 的**字符下标**区间 [lo, hi)（hi=None 到行尾）追加 reverse。
 
-        与区间无交集的 fragment 原样保留；跨界 fragment 按列切三段，
-        仅有交集段带反色。事件样式（*rest，如鼠标处理器）原样透传。
+        坐标系 = PT 鼠标坐标语义：containers.py:2076-2078 的映射循环里
+        `col += 1`（每字符进 1，全角字也只进 1）而 `x += char_width`
+        （屏幕列全角进 2）——即 position.x 是字符下标，不是显示列。
+        与 _extract_selected_text 的 Python 切片（lines[r][sc:ec+1]）同系。
+
+        勿"统一"成显示列（_line_disp_width/_col_to_char_index）：那会让
+        高亮相对鼠标指针向左漂 N 格（N=点击点前全角字数），2026-09-29
+        拖选高亮偏移根因即此。_style_range 的 SGR spans 是显示列系，
+        两者输入来源不同、坐标系本就不同，勿互相看齐。
+        跨界 fragment 按字符切三段，仅交集段带反色；事件样式（*rest，
+        如鼠标处理器）原样透传。
         """
         out: list[tuple] = []
         pos = 0
         for style, txt, *rest in fragments:
-            w = len(txt)
-            seg_lo, seg_hi = pos, pos + w
+            n = len(txt)  # 字符数 = PT col 坐标系；刻意不用 _line_disp_width
+            seg_lo, seg_hi = pos, pos + n
             pos = seg_hi
             a = max(seg_lo, lo)
             b = seg_hi if hi is None else min(seg_hi, hi)
@@ -513,6 +532,10 @@ class FullTuiSession:
         # 与 _pending_lines 平行的样式暂存队列（_out_lock 保护，元素与
         # pending 行一一对应）；drain 时按起始行号并入 _style_map。
         self._style_spans_pending: list[list[tuple[int, int, str]]] = []
+        # TUI 原位上色轮次标记（2026-09-30）：-1=无活动标记；set_streaming(True)
+        # 记下流式素字段起点，done 原位替换时消费。替换失败/轮次收尾均复位，
+        # 防止跨轮误替换旧行。
+        self._stream_start_mark = -1
         # Raw 看门狗节流游标（2026-09-26 假死根治）：见 _check_tty_raw_drift。
         # app 活着但终端被外部踩回 canonical 时，PT 逐键读者收不到任何事件，
         # 表现为整屏假死（19:20-19:45 事故）——等待循环每轮顺带检测自愈。
@@ -1140,7 +1163,9 @@ class FullTuiSession:
             raw = self._paste_store_path.read_text(encoding="utf-8")
             data = _json.loads(raw)
             pastes = data.get("pastes") or {}
-            for k, v in list(pastes.items())[-_PASTE_STORE_MAX:]:
+            for k, v in list(pastes.items())[-policy_loader._tuned(
+                "paste_store_max", _PASTE_STORE_MAX, lo=20, hi=5000
+            ):]:
                 n = int(k)
                 text, lines = v[0], int(v[1])
                 if len(text) > 1_048_576 or lines < 1:
@@ -1157,7 +1182,10 @@ class FullTuiSession:
         try:
             import json as _json
 
-            items = sorted(self._paste_registry.items())[-_PASTE_STORE_MAX:]
+            paste_max = policy_loader._tuned(
+                "paste_store_max", _PASTE_STORE_MAX, lo=20, hi=5000
+            )
+            items = sorted(self._paste_registry.items())[-paste_max:]
             data = {
                 "max_seq": self._paste_seq,
                 "pastes": {str(n): [text, lines] for n, (text, lines) in items},
@@ -1253,6 +1281,107 @@ class FullTuiSession:
         """公开追加接口：任意线程输出进窗（stdout 代理与渲染层共用）。"""
         self._write_via_buffer(s)
 
+    def mark_stream_start(self) -> int:
+        """记下当前输出窗行数作为「本轮流式段」起点（行裁剪安全：见 replace_range_styled）。
+
+        2026-09-30 TUI 原位上色：流式素字全文已入窗，done 时用带样式版本
+        原位替换该区间，消除「素字 + 彩色两遍」。
+        """
+        with self._area_lock:
+            text = self._out_buffer.text
+            return (text.count("\n") + 1) if text else 0
+
+    def drop_stream_mark(self) -> None:
+        """无条件作废轮次标记（打断/异常收尾用；正常轮由 replace_turn_styled 消费）。"""
+        with self._style_lock:
+            self._stream_start_mark = -1
+
+    def replace_turn_styled(
+        self,
+        styled_lines: list[str],
+        spans_list: list[list[tuple[int, int, str]]],
+        expected_plain: list[str],
+    ) -> bool:
+        """消费轮次标记，把本轮流式素字段原位替换为带样式行（行数可变）。
+
+        expected_plain = done.content 按行拆分的素字版本。替换前与窗内
+        [mark, cur) 区间做 rstrip 归一比对：不一致（工具行交错 / 表格重排 /
+        verifier 改写 / 裁剪吃字）→ 返回 False，调用方回退旧行为。误删在
+        构造上不可能：区间内容与 content 不完全一致就绝不动窗。
+
+        返回 False = 无标记 / 指纹不符，调用方回退素字收尾，内容不丢。
+        """
+        with self._style_lock:
+            mark = self._stream_start_mark
+            self._stream_start_mark = -1
+        if mark < 0:
+            return False
+        with self._area_lock:
+            text = self._out_buffer.text
+            all_lines = text.split("\n") if text else []
+            cur_count = len(all_lines)
+            if mark > cur_count:  # 起点行已被滚动裁剪吃掉
+                return False
+            segment = all_lines[mark:]
+            if [ln.rstrip() for ln in segment] != [
+                ln.rstrip() for ln in expected_plain
+            ]:
+                return False  # 指纹不符：工具行交错等，回退
+            return self._replace_range_locked(
+                mark, cur_count - mark, styled_lines, spans_list
+            )
+
+    def _replace_range_locked(
+        self,
+        start: int,
+        old_len: int,
+        styled_lines: list[str],
+        spans_list: list[list[tuple[int, int, str]]],
+    ) -> bool:
+        """原位替换 [start, start+old_len) 为 styled_lines（须持 _area_lock）。"""
+        buf = self._out_buffer
+        old_text = buf.text
+        all_lines = old_text.split("\n") if old_text else []
+        if start < 0 or start + old_len > len(all_lines):
+            return False
+        end = start + old_len
+        tail = all_lines[end:]
+        new_lines = all_lines[:start] + list(styled_lines) + tail
+        dropped = 0
+        if len(new_lines) > MAX_OUTPUT_LINES:
+            # 增行替换超限丢最旧行（与追加同语义）；等行替换不触发
+            dropped = len(new_lines) - MAX_OUTPUT_LINES
+            new_lines = new_lines[-MAX_OUTPUT_LINES:]
+            start = max(0, start - dropped)
+            end -= dropped
+        new_text = "\n".join(new_lines)
+        buf.set_document(Document(new_text, 0), bypass_readonly=True)
+        # ── 样式表按新行号重建：新区间 + 区间前原样 + 区间后平移 ──
+        with self._style_lock:
+            new_map: dict[int, list[tuple[int, int, str]]] = {}
+            for i, sp in enumerate(spans_list):
+                if sp:
+                    new_map[start + i] = list(sp)
+            shift = len(styled_lines) - old_len
+            for row, sp in self._style_map.items():
+                if row < start:
+                    new_map[row] = sp
+                elif row >= end:
+                    shifted = row + shift
+                    if shifted >= 0:
+                        new_map[shifted] = sp
+            self._style_map = new_map
+        follow = self._follow_output
+        if follow or not new_text:
+            buf.cursor_position = len(new_text)
+        else:
+            row = buf.document.cursor_position_row
+            row = max(0, min(row, len(new_lines) - 1))
+            buf.cursor_position = buf.document.translate_row_col_to_index(row, 0)
+        follow_now = buf.document.is_cursor_at_the_end
+        self._follow_output = follow_now
+        self._invalidate()
+        return True
     def _write_via_buffer(self, s: str) -> None:
         if not s:
             return
@@ -1327,8 +1456,14 @@ class FullTuiSession:
         **不消费 interrupt_event** —— Ctrl+C 打断归流循环检查
         （repl._run_stream_turn 每事件轮询）；否则 pump 线程会在 ≤0.2s 内
         清掉 interrupt，生成永远无法被打断。
+
+        2026-09-30 TUI 原位上色：False→True 跳变时记下输出窗行数作为本轮
+        流式素字段起点，done 事件据此原位替换为带样式版本。
         """
+        was = self._streaming
         self._streaming = streaming
+        if streaming and not was:
+            self._stream_start_mark = self.mark_stream_start()
 
     def prompt(self, message: str = "") -> str:
         """阻塞取一条已提交输入；EOF 哨兵抛 EOFError；空闲 Ctrl+C 返回 ""。

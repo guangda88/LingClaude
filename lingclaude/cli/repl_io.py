@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from lingclaude.cli.interface import PromptSessionInterface
 
+from lingclaude.core import policy_loader
+
 # P0-行缓冲:跨事件聚合流式 delta,残行待下次事件或 flush 收尾
 _stream_line_buf: list[str] = []
 # B(2026-09-26): 无换行流防御（atomcode retained.rs 1MiB cap 借鉴，行缓冲
@@ -22,6 +24,159 @@ _stream_line_buf: list[str] = []
 # 缓冲无限增长；达上限强制断行输出（内容不丢，只是提前落一行）。
 _STREAM_LINE_BUF_MAX = 65536
 _stream_lines_emitted = 0  # 本轮已输出行数(done 时用于 ANSI 擦除重渲染)
+
+# 2026-09-29 Markdown 表格对齐：模型按"字符数"手感补白，终端按显示列
+# (全角=2/半角=1) 排版 → 含 CJK 的 `|` 表竖线逐行错位。修复：连续 `|`
+# 行块暂存，块结束（下一非 `|` 行 / flush 点）后按显示列取每列最大宽、
+# 统一补半角空格再输出。仅影响 plain 模式正文文本流；代价是表格块整体
+# 延迟到块结束才显示（通常几行，无感）。
+_table_buf: list[str] = []
+
+# 2026-09-29 灵元 R2 路线1：表格渲染规则外置 policies/table_render.yaml（热更 data，
+# 不改 module）。与 interface.py SGR 白名单同一先例：策略缺失/损坏回退内置默认。
+_FALLBACK_TABLE_POLICY: dict[str, Any] = {
+    "enabled": True,
+    "pad_char": " ",
+    "min_col_width": 0,
+    "row_prefix": "|",
+    "row_suffix": "|",
+    "max_block_rows": 200,
+}
+
+
+def _table_policy() -> dict[str, Any]:
+    """读取表格渲染策略（mtime watch 热更）；失败/缺项回退内置默认。"""
+    try:
+        from lingclaude.core.policy_loader import get as _policy_get
+        data = _policy_get("table_render")
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    merged = dict(_FALLBACK_TABLE_POLICY)
+    for k in merged:
+        v = data.get(k)
+        if v is not None:
+            merged[k] = v
+    # 类型防护：坏 yaml 不得污染渲染路径
+    if not isinstance(merged["pad_char"], str) or len(merged["pad_char"]) != 1:
+        merged["pad_char"] = " "
+    if not isinstance(merged["max_block_rows"], int) or merged["max_block_rows"] < 2:
+        merged["max_block_rows"] = 200
+    if not isinstance(merged["min_col_width"], int) or merged["min_col_width"] < 0:
+        merged["min_col_width"] = 0
+    merged["enabled"] = bool(merged["enabled"])
+    return merged
+
+
+def _disp_w(text: str) -> int:
+    """显示列宽（全角 CJK=2，半角=1；与 interface._disp_width 同口径）。"""
+    import unicodedata
+    return sum(2 if unicodedata.east_asian_width(c) in ("F", "W") else 1 for c in text)
+
+
+def _is_table_row(line: str, policy: dict[str, Any] | None = None) -> bool:
+    """判定表格行：按策略前后缀起止（分隔行 |---|---| 也是表格行）。"""
+    p = policy or _table_policy()
+    s = line.strip()
+    return len(s) > 1 and s.startswith(p["row_prefix"]) and s.endswith(p["row_suffix"])
+
+
+def _pad_table_block(rows: list[str], policy: dict[str, Any]) -> list[str]:
+    """表格块按显示列重排补白，返回成品行。
+
+    2026-09-30 从 _flush_table_buf 抽出：落窗（流式路径）与指纹
+    （_expected_window_lines）共用同一实现——两套各写一遍必然漂移，
+    漂移即指纹恒失配、原位上色静默回退（当日已复现的事故）。
+    """
+    pad_char = policy["pad_char"]
+    # 切列：strip 后去首尾部件，按内部分隔切
+    grid: list[list[str]] = []
+    for line in rows:
+        s = line.strip()
+        cells = [c.strip() for c in s[1:-1].split("|")]
+        grid.append(cells)
+    ncols = max(len(r) for r in grid)
+    widths = [policy["min_col_width"]] * ncols
+    for r in grid:
+        for i in range(min(len(r), ncols)):
+            widths[i] = max(widths[i], _disp_w(r[i]))
+    out_lines = []
+    for r in grid:
+        out = []
+        for i in range(ncols):
+            cell = r[i] if i < len(r) else ""
+            pad = widths[i] - _disp_w(cell)
+            out.append(cell + pad_char * max(pad, 0))
+        out_lines.append("| " + " | ".join(out) + " |")
+    return out_lines
+
+
+def _flush_table_buf() -> None:
+    """按显示列重排暂存的表格块并逐行输出（列宽取全列最大，规则来自策略）。"""
+    global _table_buf
+    if not _table_buf:
+        return
+    p = _table_policy()
+    rows = _table_buf
+    _table_buf = []
+    for ln in _pad_table_block(rows, p):
+        _stream_write(ln + "\n")
+        globals()["_stream_lines_emitted"] += 1
+
+
+# _StdoutProxy 超长半行强制断行阈值（full_tui._frag > 4096 即 flush，
+# 故首个窗行恰 4097 字符）；指纹侧必须复刻同一断行粒度。
+_PROXY_FRAG_FLUSH_AT = 4097
+
+
+def _expected_window_lines(content: str) -> list[str]:
+    """done.content → 窗内期望素字行序列（原位替换指纹专用）。
+
+    与流式落窗管线逐字符同构（2026-09-30 表格重排失配修复）：
+      1. _strip_ansi_text —— _stream_write 出口无条件清洗
+      2. 表格行块按同一策略重排补白（_pad_table_block 与落窗共用）
+      3. \r 丢半行、超长行 4097 字符断行 —— _StdoutProxy 写入语义
+      4. content 尾换行不产生额外窗行（split 伪影剔除）
+    未来任何改变流式落窗形态的规则，必须同步改本函数（锚定注释）。
+    """
+    from lingclaude.cli.interface import _strip_ansi_text
+
+    p = _table_policy()
+    lines = content.split("\n")
+    if content.endswith("\n") and lines:
+        lines.pop()
+    out: list[str] = []
+    buf: list[str] = []
+
+    def _flush_buf() -> None:
+        nonlocal buf
+        if not buf:
+            return
+        rows, buf = buf, []
+        for ln in _pad_table_block(rows, p):
+            out.extend(
+                ln[i : i + _PROXY_FRAG_FLUSH_AT]
+                for i in range(0, len(ln), _PROXY_FRAG_FLUSH_AT)
+            )
+
+    for raw in lines:
+        line = _strip_ansi_text(raw)
+        if p["enabled"] and _is_table_row(line, p):
+            buf.append(line)
+            if len(buf) >= p["max_block_rows"]:
+                _flush_buf()
+            continue
+        _flush_buf()
+        if "\r" in line:
+            line = line.rsplit("\r", 1)[-1]
+        out.extend(
+            line[i : i + _PROXY_FRAG_FLUSH_AT]
+            for i in range(0, len(line), _PROXY_FRAG_FLUSH_AT)
+        )
+    _flush_buf()
+    return out
+
 _OUTPUT_FORMAT = "plain"  # P0-2: plain | json | jsonl
 _json_event_buffer: list[dict[str, Any]] = []  # json 模式事件缓冲
 
@@ -221,6 +376,9 @@ def _flush_stream_line() -> None:
         _stream_line_buf.clear()
         _stream_write(text + "\n")
         globals()["_stream_lines_emitted"] += 1
+    # 表格块随 flush 点强制输出（tool_call/done/error 打断表块时兜底）
+    if _table_buf:
+        _flush_table_buf()
 
 
 def _handle_stream_event(event: dict[str, Any]) -> None:
@@ -253,10 +411,25 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         _stream_line_buf.clear()
         while "\n" in pending:
             line, _, pending = pending.partition("\n")
+            # 2026-09-29 表格对齐:连续 | 行暂存为块,块结束后按显示列重排。
+            # 规则走 policies/table_render.yaml（热更）：enabled=false 时直出不重排。
+            _tp = _table_policy()
+            if _tp["enabled"] and _is_table_row(line, _tp):
+                _table_buf.append(line)
+                # 病态流防御：超上限按当前块 flush 开新块（不丢行）
+                if len(_table_buf) >= _tp["max_block_rows"]:
+                    _flush_table_buf()
+                continue
+            if _table_buf:
+                _flush_table_buf()
             _stream_write(line + "\n")
             globals()["_stream_lines_emitted"] += 1
         if pending:
-            if len(pending) >= _STREAM_LINE_BUF_MAX:
+            # E13 外置（2026-09-30）：上限走 tuning.stream_line_buf_max（钳位
+            # [1KiB, 1MiB]），代码常量只兜底
+            if len(pending) >= policy_loader._tuned(
+                "stream_line_buf_max", _STREAM_LINE_BUF_MAX, lo=1024, hi=1_048_576
+            ):
                 # B(2026-09-26): 无换行流防御——达上限强制断行（不丢内容）
                 _stream_write(pending + "\n")
                 globals()["_stream_lines_emitted"] += 1
@@ -327,6 +500,49 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 except Exception:  # noqa: BLE001 — 渲染失败时保底输出纯文本
                     _stream_write("\n" + content + "\n\n")
                 globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
+        elif content and _full_tui_managed:
+            # 2026-09-30 TUI 原位上色：托管期不再素字收尾。流式素字全文已在
+            # 输出窗（流式出口 _stream_write 必剥 ANSI，样式过不来），此处用
+            # rich(ANSI) 渲染同一 content，经 _extract_sgr_styles 白名单解析、
+            # replace_turn_styled 原位替换本轮流式段——零 stderr 直写（第四
+            # 路径守卫不破），内容一遍不重复。失败/标记失效回退素字收尾。
+            try:
+                from io import StringIO
+
+                from rich.console import Console
+
+                from lingclaude.cli.interface import _extract_sgr_styles
+
+                buf = StringIO()
+                cols = max(60, (shutil.get_terminal_size().columns or 80))
+                ansi_console = Console(file=buf, force_terminal=True, width=cols)
+                from rich.markdown import Markdown
+
+                ansi_console.print(Markdown(content))
+                ansi_text = buf.getvalue()
+                styled_lines: list[str] = []
+                spans_list: list[list[tuple[int, int, str]]] = []
+                for ln in ansi_text.split("\n"):
+                    t, sp = _extract_sgr_styles(ln)
+                    styled_lines.append(t)
+                    spans_list.append(sp)
+                proxy = getattr(sys, "stdout", None)
+                owner = getattr(proxy, "_owner", None)
+                if (
+                    owner is not None
+                    and owner.replace_turn_styled(
+                        styled_lines,
+                        spans_list,
+                        _expected_window_lines(content),  # 指纹：与流式落窗同构变换后比对
+                    )
+                ):
+                    pass  # 原位替换成功：窗内素字段已变彩色版，无需追加
+                else:
+                    _stream_write("\n\n")  # 回退：无标记/区间失效，旧行为收尾
+                    globals()["_stream_lines_emitted"] = 0
+            except Exception:  # noqa: BLE001 — 渲染/替换失败回退素字收尾
+                _stream_write("\n\n")
+                globals()["_stream_lines_emitted"] = 0
         else:
             _stream_write("\n\n")
     elif etype == "error":

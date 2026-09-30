@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lingclaude.core import policy_loader
+
 LEDGER = Path("data/arch_ledger")
 ERR_LEDGER = Path("data/ledger/verification-errors-20260925.md")
 STALE_AFTER_HOURS = 168  # 7d：账本死掉的前兆（proxy3 断供前科）
@@ -105,7 +107,7 @@ def collect_cycle001_inputs() -> dict[str, Any]:
             d = _load_json(p)
             state = d.get("state", "pending")
             disp = {"migrated": "migrated", "active": "observing",
-                    "removed": "recycled"}.get(state, "pending")
+                    "recycled": "recycled", "removed": "recycled"}.get(state, "pending")
             candidates.append({"item": d.get("file", p.name), "disposition": disp,
                                "evidence": str(p), "guard": d.get("guard")})
             report[disp] += 1
@@ -176,7 +178,12 @@ def task_type_drift(snap_dir: Path | None = None, threshold: float | None = None
     快照不足两份 → observed=False（如实：无数据不是零漂移）。
     """
     snap_dir = snap_dir or M6_SNAPSHOT_DIR
-    threshold = DRIFT_RESET_THRESHOLD if threshold is None else threshold
+    # E13 外置（2026-09-30）：调用方显式传参优先；None → tuning.drift_reset_threshold
+    # （yaml 热更），未配置回退代码常量 DRIFT_RESET_THRESHOLD
+    if threshold is None:
+        threshold = policy_loader._tuned(
+            "drift_reset_threshold", DRIFT_RESET_THRESHOLD, lo=0.01, hi=1.0
+        )
     out: dict[str, Any] = {"observed": False, "reset_recommended": False}
     if not snap_dir.exists():
         out["note"] = f"snapshot dir missing: {snap_dir}"

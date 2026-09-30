@@ -43,6 +43,18 @@ PROBE_TTL_HARD = 1800.0       # 410/401/404 硬错误：30 分钟（与 F12j 熔
 # HTTP 探活超时（秒）——探活是路由前置步骤，必须快速失败
 PROBE_TIMEOUT = 5.0
 
+
+def _probe_timeout() -> float:
+    """探活超时可调参（2026-09-30 E13 外置）：tuning.provider_probe_timeout 热更。
+
+    函数级 import：避免加重 model→core 模块级耦合。
+
+    :returns: yaml 值钳位 [0.5, 60]；未配置/坏值回退代码默认 5.0
+    """
+    from lingclaude.core import policy_loader
+
+    return float(policy_loader._tuned("provider_probe_timeout", PROBE_TIMEOUT, lo=0.5, hi=60.0))
+
 # 硬错误码：清单级死节点（key 失效/部署下线/模型不存在）
 _HARD_CODES = frozenset({401, 403, 404, 410})
 # 限流码：节点活着但暂时不可用
@@ -93,10 +105,13 @@ class ProviderProbe:
     探活失败本身永不抛异常——探活是路由的前置增强，不能比被探活的对象更脆弱。
     """
 
-    def __init__(self, evidence_path: Path | None = None, timeout: float = PROBE_TIMEOUT) -> None:
+    def __init__(self, evidence_path: Path | None = None, timeout: float | None = None) -> None:
         self._cache: dict[str, ProbeResult] = {}
         self._lock = Lock()
         self._evidence_path = Path(evidence_path) if evidence_path else EVIDENCE_PATH
+        # E13 外置（2026-09-30）：显式注入优先，None → tuning.provider_probe_timeout
+        if timeout is None:
+            timeout = _probe_timeout()
         self._timeout = timeout
 
     # ---------- 对外主入口 ----------

@@ -177,6 +177,27 @@ def _changed(path: Path) -> bool:
     return _MTIME_CACHE.get(str(path)) != stamp
 
 
+def _self_watch_interval() -> float:
+    """get() 自身的 mtime 检查节流间隔（秒）。
+
+    读已缓存的 tuning.watch_interval（可能滞后一个周期——间隔尺度 30s，可接受）；
+    未缓存/坏值回退 _WATCH_INTERVAL。**刻意不经 _tuned()**：_tuned→get→_tuned→…
+    会无界递归，此处只允许碰缓存 dict。
+    """
+    path = _resolve_path(_TUNED_POLICY_NAME)
+    if path is None:
+        return _WATCH_INTERVAL
+    sec = _DATA_CACHE.get(str(path), {}).get("tuning")
+    val = sec.get("watch_interval") if isinstance(sec, dict) else None
+    if val is None or isinstance(val, bool):
+        return _WATCH_INTERVAL
+    try:
+        iv = float(val)
+    except (TypeError, ValueError):
+        return _WATCH_INTERVAL
+    return min(max(iv, 1.0), 600.0)
+
+
 def get(name: str) -> dict[str, Any]:
     """取策略数据：缓存 + mtime watch 热更。
 
@@ -192,9 +213,10 @@ def get(name: str) -> dict[str, Any]:
     if key not in _MTIME_CACHE:
         return _load(name)
 
-    # 节流检查 mtime（按路径独立节流：跨策略/跨测试不互踩）
+    # 节流检查 mtime（按路径独立节流：跨策略/跨测试不互踩）；
+    # 间隔自身可调参（tuning.watch_interval，见 _self_watch_interval 防递归说明）
     now = time.monotonic()
-    if now - _LAST_CHECK_BY_PATH.get(key, 0.0) < _WATCH_INTERVAL:
+    if now - _LAST_CHECK_BY_PATH.get(key, 0.0) < _self_watch_interval():
         return _DATA_CACHE.get(key, {})
     _LAST_CHECK_BY_PATH[key] = now
 
@@ -207,6 +229,65 @@ def get(name: str) -> dict[str, Any]:
 def load(name: str) -> dict[str, Any]:
     """强制重读（绕过缓存），返回 dict。测试/热更用。"""
     return _load(name)
+
+
+# ---------------------------------------------------------------------------
+# 调参外置（P1/P2 2026-09-30）：硬编码运行参数 → coding_runtime.yaml tuning 段
+# ---------------------------------------------------------------------------
+# 原则（E13 同款）：代码常量只做"未配置时的兜底默认"；真实值在 tuning 段，改
+# yaml 不重启、下个调用点生效（get() mtime watch）。_tuned 三重防御：
+#   1) 类型校验（bool 明确排除——isinstance(True, int) 陷阱）
+#   2) 数值钳位（lo/hi 可选，安全参数防手滑写 0 = 关闸）
+#   3) 段缺失/值坏 → 静默回退 default（graceful degrade，读失败绝不反噬主流程）
+
+_TUNED_POLICY_NAME = "coding_runtime"
+
+
+def _coerce_num(
+    val: Any, default: int | float, typ: type, lo: float | None, hi: float | None
+) -> int | float:
+    """类型校验 + 钳位。typ 限定 int/float（bool 已由调用方排除）。"""
+    if typ is float:
+        try:
+            val = float(val)
+        except (TypeError, ValueError):
+            return default
+    else:  # int
+        if isinstance(val, float) and not val.is_integer():
+            return default  # 3.7 当 int 用 → 回退（防静默截断歧义）
+        try:
+            val = int(val)
+        except (TypeError, ValueError):
+            return default
+    if lo is not None and val < lo:
+        val = lo
+    if hi is not None and val > hi:
+        val = hi
+    return val
+
+
+def _tuned(
+    key: str,
+    default: int | float,
+    *,
+    lo: float | None = None,
+    hi: float | None = None,
+) -> int | float:
+    """读 coding_runtime.yaml tuning 段的调参值（缓存 + mtime watch 热更）。
+
+    :param key: tuning 段下的键（扁平命名：tuning.stream_line_buf_max）
+    :param default: 未配置/坏值时回退的代码内置默认
+    :param lo/hi: 数值钳位区间（None=不限）；安全参数必带，防手滑写 0=关闸
+    :return: int 或 float（随 default 类型），保证与消费点算术兼容
+    """
+    sec = get(_TUNED_POLICY_NAME).get("tuning")
+    if not isinstance(sec, dict):
+        return default
+    val = sec.get(key)
+    if val is None or isinstance(val, bool):  # bool 排除在前（isinstance(True,int)=True 陷阱）
+        return default
+    typ = float if isinstance(default, float) else int
+    return _coerce_num(val, default, typ, lo, hi)
 
 
 def hot_update() -> bool:

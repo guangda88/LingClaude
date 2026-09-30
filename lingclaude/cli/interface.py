@@ -12,10 +12,12 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from lingclaude.cli.repl_io import replay_stdin_bytes
+from lingclaude.core.policy_loader import get as _policy_get
 from lingclaude.engine.lineedit import add_history_line, ensure_readline, load_history_file
 
 # prompt_toolkit 为可选依赖 — 未安装时 PromptToolkitSession 不可用，FallbackSession 兜底
@@ -167,24 +169,86 @@ def _fallback_strip_ansi(
     return bytes(out), hold, in_paste
 
 
+_SGR_BASE = ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
+
+# 2026-09-29 灵元 R2：SGR 白名单策略外置 —— policies/sgr_styles.yaml，
+# 改收录范围只改 YAML 不动代码（PolicyLoader mtime watch 热更，不重启进程）。
+# _FALLBACK 与 YAML 保持同步，作为读失败兜底（graceful degrade）。
+_FALLBACK_SGR_POLICY: dict[str, Any] = {
+    "modifiers": {
+        "bold": {"enable": [1, 2], "disable": 22},
+        "italic": {"enable": [3], "disable": 23},
+        "underline": {"enable": [4], "disable": 24},
+        "strike": {"enable": [9], "disable": 29},
+        "reverse": {"enable": [7], "disable": 27},
+    },
+    "colors": {
+        "fg_normal_lo": 30, "fg_normal_hi": 37,
+        "fg_bright_lo": 90, "fg_bright_hi": 97,
+        "bg_normal_lo": 40, "bg_normal_hi": 47,
+        "bg_bright_lo": 100, "bg_bright_hi": 107,
+        "default_fg": 39, "default_bg": 49,
+    },
+    "extended": "reject",
+    "max_params": 32,
+    "reset_code": 0,
+}
+
+
+def _sgr_policy() -> dict[str, Any]:
+    """读 policies/sgr_styles.yaml；读失败/字段缺失回退 _FALLBACK（graceful degrade）。"""
+    try:
+        data = _policy_get("sgr_styles")
+        if isinstance(data, dict) and data.get("modifiers") and data.get("colors"):
+            return data
+    except Exception:  # noqa: BLE001 — 策略加载失败绝不影响主流程
+        pass
+    return _FALLBACK_SGR_POLICY
+
+
 def _sgr_params_to_style(params: str) -> str | None:
     """SGR 参数串 → PT 样式字符串（白名单）；空/全 reset 返回 None。
 
     受限富文本（2026-09-27 性价比两步之一）：输出窗不渲染裸 SGR（会被
     PT 画成 '?[1;4m' 明文），而是写入时把 SGR 转成 PT fragment 样式。
-    白名单只收最常用安全子集：粗体/斜体/下划线/删除线/反转 + 基础 8 色
-    前景（30-37/90-97）与背景（40-47/100-107）+ 39/49 默认色 + 0 清除。
-    不支持：256/24bit 色（38;5;n / 38;2;r;g;b）——降级为默认色，防恶意
-    超长参数串；未知参数忽略（对齐终端宽容语义）。
+    白名单范围由 policies/sgr_styles.yaml 驱动（2026-09-29 外置，
+    mtime watch 热更）：默认收粗体/斜体/下划线/删除线/反转 + 基础 8 色
+    前景/背景 + 默认色 + 0 清除。不支持 256/24bit 色（extended: reject
+    时跳过参数，不产生样式）；未知参数忽略（对齐终端宽容语义）。
     """
     if not params:
         return None
+    pol = _sgr_policy()
+    modifiers: dict[str, Any] = pol.get("modifiers") or {}
+    colors: dict[str, Any] = pol.get("colors") or {}
+    max_params = int(pol.get("max_params") or 32)
+    reset_code = int(pol.get("reset_code") or 0)
+
     try:
         parts = [int(p) if p else 0 for p in params.split(";")]
     except ValueError:  # 非数字参数串（异常构造）：整体放弃
         return None
-    if len(parts) > 32:  # 防御：超长参数串拒绝
+    if len(parts) > max_params:  # 防御：超长参数串拒绝
         return None
+
+    # 预建查表：SGR 码 → ("add", mod名) / ("del", mod名)
+    enable_map: dict[int, str] = {}
+    disable_map: dict[int, str] = {}
+    for mod_name, spec in modifiers.items():
+        if not isinstance(spec, dict):
+            continue
+        for code in spec.get("enable") or []:
+            enable_map[int(code)] = mod_name
+        dis = spec.get("disable")
+        if dis is not None:
+            disable_map[int(dis)] = mod_name
+
+    fg_nl = int(colors.get("fg_normal_lo", 30)); fg_nh = int(colors.get("fg_normal_hi", 37))
+    fg_bl = int(colors.get("fg_bright_lo", 90)); fg_bh = int(colors.get("fg_bright_hi", 97))
+    bg_nl = int(colors.get("bg_normal_lo", 40)); bg_nh = int(colors.get("bg_normal_hi", 47))
+    bg_bl = int(colors.get("bg_bright_lo", 100)); bg_bh = int(colors.get("bg_bright_hi", 107))
+    default_fg = int(colors.get("default_fg", 39)); default_bg = int(colors.get("default_bg", 49))
+
     fg: list[str] = []
     bg: list[str] = []
     mods: list[str] = []
@@ -192,38 +256,24 @@ def _sgr_params_to_style(params: str) -> str | None:
     n = len(parts)
     while i < n:
         p = parts[i]
-        if p == 0:
+        if p == reset_code:
             fg.clear(); bg.clear(); mods.clear()  # noqa: E701 — SGR 0 全清
-        elif p in (1, 2):
-            if "bold" not in mods:
-                mods.append("bold")
-        elif p == 3 and "italic" not in mods:
-            mods.append("italic")
-        elif p == 4 and "underline" not in mods:
-            mods.append("underline")
-        elif p == 9 and "strike" not in mods:
-            mods.append("strike")
-        elif p == 7 and "reverse" not in mods:
-            mods.append("reverse")
-        elif p == 22:
-            mods[:] = [m for m in mods if m != "bold"]
-        elif p == 23:
-            mods[:] = [m for m in mods if m != "italic"]
-        elif p == 24:
-            mods[:] = [m for m in mods if m != "underline"]
-        elif p == 29:
-            mods[:] = [m for m in mods if m != "strike"]
-        elif p == 27:
-            mods[:] = [m for m in mods if m != "reverse"]
-        elif 30 <= p <= 37 or 90 <= p <= 97:
-            _fi = p - 30 if p < 90 else p - 90
-            fg = [("ansibright" if p >= 90 else "ansi") + _SGR_BASE[_fi]]
-        elif p == 39:
+        elif p in enable_map:
+            m = enable_map[p]
+            if m not in mods:
+                mods.append(m)
+        elif p in disable_map:
+            m = disable_map[p]
+            mods[:] = [x for x in mods if x != m]
+        elif fg_nl <= p <= fg_nh or fg_bl <= p <= fg_bh:
+            _fi = p - fg_nl if p < fg_bl else p - fg_bl
+            fg = [("ansibright" if p >= fg_bl else "ansi") + _SGR_BASE[_fi]]
+        elif p == default_fg:
             fg.clear()
-        elif 40 <= p <= 47 or 100 <= p <= 107:
-            _bi = p - 40 if p < 100 else p - 100
-            bg = [("bg:ansibright" if p >= 100 else "bg:ansi") + _SGR_BASE[_bi]]
-        elif p == 49:
+        elif bg_nl <= p <= bg_nh or bg_bl <= p <= bg_bh:
+            _bi = p - bg_nl if p < bg_bl else p - bg_bl
+            bg = [("bg:ansibright" if p >= bg_bl else "bg:ansi") + _SGR_BASE[_bi]]
+        elif p == default_bg:
             bg.clear()
         elif p in (38, 48):
             # 扩展色：按参数长度跳过（38;5;n / 38;2;r;g;b），不产生样式
@@ -241,9 +291,6 @@ def _sgr_params_to_style(params: str) -> str | None:
         out.extend(bg)
     out.extend(mods)
     return " ".join(out) if out else None
-
-
-_SGR_BASE = ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "white")
 
 
 def _strip_ansi_text(s: str) -> str:
@@ -297,6 +344,43 @@ def _strip_ansi_text(s: str) -> str:
 # processor 按列上色」：SGR 与文本在写入层分离存储，渲染层合成。
 
 
+def _disp_width(ch: str) -> int:
+    """单字符显示列宽：全角（East Asian F/W）=2，其余=1。
+
+    坐标系统一（2026-09-29 CJK 对齐）：_extract_sgr_styles 的列区间与
+    full_tui 的 fragment 宽度计算（_style_range/_reverse_range）必须同用
+    本函数。否则中文全角行按 codepoint 计列，样式段与 PT 排版（wcwidth
+    感知）整体左移，带 SGR 的表格/文本列错位。
+    """
+    # 零宽字符（组合符 Zs/ Mn 类、BOM/零宽空格等）PT 排版按 0 列，
+    # 但本坐标系为防 span 倒挂（end<start 会触发 a>=b 误吞）统一记 1 列。
+    # 有界近似：CJK/全角场景（本修复目标）wcwidth==east_asian_width 判 2，
+    # ASCII/数字/box 绘图等场景==1，行为不变。
+    return 2 if unicodedata.east_asian_width(ch) in ("F", "W") else 1
+
+
+def _line_disp_width(text: str) -> int:
+    """整行显示列宽 = Σ _disp_width(ch)（fragment 宽度语义）。"""
+    return sum(_disp_width(c) for c in text)
+
+
+def _col_to_char_index(text: str, col: int) -> int:
+    """显示列 → 字符下标映射（全角行切 fragment 用）。
+
+    返回最小字符下标 i，使 text[:i] 的显示列宽 >= col；col 落在某全角
+    字符内部时返回该字符下标（切点左移到字符边界，PT 排版层再对齐）。
+    col<=0→0；col>=行宽→len(text)。
+    """
+    if col <= 0:
+        return 0
+    pos = 0
+    for i, c in enumerate(text):
+        pos += _disp_width(c)
+        if pos >= col:
+            return i + 1
+    return len(text)
+
+
 def _extract_sgr_styles(line: str) -> tuple[str, list[tuple[int, int, str]]]:
     """单遍扫描：提取 SGR 白名单样式 → (净化文本, [(start,end,style)])。
 
@@ -304,7 +388,8 @@ def _extract_sgr_styles(line: str) -> tuple[str, list[tuple[int, int, str]]]:
       非白名单（256/24bit 色等）→ 忽略不切段；
     - 其他 CSI / SS3 / 孤立 ESC / 截断序列：整体吞（对齐 _strip_ansi_text
       的「残骸比半截参数更糟」语义）；
-    - 返回文本保证零 ESC；列区间 = 净化文本 codepoint 索引（等宽=显示列）。
+    - 返回文本保证零 ESC；列区间 = 净化文本**显示列**索引（全角=2 列，
+      与 PT 排版 wcwidth 感知一致；纯 ASCII 行 显示列==codepoint，零回归）。
     """
     if "\x1b" not in line and not any(
         ord(ch) < 32 and ch != "\t" for ch in line
@@ -321,13 +406,14 @@ def _extract_sgr_styles(line: str) -> tuple[str, list[tuple[int, int, str]]]:
         ch = line[i]
         if ch != "\x1b":
             # C0 控制字符（除 \t）替换为空格——对齐 _strip_ansi_text 防 '?'
-            # 渲染噪声语义（\n/\r 不会到这：调用方按行拆分/清frag）
+            # 渲染噪声语义（\n/\r 不会到这：调用方按行拆分/清frag）。
+            # 显示列坐标系（2026-09-29 CJK 对齐）：全角 +2，半角 +1。
             if ord(ch) < 32 and ch != "\t":
                 clean.append(" ")
-                clean_len += 1
+                clean_len += 1  # 替换产物是空格（半角），恒 +1
             else:
                 clean.append(ch)
-                clean_len += 1
+                clean_len += _disp_width(ch)
             i += 1
             continue
         j = i + 1
@@ -357,7 +443,10 @@ def _extract_sgr_styles(line: str) -> tuple[str, list[tuple[int, int, str]]]:
             continue
         i = j  # 孤立 ESC：吞
     text = "".join(clean)
-    if cur_style and len(text) > span_start:
+    # 2026-09-29 CJK 对齐：行末段收尾判断按显示列（clean_len 已是 wcwidth
+    # 累加）；旧版 len(text)>span_start 是 codepoint 比较，全角行使
+    # 「空段」误判翻转。
+    if cur_style and clean_len > span_start:
         spans.append((span_start, clean_len, cur_style))
     return text, spans
 
