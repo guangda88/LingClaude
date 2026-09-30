@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 import json
 import logging
 import os
+import platform
 import subprocess
 import sys
 import threading
@@ -170,6 +171,94 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
                 print(f"[重绘失败] {e}")
         else:
             print("[重绘] 当前会话类型不支持（仅全屏 TUI 可用）")
+
+    def _cmd_image(self) -> None:
+        """TUI 图片粘贴（2026-10-01）：读取剪贴板图片并附到下一条消息。
+
+        读取顺序：wl-paste（Wayland）→ xclip（X11）→ pbpaste（macOS）
+        → PIL from clipboard（跨平台 fallback）。成功时将 (raw_bytes, mime)
+        追加到 session._pending_images；repl.py 主循环提交时 drain，
+        _build_messages 转为 base64 填入 ModelMessage，发给支持多模态的端点。
+
+        不在 TUI 会话下打印提示并退出（不阻塞主流程）。
+        """
+        session = getattr(self, "session", None)
+        if session is None or not hasattr(session, "register_image_attachment"):
+            print("[/image] 当前会话类型不支持（仅全屏 TUI 可用）")
+            return
+
+        raw_bytes: bytes | None = None
+        mime_type: str = "image/png"
+
+        # 平台检测：按优先级尝试各剪贴板读取方案
+        system = platform.system()
+
+        # ── Wayland ──
+        if raw_bytes is None:
+            try:
+                r = subprocess.run(
+                    ["wl-paste", "-t", "image/png"],
+                    capture_output=True, timeout=5,
+                )
+                if r.returncode == 0 and r.stdout:
+                    raw_bytes = r.stdout
+                    mime_type = "image/png"
+            except Exception:  # noqa: BLE001 — 非 Wayland / wl-paste 不可用，正常继续
+                pass
+
+        # ── X11 ──
+        if raw_bytes is None:
+            try:
+                r = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
+                    capture_output=True, timeout=5,
+                )
+                if r.returncode == 0 and r.stdout:
+                    raw_bytes = r.stdout
+                    mime_type = "image/png"
+            except Exception:  # noqa: BLE001
+                pass
+
+        # ── macOS ──
+        if raw_bytes is None and system == "Darwin":
+            try:
+                r = subprocess.run(
+                    ["pbpaste"],
+                    capture_output=True, timeout=5,
+                )
+                if r.returncode == 0 and r.stdout:
+                    raw_bytes = r.stdout
+                    mime_type = "image/png"
+            except Exception:  # noqa: BLE001
+                pass
+
+        # ── PIL/Pillow fallback（跨平台，无需 X/Wayland） ──
+        if raw_bytes is None:
+            try:
+                from PIL import Image
+                import io
+                img_buffer = io.BytesIO()
+                try:
+                    from PIL import ImageGrab
+                    img = ImageGrab.grabclipboard()
+                except Exception:  # noqa: BLE001 — Linux 无 ImageGrab
+                    img = None
+                if img and hasattr(img, "save"):
+                    img.save(img_buffer, format="PNG")
+                    raw_bytes = img_buffer.getvalue()
+                    mime_type = "image/png"
+            except ImportError:
+                pass  # Pillow 未安装
+            except Exception:  # noqa: BLE001
+                pass
+
+        if raw_bytes is None:
+            print("[/image] 剪贴板无可用图片，或读取失败（需安装 wl-paste/xclip/Pillow）")
+            return
+
+        n = session.register_image_attachment(raw_bytes, mime_type)
+        size_kb = len(raw_bytes) // 1024
+        print(f"[/image] 已附上图片（{size_kb}KB，第 {n} 张）；输入消息后自动发送。")
 
     def _cmd_help(self, arg: str = "") -> None:
         """A(2026-09-26): 帮助文本从 SLASH_REGISTRY 派生（单源，防漏登）。
@@ -623,6 +712,8 @@ _register("/help", "_cmd_help", "本帮助；/help <命令> 查单条用法", al
 _register("/clear", "_cmd_clear", "清空会话上下文")
 _register("/multi", "_cmd_multi", "多行输入模式（'.' 结束提交；平时用 Esc+Enter 换行）")
 _register("/resync", "_cmd_resync", "全量重绘输出窗（全屏 TUI）")
+_register("/image", "_cmd_image",
+          "读取剪贴板图片并附到下一条消息（TUI 直接贴图）")
 # /policy 已迁斜杠插件（slash_plugins/policy.py），由模块尾 loader 挂载
 _register("/compact", "_cmd_compact", "手动压缩上下文（未达阈值时明确提示）")
 _register("/model", "_cmd_model", "查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复）")

@@ -393,7 +393,7 @@ class _StdoutProxy:
             s2 = data.decode("utf-8", errors="replace")
             for ch in s2:
                 if ch == "\n":
-                    self._flush_line()
+                    self._flush_line(force=True)  # 行边界确凿：空行也落窗
                 elif ch == "\r":
                     self._frag.clear()
                 else:
@@ -419,10 +419,15 @@ class _StdoutProxy:
         except Exception:  # noqa: BLE001 — 预警失败即放弃
             pass
 
-    def _flush_line(self) -> None:
+    def _flush_line(self, force: bool = False) -> None:
         line = "".join(self._frag)
         self._frag.clear()
-        if line:
+        # force=True（2026-09-30 空行丢失修复）：write() 遇 \n 即行边界确凿
+        # 发生，frag 为空也必须落一行（空行）。此前 `if line:` 把 "\n\n" 的
+        # 空行整行吞掉 → 窗内段落间距塌缩 + 与流式素字指纹（含空行）恒失
+        # 配 → done 原位上色永远回退。flush()（外部周期调用）保持原语义：
+        # frag 空时不造假行。
+        if line or force:
             self._owner._write_via_buffer(line + "\n")
 
     def flush(self) -> None:
@@ -540,6 +545,11 @@ class FullTuiSession:
         # app 活着但终端被外部踩回 canonical 时，PT 逐键读者收不到任何事件，
         # 表现为整屏假死（19:20-19:45 事故）——等待循环每轮顺带检测自愈。
         self._raw_guard_last = 0.0
+
+        # TUI 图片粘贴（2026-10-01）：待附图片队列，每条 (raw_bytes, mime_type)。
+        # /image 命令追加（读剪贴板得到 hex → decode）；repl.py 主循环提交
+        # 时 drain 给 engine.submit，_build_messages 转为 base64 填入 ModelMessage。
+        self._pending_images: list[tuple[bytes, str]] = []
 
         # 拖选复制状态机（2026-09-27 OSC52）：DOWN 记起点，LEFT+MOVE 更新
         # 终点，UP 落锤取词。_sel_active 防丢 UP 后 MOVE 续画；_sel_dragged
@@ -1276,6 +1286,17 @@ class FullTuiSession:
         """未消费的提交数（状态栏「挂起×N」用，EOF 哨兵不计）。"""
         with self._submit_cond:
             return sum(1 for x in self._submit_q if x != EOF_SENTINEL)
+
+    # ── TUI 图片粘贴（2026-10-01） ──────────────────────────────────────────
+
+    def register_image_attachment(self, raw_data: bytes, mime_type: str) -> int:
+        """追加待附图片到 pending 队列。返回当前队列长度。"""
+        self._pending_images.append((raw_data, mime_type))
+        return len(self._pending_images)
+
+    def pending_image_count(self) -> int:
+        """当前待附图片数量。"""
+        return len(self._pending_images)
 
     def append_output(self, s: str) -> None:
         """公开追加接口：任意线程输出进窗（stdout 代理与渲染层共用）。"""

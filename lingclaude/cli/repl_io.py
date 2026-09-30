@@ -137,15 +137,16 @@ def _expected_window_lines(content: str) -> list[str]:
       1. _strip_ansi_text —— _stream_write 出口无条件清洗
       2. 表格行块按同一策略重排补白（_pad_table_block 与落窗共用）
       3. \r 丢半行、超长行 4097 字符断行 —— _StdoutProxy 写入语义
-      4. content 尾换行不产生额外窗行（split 伪影剔除）
+      4. content 尾换行：content.split("\n") 末尾的 "" 是流关闭信号，
+         streaming 路径不把它变成窗内空白行。旧代码 pop() 删了 lines
+         末尾但没删 out 末尾的 ""（由 _flush_buf 产生），导致 fingerprint
+         比窗口多一行，表格轮 100% 回退。
     未来任何改变流式落窗形态的规则，必须同步改本函数（锚定注释）。
     """
     from lingclaude.cli.interface import _strip_ansi_text
 
     p = _table_policy()
     lines = content.split("\n")
-    if content.endswith("\n") and lines:
-        lines.pop()
     out: list[str] = []
     buf: list[str] = []
 
@@ -155,9 +156,12 @@ def _expected_window_lines(content: str) -> list[str]:
             return
         rows, buf = buf, []
         for ln in _pad_table_block(rows, p):
+            # 换行统一由 content.split("\n") 提供（缝隙里的 \n）。表格行 flush
+            # 不在这里补 \n——_flush_table_buf 写 ln+"\n"，那是 streaming 真实出口。
+            # 2026-09-30 空行保真：max(len,1) 保证空行至少产出一个分块。
+            n = max(len(ln), 1)
             out.extend(
-                ln[i : i + _PROXY_FRAG_FLUSH_AT]
-                for i in range(0, len(ln), _PROXY_FRAG_FLUSH_AT)
+                ln[i : i + _PROXY_FRAG_FLUSH_AT] for i in range(0, n, _PROXY_FRAG_FLUSH_AT)
             )
 
     for raw in lines:
@@ -170,11 +174,18 @@ def _expected_window_lines(content: str) -> list[str]:
         _flush_buf()
         if "\r" in line:
             line = line.rsplit("\r", 1)[-1]
-        out.extend(
-            line[i : i + _PROXY_FRAG_FLUSH_AT]
-            for i in range(0, len(line), _PROXY_FRAG_FLUSH_AT)
-        )
+        if line:
+            out.append(line)
+        else:
+            out.append("")  # 空行
     _flush_buf()
+    # 2026-09-30 content 尾换行修复：content.split("\n") 末尾的 ""
+    # 对应 content 末尾的 "\n"（流关闭信号），streaming 路径把它变成
+    # out.append("")，但真实窗口不含这个空行。剥掉末尾空元素使
+    # fingerprint 与真实窗口行数对齐。（content 中间真正的空行
+    # 不会变成末尾空元素，因为后面还有非空行顶着。）
+    if content.endswith("\n") and out and out[-1] == "":
+        out.pop()
     return out
 
 _OUTPUT_FORMAT = "plain"  # P0-2: plain | json | jsonl

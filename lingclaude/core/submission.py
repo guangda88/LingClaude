@@ -48,6 +48,7 @@ class SubmissionMixin:
         matched_commands: tuple[str, ...] = (),
         matched_tools: tuple[str, ...] = (),
         denied_tools: tuple[PermissionDenial, ...] = (),
+        image_content: tuple[str, str] | None = None,
     ) -> Any:
         if len(self._messages) // 2 >= self.config.max_turns:
             return self._make_turn_result(
@@ -101,7 +102,10 @@ class SubmissionMixin:
         self._pre_check_compact()
 
         n_msgs_before = len(self._messages)
-        output = self._generate_response(prompt, matched_commands, matched_tools, denied_tools)
+        output = self._generate_response(
+            prompt, matched_commands, matched_tools, denied_tools,
+            image_content=image_content,
+        )
 
         # 2026-09-17 修复 (usage 双计): provider 路径 _finalize_turn 已按真实
         # token add_usage（query_engine_turn_mixin.py），此处 add_turn 再叠一份
@@ -229,6 +233,7 @@ class SubmissionMixin:
         matched_commands: tuple[str, ...] = (),
         matched_tools: tuple[str, ...] = (),
         denied_tools: tuple[PermissionDenial, ...] = (),
+        image_content: tuple[str, str] | None = None,
     ) -> Any:
         yield {"type": "message_start", "session_id": self.session_id, "prompt": prompt}
         if matched_commands:
@@ -254,7 +259,7 @@ class SubmissionMixin:
         usage_data: dict[str, Any] = {}
         stop_reason = "end_turn"
         transcript_size = 0
-        for event in self.stream_call_model(prompt):
+        for event in self.stream_call_model(prompt, image_content=image_content):
             if event["type"] == "text_delta":
                 yield {"type": "message_delta", "text": event["text"]}
             elif event["type"] == "tool_call_start":

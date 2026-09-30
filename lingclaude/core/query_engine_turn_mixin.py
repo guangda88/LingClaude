@@ -36,9 +36,10 @@ class QueryEngineTurnMixin:
             matched_commands: tuple[str, ...],
             matched_tools: tuple[str, ...],
             denied_tools: tuple[PermissionDenial, ...],
+            image_content: tuple[str, str] | None = None,
         ) -> str:
             if self._provider is not None:
-                return self._call_model(prompt)
+                return self._call_model(prompt, image_content=image_content)
 
             context_parts = [f"Prompt: {prompt}"]
             if matched_commands:
@@ -77,7 +78,9 @@ class QueryEngineTurnMixin:
             else:
                 self._meta_cognition.record_success(Domain.GENERAL_KNOWLEDGE)
 
-        def _build_messages(self, prompt: str) -> list:
+        def _build_messages(
+            self, prompt: str, image_content: tuple[str, str] | None = None,
+        ) -> list:
             messages: list[ModelMessage] = []
             # 2026-09-21 (前缀缓存优化 P0-2): system prompt 只含纯静态 _BASE_PROMPT
             # （字节级稳定 → provider 前缀缓存可命中）；动态段（SESSION_CONTEXT/
@@ -96,7 +99,12 @@ class QueryEngineTurnMixin:
             dynamic_suffix = self._build_dynamic_suffix(current_query=prompt)
             if dynamic_suffix:
                 messages.append(ModelMessage(role=MessageRole.SYSTEM, content=dynamic_suffix))
-            messages.append(ModelMessage(role=MessageRole.USER, content=prompt))
+            # TUI 图片粘贴（2026-10-01）：image_content 非 None 时附加到用户消息，
+            # ModelMessage.to_dict() 会生成 OpenAI content blocks 格式：
+            # [{"type":"text",...}, {"type":"image_url","image_url":{"url":"data:<mime>;base64,<b64>"}}]
+            messages.append(ModelMessage(
+                role=MessageRole.USER, content=prompt, image_content=image_content,
+            ))
             return messages
 
         def _build_dynamic_suffix(self, current_query: str) -> str:

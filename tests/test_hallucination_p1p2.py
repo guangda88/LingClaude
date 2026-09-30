@@ -84,15 +84,15 @@ class TestFlashGate(unittest.TestCase):
         os.environ.pop("LINGCLAUDE_FLASH_GATE_DISABLE", None)
         self.path.unlink()
 
-    def test_flash_first_candidate_skipped(self):
-        """决策路由首位是 flash → 顺延到 Kimi-K3。"""
+    def test_flash_first_candidate_unblocked(self):
+        """coding 路由已移出决策路由集合，flash 首位正常当选（不再顺延）。"""
         import os
         os.environ.pop("LINGCLAUDE_FLASH_GATE_DISABLE", None)
         cfg, route = self.router.resolve(
             "write code", task_type=TaskType.CODE_GENERATION,
         )
         self.assertEqual(route, "coding")
-        self.assertEqual(cfg.model, "Kimi-K3")
+        self.assertEqual(cfg.model, "glm-5.3-flash")  # 不再顺延，直接当选
 
     def test_flash_gate_disable_env(self):
         """LINGCLAUDE_FLASH_GATE_DISABLE=1 → 恢复配置序首位。"""
@@ -116,10 +116,10 @@ class TestFlashGate(unittest.TestCase):
         """flash 降到 2+ 位作兜底不受影响（只挡首位）。"""
         import os
         from lingclaude.model.task_router import _DECISION_ROUTE_KEYS, _TaskRoute, _ModelRef
-        # 决策路由 coding：首位 glm flash 被门禁跳过 → 选中第 2 位 Kimi（探活关闭）
+        # coding 已移出决策路由，glm flash 首位正常当选（不再被门禁顺延）
         os.environ.pop("LINGCLAUDE_FLASH_GATE_DISABLE", None)
         cfg, _ = self.router.resolve("write code", task_type=TaskType.CODE_GENERATION)
-        self.assertEqual(cfg.model, "Kimi-K3")
+        self.assertEqual(cfg.model, "glm-5.3-flash")
         # fast_response 不在决策路由集合 → flash 首位放行
         self.assertNotIn("fast_response", _DECISION_ROUTE_KEYS)
         route = self.router._task_routes["fast_response"]

@@ -41,9 +41,12 @@ _FLASH_MODEL_RE = re.compile(
     r"flash|mini\b|minimax|lite|nano|turbo-lite|instinct|air\b|-small\b|_small\b",
     re.IGNORECASE,
 )
-# 决策路由 key：这些 route 的首位候选承担主要产出，幻觉代价最高
+# 决策路由 key：这些 route 的首位候选承担主要产出，幻觉代价最高。
+# 注：2026-10-01 用户实测确认 glm-5.3-flash / deepseek-flash 在 coding 任务上
+# 与 MiniMax-M2.7 质量相当，移除 coding 让 flash gate 不再施在编程路由——
+# 其他高风险路由（chinese_reasoning / thinking / long_context / english_general）保留。
 _DECISION_ROUTE_KEYS = frozenset({
-    "coding", "chinese_reasoning", "english_general", "thinking", "long_context",
+    "chinese_reasoning", "english_general", "thinking", "long_context",
 })
 
 # P2-2 (灵元): task_type → route 映射外置 policies/task_routing.yaml，走 PolicyLoader 热更。

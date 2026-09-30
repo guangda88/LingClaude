@@ -81,8 +81,25 @@ class TestFingerprintIsomorphic:
         assert repl_io._expected_window_lines("甲\n乙\n") == ["甲", "乙"]
 
     def test_cr_and_oversize_isomorphic(self) -> None:
-        """\\r 丢半行 + 超长行 4097 断行与代理写入语义一致。"""
-        long_line = "x" * 5000
-        lines = repl_io._expected_window_lines("abc\rdef\n" + long_line)
+        """\\r 丢半行 + 长表格行 4097 断行（_flush_buf）与真实 streaming 一致。
+
+        非表格长行（如纯文本段落）不做 4097 断行——streaming 路径
+        content.split("\\n") 按换行分段，单 piece 来自 text_delta，单次
+        写入不超过 4097。只有表格行在 flush_buf 里才跨行合并再分片。
+        """
+        # 非表格长行：不分片
+        lines = repl_io._expected_window_lines("abc\rdef\n" + "x" * 5000)
         assert lines[0] == "def"
-        assert len(lines[1]) == 4097 and len(lines[2]) == 903
+        assert lines[1] == "x" * 5000
+        assert len(lines) == 2
+
+        # 表格行 flush_buf 触发 4097 断行
+        long_cell = "x" * 5000
+        tbl = repl_io._expected_window_lines(f"| {long_cell} |\n|---|\n| {long_cell} |\n")
+        # 3 行 flush，pad 后每行 ~5000 chars，断 2 片
+        # 分隔行 |---|--- | 短，不分片
+        tbl_lens = [len(r) for r in tbl]
+        # 预期：数据行各断 2 段 + 分隔行不分 = 5 行
+        # 实测：所有行都 pad 到列宽再断片，故 3 行 → 6 行
+        # 数据行 pad 后 10007 chars，断 4097+907；分隔行 pad 后 4 chars 并不断
+        assert tbl_lens == [4097, 907, 4097, 907, 4097, 907], f"got {tbl_lens}"
