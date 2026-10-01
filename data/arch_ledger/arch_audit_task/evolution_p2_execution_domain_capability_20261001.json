@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "最小执行域 capability 化：SeamRegistry 强化 {read_paths,write_paths,net_allowlist,side_effect_class} 执行域对象，按成员/子agent 强制校验；进程/路径层隔离即可，禁 VM-per-agent 过度工程。来源：同报告建议3。",
+  "source": "external_review_20261001",
+  "state": "open",
+  "created": "2026-09-30T23:29:29+00:00"
+}

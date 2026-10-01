@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "常驻责任对象化：LingBus 触发器注册表（cron/webhook/git_hook/ci → routine，带 owner/SLA/幂等键，触发先写 trace_id journal）+ Duty State（idle/read_only/busy/risky，busy 关跨域写，self_audit_trigger 指纹变化自动降级，H17 闭环后回升）+ 中断闩锁（常驻任务一条命令可停，停动作入账）。主动性由调度器驱动，禁模型自主空闲巡逻。来源：同报告建议5。",
+  "source": "external_review_20261001",
+  "state": "open",
+  "created": "2026-09-30T23:29:29+00:00"
+}

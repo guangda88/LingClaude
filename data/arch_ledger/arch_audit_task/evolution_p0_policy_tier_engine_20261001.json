@@ -1,0 +1,7 @@
+{
+  "severity": "P1",
+  "finding": "四档策略引擎（外部联审 4/4 共识，P0）：policy.yaml 按「工具×资源类型×风险级」定义 auto/preapproved/ask/defer 四档，接灵犀 execute_command 入口与 PreToolUse hook 查表路由；每次裁决连同策略 ID 写 core/verify_ledger（审计从记动作升级为记裁决链）。兑现守卫失效审计『输出前自检』缺口——用确定性门禁，禁用同模型自审（4/4 判伪守卫）。来源：docs/agent_trend_2026-09_external_review.md 建议1。验收：风险表路由单测 + 裁决入账证据。",
+  "source": "external_review_20261001",
+  "state": "open",
+  "created": "2026-09-30T23:29:29+00:00"
+}

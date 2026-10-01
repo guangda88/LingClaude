@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "记忆可纠正 supersede 链：记忆/journal 带 prev_digest 哈希链指针，纠正=追加 supersede 记录不原地改写，verify_claim() 沿链取最新；可导出可离线校验。把验证台账纪律从自觉升级为数据结构。来源：同报告建议4。",
+  "source": "external_review_20261001",
+  "state": "open",
+  "created": "2026-09-30T23:29:29+00:00"
+}
