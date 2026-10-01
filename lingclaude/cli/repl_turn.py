@@ -355,6 +355,33 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
 
 
 
+def _warn_if_session_locked(engine: "QueryEngine") -> None:
+    """双开探测（2026-10-01 线程写锁配套）：恢复会话时若该存档的编辑锁被
+    其他活进程持有，说明另一个 lc 正开着同一会话——退出时会互相 fork/覆盖。
+    纯告警不阻塞（也许对方早已死了只是锁文件残留，file_lock 的陈旧回收会处理）。"""
+    try:
+        from lingclaude.core.file_lock import _lock_path
+
+        target = engine._session_persister._session_target_path()
+        lock_path = _lock_path(Path(target))
+        if not lock_path.exists():
+            return
+        holder_pid = None
+        try:
+            first = lock_path.read_text(encoding="utf-8").split("|")[0].strip()
+            holder_pid = int(first) if first.isdigit() else None
+        except (OSError, ValueError):
+            pass
+        alive = holder_pid is not None and Path(f"/proc/{holder_pid}").exists()
+        if alive:
+            print(
+                f"[session] ⚠ 该会话正被进程 {holder_pid} 编辑（双开风险）——"
+                f"两边同时保存会触发 fork 另存；建议只保留一个活动会话"
+            )
+    except Exception:
+        pass  # 探测失败不影响启动
+
+
 def _maybe_recover_on_startup(engine: "QueryEngine", args: Any) -> None:
     """Surface an interrupted tool round at startup.
 

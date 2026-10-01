@@ -82,6 +82,7 @@ from lingclaude.cli.repl_turn import (  # noqa: E402,F401
     _maybe_run_daemon_cycle,
     _record_long_task_metrics,
     _single_turn,
+    _warn_if_session_locked,
 )
 from lingclaude.cli.repl_io import get_output_format, set_output_format  # noqa: E402,F401
 from lingclaude.cli.repl_turn import (  # noqa: E402,F401
@@ -292,6 +293,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         if engine._session_persister.load_session(resume_id):
             if get_output_format() == "plain":
                 print(f"[会话已恢复] {resume_id}（{len(engine._conversation)} 轮对话）")
+            _warn_if_session_locked(engine)  # 2026-10-01 双开探测（线程写锁配套）
         elif get_output_format() == "plain":
             print(f"[会话恢复失败] {resume_id} 不存在或已损坏，从新会话开始")
 

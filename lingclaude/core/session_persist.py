@@ -10,7 +10,7 @@ from typing import Any
 from lingclaude.core.context_engine import SUMMARY_HEADLINE
 from lingclaude.core.models import UsageSummary
 from lingclaude.core.redact import redact as _redact_text
-from lingclaude.core.session import Session
+from lingclaude.core.session import Session, _project_dir_name
 from lingclaude.core.types import Result
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,56 @@ class SessionPersister:
         # 空消息列表会把既有存档覆盖成空壳（2026-09-06 7c643abc 0 字节事故）。
         if not engine._messages:
             return Result.fail("当前会话无消息，跳过保存（保护既有存档）", code="EMPTY_SESSION")
+        # 多会话写互斥（2026-10-01 线程写锁，源自 codex thread-writer-locks 设计）：
+        # --continue/--resume 双开会话解析到同一 session_id，各自退出时先后
+        # save() 同一 json——原子写只保证"不写坏"，防不了后写者整体覆盖前写者
+        # （2026-09-21 research 文档记录的 lost-update 事故模式）。此锁 + mtime
+        # 检测把顺序踩踏纪律代码化。
+        from lingclaude.core.file_lock import file_edit_lock
+
+        target = self._session_target_path()
+        lock_cm = file_edit_lock(target, owner="session_persist", timeout=10.0)
+        try:
+            lock_cm.__enter__()
+        except (TimeoutError, OSError) as e:
+            # fail-open（区别于编辑锁的 fail-closed）：保存被卡死比覆盖风险更伤
+            # ——会话随时可能被用户关掉。降级为无锁保存，台账留痕。
+            logger.warning("session 写锁获取失败（%s），降级无锁保存: session=%s", e, engine.session_id)
+            return self._persist_locked(conflict=False)
+        try:
+            return self._persist_locked(conflict=self._mtime_conflict(target))
+        finally:
+            lock_cm.__exit__(None, None, None)
+        # 注：_persist_locked 内部在 conflict=True 时**先 fork 后落 fork 档**，
+        # 主档全程不写——「原档未被覆盖」是本机制的硬契约，由测试锚定。
+
+    def _session_target_path(self) -> str:
+        """当前会话的主存档路径（锁的粒度对象）。"""
+        engine = self._engine
+        return str(
+            engine.session_manager.save_dir
+            / _project_dir_name(os.getcwd())
+            / f"{engine.session_id}.json"
+        )
+
+    def _mtime_conflict(self, target: str) -> bool:
+        """加载基线之后的存档是否被别人改过（顺序踩踏检测）。
+
+        基线 = load_session 时刻的 mtime（未加载过则记本次写入前 mtime）。
+        """
+        engine = self._engine
+        baseline = getattr(engine, "_session_mtime_baseline", None)
+        p = Path(target)
+        if baseline is None or not p.exists():
+            return False
+        try:
+            return p.stat().st_mtime > baseline + 1e-6
+        except OSError:
+            return False
+
+    def _persist_locked(self, conflict: bool) -> Result[str]:
+        """持锁后的真实保存体。conflict=True 时只落 fork 档，主档一字不动。"""
+        engine = self._engine
         session = Session(
             session_id=engine.session_id,
             messages=tuple(engine._messages),
@@ -43,10 +93,43 @@ class SessionPersister:
             # 当前目录过滤，杜绝跨项目会话泄露。
             project_path=os.getcwd(),
         )
+        # 冲突路径：主档已被他人改过 → 本会话内容一律落 fork 档，主档不写。
+        if conflict:
+            return self._save_fork(engine, session)
         result = engine.session_manager.save(session)
         if result.is_error:
             return result  # type: ignore[return-value]
         return Result.ok(str(result.data))
+
+    def _save_fork(self, engine: Any, session: Session) -> Result[str]:
+        """把本会话内容 fork 成独立 id 落盘，内存 session_id 切到 fork。"""
+        import secrets
+
+        fork_id = f"{session.session_id}-fork{secrets.token_hex(3)}"
+        fork_session = Session(
+            session_id=fork_id,
+            messages=session.messages,
+            input_tokens=session.input_tokens,
+            output_tokens=session.output_tokens,
+            cached_tokens=session.cached_tokens,
+            project_path=session.project_path,
+            project_name=session.project_name,
+        )
+        fork_result = engine.session_manager.save(fork_session)
+        if fork_result.is_error:
+            logger.warning(
+                "会话冲突 fork 保存失败（原档未被覆盖）: %s", fork_result.error
+            )
+            return Result.fail(
+                f"检测到并发修改，fork 保存失败: {fork_result.error}",
+                code="CONFLICT_FORK_SAVE_ERROR",
+            )
+        engine.session_id = fork_id
+        print(
+            f"[session] ⚠ 检测到存档被其他会话修改，本会话已另存为 {fork_id}"
+            f"（原档 {session.session_id} 未被覆盖）"
+        )
+        return Result.ok(str(fork_result.data))
 
     def load_session(self, session_id: str) -> bool:
         engine = self._engine
@@ -55,6 +138,16 @@ class SessionPersister:
             return False
         session = result.data
         engine.session_id = session.session_id
+        # 写锁配套（2026-10-01）：记录加载基线 mtime，persist 时对比——
+        # 若存档在此之后被其他会话写过（> 基线），判定顺序踩踏，fork 保存。
+        try:
+            engine._session_mtime_baseline = (
+                engine.session_manager.save_dir
+                / _project_dir_name(os.getcwd())
+                / f"{session_id}.json"
+            ).stat().st_mtime
+        except OSError:
+            engine._session_mtime_baseline = None
         engine._messages = list(session.messages)
         # 2026-09-24 cache 口径修复: cached 随会话恢复（旧版位置参数重建丢弃
         # cached → 归零；分母 input 却恢复全历史 → cache% = 新cached/全历史input 虚低）
