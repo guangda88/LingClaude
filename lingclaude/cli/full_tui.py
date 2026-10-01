@@ -1492,23 +1492,17 @@ class FullTuiSession:
             mark = self._stream_start_mark
             self._stream_start_mark = -1
         if mark < 0:
-            from lingclaude.cli.repl_io import _style_debug as _sd
-            _sd("NO_MARK", "mark consumed or never set")
             return False
         with self._area_lock:
             text = self._out_buffer.text
             all_lines = text.split("\n") if text else []
             cur_count = len(all_lines)
             if mark > cur_count:  # 起点行已被滚动裁剪吃掉
-                from lingclaude.cli.repl_io import _style_debug as _sd
-                _sd("MARK_CLIPPED", f"mark={mark} cur_count={cur_count}")
                 return False
             segment = all_lines[mark:]
             _exp_rstrip = [ln.rstrip() for ln in expected_plain]
             _seg_rstrip = [ln.rstrip() for ln in segment]
             if _seg_rstrip != _exp_rstrip:
-                from lingclaude.cli.repl_io import _style_debug as _sd
-                _sd("FP_MISMATCH", f"mark={mark} seg_len={len(_seg_rstrip)} exp_len={len(_exp_rstrip)} seg_head={_seg_rstrip[:4]!r} exp_head={_exp_rstrip[:4]!r}")
                 return False  # 指纹不符：工具行交错等，回退
             return self._replace_range_locked(
                 mark, cur_count - mark, styled_lines, spans_list
@@ -1594,19 +1588,16 @@ class FullTuiSession:
         if not tool_trace:
             # 纯文本轮（无工具调用）：由调用方走整段旧语义，不达此处
             return False
-        from lingclaude.cli.repl_io import _style_debug as _sd
         from lingclaude.cli.repl_io import render_markdown_lines
 
         with self._style_lock:
             mark = self._stream_start_mark
             self._stream_start_mark = -1
         if mark < 0:
-            _sd("NO_MARK", "segmented: mark consumed or never set")
             return False
         with self._area_lock:
             all_lines = self._out_buffer.text.split("\n") if self._out_buffer.text else []
             if mark > len(all_lines):
-                _sd("MARK_CLIPPED", f"segmented: mark={mark} cur={len(all_lines)}")
                 return False
             seg = all_lines[mark:]
             E = [ln.rstrip() for ln in expected_plain]
@@ -1664,11 +1655,9 @@ class FullTuiSession:
                 if E[i] == "" and S[j] != "":
                     i += 1  # 期望多余空行（P1 尾随空行缺陷/尾换行不对称）
                     continue
-                _sd("FP_MISMATCH", f"segmented: at exp[{i}]={E[i]!r} win[{j}]={S[j]!r}")
                 return False
             # 走查收尾：剩余期望必须全空行；剩余窗行必须是空行或未消耗轨迹行
             if any(ln != "" for ln in E[i:]):
-                _sd("FP_MISMATCH", f"segmented: trailing exp[{i}:]={E[i:][:3]!r}")
                 return False
             while j < len(S):
                 if S[j] == "":
@@ -1679,7 +1668,6 @@ class FullTuiSession:
                     used.add(k)
                     j += 1
                     continue
-                _sd("FP_MISMATCH", f"segmented: trailing win[{j}]={S[j]!r}")
                 return False
 
             text_plans = [p for p in plans if p[0] >= 0]
@@ -1691,7 +1679,6 @@ class FullTuiSession:
                 (p[1] - p[0]) - (p[3] - p[2]) for p in text_plans
             )
             if new_total > MAX_OUTPUT_LINES:
-                _sd("MARK_CLIPPED", f"segmented: would exceed cap {new_total}")
                 return False
 
             # —— 组装：按正文段单独渲染（rich 折行安全），轨迹行原样保留 ——
@@ -1718,7 +1705,6 @@ class FullTuiSession:
                         seg_lines.pop(0)
                         seg_spans.pop(0)
                 except Exception as _r_err:  # noqa: BLE001 — 段渲染失败保素字
-                    _sd("EXCEPTION", f"segmented render: {type(_r_err).__name__}: {_r_err}")
                     return False
                 for ln, sp in zip(seg_lines, seg_spans):
                     new_seg_lines.append(ln)
@@ -1767,7 +1753,6 @@ class FullTuiSession:
         成功时：工具行原样保留，正文段按台账行号从 content 切片单独过
         rich 渲染整段替换（折行互不影响）。
         """
-        from lingclaude.cli.repl_io import _style_debug as _sd
         from lingclaude.cli.repl_io import render_markdown_lines
 
         with self._style_lock:
@@ -1779,7 +1764,6 @@ class FullTuiSession:
             if not ledger:
                 return False
             if len(ledger) > len(all_lines):
-                _sd("LEDGER_TOO_LONG", f"ledger={len(ledger)} win={len(all_lines)}")
                 return False
             W = [ln.rstrip() for ln in all_lines]
             L = ledger
@@ -1788,10 +1772,6 @@ class FullTuiSession:
                 x for x in range(len(W) - n, -1, -1) if W[x] == L[0][1]
             ]
             if not anchors:
-                _sd(
-                    "LEDGER_NO_ANCHOR",
-                    f"L0={L[0][1][:80]!r} win_tail={[t[:60] for t in W[-3:]]!r}",
-                )
                 return False
             for start in anchors:
                 if not all(W[start + t] == L[t][1] for t in range(1, n)):
@@ -1816,11 +1796,6 @@ class FullTuiSession:
                 return self._apply_ledger_plans_locked(
                     start, plans, L, W, all_lines, content, render_markdown_lines
                 )
-            _sd(
-                "LEDGER_MISMATCH",
-                f"L_head={[(k, ln[:40]) for k, ln in L[:3]]!r} "
-                f"win_tail={[t[:40] for t in W[-3:]]!r}",
-            )
             return False
 
     def _apply_ledger_plans_locked(
@@ -1834,8 +1809,6 @@ class FullTuiSession:
         render_markdown_lines: Any,
     ) -> bool:
         """台账计划执行（须持 _area_lock）：按段渲染替换正文段，工具行原样。"""
-        from lingclaude.cli.repl_io import _style_debug as _sd
-
         new_seg_lines: list[str] = []
         new_seg_styles: list[list[tuple[int, int, str]] | None] = []
         t_cursor = 0
@@ -1860,7 +1833,6 @@ class FullTuiSession:
                     seg_lines.pop(0)
                     seg_spans.pop(0)
             except Exception as _r_err:  # noqa: BLE001 — 段渲染失败整轮保素字
-                _sd("EXCEPTION", f"ledger render: {type(_r_err).__name__}: {_r_err}")
                 return False
             for ln, sp in zip(seg_lines, seg_spans):
                 new_seg_lines.append(ln)
