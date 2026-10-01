@@ -1,0 +1,32 @@
+# session_budget_policy.yaml — 会话预算线（灵克 P1②，2026-10-02）
+#
+# 出处: 豆包 Personal Agent 评估坑③「成本失控：多 Agent 多轮调用易大量消耗
+# token，需要预算上限、达到阈值自动降档/暂停」。灵克修正其动作语义后采纳：
+#   阈值动作 = WARN（状态栏提示，不中断）→ PAUSE（暂停+报告+用户裁决），
+#   不静默降档（静默降质比贵更伤，与 model_tiers 升降档的显式语义分界）。
+#
+# 与既有 max_budget_tokens 的分工（勘察 2026-10-02）:
+#   submission.py:126  累计 in+out 硬停 MAX_BUDGET_REACHED —— 上下文预算，不动
+#   tool_executor.py:234 / commands.py:324  0.8 阈值触发压缩 —— 上下文管理，不动
+#   本文件  = 增量层: 工具调用数/模型调用数/in-out 分项 + warn/pause 双阈值
+#             决策对象（供接线轮消费：pause → turn 循环中断+报告）
+#
+# 语义约定:
+#   - enabled: false  → v1 暗发车（接线落地前置），evaluate() 恒 OK
+#   - 任一阈值 0      → 该维度不限（暗发车默认全 0，接线前零行为变化）
+#   - pause 优先于 warn（同维度双超时取更严）；跨维度全部列入报告
+#   - 新增维度 = 本文件加一段（BudgetTracker 按 budgets 键泛化迭代，不新增代码）
+#   - 生命周期 = 进程内会话（跨重启不续算，诚实边界见 session_budget.py docstring）
+#
+# 热更: 经 PolicyLoader mtime watch，改本文件下个 evaluate 生效，不重启。
+
+enabled: false
+
+budgets:
+  # 工具调用次数（本会话累计；warn 约在 800~1000 量级起步，接线轮按实测校准）
+  tool_calls:  {warn: 0, pause: 0}
+  # 模型请求次数（一次 turn 含 N 个请求轮，工具循环会放大）
+  model_calls: {warn: 0, pause: 0}
+  # token 分项（累计口径；累计 in+out 的硬停已由 max_budget_tokens 负责，此处管分项偏斜）
+  input_tokens:  {warn: 0, pause: 0}
+  output_tokens: {warn: 0, pause: 0}
