@@ -52,11 +52,49 @@ def _store() -> StateStore:
 
 
 def _opposite_key(key: str) -> str | None:
-    """lc-ac <-> ac-lc：两侧 key 以 - 分隔，对偶即两段互换。"""
+    """lc-ac <-> ac-lc：两侧 key 以 - 分隔，对偶即两段互换。
+
+    M1 顺手修 (2026-10-01)：成员名可含连字符（guangda-twin），天真 split("-")
+    会把 guangda-twin-lc 切成 3 段误判非双侧。改为按成员名单最长匹配切分；
+    名单外成员回落原逻辑（两段才合法）。
+    """
+    members = _known_members() | _member_aliases()
+    for name in sorted(members, key=len, reverse=True):
+        if key.startswith(name + "-"):
+            rest = key[len(name) + 1:]
+            if rest in members:
+                return f"{rest}-{name}"
     parts = key.split("-")
     if len(parts) != 2:
         return None
     return f"{parts[1]}-{parts[0]}"
+
+
+_MEMBER_ALIASES = {"lc": "lingclaude", "ac": "atomcode"}
+
+
+def _member_aliases() -> set[str]:
+    """对偶 key 短名别名（ac-lc 先例）：注册名与 key 短名并存。"""
+    return set(_MEMBER_ALIASES) | set(_MEMBER_ALIASES.values())
+
+
+def _known_members() -> set[str]:
+    """联邦成员名单：org_member 目录下的 agent id（缺省回落 lc/ac）。"""
+    import json
+    from pathlib import Path
+    out = {"lingclaude", "atomcode"}
+    try:
+        root = Path(__file__).resolve().parent.parent
+        for p in (root / "data" / "ling_org" / "org_member").glob("*.json"):
+            try:
+                mid = json.loads(p.read_text(encoding="utf-8")).get("id")
+                if mid:
+                    out.add(mid)
+            except (json.JSONDecodeError, OSError):
+                continue
+    except OSError:
+        pass
+    return out
 
 
 def transition(pair_key: str, new_state: str, note: str = "") -> dict:

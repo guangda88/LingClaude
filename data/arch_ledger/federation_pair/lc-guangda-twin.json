@@ -4,7 +4,7 @@
   "right": "guangda-twin",
   "seam_key": "agent/guangda-twin",
   "protocol": "mcp-stdio",
-  "state": "declared",
+  "state": "paired",
   "declared_at": "2026-09-29T00:00:00+00:00",
   "note": "lc 侧对偶。N1 双侧齐备方可 reconcile 通过"
 }
