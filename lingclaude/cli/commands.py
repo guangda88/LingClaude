@@ -172,7 +172,7 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
         else:
             print("[重绘] 当前会话类型不支持（仅全屏 TUI 可用）")
 
-    def _cmd_image(self) -> None:
+    def _cmd_image(self, arg: str = "") -> None:
         """TUI 图片粘贴（2026-10-01）：读取剪贴板图片并附到下一条消息。
 
         读取顺序：wl-paste（Wayland）→ xclip（X11）→ pbpaste（macOS）
@@ -189,6 +189,26 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
 
         raw_bytes: bytes | None = None
         mime_type: str = "image/png"
+
+        # ── 路径模式（2026-10-01）：SSH/纯终端场景剪贴板拿不到像素，
+        #    截图工具先存文件，/image <路径> 直接读文件附图。
+        #    PIL 验真：拒绝伪装成图片的任意文件。
+        path_arg = (arg or "").strip().strip("'\"")
+        if path_arg:
+            p = Path(path_arg).expanduser()
+            if not p.is_file():
+                print(f"[/image] 文件不存在: {p}")
+                return
+            try:
+                from PIL import Image as _PILImage
+                with _PILImage.open(p) as im:  # noqa: SIM115 — 校验用，立即关
+                    fmt = im.format
+                    im.verify()
+                raw_bytes = p.read_bytes()
+                mime_type = f"image/{(fmt or 'PNG').lower()}"
+            except Exception:  # noqa: BLE001 — 非图片/损坏文件
+                print(f"[/image] 不是有效图片文件: {p}")
+                return
 
         # 平台检测：按优先级尝试各剪贴板读取方案
         system = platform.system()
@@ -713,7 +733,7 @@ _register("/clear", "_cmd_clear", "清空会话上下文")
 _register("/multi", "_cmd_multi", "多行输入模式（'.' 结束提交；平时用 Esc+Enter 换行）")
 _register("/resync", "_cmd_resync", "全量重绘输出窗（全屏 TUI）")
 _register("/image", "_cmd_image",
-          "读取剪贴板图片并附到下一条消息（TUI 直接贴图）")
+          "附图到下一条消息：/image（剪贴板）或 /image <图片路径>")
 # /policy 已迁斜杠插件（slash_plugins/policy.py），由模块尾 loader 挂载
 _register("/compact", "_cmd_compact", "手动压缩上下文（未达阈值时明确提示）")
 _register("/model", "_cmd_model", "查看/钉住模型（--unpin 解除；--ttl N 秒后自动恢复）")

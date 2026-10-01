@@ -130,6 +130,29 @@ def _flush_table_buf() -> None:
 _PROXY_FRAG_FLUSH_AT = 4097
 
 
+def _style_debug(event: str, detail: str = "") -> None:
+    """诊断临时（2026-10-01）：原位上色链每决策点落一行日志，定位生产静默回退。
+
+    写 .lingclaude/tui_style_debug.log（不可写退 /tmp）；任何异常静默——
+    诊断自身绝不反噬输出链。定位后移除。
+    """
+    try:
+        import datetime as _dt
+        import pathlib as _pl
+
+        now = _dt.datetime.now()
+        line = f"{now:%m-%d %H:%M:%S}.{now.microsecond // 1000:03d} [{event}] {detail}\n"
+        for base in (_pl.Path.cwd() / ".lingclaude", _pl.Path("/tmp")):
+            try:
+                with (base / "tui_style_debug.log").open("a", encoding="utf-8") as fh:
+                    fh.write(line)
+                return
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _expected_window_lines(content: str) -> list[str]:
     """done.content → 窗内期望素字行序列（原位替换指纹专用）。
 
@@ -512,6 +535,7 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                     _stream_write("\n" + content + "\n\n")
                 globals()["_stream_lines_emitted"] = 0  # 复位：P0 完成行已就位
         elif content and _full_tui_managed:
+            _style_debug("DONE_ENTER", f"managed={_full_tui_managed} len={len(content)}")
             # 2026-09-30 TUI 原位上色：托管期不再素字收尾。流式素字全文已在
             # 输出窗（流式出口 _stream_write 必剥 ANSI，样式过不来），此处用
             # rich(ANSI) 渲染同一 content，经 _extract_sgr_styles 白名单解析、
@@ -559,19 +583,23 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                     spans_list.append(sp)
                 proxy = getattr(sys, "stdout", None)
                 owner = getattr(proxy, "_owner", None)
-                if (
-                    owner is not None
-                    and owner.replace_turn_styled(
-                        styled_lines,
-                        spans_list,
-                        _expected_window_lines(content),  # 指纹：与流式落窗同构变换后比对
-                    )
-                ):
+                _style_debug("PRE_REPLACE", f"owner={'yes' if owner is not None else 'no'} styled_lines={len(styled_lines)} spans={sum(1 for sp in spans_list if sp)}")
+                _exp = _expected_window_lines(content)
+                _ok = owner is not None and owner.replace_turn_styled(styled_lines, spans_list, _exp)
+                _style_debug("REPLACE_RESULT", f"ok={_ok}")
+                if _ok:
                     pass  # 原位替换成功：窗内素字段已变彩色版，无需追加
                 else:
+                    # 诊断增强（2026-10-01）：回退时把期望指纹与窗内实况落日志
+                    try:
+                        _seg = (owner._out_buffer.text.split("\n")[owner._stream_start_mark:] if owner is not None and owner._stream_start_mark >= 0 else None)
+                        _style_debug("FALLBACK", f"mark={getattr(owner, '_stream_start_mark', '?')} expected_head={_exp[:3]!r} seg_head={(_seg or [])[:3]!r} seg_len={len(_seg) if _seg is not None else -1}")
+                    except Exception as _dbg_err:
+                        _style_debug("FALLBACK", f"debug-fail: {_dbg_err!r}")
                     _stream_write("\n\n")  # 回退：无标记/区间失效，旧行为收尾
                     globals()["_stream_lines_emitted"] = 0
-            except Exception:  # noqa: BLE001 — 渲染/替换失败回退素字收尾
+            except Exception as _styled_err:  # noqa: BLE001 — 渲染/替换失败回退素字收尾
+                _style_debug("EXCEPTION", f"{type(_styled_err).__name__}: {_styled_err}")
                 _stream_write("\n\n")
                 globals()["_stream_lines_emitted"] = 0
         else:

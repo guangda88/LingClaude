@@ -1336,17 +1336,23 @@ class FullTuiSession:
             mark = self._stream_start_mark
             self._stream_start_mark = -1
         if mark < 0:
+            from lingclaude.cli.repl_io import _style_debug as _sd
+            _sd("NO_MARK", "mark consumed or never set")
             return False
         with self._area_lock:
             text = self._out_buffer.text
             all_lines = text.split("\n") if text else []
             cur_count = len(all_lines)
             if mark > cur_count:  # 起点行已被滚动裁剪吃掉
+                from lingclaude.cli.repl_io import _style_debug as _sd
+                _sd("MARK_CLIPPED", f"mark={mark} cur_count={cur_count}")
                 return False
             segment = all_lines[mark:]
-            if [ln.rstrip() for ln in segment] != [
-                ln.rstrip() for ln in expected_plain
-            ]:
+            _exp_rstrip = [ln.rstrip() for ln in expected_plain]
+            _seg_rstrip = [ln.rstrip() for ln in segment]
+            if _seg_rstrip != _exp_rstrip:
+                from lingclaude.cli.repl_io import _style_debug as _sd
+                _sd("FP_MISMATCH", f"mark={mark} seg_len={len(_seg_rstrip)} exp_len={len(_exp_rstrip)} seg_head={_seg_rstrip[:4]!r} exp_head={_exp_rstrip[:4]!r}")
                 return False  # 指纹不符：工具行交错等，回退
             return self._replace_range_locked(
                 mark, cur_count - mark, styled_lines, spans_list

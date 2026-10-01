@@ -87,6 +87,64 @@ class TestSlashImageCommand:
         assert "/image" in SLASH_COMPLETER_WORDS
 
 
+
+class TestImagePathArg:
+    """2026-10-01: /image <路径> 直接读文件（SSH 场景剪贴板无像素）。"""
+
+    def _run(self, tmp_path, arg, fake_session):
+        from types import SimpleNamespace
+        from lingclaude.cli.commands import SlashCommandProcessor
+        fake = SimpleNamespace(session=fake_session)
+        SlashCommandProcessor._cmd_image(fake, arg)
+        return fake.session.attachments
+
+    def test_path_arg_attaches_real_png(self, tmp_path):
+        from PIL import Image
+
+        class FakeSession:
+            def __init__(self):
+                self.attachments = []
+
+            def register_image_attachment(self, raw, mime):
+                self.attachments.append((raw, mime))
+                return len(self.attachments)
+
+        png = tmp_path / "shot.png"
+        Image.new("RGB", (80, 40), (200, 30, 30)).save(png)
+        atts = self._run(tmp_path, str(png), FakeSession())
+        assert len(atts) == 1
+        raw, mime = atts[0]
+        assert mime == "image/png"
+        assert raw[:8] == b"\x89PNG\r\n\x1a\n"
+
+    def test_path_arg_missing_file_rejected(self, tmp_path, capsys):
+        class FakeSession:
+            def __init__(self):
+                self.attachments = []
+
+            def register_image_attachment(self, raw, mime):
+                self.attachments.append((raw, mime))
+                return len(self.attachments)
+
+        atts = self._run(tmp_path, str(tmp_path / "nope.png"), FakeSession())
+        assert atts == []
+        assert "文件不存在" in capsys.readouterr().out
+
+    def test_path_arg_non_image_rejected(self, tmp_path, capsys):
+        class FakeSession:
+            def __init__(self):
+                self.attachments = []
+
+            def register_image_attachment(self, raw, mime):
+                self.attachments.append((raw, mime))
+                return len(self.attachments)
+
+        bad = tmp_path / "fake.png"
+        bad.write_text("definitely not an image")
+        atts = self._run(tmp_path, str(bad), FakeSession())
+        assert atts == []
+        assert "不是有效图片" in capsys.readouterr().out
+
 class TestPendingImagesStorage:
     """_pending_images 类型注解验证。"""
 
