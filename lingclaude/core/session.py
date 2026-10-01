@@ -11,6 +11,7 @@ from pathlib import Path
 from lingclaude.core.types import Result
 from lingclaude.core.topic_stack import TopicStack
 from lingclaude.core.redact import redact as _redact_message
+from lingclaude.core.session_index import NON_PROJECT_DIRS
 
 import logging
 
@@ -79,6 +80,11 @@ class SessionManager:
             except Exception:
                 state_store = None
         self._state_store = state_store
+        # 2026-10-01 sqlite 索引层（codex/opencode 模式借鉴）：json 仍是唯一
+        # 事实源，索引只加速 list_sessions / --continue，坏即从 json 重建。
+        from lingclaude.core.session_index import SessionIndex
+
+        self._index = SessionIndex(self.save_dir)
 
     def _session_path(self, session: Session) -> Path:
         if not self._global_mode:
@@ -110,7 +116,15 @@ class SessionManager:
             # 原子写（tmp + replace）：2026-09-06 发现 7c643abc.json 被截断为
             # 0 字节——write_text 先 truncate 后写，进程恰在写入中被杀即丢档。
             from lingclaude.core.state_store import _atomic_write_json
-            _atomic_write_json(path, session.to_dict_redacted())
+            redacted = session.to_dict_redacted()
+            _atomic_write_json(path, redacted)
+            # 索引同步（查询缓存；失败仅告警，不影响保存事实）。
+            # 复用同一份 redacted：to_dict_redacted 需扫全部消息做脱敏，
+            # 长会话反复保存时重复调用是 O(n) 浪费（2026-10-01 stress 变慢定位）。
+            try:
+                self._index.upsert(session.session_id, path, redacted)
+            except Exception as e:
+                logger.warning("session_index upsert 失败（不影响存档）: %s", e)
             return Result.ok(path)
         except Exception as e:
             return Result.fail(f"Failed to save session: {e}", code="SAVE_ERROR")
@@ -216,6 +230,22 @@ class SessionManager:
         results: list[dict[str, str]] = []
         if not self.save_dir.exists():
             return ()
+        # 2026-10-01 sqlite 快路径（codex/opencode 模式）：索引可用即 O(1) 查询，
+        # 替代历史全量 json 解析（本仓实测 75 文件/次）。索引不可用回退 json 扫描。
+        # 仅 global 模式走快路径：非 global（测试注入）的 legacy 语义是不过滤
+        # 项目（json 扫描即全量），快路径的 project_dir 过滤与其不一致。
+        if self._global_mode and self._index.ensure_ready():
+            from lingclaude.core.session_index import NON_PROJECT_DIRS
+            if project_path:
+                target_dir = _project_dir_name(project_path)
+                indexed = self._index.list_rows(
+                    project_dir=target_dir, include_default_orphans=True)
+                if indexed is not None:
+                    return tuple(indexed)
+            else:
+                indexed = self._index.list_rows(all_projects=True)
+                if indexed is not None:
+                    return tuple(indexed)
         if self._global_mode:
             if project_path:
                 target_dir = self.save_dir / _project_dir_name(project_path)
@@ -227,7 +257,7 @@ class SessionManager:
                         results.extend(s for s in self._list_sessions_in(default_dir, "") if not s.get("project_path"))
             else:
                 for d in sorted(self.save_dir.iterdir()):
-                    if d.is_dir():
+                    if d.is_dir() and d.name not in NON_PROJECT_DIRS:
                         proj = "" if d.name == "_default" else d.name
                         results.extend(self._list_sessions_in(d, proj))
         else:
@@ -236,6 +266,10 @@ class SessionManager:
 
     def _list_sessions_in(self, directory: Path, project_hint: str) -> list[dict[str, str]]:
         items: list[dict[str, str]] = []
+        # 2026-10-01 污染修复：session/ 等非项目目录（StateStore record_type
+        # 落点）不得被扫成项目。rebuild 路径已在 session_index 排除，此处兜底。
+        if directory.name in NON_PROJECT_DIRS:
+            return items
         for p in sorted(directory.glob("*.json")):
             if p.stem.startswith(self.SNAPSHOT_PREFIX):
                 continue
@@ -292,6 +326,11 @@ class SessionManager:
             if path.exists():
                 try:
                     path.unlink()
+                    # 索引同步删除（孤儿行会让 list_sessions 快路径复活已删会话）
+                    try:
+                        self._index.remove(session_id)
+                    except Exception as e:
+                        logger.warning("session_index remove 失败（不影响删除事实）: %s", e)
                     return Result.ok(True)
                 except Exception as e:
                     return Result.fail(f"Failed to delete session: {e}", code="DELETE_ERROR")
