@@ -38,6 +38,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from lingclaude.engine.env_guard import filter_env
+
 logger = logging.getLogger(__name__)
 
 # sentinel 用 uuid 生成（永不与正常输出撞）；每个命令一对 BEGIN/END。
@@ -106,6 +108,11 @@ class BashSession:
                 text=True,
                 bufsize=1,
                 start_new_session=True,
+                # Tier 0 env 收窄（P1b/T1）：持久 shell 不再整继承主进程
+                # 凭证型环境变量（实测 59 个 key/token）。bash 是任意命令
+                # 通道，deny-list 剥凭证、其余保留；确需凭证的调用方
+                # 应走 env_guard.filter_env(allow=...) 显式点名。
+                env=filter_env(),
             )
             self._buf = []
             self._broken = False

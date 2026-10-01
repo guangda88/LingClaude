@@ -146,6 +146,7 @@ _BLOCKED_DANGER_ANYWHERE = frozenset({
 
 # ── 网络判定（2026-09-14 灵元：剥离为 bash_network 纯函数模块）──
 from lingclaude.lacp.sandbox_policy import is_safe_writable_dir  # noqa: F401,E402
+from lingclaude.engine.env_guard import filter_env  # noqa: F401,E402
 from lingclaude.engine.bash_network import (  # noqa: F401,E402
     _network_allowed_commands,
     _NETWORK_ALLOWED_COMMANDS,
@@ -326,7 +327,7 @@ class BashExecutor:
             cwd=self.working_dir,
             start_new_session=True,  # 2026-09-12 (P1-1): 新会话组 — 超时 killpg 整组
             stdin=subprocess.DEVNULL,  # P0-① 隔离 stdin，子进程不再抢占终端
-            env={**os.environ, **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端
+            env={**filter_env(), **_GIT_NO_PROMPT_ENV},  # 认证失败立即返回，不挂起读终端；Tier 0 收窄剥凭证型变量
             preexec_fn=lambda: self._set_resource_limits(command),
         )
 

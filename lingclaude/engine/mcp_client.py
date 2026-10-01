@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from lingclaude.core.types import Result
+from lingclaude.engine.env_guard import filter_env
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,8 @@ class MCPStdioClient:
                 cwd=self._cwd,
                 text=True,
                 bufsize=1,
+                # Tier 0 env 收窄：MCP server 同样不继承凭证型变量
+                env=filter_env(),
             )
         except FileNotFoundError as e:
             return Result.fail(f"MCP server binary not found: {self._command[0]}", code="SPAWN_FAILED")
