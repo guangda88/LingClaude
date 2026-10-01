@@ -1,0 +1,16 @@
+{
+  "manifest_path": "lingclaude/plugins/agents/agent_guangda_twin/manifest.agent.json",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": ["python3", "-m", "twin", "mcp"],
+    "cwd": "/home/ai/guangda-twin",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "state": "registered",
+  "registered_at": "2026-09-29T00:00:00+00:00",
+  "provenance": "guangda88 2026-09-29 批准接入；入册五步③"
+}

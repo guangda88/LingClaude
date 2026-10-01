@@ -1,0 +1,49 @@
+{
+  "name": "agent/guangda-twin",
+  "target": "guangda-twin",
+  "display_name": "光大分身",
+  "version": "0.1.0",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "caller": "lingclaude",
+  "transport": {
+    "kind": "mcp",
+    "mode": "stdio",
+    "command": ["python3", "-m", "twin", "mcp"],
+    "cwd": "/home/ai/guangda-twin",
+    "startup_timeout_s": 30,
+    "call_timeout_s": 120
+  },
+  "stop_layer": {
+    "kernel": "guangda-twin 的 MCP stdio server（twin/interface/mcp_server.py，FastMCP）→ 判据检索 / 逐字证据 / 领域门 / 进化账本",
+    "seams": [
+      "model_provider"
+    ],
+    "implementations": 1
+  },
+  "capabilities": [
+    "ask",
+    "criteria",
+    "evidence",
+    "judge",
+    "learn",
+    "propose",
+    "status",
+    "export"
+  ],
+  "health_probe": {
+    "interval_s": 300,
+    "timeout_s": 5,
+    "method": "mcp_list_tools",
+    "absent_after": 2
+  },
+  "state_record": "agent_run:guangda-twin",
+  "notes": "刘庆（guangda88 / 广大老师）的数字分身。铁律 1：本插片全在 plugins/agents/，core/ 零 diff；铁律 3/J4：run/abort/status 全程 record 化（agent_run type，StateStore）；铁律 5：trust_level=T1 + plug_level=L1 双声明（N2 消费）；铁律 7：缝 key 带域前缀 agent/（N3 消费）；铁律 8：health_probe 缺席检测（连续 2 次失败 → record transition absent）。重要边界：默认后端是 deterministic，**不调外部模型**——语料含未发表论文素材与半年私有对话，外发需 guangda88 显式授权。红线：自动通道 promote 判据权限 = 0。",
+  "contract_anchor": {
+    "guard": "N5",
+    "record": "contract_drift/agent-agent_guangda_twin",
+    "fingerprint_algo": "sha256(json(contract_surface, sort_keys=True))[:16]",
+    "verified": "2026-09-29",
+    "note": "T3 契约漂移侦测锚点：契约面 = capabilities + transport + stop_layer；对账命令 python3 scripts/contract_drift.py check agent:agent_guangda_twin（漂移退出 1）"
+  }
+}

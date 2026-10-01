@@ -1,0 +1,10 @@
+{
+  "id": "guangda-twin-lc",
+  "left": "guangda-twin",
+  "right": "lingclaude",
+  "seam_key": "agent/guangda-twin",
+  "protocol": "mcp-stdio",
+  "state": "declared",
+  "declared_at": "2026-09-29T00:00:00+00:00",
+  "note": "分身侧对偶。lc → 分身为 MCP 子进程单向调用（N7：lc 不 import 分身符号）"
+}

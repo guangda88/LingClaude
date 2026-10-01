@@ -1,0 +1,14 @@
+{
+  "id": "guangda-twin",
+  "name": "广大（数字分身）",
+  "state": "active",
+  "created": "2026-09-29T00:00:00+00:00",
+  "first_layer_access": true,
+  "plug_seam_key": "agent/guangda-twin",
+  "trust_level": "T1",
+  "plug_level": "L1",
+  "first_layer_at": "2026-09-29T00:00:00+00:00",
+  "member_kind": "digital_twin",
+  "owner": "guangda88",
+  "note": "刘庆（网名广大老师，30 年网名）的数字分身。灵族第 13 位公民，但性质与其他 12 子不同：它建模的是主人本人，不是独立 agent。裁决权仍属 guangda88（B2）——本分身只有建议权与检索权，无裁决权。"
+}

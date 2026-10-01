@@ -1,0 +1,36 @@
+{
+  "type": "contract_drift",
+  "target": "agent:agent_guangda_twin",
+  "state": "clean",
+  "fingerprint": "602cf3546ca67039",
+  "surface": {
+    "name": "agent/guangda-twin",
+    "version": "0.1.0",
+    "trust_level": "T1",
+    "plug_level": "L1",
+    "capabilities": [
+      "ask",
+      "criteria",
+      "evidence",
+      "export",
+      "judge",
+      "learn",
+      "propose",
+      "status"
+    ],
+    "transport_kind": "mcp",
+    "transport_command": [
+      "python3",
+      "-m",
+      "twin",
+      "mcp"
+    ],
+    "cwd": "/home/ai/guangda-twin",
+    "stop_layer_kernel": "guangda-twin 的 MCP stdio server（twin/interface/mcp_server.py，FastMCP）→ 判据检索 / 逐字证据 / 领域门 / 进化账本",
+    "stop_layer_seams": [
+      "model_provider"
+    ]
+  },
+  "recorded_at": "2026-09-29T05:42:13+00:00",
+  "git_head": "fb9a8e7"
+}
