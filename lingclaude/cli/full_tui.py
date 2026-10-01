@@ -1568,8 +1568,7 @@ class FullTuiSession:
 
     def replace_turn_styled_segmented(
         self,
-        styled_lines: list[str],
-        spans_list: list[list[tuple[int, int, str]]],
+        content: str,
         expected_plain: list[str],
         tool_trace: list[str],
     ) -> bool:
@@ -1580,9 +1579,11 @@ class FullTuiSession:
         与 done.content 推导的整段指纹必失配 → 几乎所有真实轮都回退素字。
         本方法按 tool_trace（repl_io 流式出口实写顺序快照）走查对齐：
           - 窗内命中轨迹行 → 归工具段，原样保留（先来先服务，防同名误吞）；
-          - 其余窗内行须与期望指纹逐行一致（含空行容差）→ 归正文段，
-            按期望行号取 styled_lines/spans_list 对应行（_expected_window_lines
-            与渲染行号一一对应，构造保证）替换。
+          - 其余窗内行须与期望指纹逐行一致（含空行容差）→ 归正文段。
+
+        按段渲染（2026-10-01 二次设计）：正文段不取「整篇渲染」的行——
+        rich 对长段折行使整篇行号与窗内行号错位（串色隐患），改为每个
+        正文段单独过 repl_io.render_markdown_lines，整段替换窗内对应行。
 
         空行容差（两类不对称实证）：
           - 窗内多出的空行：工具行前后导 \\n 的落窗产物，跳过；
@@ -1591,9 +1592,10 @@ class FullTuiSession:
         调用方回退素字。构造上不可能误删：所有被替换字符都能在窗内原位找到。
         """
         if not tool_trace:
-            # 纯文本轮（无工具调用）：退化为整段比对语义
-            return self.replace_turn_styled(styled_lines, spans_list, expected_plain)
+            # 纯文本轮（无工具调用）：由调用方走整段旧语义，不达此处
+            return False
         from lingclaude.cli.repl_io import _style_debug as _sd
+        from lingclaude.cli.repl_io import render_markdown_lines
 
         with self._style_lock:
             mark = self._stream_start_mark
@@ -1692,7 +1694,7 @@ class FullTuiSession:
                 _sd("MARK_CLIPPED", f"segmented: would exceed cap {new_total}")
                 return False
 
-            # —— 组装：head 原样 + 段内逐行（轨迹行保留/正文行换样式版） ——
+            # —— 组装：按正文段单独渲染（rich 折行安全），轨迹行原样保留 ——
             buf = self._out_buffer
             new_seg_lines: list[str] = []
             new_seg_styles: list[list[tuple[int, int, str]] | None] = []
@@ -1702,9 +1704,25 @@ class FullTuiSession:
                     new_seg_lines.append(seg[j])
                     new_seg_styles.append(None)
                     j += 1
-                for m in range(es, ee):
-                    new_seg_lines.append(styled_lines[m])
-                    new_seg_styles.append(spans_list[m] if m < len(spans_list) else None)
+                # 本段源文本从 content 按期望行号切片（E 与 _expected_window_lines
+                # 同构，空行边界即源 \n 边界）；单独渲染后整段替换
+                try:
+                    src_text = "\n".join(
+                        expected_plain[es:ee]
+                    )
+                    seg_lines, seg_spans = render_markdown_lines(src_text)
+                    while seg_lines and seg_lines[-1] == "":
+                        seg_lines.pop()
+                        seg_spans.pop()
+                    while seg_lines and seg_lines[0] == "":
+                        seg_lines.pop(0)
+                        seg_spans.pop(0)
+                except Exception as _r_err:  # noqa: BLE001 — 段渲染失败保素字
+                    _sd("EXCEPTION", f"segmented render: {type(_r_err).__name__}: {_r_err}")
+                    return False
+                for ln, sp in zip(seg_lines, seg_spans):
+                    new_seg_lines.append(ln)
+                    new_seg_styles.append(sp if sp else None)
                 j = we
             while j < len(seg):
                 new_seg_lines.append(seg[j])

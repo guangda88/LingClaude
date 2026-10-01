@@ -211,6 +211,44 @@ def _expected_window_lines(content: str) -> list[str]:
         out.pop()
     return out
 
+def render_markdown_lines(text: str) -> tuple[list[str], list[list[tuple[int, int, str]]]]:
+    """markdown → (净化行, 每行 SGR spans)。原位上色共用渲染入口。
+
+    白名单 Theme 给标题明亮前景（SGR 90-97，2026-10-01 标题醒目化）；
+    force_terminal=True 产出 ANSI 再经 _extract_sgr_styles 解析为零 ESC
+    净化文本。此版 rich 标题样式键无 .style 后缀（rich/default_styles.py:155）。
+    """
+    from io import StringIO
+
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.theme import Theme
+
+    _heading_theme = Theme(
+        {
+            "markdown.h1": "bold bright_cyan",
+            "markdown.h2": "bold bright_green",
+            "markdown.h3": "bold bright_magenta",
+            "markdown.h4": "bold bright_blue",
+            "markdown.h5": "bold bright_yellow",
+            "markdown.h6": "bold bright_white",
+        }
+    )
+    buf = StringIO()
+    cols = max(60, (shutil.get_terminal_size().columns or 80))
+    ansi_console = Console(file=buf, force_terminal=True, width=cols, theme=_heading_theme)
+    ansi_console.print(Markdown(text))
+    styled_lines: list[str] = []
+    spans_list: list[list[tuple[int, int, str]]] = []
+    from lingclaude.cli.interface import _extract_sgr_styles
+
+    for ln in buf.getvalue().split("\n"):
+        t, sp = _extract_sgr_styles(ln)
+        styled_lines.append(t)
+        spans_list.append(sp)
+    return styled_lines, spans_list
+
+
 _OUTPUT_FORMAT = "plain"  # P0-2: plain | json | jsonl
 _json_event_buffer: list[dict[str, Any]] = []  # json 模式事件缓冲
 
@@ -615,12 +653,11 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 _exp = _expected_window_lines(content)
                 # 分段上色（2026-10-01）：带工具调用轮次窗内 = 正文+工具轨迹
                 # 交错，整段指纹必失配（当日 10:02 FP_MISMATCH 事故）。有轨迹
-                # 快照 → 分段法（轨迹行保留、正文段替换）；无 → 整段旧语义。
+                # 快照 → 分段法（每个正文段单独过 rich，避免整篇渲染折行
+                # 错位串色）；无 → 整段旧语义（整篇渲染）。
                 _trace = list(_turn_tool_trace) if _turn_tool_trace_on else []
                 if owner is not None and _trace:
-                    _ok = owner.replace_turn_styled_segmented(
-                        styled_lines, spans_list, _exp, _trace
-                    )
+                    _ok = owner.replace_turn_styled_segmented(content, _exp, _trace)
                 else:
                     _ok = owner is not None and owner.replace_turn_styled(styled_lines, spans_list, _exp)
                 _style_debug("REPLACE_RESULT", f"ok={_ok} seg={bool(_trace)}")

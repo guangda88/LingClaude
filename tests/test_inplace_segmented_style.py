@@ -116,7 +116,7 @@ class TestSegmentedInplaceStyle:
         before = s._out_buffer.text
         s.set_streaming(False)
         ok = s.replace_turn_styled_segmented(
-            ["x", "y"], [[], []], ["正文A", "正文B"], ["  [ghost] never-happened ✅"]
+            "正文A\n正文B\n", ["正文A", "正文B"], ["  [ghost] never-happened ✅"]
         )
         assert ok is False
         assert s._out_buffer.text == before, "失配时窗内容被改动（违规）"
