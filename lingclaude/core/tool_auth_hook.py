@@ -200,6 +200,49 @@ def _net_misdiag_guard(tool_name: str, tool_args: dict[str, Any]) -> Decision | 
         return None
 
 
+# ── P1① 哨兵注册制（hook_registry PRE_TOOL 链）─────────────────────────
+# 设计注：不做"已注册"标志位——register_hook 同名幂等，无条件注册即可。
+# 标志位跨模块/跨测试泄漏反而造成哨兵静默丢失（2026-10-02 实测教训）。
+
+
+def _hook_credential_leak_adapter(tool_name: str, tool_args: dict[str, Any]):
+    """credential_leak_guard → HookResult 适配器（Decision→action 映射）。"""
+    from lingclaude.core.hook_registry import HookResult
+
+    d = _check_credential_leak(tool_name, tool_args)
+    if d is None:
+        return None
+    action = "block" if d.tier is Tier.BLOCK else ("ask" if d.tier is Tier.ASK else "annotate")
+    return HookResult(hook_name="credential_leak_guard", action=action, reason=d.reason,
+                      detail={"audit_written": d.audit_written})
+
+
+def _hook_net_misdiag_adapter(tool_name: str, tool_args: dict[str, Any]):
+    """net_misdiag_guard → HookResult 适配器。"""
+    from lingclaude.core.hook_registry import HookResult
+
+    d = _net_misdiag_guard(tool_name, tool_args)
+    if d is None:
+        return None
+    action = "block" if d.tier is Tier.BLOCK else ("ask" if d.tier is Tier.ASK else "annotate")
+    return HookResult(hook_name="net_misdiag_guard", action=action, reason=d.reason,
+                      detail={"audit_written": d.audit_written})
+
+
+def _ensure_sentinels_registered() -> None:
+    """两哨兵注册进 PRE_TOOL 链（幂等）。priority：leak(10) 先于误诊(20)——
+    凭证硬拦截优先级高于探网提醒；与旧直调顺序一致。"""
+    try:
+        from lingclaude.core.hook_registry import HookPoint, register_hook
+
+        register_hook(HookPoint.PRE_TOOL, "credential_leak_guard",
+                      _hook_credential_leak_adapter, priority=10)
+        register_hook(HookPoint.PRE_TOOL, "net_misdiag_guard",
+                      _hook_net_misdiag_adapter, priority=20)
+    except Exception as e:  # noqa: BLE001 — 注册失败走保底直调
+        logger.debug("sentinel registration degraded: %s", e)
+
+
 def check_tool_call(tool_name: str, tool_args: dict[str, Any] | None = None) -> Decision:
     """PreToolUse hook 入口：查档位矩阵，返回裁决结果。
 
@@ -221,16 +264,41 @@ def check_tool_call(tool_name: str, tool_args: dict[str, Any] | None = None) -> 
     if tool_args is None:
         tool_args = {}
 
-    # ── P1a: credential_leak_guard 优先拦截（任何档位之上）──────────────
-    leak_decision = _check_credential_leak(tool_name, tool_args)
-    if leak_decision is not None:
-        return leak_decision
+    # ── P1① 哨兵注册制迁移（2026-10-02）：两哨兵经 hook_registry 跑
+    #    PRE_TOOL 链（用户插件与哨兵同链按 priority 排序）；注册表异常
+    #    时回退旧直调路径，行为与迁移前完全一致 ─────────────────────
+    _ensure_sentinels_registered()
+    results = None
+    try:
+        from lingclaude.core.hook_registry import HookPoint, run_hooks
 
-    # ── 网络误诊哨兵（2026-10-01 双次误诊复盘）：bash 探网命令先跑
-    #    通道矩阵探针再下结论，防止"无网/被墙"误诊复发 ──────────────
-    net_hint = _net_misdiag_guard(tool_name, tool_args)
-    if net_hint is not None:
-        return net_hint
+        results = run_hooks(HookPoint.PRE_TOOL, tool_name=tool_name, tool_args=tool_args)
+        for r in results:
+            if r.action == "block":
+                return Decision(
+                    tier=Tier.BLOCK, tool_name=tool_name,
+                    policy_id=f"hook:{r.hook_name}", reason=r.reason,
+                    audit_written=bool(r.detail.get("audit_written")),
+                )
+        for r in results:
+            if r.action == "ask":
+                # 台账已由哨兵内部写过（detail 透传），此处不再二次写
+                return Decision(
+                    tier=Tier.ASK, tool_name=tool_name,
+                    policy_id=f"hook:{r.hook_name}", reason=r.reason,
+                    audit_written=bool(r.detail.get("audit_written")),
+                )
+    except Exception:  # noqa: BLE001 — 注册表不可用时走保底直调
+        results = None
+
+    if results is None:
+        # ── 保底直调（仅注册表自身异常时；行为等价旧双哨兵链）────────
+        leak_decision = _check_credential_leak(tool_name, tool_args)
+        if leak_decision is not None:
+            return leak_decision
+        net_hint = _net_misdiag_guard(tool_name, tool_args)
+        if net_hint is not None:
+            return net_hint
 
     try:
         policy = _get_policy()

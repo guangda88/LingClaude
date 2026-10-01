@@ -114,6 +114,7 @@ class ToolPipeline:
         critical_tools: tuple[str, ...] = (),
         timeout_seconds: float = 30.0,
         snapshot_callback: Callable[[str, dict[str, Any]], None] | None = None,
+        after_tool_callback: Callable[[str, dict[str, Any], dict[str, Any]], None] | None = None,
     ) -> None:
         self._registry = registry
         self._dangerous = dangerous_patterns
@@ -124,6 +125,7 @@ class ToolPipeline:
         # (tool_name, args) → None；实现方（file_history.record_change）自带
         # fail-open 语义，此处再兜一层：回调异常不阻断工具执行。
         self._snapshot_callback = snapshot_callback
+        self._after_tool_callback = after_tool_callback
 
         # 5 段 listeners (可扩展)
         self._pre_listeners: list[Callable[[PipelineContext], None]] = []
@@ -321,6 +323,9 @@ class ToolPipeline:
         if ctx.is_error:
             # T0-7: 触发错误监听器（query_engine 接 ON_ERROR hook）
             self._notify_error(name, ctx.error_msg)
+            # P1① AFTER_TOOL hook（2026-10-02）：失败路径也通知观察者——
+            # 审计/学习类 hook 需要看到失败事件；advisory 语义，不改裁决。
+            self._run_after_tool_hooks(name, args, ctx)
             return self._error(ctx.error_msg, ToolErrorCode.EXECUTION_ERROR)
 
         # === 4. post-execute waterfall ===
@@ -331,6 +336,11 @@ class ToolPipeline:
                     return self._error(ctx.abort_reason or "post-listener aborted")
             except Exception as e:
                 logger.warning("post-listener raised: %s", e)
+
+        # P1① AFTER_TOOL hook（2026-10-02）：成功路径通知，advisory 语义
+        # （不改结果/不 abort——与 post-listener 的 abort 权限有意区分，
+        #  hook_registry.run_hooks 本身也只收集 annotate，异常 fail-open）。
+        self._run_after_tool_hooks(name, args, ctx)
 
         # 写后 verify
         if name in self._write_scoped and post_write_verify is not None:
@@ -368,6 +378,40 @@ class ToolPipeline:
         return {"result": ctx.raw_result}
 
     # ----- 内部 -----
+
+    def _run_after_tool_hooks(self, name: str, args: dict[str, Any], ctx: Any) -> None:
+        """P1① AFTER_TOOL hook：通知 hook_registry 观察者（advisory，fail-open）。
+
+        summary 口径：success/is_error/duration_ms/error_msg——够审计与学习用，
+        不传 raw_result（避免大输出二次泄漏进 hook 侧，pruning 已在上游做）。
+        与引擎状态解耦：hook_registry 缺失/异常都不反噬工具执行。
+        """
+        cb = getattr(self, "_after_tool_callback", None)
+        if cb is not None:
+            try:
+                summary = {
+                    "success": not ctx.is_error,
+                    "is_error": ctx.is_error,
+                    "error_msg": ctx.error_msg,
+                    "duration_ms": int(ctx.metrics.get("duration", 0) * 1000),
+                }
+                cb(name, args, summary)
+            except Exception as e:  # noqa: BLE001 — hook 失败不反噬
+                logger.warning("after_tool_callback raised (fail-open): %s", e)
+            return
+        # 无显式 callback 时走注册表（保持单一事实源；导入失败静默降级）
+        try:
+            from lingclaude.core.hook_registry import HookPoint, run_hooks
+
+            summary = {
+                "success": not ctx.is_error,
+                "is_error": ctx.is_error,
+                "error_msg": ctx.error_msg,
+                "duration_ms": int(ctx.metrics.get("duration", 0) * 1000),
+            }
+            run_hooks(HookPoint.AFTER_TOOL, tool_name=name, args=args, summary=summary)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("AFTER_TOOL registry hooks degraded: %s", e)
 
     def _dispatch_with_timeout(
         self, tool_def: ToolDefinition, args: dict[str, Any]

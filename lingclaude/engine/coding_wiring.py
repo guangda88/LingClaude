@@ -164,12 +164,19 @@ def _make_tool_pipeline(ctx: CodingWiringContext) -> Any:
         if path:
             record_change(path, source="tool_write")
 
+    def _after_tool_registry_hook(tool_name: str, args: dict, summary: dict) -> None:
+        """P1①：AFTER_TOOL 注入点 → hook_registry（观察者：审计/学习类）。"""
+        from lingclaude.core.hook_registry import HookPoint, run_hooks
+
+        run_hooks(HookPoint.AFTER_TOOL, tool_name=tool_name, args=args, summary=summary)
+
     return ToolPipeline(
         ctx.runtime.registry,  # 依赖 registry：必须在其后装配（见模块 docstring）
         write_scoped_tools=WRITE_SCOPED_TOOLS,
         critical_tools=CRITICAL_TOOLS,
         timeout_seconds=ctx.runtime.config.optimizer.timeout_seconds,
         snapshot_callback=_snapshot_before_write,
+        after_tool_callback=_after_tool_registry_hook,
     )
 
 

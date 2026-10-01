@@ -306,6 +306,24 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
             engine._compact_if_needed()
             # R5-fix: history 由 engine.stream_call_model 的 done 分支写入
             # (model_call.py)，CLI 层不重复调用 _append_to_session_history
+
+        # ── P1① POST_RESPONSE hook（2026-10-02）：一轮响应终结后通知观察者
+        # advisory 语义（学习笔记/审计），v1 不上 UI（annotate 结果仅日志）；
+        # 响应为空/异常都不反噬主流程 ─────────────────────────────────
+        try:
+            from lingclaude.core.hook_registry import HookPoint, run_hooks
+
+            _pr = run_hooks(HookPoint.POST_RESPONSE, response_text=response_content, meta={
+                "tool_calls": observed_tool_calls,
+                "tool_errors": observed_tool_errors,
+                "stream_error": observed_stream_error,
+                "output_tokens": turn_output_tokens,
+            })
+            for _r in _pr:
+                if getattr(_r, "reason", ""):
+                    _logger.info("post_response hook %s: %s", _r.hook_name, _r.reason)
+        except Exception as _e:  # noqa: BLE001
+            _logger.debug("post_response hooks degraded: %s", _e)
         _record_long_task_metrics(
             engine,
             event="turn_complete",
