@@ -155,11 +155,21 @@ def _make_tool_pipeline(ctx: CodingWiringContext) -> Any:
     from lingclaude.engine.tool_pipeline import ToolPipeline
     from lingclaude.engine.verification_gate import CRITICAL_TOOLS, WRITE_SCOPED_TOOLS
 
+    # M1-b (2026-10-01): 文件级 rewind——write_scoped 工具 dispatch 前
+    # 快照目标文件原内容（file_history source="tool_write"，/undo 可回滚）。
+    from lingclaude.core.file_history import record_change
+
+    def _snapshot_before_write(tool_name: str, args: dict) -> None:
+        path = args.get("path") or args.get("file_path")
+        if path:
+            record_change(path, source="tool_write")
+
     return ToolPipeline(
         ctx.runtime.registry,  # 依赖 registry：必须在其后装配（见模块 docstring）
         write_scoped_tools=WRITE_SCOPED_TOOLS,
         critical_tools=CRITICAL_TOOLS,
         timeout_seconds=ctx.runtime.config.optimizer.timeout_seconds,
+        snapshot_callback=_snapshot_before_write,
     )
 
 

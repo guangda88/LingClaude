@@ -113,12 +113,17 @@ class ToolPipeline:
         write_scoped_tools: tuple[str, ...] = (),
         critical_tools: tuple[str, ...] = (),
         timeout_seconds: float = 30.0,
+        snapshot_callback: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._registry = registry
         self._dangerous = dangerous_patterns
         self._write_scoped = set(write_scoped_tools)
         self._critical = set(critical_tools)
         self._timeout = timeout_seconds
+        # M1-b (2026-10-01): write_scoped 工具 dispatch 前的文件快照回调。
+        # (tool_name, args) → None；实现方（file_history.record_change）自带
+        # fail-open 语义，此处再兜一层：回调异常不阻断工具执行。
+        self._snapshot_callback = snapshot_callback
 
         # 5 段 listeners (可扩展)
         self._pre_listeners: list[Callable[[PipelineContext], None]] = []
@@ -258,6 +263,14 @@ class ToolPipeline:
                 return self._error(ctx.abort_reason, ToolErrorCode.GUARD_EXCEPTION)
 
         # === 3. tools/execute (around-dispatch: timeout, retry, metrics) ===
+        # M1-b (2026-10-01): 文件级 rewind——write_scoped 工具在全部守卫通过后、
+        # dispatch 前快照目标文件原内容（file_history source="tool_write"）。
+        # 放在守卫之后：被拦的工具不产生快照垃圾；fail-open：快照失败不阻断执行。
+        if self._snapshot_callback is not None and name in self._write_scoped:
+            try:
+                self._snapshot_callback(name, args)
+            except Exception as e:  # noqa: BLE001 — 快照失败不反噬工具执行
+                logger.warning("snapshot_callback raised (fail-open): %s", e)
         ctx.metrics["start_ts"] = time.time()
         # A3: tool_start 增量事件（webUI /live 实时同步）
         record_tool_event({
