@@ -1,0 +1,38 @@
+# model_tiers.yaml — 模型三档语义层（借鉴 cc HAIKU/SONNET/OPUS_MODEL 三档映射，灵克 2026-10-01）
+#
+# 背景（外部 Agent 联审 2026-09 报告 → P3 项）:
+#   cc 把模型当数据分层映射（快档/强档各配各的），agent 定义里写 model: sonnet
+#   即取标准档。lc 已有 TaskRouter（task→route→有序清单）与 flash gate，
+#   缺的是「语义档位」这一层：按用途（快/标准/强）取模型，而非写死模型名。
+#
+# 本文件定义 fast/standard/strong 三档 → 有序候选清单。
+#   - 每档可配多个候选，按序尝试（与 config.json task_routes 同构）
+#   - 候选条目 {provider, model}，provider 必须是 config.json routing.providers
+#     已有的名字（glm/minimax/volcengine/kimi/deepseek/proxy3...）
+#   - 走 PolicyLoader mtime watch 热更：改此文件 → 下次解析生效，进程不重启
+#
+# 与 flash gate 的关系: 档位清单是「供选取」的数据；决策位 flash gate 在
+# task_router.py（路由层）维持不变，两层数据互不覆盖。
+
+# ── 快档: 低延迟/低成本，摘要/标题/状态类轻任务 ──
+fast:
+  - {provider: glm, model: glm-5.3-flash}
+  - {provider: minimax, model: MiniMax-M2.7-Highspeed}
+
+# ── 标准档: 日常对话/代码主档 ──
+standard:
+  - {provider: glm, model: glm-5.3-flash}
+  - {provider: volcengine, model: Kimi-K3}
+
+# ── 强档: 高幻觉代价位（决策位/复杂推理）升级目标 ──
+strong:
+  - {provider: volcengine, model: Kimi-K3}
+  - {provider: glm, model: glm-5.3}
+
+# 解析行为参数（供 model_tiers.py 消费）
+resolve:
+  # 请求的档位名不在三档内时的兜底档
+  fallback_tier: standard
+  # 清单全灭（无 key/无路由）时的行为: degrade_to_default=true 时回落
+  # TaskRouter 默认路由（返回 None 让上游走原路），false 时抛 TierResolutionError
+  degrade_to_default: true

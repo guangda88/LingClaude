@@ -14,6 +14,30 @@
 from __future__ import annotations
 
 
+def _preview_tier_resolution(model_field: str) -> str | None:
+    """档位名预览解析结果；非档位名（具体模型名）返回 None 不显示。
+
+    只读策略与 TaskRouter 当前状态做静态解析展示，不发请求；
+    任何异常吞掉返回 None（展示层绝不反噬命令）。
+    """
+    from lingclaude.core.model_tiers import normalize_tier
+
+    if normalize_tier(model_field) is None:
+        return None
+    try:
+        from lingclaude.core.model_tiers import resolve_tier_model
+
+        from lingclaude.model.task_router import TaskRouter
+
+        router = TaskRouter()  # 默认 config 路径，只读不请求
+        cfg = resolve_tier_model(model_field, router)
+        if cfg is None:
+            return "（候选全灭/不可用 → 运行时将回落 TaskRouter 默认路由）"
+        return f"{cfg.model} @ {cfg.base_url}（档位可用）"
+    except Exception:  # noqa: BLE001 — 预览失败不影响详情展示
+        return "（预览不可用：TaskRouter 未初始化或策略读取失败）"
+
+
 def _format_agent(a) -> str:
     parts = [f"**{a.name}**"]
     if a.model:
@@ -79,6 +103,10 @@ def agent_cmd(processor, arg: str = "") -> None:
         print(f"描述：{a.description}")
         if a.model:
             print(f"模型：{a.model}")
+            # P3 三档语义: 档位名(或别名)时显示解析出的实际模型与可用性
+            tier_preview = _preview_tier_resolution(a.model)
+            if tier_preview is not None:
+                print(f"档位解析：{tier_preview}")
         if a.color:
             print(f"配色：{a.color}")
         print(f"工具白名单：{a.tools or '（无限制）'}")

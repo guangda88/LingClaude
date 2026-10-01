@@ -461,6 +461,26 @@ class ToolExecutor:
         if bm.total_turns > 3:
             if bm.hallucination_risk > 0.4:
                 target_temp = min(target_temp, 0.3)
+                # P3 三档语义(2026-10-01, 外部 Agent 联审项): 高幻觉风险真升级
+                # 到强档候选。此前该分支只降温度——model_adapter.resolve_model_config
+                # 的 config.strong 语义在生产 ModelConfig 上从未被设置（死引用），
+                # 升级路径名存实亡。现接 model_tiers：强档候选走 _pick_from_route
+                # 正式门禁（无 key 跳过/探活/熔断），全灭则保留原路由(fail-soft)。
+                try:
+                    from lingclaude.core.model_tiers import resolve_tier_model, TIER_STRONG
+
+                    tier_cfg = resolve_tier_model(
+                        TIER_STRONG,
+                        self._engine._task_router,
+                        max_tokens=cfg.max_tokens,
+                        temperature=target_temp,
+                    )
+                    if tier_cfg is not None:
+                        target_model = tier_cfg.model
+                        target_api_key = tier_cfg.api_key
+                        target_base_url = tier_cfg.base_url
+                except Exception as e:  # noqa: BLE001 — 档位解析故障不影响原路由
+                    logger.debug("strong 档升级失败，保留原路由: %s", e)
             if bm.frustration_rate > 0.3:
                 target_temp = min(target_temp, 0.2)
             if bm.tool_error_rate > 0.4 and router and router.code_model:
