@@ -160,6 +160,46 @@ def _write_audit(tier: Tier, tool_name: str, tool_args: dict[str, Any], policy_i
         pass  # 台账写入失败绝不反噬工具执行
 
 
+
+def _net_misdiag_guard(tool_name: str, tool_args: dict[str, Any]) -> Decision | None:
+    """网络误诊哨兵：bash 探网命令（curl/wget/ping/dig/nslookup/host）触发提醒。
+
+    背景：2026-10-01 双次误诊——bash 沙箱无网(P3 by design)被误诊为
+    「DNS 硬墙」「基础设施级封锁」。防线：探网命令时返回 ASK 档裁决
+    （文案指路 net_channels.py），由上层渲染提醒；不阻断，只是强制
+    结论前先跑通道矩阵。返回 None = 非探网命令，放行走后续档位链。
+    """
+    if tool_name not in ("bash", "Bash", "execute_command", "run_bash"):
+        return None
+    try:
+        cmd = ""
+        if isinstance(tool_args, dict):
+            cmd = str(tool_args.get("command") or tool_args.get("cmd") or "")
+        if not cmd:
+            return None
+        probes = ("curl", "wget", "ping", "dig", "nslookup", "host")
+        head = cmd.strip()
+        first = head.split(None, 1)[0] if head else ""
+        base = first.rsplit("/", 1)[-1]  # 允许 /usr/bin/curl 全路径
+        if base not in probes:
+            return None
+        policy = _get_policy()
+        policy_id = _build_policy_id(policy)
+        _write_audit(Tier.ASK, tool_name, tool_args, policy_id)
+        return Decision(
+            tier=Tier.ASK,
+            tool_name=tool_name,
+            policy_id="net_misdiag_guard",
+            reason="bash 探网命令命中网络误诊哨兵：沙箱无网是 P3 设计，"
+                   "先跑 python3 scripts/net_channels.py 通道矩阵再下结论；"
+                   "单通道失败禁止升级为「无网/被墙/基础设施」断言。",
+            audit_written=True,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"net_misdiag_guard 异常: {e}")
+        return None
+
+
 def check_tool_call(tool_name: str, tool_args: dict[str, Any] | None = None) -> Decision:
     """PreToolUse hook 入口：查档位矩阵，返回裁决结果。
 
@@ -185,6 +225,12 @@ def check_tool_call(tool_name: str, tool_args: dict[str, Any] | None = None) -> 
     leak_decision = _check_credential_leak(tool_name, tool_args)
     if leak_decision is not None:
         return leak_decision
+
+    # ── 网络误诊哨兵（2026-10-01 双次误诊复盘）：bash 探网命令先跑
+    #    通道矩阵探针再下结论，防止"无网/被墙"误诊复发 ──────────────
+    net_hint = _net_misdiag_guard(tool_name, tool_args)
+    if net_hint is not None:
+        return net_hint
 
     try:
         policy = _get_policy()
