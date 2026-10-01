@@ -1102,7 +1102,7 @@ def _run_stream_turn(
         # pump 线程异步收集用户输入（方向键等），主线程不被 session.prompt()
         # 卡死，防止 pump 线程 + 主线程双阻塞导致假死。
         session.set_streaming(True)
-        repl_io._turn_trace_reset()  # 分段上色：新轮次轨迹清零
+        _turn_trace_reset()  # 分段上色：新轮次轨迹清零
         for event in engine.stream_call_model(prompt, image_content=image_content):
             _wd.touch(str(event.get("type", "")))
             # 2026-09-18 误杀修复:流事件即活跃证据 —— 压住「生成期心跳停滞
@@ -1513,6 +1513,14 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             ctx.saved_termios = termios.tcgetattr(sys.stdin.fileno())
         except Exception:  # noqa: BLE001 — 无 termios 平台静默跳过
             ctx.saved_termios = None
+        # 2026-10-01 终端残留兜底：_restore_tty 只在主循环正常退出时执行，
+        # 未捕获异常（如 repl_io NameError）抛穿 _interactive_loop 时终端
+        # 带着 raw 模式死掉，用户终端不回显不换行。atexit 在异常退出路径
+        # 仍会执行；正常退出走 _hard_exit_after_close 的 os._exit，跳过
+        # atexit，不会双重恢复。幂等：重复恢复同一段 saved attrs 无害。
+        import atexit as _atexit
+
+        _atexit.register(_restore_tty, ctx)
 
     # 2026-09-20 方向键变字面字符修复：清掉前序进程残留的终端增强键模式
     # （kitty 协议/焦点上报/鼠标上报）。残留来源：其他 TUI 程序异常退出不
