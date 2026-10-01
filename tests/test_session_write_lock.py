@@ -200,3 +200,58 @@ def test_lock_module_import_error_is_contained(tmp_repo):
         mp.undo()
         if saved is not None:
             sys.modules["lingclaude.core.file_lock"] = saved
+
+
+# ---------- 场景4：基线刷新（2026-10-02 fork 连环套娃修复） ----------
+# 症状：基线只赋值不刷新 → 同会话第二次 persist 起把**自己**上次写入
+# 误判为他人修改，每次保存 fork 一层（e1ef82cf… 6 层叉链实锤）。
+
+def test_repeated_save_same_session_no_fork_chain(tmp_repo):
+    """同会话连续保存不 fork（修复前：第 2 次起每存必叉）。
+
+    必须先模拟 --continue 的 load 基线（非 None）——基线为 None 时
+    冲突检测短路，老 bug 不触发（用例假绿）。
+    """
+    eng = FakeEngine(tmp_repo)
+    persister = SessionPersister(eng)
+    assert not persister.persist_session().is_error  # 首存落档
+    archive = _project_subdir(tmp_repo) / "sess_test_001.json"
+    eng._session_mtime_baseline = archive.stat().st_mtime  # load 基线
+    for _ in range(3):
+        result = persister.persist_session()
+        assert not result.is_error, result.error
+    assert eng.session_id == "sess_test_001"
+    assert not list(_project_subdir(tmp_repo).glob("*fork*"))
+
+
+def test_external_modification_still_forks_after_refresh(tmp_repo):
+    """刷新基线不放过真踩踏：外部后写存档仍 fork，原档不动。"""
+    eng = FakeEngine(tmp_repo)
+    persister = SessionPersister(eng)
+    assert not persister.persist_session().is_error
+    archive = _project_subdir(tmp_repo) / "sess_test_001.json"
+    st = archive.stat()
+    os.utime(archive, (st.st_atime, st.st_mtime + 5))  # 确定性后写痕迹
+    assert not persister.persist_session().is_error
+    forks = list(_project_subdir(tmp_repo).glob("sess_test_001-fork*.json"))
+    assert len(forks) == 1
+    assert eng.session_id.startswith("sess_test_001-fork")
+
+
+def test_fork_refreshes_baseline_no_next_round_chain(tmp_repo):
+    """fork 落档后基线切到 fork 档：下一轮保存不再连环叉。"""
+    eng = FakeEngine(tmp_repo)
+    persister = SessionPersister(eng)
+    assert not persister.persist_session().is_error
+    archive = _project_subdir(tmp_repo) / "sess_test_001.json"
+    st = archive.stat()
+    os.utime(archive, (st.st_atime, st.st_mtime + 5))
+    assert not persister.persist_session().is_error  # → fork #1
+    fork_id = eng.session_id
+    assert not persister.persist_session().is_error  # 下一轮
+    assert eng.session_id == fork_id
+    assert len(list(_project_subdir(tmp_repo).glob("*fork*"))) == 1
+    fork_path = _project_subdir(tmp_repo) / f"{fork_id}.json"
+    assert eng._session_mtime_baseline == pytest.approx(
+        fork_path.stat().st_mtime, abs=1e-6
+    )

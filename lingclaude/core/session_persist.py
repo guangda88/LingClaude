@@ -75,6 +75,21 @@ class SessionPersister:
         except OSError:
             return False
 
+    def _refresh_baseline(self, written_path: str) -> None:
+        """保存成功后刷新 mtime 基线。
+
+        2026-10-02 fork 连环套娃修复：基线只赋值不刷新时，同会话第二次
+        persist 起必把**自己**上次写入误判为「他人修改」（写入后 mtime 恒
+        > 旧基线），每次保存 fork 一层（e1ef82cf… 6 层叉链实锤）。以
+        session_manager.save 返回的实际落盘路径为准 stat，兼容 fork 切 id
+        与 save_dir 重定向；stat 失败置 None（fail-open，等同无基线语义）。
+        """
+        engine = self._engine
+        try:
+            engine._session_mtime_baseline = Path(written_path).stat().st_mtime
+        except OSError:
+            engine._session_mtime_baseline = None
+
     def _persist_locked(self, conflict: bool) -> Result[str]:
         """持锁后的真实保存体。conflict=True 时只落 fork 档，主档一字不动。"""
         engine = self._engine
@@ -99,6 +114,7 @@ class SessionPersister:
         result = engine.session_manager.save(session)
         if result.is_error:
             return result  # type: ignore[return-value]
+        self._refresh_baseline(str(result.data))
         return Result.ok(str(result.data))
 
     def _save_fork(self, engine: Any, session: Session) -> Result[str]:
@@ -125,6 +141,7 @@ class SessionPersister:
                 code="CONFLICT_FORK_SAVE_ERROR",
             )
         engine.session_id = fork_id
+        self._refresh_baseline(str(fork_result.data))
         print(
             f"[session] ⚠ 检测到存档被其他会话修改，本会话已另存为 {fork_id}"
             f"（原档 {session.session_id} 未被覆盖）"
