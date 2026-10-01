@@ -526,7 +526,27 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
 
                 buf = StringIO()
                 cols = max(60, (shutil.get_terminal_size().columns or 80))
-                ansi_console = Console(file=buf, force_terminal=True, width=cols)
+                # 2026-10-01 标题醒目化：rich Markdown 默认标题只加粗无前景色，
+                # 用户的深色终端上 bold 渲染不亮时标题与正文糊成一片。挂自定义
+                # Theme 给标题明亮的白名单内前景色（SGR 90-97），对比度远强于
+                # bold-only。渲染仍走 force_terminal=True，零 stderr 直写不变。
+                # 注：此版 rich(rich/default_styles.py:155) 标题样式键无 .style
+                # 后缀，为 markdown.h1 / markdown.h2 …；实测 .style 后缀键不生效。
+                from rich.theme import Theme
+
+                _heading_theme = Theme(
+                    {
+                        "markdown.h1": "bold bright_cyan",
+                        "markdown.h2": "bold bright_green",
+                        "markdown.h3": "bold bright_magenta",
+                        "markdown.h4": "bold bright_blue",
+                        "markdown.h5": "bold bright_yellow",
+                        "markdown.h6": "bold bright_white",
+                    }
+                )
+                ansi_console = Console(
+                    file=buf, force_terminal=True, width=cols, theme=_heading_theme
+                )
                 from rich.markdown import Markdown
 
                 ansi_console.print(Markdown(content))
