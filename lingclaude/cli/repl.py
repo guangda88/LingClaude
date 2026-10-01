@@ -41,6 +41,7 @@ from lingclaude.cli.repl_io import (
     get_output_format,
     set_stream_bridged,
     set_full_tui_managed,
+    _turn_trace_reset,
 )
 from lingclaude.cli.full_tui import FullTuiSession
 from lingclaude.cli.full_tui import _StdoutProxy
@@ -1101,6 +1102,7 @@ def _run_stream_turn(
         # pump 线程异步收集用户输入（方向键等），主线程不被 session.prompt()
         # 卡死，防止 pump 线程 + 主线程双阻塞导致假死。
         session.set_streaming(True)
+        repl_io._turn_trace_reset()  # 分段上色：新轮次轨迹清零
         for event in engine.stream_call_model(prompt, image_content=image_content):
             _wd.touch(str(event.get("type", "")))
             # 2026-09-18 误杀修复:流事件即活跃证据 —— 压住「生成期心跳停滞

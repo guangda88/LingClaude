@@ -119,6 +119,21 @@ _PASTE_FOLD_MIN_LINES = 6
 _PLACEHOLDER_FMT = "[文本块 #{n} · {lines}行 · {chars}字符]"
 _PLACEHOLDER_RE = re.compile(r"\[文本块 #(\d+) · \d+行 · \d+字符\]")
 
+# TUI 图片直接粘贴（2026-10-01）：图片附件占位符（仅展示；图片本体走
+# _pending_images 侧信道，repl.py 提交时 drain 附到消息，占位符文本本身
+# 随消息发出，对模型起到「此处有图」的说明作用）。
+_IMAGE_PLACEHOLDER_FMT = "[图片 #{n} · {fmt} · {kb}KB]"
+# 已知图片格式 magic 头（PIL 缺席时的兜底验真）。与 commands.py /image 的
+# PIL verify 双轨——粘贴高频路径保持零重依赖；BM（2字节）太弱不收，
+# 防普通文本粘贴误判。
+_IMAGE_MAGICS: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+)
+_FILE_URI_RE = re.compile(r"^file://", re.IGNORECASE)
+
 # C(2026-09-26): 粘贴注册表持久化条目上限（超出丢最旧——防注册表
 # 无限增长把 pastes.json 撑爆；单条 1MiB 上限见 _load_paste_store）。
 _PASTE_STORE_MAX = 200
@@ -550,6 +565,8 @@ class FullTuiSession:
         # /image 命令追加（读剪贴板得到 hex → decode）；repl.py 主循环提交
         # 时 drain 给 engine.submit，_build_messages 转为 base64 填入 ModelMessage。
         self._pending_images: list[tuple[bytes, str]] = []
+        # TUI 图片直接粘贴（2026-10-01）：图片粘贴事件计数（诊断+测试断言用）
+        self._image_paste_count: int = 0
 
         # 拖选复制状态机（2026-09-27 OSC52）：DOWN 记起点，LEFT+MOVE 更新
         # 终点，UP 落锤取词。_sel_active 防丢 UP 后 MOVE 续画；_sel_dragged
@@ -1240,10 +1257,149 @@ class FullTuiSession:
         if buf is None:
             return
         try:
-            insert, _lines = self._register_paste(data)
+            # TUI 图片直接粘贴（2026-10-01）：优先识别图片粘贴（终端
+            # 8-bit 透传二进制 / 单行图片路径 / file:// URI），命中则
+            # 附件走 _pending_images 侧信道、输入框插图片占位符；
+            # 未命中原样走长文本折叠，行为零变化。
+            insert = self._try_paste_image(data)
+            if insert is None:
+                insert, _lines = self._register_paste(data)
         except Exception:  # noqa: BLE001 — 折叠失败降级为原样插入
             insert = data.replace("\r\n", "\n").replace("\r", "\n")
         buf.insert_text(insert)
+
+    # ── TUI 图片直接粘贴（2026-10-01） ────────────────────────────────────
+
+    @staticmethod
+    def _sniff_image_magic(raw: bytes) -> str | None:
+        """magic 头嗅探图片格式。返回 mime；非已知图片返回 None。"""
+        for head, mime in _IMAGE_MAGICS:
+            if raw.startswith(head):
+                return mime
+        return None
+
+    def _try_paste_image(self, data: str) -> str | None:
+        """识别图片粘贴；命中登记附件并返回占位符，未命中返回 None。
+
+        三形态（按序判定，全失败即回退文本粘贴链）：
+        A. 8-bit 透传二进制：终端把剪贴板图片原字节经 stdin 送达
+           （kitty/wezterm 开 allowHyperlinks+传递、xterm tier2）——
+           magic 嗅探验真，伪装字节误判不可能通过。
+        B. 单行图片路径/URL：截图工具「复制文件路径」、文件管理器
+           拖拽产生的引用串——本地绝对路径 / file:// URI，存在且
+           magic/PIL 验真才收（文本误伤：路径必须真实存在）。
+        C. base64 图片串：外部工具直接产出的 data URI——宽松前缀
+           匹配，解码后 magic 复验，未过即按文本处理。
+
+        返回 None（非图片，走原链）或占位符字符串（已登记附件）。
+        失败附件登记不会发生（先验后登），异常向上抛由
+        _handle_paste 统一降级，绝不吞输入。
+        """
+        # ── 形态 A：二进制透传 ──
+        # event.data 已按终端 charset 解码；二进制字节需 round-trip 还原
+        # 再嗅探。双通道：utf-8+surrogateescape（PT 解码-errors=surrogateescape
+        # 路径，\udcXX 代理原样还原）、latin-1（全字节 1:1 映射路径）。
+        # 单用 utf-8 会把 \x89 编成 0xC2 0x89（PNG magic 必失配）。
+        if data:
+            raw_candidates: list[bytes] = []
+            try:
+                raw_candidates.append(data.encode("utf-8", errors="surrogateescape"))
+            except Exception:  # noqa: BLE001 — 编码异常跳过该通道
+                pass
+            try:
+                raw_candidates.append(data.encode("latin-1"))
+            except Exception:  # noqa: BLE001 — 含 >U+00FF 字符则跳过
+                pass
+            for raw in raw_candidates:
+                mime = self._sniff_image_magic(raw)
+                if mime is not None:
+                    # utf-8+surrogateescape 通道在前（PT 解码主路径，
+                    # round-trip 双射=字节精确）；latin-1 兜底（errors=
+                    # latin-1/replace 之外的解码路径）。先命中先用。
+                    return self._register_image_attachment(raw, mime)
+
+        # ── 形态 B：单行路径 / file:// URI ──
+        stripped = data.strip().strip("'\"")
+        if stripped and "\n" not in stripped and len(stripped) <= 4096:
+            path_candidate = stripped
+            if _FILE_URI_RE.match(path_candidate):
+                try:
+                    from urllib.parse import unquote as _unquote, urlparse as _urlparse
+                    path_candidate = _unquote(_urlparse(path_candidate).path)
+                except Exception:  # noqa: BLE001 — URI 解析失败按普通文本
+                    path_candidate = ""
+            p = Path(path_candidate).expanduser()
+            try:
+                is_file = p.is_file()
+            except OSError:
+                # 文件名过长（>255）/ 权限拒绝等 —— 按非文件处理，
+                # 回退文本链（2026-10-01 测试揪出：长单行文本粘贴
+                # 走到这里抛 OSError 36，会炸掉整个折叠链）。
+                is_file = False
+            if is_file:
+                mime = self._sniff_image_file(p)
+                if mime is not None:
+                    try:
+                        return self._register_image_attachment(
+                            p.read_bytes(), mime
+                        )
+                    except OSError:
+                        return None  # 读文件失败 → 按普通文本粘贴
+
+        # ── 形态 C：base64 / data URI ──
+        if stripped.startswith("data:image/") and ";base64," in stripped:
+            b64_part = stripped.split(";base64,", 1)[1].split()[0]
+        elif data and "\n" not in data and len(data) > 512 and stripped == data:
+            # 无空白长单行——疑似裸 base64；解不开不伤（原链回退）
+            b64_part = data
+        else:
+            b64_part = ""
+        if b64_part:
+            try:
+                raw = base64.b64decode(b64_part, validate=True)
+            except Exception:  # noqa: BLE001 — 解码失败按普通文本
+                return None
+            mime = self._sniff_image_magic(raw)
+            if mime is not None:
+                return self._register_image_attachment(raw, mime)
+
+        return None
+
+    @staticmethod
+    def _sniff_image_file(p: Path) -> str | None:
+        """文件验真：PIL verify（强断言）优先，缺席时 magic 头兜底。"""
+        try:
+            from PIL import Image as _PILImage
+            with _PILImage.open(p) as im:  # noqa: SIM115 — 校验用，立即关
+                fmt = im.format
+                im.verify()
+            if fmt:
+                return f"image/{fmt.lower()}"
+        except ImportError:
+            pass  # 无 PIL → magic 兜底
+        except Exception:  # noqa: BLE001 — 损坏/伪装文件
+            return None
+        try:
+            with open(p, "rb") as f:
+                return FullTuiSession._sniff_image_magic(f.read(16))
+        except OSError:
+            return None
+
+    def _register_image_attachment(self, raw: bytes, mime: str) -> str:
+        """登记图片附件 + 输出窗回执。返回输入框占位符。"""
+        self._image_paste_count += 1
+        n = self.register_image_attachment(raw, mime)
+        fmt = mime.split("/")[-1].upper()
+        try:
+            self.append_output(
+                f"[图片 #{n} 已附着 · {fmt} · {len(raw) // 1024}KB]"
+                " 输入文字消息后随消息发送。\n"
+            )
+        except Exception:  # noqa: BLE001 — 回执失败不伤附件
+            pass
+        return _IMAGE_PLACEHOLDER_FMT.format(
+            n=n, fmt=fmt, kb=max(1, len(raw) // 1024)
+        )
 
     def _expand_placeholders(self, text: str) -> str:
         """提交前还原：buffer 文本中的占位符 → 登记的粘贴全文。
@@ -1409,6 +1565,175 @@ class FullTuiSession:
         self._follow_output = follow_now
         self._invalidate()
         return True
+
+    def replace_turn_styled_segmented(
+        self,
+        styled_lines: list[str],
+        spans_list: list[list[tuple[int, int, str]]],
+        expected_plain: list[str],
+        tool_trace: list[str],
+    ) -> bool:
+        """分段原位上色（2026-10-01）：工具轨迹行原位保留，正文段替换为样式行。
+
+        2026-10-01 10:02 FP_MISMATCH 事故：带工具调用轮次的窗内区段 =
+        正文行与工具轨迹行（空行 + "  [bash] …" + "✅ preview"）交错，
+        与 done.content 推导的整段指纹必失配 → 几乎所有真实轮都回退素字。
+        本方法按 tool_trace（repl_io 流式出口实写顺序快照）走查对齐：
+          - 窗内命中轨迹行 → 归工具段，原样保留（先来先服务，防同名误吞）；
+          - 其余窗内行须与期望指纹逐行一致（含空行容差）→ 归正文段，
+            按期望行号取 styled_lines/spans_list 对应行（_expected_window_lines
+            与渲染行号一一对应，构造保证）替换。
+
+        空行容差（两类不对称实证）：
+          - 窗内多出的空行：工具行前后导 \\n 的落窗产物，跳过；
+          - 期望多出的空行：P1 尾随空行缺陷 + content 尾 \\n 剥除不对称，跳过。
+        任一非空行失配 / 走查后存在未归类行 → 返回 False（一行不动），
+        调用方回退素字。构造上不可能误删：所有被替换字符都能在窗内原位找到。
+        """
+        if not tool_trace:
+            # 纯文本轮（无工具调用）：退化为整段比对语义
+            return self.replace_turn_styled(styled_lines, spans_list, expected_plain)
+        from lingclaude.cli.repl_io import _style_debug as _sd
+
+        with self._style_lock:
+            mark = self._stream_start_mark
+            self._stream_start_mark = -1
+        if mark < 0:
+            _sd("NO_MARK", "segmented: mark consumed or never set")
+            return False
+        with self._area_lock:
+            all_lines = self._out_buffer.text.split("\n") if self._out_buffer.text else []
+            if mark > len(all_lines):
+                _sd("MARK_CLIPPED", f"segmented: mark={mark} cur={len(all_lines)}")
+                return False
+            seg = all_lines[mark:]
+            E = [ln.rstrip() for ln in expected_plain]
+            S = [ln.rstrip() for ln in seg]
+            T = [ln.rstrip() for ln in tool_trace]
+            used: set[int] = set()
+
+            def _find_trace(j: int) -> int | None:
+                if j >= len(S):
+                    return None
+                for k, tl in enumerate(T):
+                    if k not in used and S[j] == tl:
+                        return k
+                return None
+
+            def _next_is_trace(j: int) -> bool:
+                return j < len(S) and _find_trace(j) is not None
+
+            plans: list[tuple[int, int, int, int]] = []  # (exp_s, exp_e, win_s, win_e)
+            i = j = 0
+            while i < len(E) or j < len(S):
+                if _next_is_trace(j):
+                    ws = j
+                    while _next_is_trace(j):
+                        used.add(_find_trace(j))  # type: ignore[arg-type]
+                        j += 1
+                    plans.append((-1, -1, ws, j))
+                    continue
+                if i >= len(E) or j >= len(S):
+                    break
+                # 窗内空行且下一窗行是轨迹行（轨迹边界产物）→ 吸收
+                if S[j] == "" and _next_is_trace(j + 1):
+                    j += 1
+                    continue
+                if S[j] == E[i]:
+                    es, ws = i, j
+                    while (
+                        i < len(E)
+                        and j < len(S)
+                        and S[j] == E[i]
+                        and not _next_is_trace(j + 1)
+                    ):
+                        i += 1
+                        j += 1
+                    if j == ws:
+                        # 零推进保护：下一行是轨迹行但当前行也须归入本段，
+                        # 否则外层 while 空转死循环（11:14 MemoryError 事故）
+                        i += 1
+                        j += 1
+                    plans.append((es, i, ws, j))
+                    continue
+                if S[j] == "" and E[i] != "":
+                    j += 1  # 窗内多余空行（工具行边界落窗产物）
+                    continue
+                if E[i] == "" and S[j] != "":
+                    i += 1  # 期望多余空行（P1 尾随空行缺陷/尾换行不对称）
+                    continue
+                _sd("FP_MISMATCH", f"segmented: at exp[{i}]={E[i]!r} win[{j}]={S[j]!r}")
+                return False
+            # 走查收尾：剩余期望必须全空行；剩余窗行必须是空行或未消耗轨迹行
+            if any(ln != "" for ln in E[i:]):
+                _sd("FP_MISMATCH", f"segmented: trailing exp[{i}:]={E[i:][:3]!r}")
+                return False
+            while j < len(S):
+                if S[j] == "":
+                    j += 1
+                    continue
+                k = _find_trace(j)
+                if k is not None:
+                    used.add(k)
+                    j += 1
+                    continue
+                _sd("FP_MISMATCH", f"segmented: trailing win[{j}]={S[j]!r}")
+                return False
+
+            text_plans = [p for p in plans if p[0] >= 0]
+            if not text_plans:
+                # 全是工具轨迹（正文为空）：无可替换，视为成功保持原样
+                return True
+            # 渲染增行可能超窗上限：超限直接放弃（保素字，不裁历史）
+            new_total = len(all_lines) + sum(
+                (p[1] - p[0]) - (p[3] - p[2]) for p in text_plans
+            )
+            if new_total > MAX_OUTPUT_LINES:
+                _sd("MARK_CLIPPED", f"segmented: would exceed cap {new_total}")
+                return False
+
+            # —— 组装：head 原样 + 段内逐行（轨迹行保留/正文行换样式版） ——
+            buf = self._out_buffer
+            new_seg_lines: list[str] = []
+            new_seg_styles: list[list[tuple[int, int, str]] | None] = []
+            j = 0
+            for es, ee, ws, we in text_plans:
+                while j < ws:
+                    new_seg_lines.append(seg[j])
+                    new_seg_styles.append(None)
+                    j += 1
+                for m in range(es, ee):
+                    new_seg_lines.append(styled_lines[m])
+                    new_seg_styles.append(spans_list[m] if m < len(spans_list) else None)
+                j = we
+            while j < len(seg):
+                new_seg_lines.append(seg[j])
+                new_seg_styles.append(None)
+                j += 1
+            new_lines = all_lines[:mark] + new_seg_lines
+            new_text = "\n".join(new_lines)
+            buf.set_document(Document(new_text, 0), bypass_readonly=True)
+            # 样式表重建：< mark 原样保留；段内按新行号落新样式（轨迹行无样式）
+            with self._style_lock:
+                new_map: dict[int, list[tuple[int, int, str]]] = {
+                    row: sp for row, sp in self._style_map.items() if row < mark
+                }
+                for idx, sp in enumerate(new_seg_styles):
+                    if sp:
+                        new_map[mark + idx] = sp
+                self._style_map = new_map
+            follow = self._follow_output
+            if follow or not new_text:
+                buf.cursor_position = len(new_text)
+            else:
+                row = buf.document.cursor_position_row
+                row = max(0, min(row, len(new_lines) - 1))
+                buf.cursor_position = buf.document.translate_row_col_to_index(row, 0)
+            follow_now = buf.document.is_cursor_at_the_end
+            self._follow_output = follow_now
+            self._invalidate()
+            return True
+
     def _write_via_buffer(self, s: str) -> None:
         if not s:
             return

@@ -214,6 +214,23 @@ def _expected_window_lines(content: str) -> list[str]:
 _OUTPUT_FORMAT = "plain"  # P0-2: plain | json | jsonl
 _json_event_buffer: list[dict[str, Any]] = []  # json 模式事件缓冲
 
+# 分段原位上色（2026-10-01）：带工具调用轮次的窗内区段 = 正文行与工具轨迹行
+# （空行 + "  [bash] cmd=… ... " + "✅ preview"）交错，与 done.content 推导的
+# 纯正文指纹整段比对必失配 → 回退素字（真实轮几乎全中，用户长期只见素字）。
+# 现按实写顺序记录本轮工具轨迹行，done 时窗内区段按轨迹逐行归类：轨迹行原样
+# 保留，正文行段与 rich 渲染段指纹比对后上色。env 关闭可退回整段旧行为。
+_turn_tool_trace: list[str] = []
+_turn_tool_trace_on = os.environ.get("LINGCLAUDE_SEG_STYLE", "1") != "0"
+
+
+def _trace_on() -> bool:
+    return _turn_tool_trace_on
+
+
+def _turn_trace_reset() -> None:
+    _turn_tool_trace.clear()
+    globals().pop("_turn_tool_prefix", None)
+
 # H19: bracketed paste 包裹标记（\x1b[200~ 开 / \x1b[201~ 闭）
 _PASTE_START = b"\x1b[200~"
 _PASTE_END = b"\x1b[201~"
@@ -481,6 +498,13 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 args_preview = str(parsed)[:60]
         except (json.JSONDecodeError, TypeError, AttributeError):
             args_preview = args[:60] if isinstance(args, str) else str(args)[:60]
+        # 分段上色轨迹（2026-10-01）：前导 \n 在窗内产生一个空行，随后是
+        # 未闭合的 "  [name] args ... "（tool_call_end 才补 ✅/❌ 收尾）。
+        # 按实写顺序记入轨迹，done 分段原位上色据此逐行归类。轨迹行一律
+        # rstrip 存储：窗内比对走 rstrip 归一，且 10:02 生产日志实证前缀行
+        # 与结果行在 drain 竞态下各落一行（不合并），轨迹照实分行记。
+        _turn_tool_trace.append("")
+        _turn_tool_trace.append(f"  [{name}] {args_preview} ...")
         _stream_write(f"\n  [{name}] {args_preview} ... ")
     elif etype == "tool_call_end":
         is_error = event.get("is_error", False)
@@ -496,8 +520,12 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 cols = 80
             preview = preview[:cols].replace("\n", " ")
             _stream_write(f"{mark} {preview}\n")
+            if _trace_on():
+                _turn_tool_trace.append(f"{mark} {preview}")
         else:
             _stream_write(f"{mark}\n")
+            if _trace_on():
+                _turn_tool_trace.append(mark)
     elif etype == "status":
         _flush_stream_line()
         _stream_write(f"\n  [{event.get('message', '')}] ")
@@ -585,8 +613,17 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 owner = getattr(proxy, "_owner", None)
                 _style_debug("PRE_REPLACE", f"owner={'yes' if owner is not None else 'no'} styled_lines={len(styled_lines)} spans={sum(1 for sp in spans_list if sp)}")
                 _exp = _expected_window_lines(content)
-                _ok = owner is not None and owner.replace_turn_styled(styled_lines, spans_list, _exp)
-                _style_debug("REPLACE_RESULT", f"ok={_ok}")
+                # 分段上色（2026-10-01）：带工具调用轮次窗内 = 正文+工具轨迹
+                # 交错，整段指纹必失配（当日 10:02 FP_MISMATCH 事故）。有轨迹
+                # 快照 → 分段法（轨迹行保留、正文段替换）；无 → 整段旧语义。
+                _trace = list(_turn_tool_trace) if _turn_tool_trace_on else []
+                if owner is not None and _trace:
+                    _ok = owner.replace_turn_styled_segmented(
+                        styled_lines, spans_list, _exp, _trace
+                    )
+                else:
+                    _ok = owner is not None and owner.replace_turn_styled(styled_lines, spans_list, _exp)
+                _style_debug("REPLACE_RESULT", f"ok={_ok} seg={bool(_trace)}")
                 if _ok:
                     pass  # 原位替换成功：窗内素字段已变彩色版，无需追加
                 else:
