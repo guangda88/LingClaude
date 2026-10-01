@@ -82,21 +82,119 @@ def _is_table_row(line: str, policy: dict[str, Any] | None = None) -> bool:
     return len(s) > 1 and s.startswith(p["row_prefix"]) and s.endswith(p["row_suffix"])
 
 
+def _table_grid(rows: list[str]) -> list[list[str]]:
+    """`|`行 → cells（去首尾空部件）。_pad_table_block 与 _defuse_wide_tables 共用。"""
+    grid: list[list[str]] = []
+    for line in rows:
+        s = line.strip()
+        grid.append([c.strip() for c in s[1:-1].split("|")])
+    return grid
+
+
+def _is_sep_cell(c: str) -> bool:
+    """markdown 表分隔单元格：---、:---:、---: 等。"""
+    return bool(c) and set(c) <= set("-: ")
+
+
+def _render_max_width() -> int:
+    """窗内可用渲染宽度（2026-10-01 宽表错乱修复）。
+
+    输出窗右侧有滚动条(1列)+余量(1列)，富文本渲染宽度若取全终端宽，
+    宽表格行必超出窗实宽 → prompt_toolkit 二次软折 → 边框全错位。
+    统一 -2；非 TTY 回落 78。rich 渲染与流式 plain 表格共用此值。
+    """
+    import shutil
+    import sys
+
+    try:
+        cols = shutil.get_terminal_size().columns or 80
+    except Exception:  # noqa: BLE001
+        cols = 80
+    return max(60, cols - 2) if sys.stdout.isatty() else 78
+
+
+def _stack_table_block(grid: list[list[str]]) -> list[str]:
+    """宽表堆叠降级：每行一条记录，其余列变「列名: 值」缩进列表。
+
+    宽表（列宽总和超窗）无论 rich 画框还是 plain 补白，单行都超窗宽
+    → 窗内二次软折 → 边框/竖线全错位（2026-10-01 用户实报）。堆叠行
+    无横向对齐结构，软折只影响文本自身，永不错乱；内容零丢失。
+    """
+    headers = grid[0] if grid else []
+    out: list[str] = []
+    for r in grid[1:]:
+        cells = [r[i] if i < len(r) else "" for i in range(len(headers))]
+        # 分隔行（| --- |---| 形态）是结构噪音，堆叠格式里跳过
+        if cells and all(c == "" or _is_sep_cell(c) for c in cells):
+            continue
+        head = cells[0] if cells else ""
+        out.append(f"- {head}" if head else "-")
+        for name, val in zip(headers[1:], cells[1:]):
+            if val:
+                out.append(f"  - {name}: {val}" if name else f"  - {val}")
+    return out
+
+
+def _table_grid_width(grid: list[list[str]]) -> int:
+    """按 _pad_table_block 同口径估算补白后总宽（含分隔符开销）。"""
+    ncols = max((len(r) for r in grid), default=0)
+    widths = [0] * ncols
+    for r in grid:
+        for i in range(min(len(r), ncols)):
+            widths[i] = max(widths[i], _disp_w(r[i]))
+    return sum(widths) + 3 * ncols + 2 if ncols else 0
+
+
+def _defuse_one_table(buf: list[str]) -> list[str]:
+    """单表判定：宽表(≥2列且总宽超限)转堆叠，窄表原样。"""
+    grid = _table_grid(buf)
+    ncols = max((len(r) for r in grid), default=0)
+    if ncols >= 2 and _table_grid_width(grid) > _render_max_width():
+        return _stack_table_block(grid)
+    return buf
+
+
+def _defuse_wide_tables(text: str) -> str:
+    """rich 渲染前宽表转堆叠（2026-10-01 宽表错乱修复）。
+
+    rich Table 列有最小宽，CJK 长句无空格导致列宽压不下去：实测 5 列
+    宽表在 width=118 的 console 下输出 max=289 显示宽（超 144%），进窗
+    二次软折 → 边框全错位。唯一可靠治法是不让宽表走表格布局：切列实测
+    总宽超限（与 _pad_table_block 同口径同限宽）→ markdown 源改写为堆
+    叠列表。窄表原样保留（边框视觉价值高）。
+    """
+    lines = text.split("\n")
+    out: list[str] = []
+    buf: list[str] = []
+    for ln in lines:
+        if _is_table_row(ln):
+            buf.append(ln)
+            continue
+        if buf:
+            out.extend(_defuse_one_table(buf))
+            buf = []
+        out.append(ln)
+    if buf:
+        out.extend(_defuse_one_table(buf))
+    return "\n".join(out)
+
+
 def _pad_table_block(rows: list[str], policy: dict[str, Any]) -> list[str]:
     """表格块按显示列重排补白，返回成品行。
 
     2026-09-30 从 _flush_table_buf 抽出：落窗（流式路径）与指纹
     （_expected_window_lines）共用同一实现——两套各写一遍必然漂移，
     漂移即指纹恒失配、原位上色静默回退（当日已复现的事故）。
+    2026-10-01 宽表错乱修复：列宽总和超 _render_max_width() 的表
+    （≥2列）改堆叠降级（_stack_table_block），落窗与指纹同走此分支
+    保持同构。单列表无对齐意义，不参与。
     """
     pad_char = policy["pad_char"]
-    # 切列：strip 后去首尾部件，按内部分隔切
-    grid: list[list[str]] = []
-    for line in rows:
-        s = line.strip()
-        cells = [c.strip() for c in s[1:-1].split("|")]
-        grid.append(cells)
+    # 切列：strip 后去首尾部件，按内部分隔切（与 _defuse_wide_tables 共用）
+    grid = _table_grid(rows)
     ncols = max(len(r) for r in grid)
+    if ncols >= 2 and _table_grid_width(grid) > _render_max_width():
+        return _stack_table_block(grid)
     widths = [policy["min_col_width"]] * ncols
     for r in grid:
         for i in range(min(len(r), ncols)):
@@ -215,9 +313,9 @@ def render_markdown_lines(text: str) -> tuple[list[str], list[list[tuple[int, in
         }
     )
     buf = StringIO()
-    cols = max(60, (shutil.get_terminal_size().columns or 80))
+    cols = _render_max_width()
     ansi_console = Console(file=buf, force_terminal=True, width=cols, theme=_heading_theme)
-    ansi_console.print(Markdown(text))
+    ansi_console.print(Markdown(_defuse_wide_tables(text)))
     styled_lines: list[str] = []
     spans_list: list[list[tuple[int, int, str]]] = []
     from lingclaude.cli.interface import _extract_sgr_styles
@@ -644,7 +742,7 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 from lingclaude.cli.interface import _extract_sgr_styles
 
                 buf = StringIO()
-                cols = max(60, (shutil.get_terminal_size().columns or 80))
+                cols = _render_max_width()
                 # 2026-10-01 标题醒目化：rich Markdown 默认标题只加粗无前景色，
                 # 用户的深色终端上 bold 渲染不亮时标题与正文糊成一片。挂自定义
                 # Theme 给标题明亮的白名单内前景色（SGR 90-97），对比度远强于
@@ -668,7 +766,7 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 )
                 from rich.markdown import Markdown
 
-                ansi_console.print(Markdown(content))
+                ansi_console.print(Markdown(_defuse_wide_tables(content)))
                 ansi_text = buf.getvalue()
                 styled_lines: list[str] = []
                 spans_list: list[list[tuple[int, int, str]]] = []
