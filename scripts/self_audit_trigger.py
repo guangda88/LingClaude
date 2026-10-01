@@ -248,7 +248,8 @@ def main() -> int:
     args = ap.parse_args()
     if args.tasks:
         for slug, rec in open_tasks():
-            print(f"{rec['severity']}  {slug}: {rec['finding']}")
+            finding = rec.get("finding") or rec.get("reason") or rec.get("title") or "(无 finding 字段)"
+            print(f"{rec.get('severity', '?')}  {slug}: {finding}")
         return 0
     return run_audit(force=args.force)
 
