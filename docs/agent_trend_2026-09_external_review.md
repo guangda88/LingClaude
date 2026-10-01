@@ -67,3 +67,47 @@
 5. **P2 建议3**（执行域对象化）：与 SeamRegistry 演进合并做。
 
 > 附：四份原始答案中各家独有亮点（未入正文但值得留档）——cc 的 hash chain 台账与中断闩锁；codex 的成员级短时令牌 TTL 设计；crush 的 Duty State 生命周期与"自动档泛化"警告（不得牺牲发送三验）；opencode 的 risk_table.json 查表实现路径（crush.json hook 配置）。
+
+## 六、对账附录（2026-10-02，源码取证）
+
+> 方法：`git log`（最近 14 提交）+ `lingclaude/` 源码 grep 逐项核验"趋势清单"落地状态；台账 5 条入册任务（`scripts/self_audit_trigger.py --tasks`）单独对账。证据=文件:行或 commit，✅已验证(本轮)。
+
+### 6.1 台账 5 条任务对账
+
+| 入册任务 | 状态 | 证据 |
+|---|---|---|
+| **P1 credential_handle**（凭证句柄化） | ✅ **PASS 销账** | vault.py（SQLite+AES-256-GCM，根密钥三链 env→keyring/secretstorage→0600）；factory.py:127 `_key_store_get` 走 ling_lib→vault 兜底、密钥名以句柄传递；`tests/test_vault.py` 24 passed（2026-10-02 实测）；env 收窄 helper `27a82d1` 接入三族 |
+| P1 policy_tier_engine（四档策略引擎） | ✅ **PASS 销账**（复核修正，原判「⚠ 未动工」系漏检） | `29f8132`（10-01 07:35）：`lingclaude/core/policies/tool_auth_policy.yaml` 四档矩阵（auto/pre_approve/ask/block × 工具正则）+ `lingclaude/core/tool_auth_hook.py:203` check_tool_call PreToolUse；台账 `data/arch_ledger/tool_auth_20261002.jsonl` 在产（最新裁决 2026-10-02T00:17:37） |
+| P2 routine_registry_duty_state | ❌ 未动 | 代码无 routine/duty_state（grep 零命中）；SDT/cron 雏形仍散在 AGENTS.md 表 |
+| P2 memory_supersede_chain | ❌ 未动 | 无 supersede/prev_digest；但 `l7_cognitive.py` 语义记忆检索已存在（清单原标"❌"不准确） |
+| P2 execution_domain_capability | ⚠ 部分 | BwrapSandboxProvider 已守 J2（`aa703ed`），目录级细粒度权限对象未做 |
+
+### 6.2 趋势清单逐项（原始清单 ❌/⚠ 项的刷新）
+
+**清单原标 ❌、实际已消化（最近 48h 新提交）：**
+- **Checkpoint/Rewind（文件级）** ✅ — `e494d87` write_scoped 前快照 + `8c83f50` /undo 命令（原清单"❌ lc 无"已过时）
+- **Session SQLite 索引** ✅ — `4cb7a2b` list_sessions/--continue O(1)（blob 仍 json，六库分立未做）
+- **凭证分层/credential-leak block** ✅ — 见 6.1（vault 三提交覆盖）
+- **Agent 声明化 + 热更** ✅ — `plugins/agents/*` + `hot_reload_trigger.py:50`；guangda-twin 已按此分发
+- **Skill 目录/SKILL.md** ✅ — `5efdf00` skill_parser/skill_index/skill_tools；AGENTS.md 兼容引用见 skill_parser:181
+- **model 档位** ✅ — `5484182` fast/standard/strong 三档 + 高幻觉升级强档
+- **manifest 签名校验** ✅ — `lacp/marketplace.py:84` verify_signature（治理面比清单预期厚）
+- **语义记忆检索** ✅ — l7_cognitive.py CognitiveMemory
+
+**仍部分/未做（剩余高价值收敛为三件套）：**
+- **Hook 生命周期**：pre_tool 有（tool_auth_hook），after_edit/post_response 缺 → 与四档引擎合做
+- **marketplace blocklist/install_scope**：缺 → 可并入四档策略表，不必独立分发体系
+- **记忆 supersede 链 + auto-notes + Projects 层**：缺 → 自托管"用户主权"差异化卖点
+- **多端任务同步**：webUI LAN/ZeroTier 已通（门户），任务状态跨端续接语义缺
+- **目录级细粒度沙箱**：Bwrap 在，目录级规则缺
+
+**建议不做/缓做（本轮裁定）：**
+- OTel（journals 已是可观测面，避免双份账）；computer use（外部 MCP 已覆盖）；六库分立（sqlite 索引已够，blob 迁移收益低）；model-harness 联合训练（自托管无法闭环，可做的低成本版=journals 失败轨迹→评测集，远期）；C 端独立身份全家桶（维持 4/4 共识否定）。
+
+### 6.3 一句话
+
+原始清单约**半数已被 lc 实际消化**（其中 Checkpoint/Rewind、vault、skill 目录三项是 09-28 后 48 小时内的新提交，清单快照已过时）；剩余高价值项收敛为**「四档策略引擎 + Hook 扩展 + 记忆可纠正」三件套**，四档引擎与既有 risk_level 胚子合并动工即可。
+
+---
+
+> **修正记录（lingclaude 复核 2026-10-02）**：本附录 §6.1 原判「policy_tier_engine ⚠ 未动工」有误——经源码复核，四档策略引擎已于 `29f8132`（10-01 07:35）完整落库（policy yaml 四档矩阵 + check_tool_call PreToolUse + 台账在产），系对账时漏检所致，已改判 PASS 销账。另一处口径修正：§6.1 skill 目录（`5efdf00`）与语义记忆（`l7_cognitive.py`）在原始清单中标注 ❌，亦属快照过时，非本轮新做。由此，三件套的实际开工形态为：① Hook 生命周期**扩展**（四档引擎已在，补 after_edit/post_response 注入点 + 哨兵注册制）而非新建；② 会话预算线；③ 记忆 supersede 链 + per-project memory。
