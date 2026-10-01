@@ -122,7 +122,8 @@ def _flush_table_buf() -> None:
     _table_buf = []
     for ln in _pad_table_block(rows, p):
         _stream_write(ln + "\n")
-        globals()["_stream_lines_emitted"] += 1
+        globals()["_stream_lines_emitted"] = globals()["_stream_lines_emitted"] + 1
+        _ledger_append("body", ln)
 
 
 # _StdoutProxy 超长半行强制断行阈值（full_tui._frag > 4096 即 flush，
@@ -265,9 +266,39 @@ def _trace_on() -> bool:
     return _turn_tool_trace_on
 
 
+# 原位上色台账（2026-10-01 第三代定位）：流式期实录每一行实际写入——
+# (kind, line)，kind ∈ {"body","tool"}（空行按写入者归类）。done 时与
+# 输出窗**尾部**做后缀对齐：对上才替换正文段，对不上静默不动窗。
+# 取代「绝对行号 mark + done.content 猜测式指纹」——生产日志实证
+# （tui_style_debug.log 12:03 FP_MISMATCH）：粘贴回执 / resync 重绘 /
+# 标记误消费会让 mark 指向陈旧区段，从错误起点整段比对必然失配，
+# 用户长期只见素字。台账尾部天然对应窗尾，无起点漂移问题。
+_turn_ledger: list[tuple[str, str]] = []
+# 同轮重复 done 守卫：第二次起的同 content done 不再补空行/重复替换
+_last_done_content: str = ""
+# tool_call_start 暂存前缀（tool_call_end 合并成窗内单行后记台账）
+_turn_pending_tool: str = ""
+
+
 def _turn_trace_reset() -> None:
+    """轮次起点清台（set_streaming False→True 与 repl 流循环双保险调用）。
+
+    _last_done_content 一并清：重复 done 守卫的生命周期=单轮流式期，
+    跨轮相同内容（重复提问）是合法新轮，不得误杀。
+    """
+    global _last_done_content, _turn_pending_tool
     _turn_tool_trace.clear()
-    globals().pop("_turn_tool_prefix", None)
+    _turn_ledger.clear()
+    _last_done_content = ""
+    _turn_pending_tool = ""
+
+
+def _ledger_append(kind: str, line: str) -> None:
+    """台账追加（rstrip 归一，与窗内比对口径一致）；异常静默——不反噬输出链。"""
+    try:
+        _turn_ledger.append((kind, line.rstrip()))
+    except Exception:  # noqa: BLE001 — 诊断增强路径绝不反噬
+        pass
 
 # H19: bracketed paste 包裹标记（\x1b[200~ 开 / \x1b[201~ 闭）
 _PASTE_START = b"\x1b[200~"
@@ -464,13 +495,15 @@ def _flush_stream_line() -> None:
         text = "".join(_stream_line_buf)
         _stream_line_buf.clear()
         _stream_write(text + "\n")
-        globals()["_stream_lines_emitted"] += 1
+        globals()["_stream_lines_emitted"] = globals()["_stream_lines_emitted"] + 1
+        _ledger_append("body", text)
     # 表格块随 flush 点强制输出（tool_call/done/error 打断表块时兜底）
     if _table_buf:
         _flush_table_buf()
 
 
 def _handle_stream_event(event: dict[str, Any]) -> None:
+    global _turn_pending_tool, _last_done_content
     # P0-行缓冲:流式 delta 按行聚合,只在行边界输出 — 根治半截表格行与
     # 多写入者交错导致的"空格逐行累加"错位(对齐 atomcode UiLine 语义行)。
     etype = event.get("type")
@@ -513,6 +546,7 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 _flush_table_buf()
             _stream_write(line + "\n")
             globals()["_stream_lines_emitted"] += 1
+            _ledger_append("body", line)
         if pending:
             # E13 外置（2026-09-30）：上限走 tuning.stream_line_buf_max（钳位
             # [1KiB, 1MiB]），代码常量只兜底
@@ -543,6 +577,10 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         # 与结果行在 drain 竞态下各落一行（不合并），轨迹照实分行记。
         _turn_tool_trace.append("")
         _turn_tool_trace.append(f"  [{name}] {args_preview} ...")
+        # 台账（2026-10-01 第三代定位）：照实分行——窗内（_StdoutProxy drain
+        # 语义，10:02 事故实证）前缀行与结果行各落一行不合并，台账分行记
+        _ledger_append("tool", "")
+        _ledger_append("tool", f"  [{name}] {args_preview} ...")
         _stream_write(f"\n  [{name}] {args_preview} ... ")
     elif etype == "tool_call_end":
         is_error = event.get("is_error", False)
@@ -560,13 +598,19 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
             _stream_write(f"{mark} {preview}\n")
             if _trace_on():
                 _turn_tool_trace.append(f"{mark} {preview}")
+            _ledger_append("tool", f"{mark} {preview}")
+            _turn_pending_tool = ""
         else:
             _stream_write(f"{mark}\n")
             if _trace_on():
                 _turn_tool_trace.append(mark)
+            _ledger_append("tool", mark)
+            _turn_pending_tool = ""
     elif etype == "status":
         _flush_stream_line()
         _stream_write(f"\n  [{event.get('message', '')}] ")
+        _ledger_append("tool", "")
+        _ledger_append("tool", f"  [{event.get('message', '')}] ")
     elif etype == "done":
         _flush_stream_line()
         # P0-完成渲染:TTY 下擦除裸文本行,用 rich Markdown 重渲染正式版
@@ -576,6 +620,13 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         # 新策略:TTY 下不再用 ANSI cursor 操作(保留 raw stream 输出),改用 Rich 的
         # `erase + replace` 在底部追加正式版,而非覆盖——避免与 PT 的 toolbar 控制权冲突。
         content = event.get("content", "")
+        # 同轮重复 done 守卫（2026-10-01）：同 content 的 done 第二次到达
+        # 直接素字收尾——生产日志实证重复 done 会二次消费标记/重复补空行
+        if content and content == _last_done_content:
+            _stream_write("\n\n")
+            globals()["_stream_lines_emitted"] = 0
+            return
+        _last_done_content = content
         # 乱码第四路径守卫：全屏 TUI 下输出窗已有流式全文，rich 重渲染经
         # stderr 直达终端（绕开 stdout 全部清洗）→ 跳过，只补空行收尾。
         # 2026-09-22 双输出修复：纯文本模式（默认）下流式 delta 已把全文
@@ -651,16 +702,22 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                 owner = getattr(proxy, "_owner", None)
                 _style_debug("PRE_REPLACE", f"owner={'yes' if owner is not None else 'no'} styled_lines={len(styled_lines)} spans={sum(1 for sp in spans_list if sp)}")
                 _exp = _expected_window_lines(content)
-                # 分段上色（2026-10-01）：带工具调用轮次窗内 = 正文+工具轨迹
-                # 交错，整段指纹必失配（当日 10:02 FP_MISMATCH 事故）。有轨迹
-                # 快照 → 分段法（每个正文段单独过 rich，避免整篇渲染折行
-                # 错位串色）；无 → 整段旧语义（整篇渲染）。
-                _trace = list(_turn_tool_trace) if _turn_tool_trace_on else []
-                if owner is not None and _trace:
-                    _ok = owner.replace_turn_styled_segmented(content, _exp, _trace)
+                # 台账窗尾对齐（2026-10-01 第三代定位）：取代绝对行号 mark +
+                # done.content 整段指纹——生产日志实证 mark 会被粘贴回执/
+                # resync 重绘/重复 done 漂移到陈旧区段，整段比对必失配。
+                # 台账按流式实写行打点，从窗尾锚定，天然免疫起点漂移。
+                # 台账空（无写入或全被裁）→ 整段旧语义。
+                # 快照后立即清（2026-10-01）：台账生命周期=单轮流式期，
+                # done 消费即终结——不清则残留行污染下一轮快照（跨轮
+                # 累积 → 台账比窗长 → LEDGER_TOO_LONG 恒拒，测试批次实证）。
+                _ledger = list(_turn_ledger)
+                _turn_ledger.clear()
+                _turn_pending_tool = ""
+                if owner is not None and _ledger:
+                    _ok = owner.replace_turn_styled_from_ledger(_ledger, content)
                 else:
                     _ok = owner is not None and owner.replace_turn_styled(styled_lines, spans_list, _exp)
-                _style_debug("REPLACE_RESULT", f"ok={_ok} seg={bool(_trace)}")
+                _style_debug("REPLACE_RESULT", f"ok={_ok} ledger={len(_ledger)}")
                 if _ok:
                     pass  # 原位替换成功：窗内素字段已变彩色版，无需追加
                 else:

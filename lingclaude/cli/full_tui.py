@@ -1752,6 +1752,154 @@ class FullTuiSession:
             self._invalidate()
             return True
 
+    def replace_turn_styled_from_ledger(
+        self,
+        ledger: list[tuple[str, str]],
+        content: str,
+    ) -> bool:
+        """台账窗尾对齐原位上色（2026-10-01 第三代定位）。
+
+        台账 = 流式期实写行 (kind,line) 快照（repl_io 侧逐出口打点）。
+        对齐方式：**从窗尾向上找台账首行锚点**，向下逐行校验到窗尾，全对
+        上才替换——不依赖绝对行号，粘贴回执/resync 重绘/mark 漂移免疫。
+        对不上 → False，调用方静默回退（内容已在窗内，不丢）。
+
+        成功时：工具行原样保留，正文段按台账行号从 content 切片单独过
+        rich 渲染整段替换（折行互不影响）。
+        """
+        from lingclaude.cli.repl_io import _style_debug as _sd
+        from lingclaude.cli.repl_io import render_markdown_lines
+
+        with self._style_lock:
+            self._stream_start_mark = -1
+        with self._area_lock:
+            all_lines = (
+                self._out_buffer.text.split("\n") if self._out_buffer.text else []
+            )
+            if not ledger:
+                return False
+            if len(ledger) > len(all_lines):
+                _sd("LEDGER_TOO_LONG", f"ledger={len(ledger)} win={len(all_lines)}")
+                return False
+            W = [ln.rstrip() for ln in all_lines]
+            L = ledger
+            n = len(L)
+            anchors = [
+                x for x in range(len(W) - n, -1, -1) if W[x] == L[0][1]
+            ]
+            if not anchors:
+                _sd(
+                    "LEDGER_NO_ANCHOR",
+                    f"L0={L[0][1][:80]!r} win_tail={[t[:60] for t in W[-3:]]!r}",
+                )
+                return False
+            for start in anchors:
+                if not all(W[start + t] == L[t][1] for t in range(1, n)):
+                    continue
+                # —— 校验通过：台账 → 正文段计划 ——
+                # (content_s, content_e含, t_s, t_e含)：t 是台账槽位（工具条目
+                # 占槽 → t ≠ content 行号），ci 单独计数正文行。
+                plans: list[list[int]] = []
+                cur: list[int] | None = None
+                ci = 0
+                for t, (kind, _ln) in enumerate(L):
+                    if kind == "tool":
+                        cur = None
+                        continue
+                    if cur is None:
+                        cur = [ci, ci, t, t]
+                        plans.append(cur)
+                    else:
+                        cur[1] = ci
+                        cur[3] = t
+                    ci += 1
+                return self._apply_ledger_plans_locked(
+                    start, plans, L, W, all_lines, content, render_markdown_lines
+                )
+            _sd(
+                "LEDGER_MISMATCH",
+                f"L_head={[(k, ln[:40]) for k, ln in L[:3]]!r} "
+                f"win_tail={[t[:40] for t in W[-3:]]!r}",
+            )
+            return False
+
+    def _apply_ledger_plans_locked(
+        self,
+        start: int,
+        plans: list[list[int]],
+        L: list[tuple[str, str]],
+        W: list[str],
+        all_lines: list[str],
+        content: str,
+        render_markdown_lines: Any,
+    ) -> bool:
+        """台账计划执行（须持 _area_lock）：按段渲染替换正文段，工具行原样。"""
+        from lingclaude.cli.repl_io import _style_debug as _sd
+
+        new_seg_lines: list[str] = []
+        new_seg_styles: list[list[tuple[int, int, str]] | None] = []
+        t_cursor = 0
+        for cs, ce, ts, te in plans:
+            # 段前的工具行（含边界空行）原样拷贝
+            while t_cursor < ts:
+                new_seg_lines.append(W[start + t_cursor])
+                new_seg_styles.append(None)
+                t_cursor += 1
+            # 正文段：content 行 [cs, ce]（含端点，ci 计数不含工具槽位），
+            # 整段单独渲染（rich 折行互不影响）。
+            try:
+                src_lines = content.split("\n")
+                if src_lines and src_lines[-1] == "":
+                    src_lines.pop()
+                src_text = "\n".join(src_lines[cs : ce + 1])
+                seg_lines, seg_spans = render_markdown_lines(src_text)
+                while seg_lines and seg_lines[-1] == "":
+                    seg_lines.pop()
+                    seg_spans.pop()
+                while seg_lines and seg_lines[0] == "":
+                    seg_lines.pop(0)
+                    seg_spans.pop(0)
+            except Exception as _r_err:  # noqa: BLE001 — 段渲染失败整轮保素字
+                _sd("EXCEPTION", f"ledger render: {type(_r_err).__name__}: {_r_err}")
+                return False
+            for ln, sp in zip(seg_lines, seg_spans):
+                new_seg_lines.append(ln)
+                new_seg_styles.append(sp if sp else None)
+            t_cursor = te + 1
+        # 段后残留（尾部工具行/空行）原样保留
+        while t_cursor < len(L):
+            new_seg_lines.append(W[start + t_cursor])
+            new_seg_styles.append(None)
+            t_cursor += 1
+        if not plans and L and L[-1][0] == "tool":
+            # 纯工具收尾（无正文段）：补一个空行分隔（对齐素字路径 \n\n 视觉）
+            new_seg_lines.append("")
+            new_seg_styles.append(None)
+        new_lines = all_lines[:start] + new_seg_lines
+        new_text = "\n".join(new_lines)
+        self._out_buffer.set_document(Document(new_text, 0), bypass_readonly=True)
+        with self._style_lock:
+            new_map: dict[int, list[tuple[int, int, str]]] = {
+                row: sp for row, sp in self._style_map.items() if row < start
+            }
+            for idx, sp in enumerate(new_seg_styles):
+                if sp:
+                    new_map[start + idx] = sp
+            self._style_map = new_map
+        follow = self._follow_output
+        if follow or not new_text:
+            self._out_buffer.cursor_position = len(new_text)
+        else:
+            row = self._out_buffer.document.cursor_position_row
+            row = max(0, min(row, len(new_lines) - 1))
+            self._out_buffer.cursor_position = (
+                self._out_buffer.document.translate_row_col_to_index(row, 0)
+            )
+        follow_now = self._out_buffer.document.is_cursor_at_the_end
+        self._follow_output = follow_now
+        self._invalidate()
+        return True
+
     def _write_via_buffer(self, s: str) -> None:
         if not s:
             return
@@ -1834,6 +1982,16 @@ class FullTuiSession:
         self._streaming = streaming
         if streaming and not was:
             self._stream_start_mark = self.mark_stream_start()
+            # 台账同步清台（2026-10-01）：台账生命周期锚定轮次起点，与
+            # mark 同源——防上轮无 done 收尾（error/打断路径）时残留行
+            # 跨轮累积（批次测试实证：LEDGER_TOO_LONG 恒拒 → 上色回退）。
+            # repl 流循环入口另有双保险清台（repl.py 每轮 reset）。
+            try:
+                from lingclaude.cli.repl_io import _turn_trace_reset
+
+                _turn_trace_reset()
+            except Exception:  # noqa: BLE001 — 清台失败不阻断流启动
+                pass
 
     def prompt(self, message: str = "") -> str:
         """阻塞取一条已提交输入；EOF 哨兵抛 EOFError；空闲 Ctrl+C 返回 ""。
