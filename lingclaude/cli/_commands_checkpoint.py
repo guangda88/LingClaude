@@ -45,6 +45,8 @@ SLASH_COMPLETER_WORDS = [
     "/openrouter",
     # 2026-09-20: P3 全量重绘输出窗（atomcode invalidate 借鉴）
     "/resync",
+    # M1-c (2026-10-01): 文件级 rewind——工具写入快照回滚（与 /rewind 会话级互补）
+    "/undo",
 ]
 
 
@@ -88,6 +90,43 @@ class SlashCommandCheckpointMixin:
             print("[无可恢复任务] 当前会话没有中断 checkpoint")
         else:
             print(f"[恢复失败] {result.error}")
+
+    def _cmd_undo(self, arg: str) -> None:
+        """M1-c (2026-10-01): 文件级 rewind——/undo [序号|path]。
+
+        无参 = 列出最近工具写入快照（file_history source="tool_write"）；
+        带序号或路径 = 回滚该文件到快照时的内容（tombstone 记录回滚即删除
+        工具新建的文件）。与 /rewind（会话级消息回滚）互补：一个回文件，
+        一个回对话。
+        """
+        from lingclaude.core.file_history import list_changes, rollback_source
+
+        arg = arg.strip()
+        records = list_changes(source="tool_write", limit=20)
+        if not records:
+            print("[undo] 没有工具写入快照（write/edit 等工具执行前会自动留档）")
+            return
+        if not arg:
+            print(f"[undo] 最近 {len(records)} 条工具写入快照（最新在前）：")
+            for i, r in enumerate(records):
+                existed = "改" if r.get("existed") else "新建"
+                pruned = " (快照已清理)" if r.get("pruned") else ""
+                print(f"  [{i}] {existed} {r.get('original')}  {r.get('ts', '')[:19]}{pruned}")
+            print("[用法] /undo <序号> 或 /undo <文件路径> 回滚该文件")
+            return
+        target_path: str | None = None
+        if arg.isdigit():
+            idx = int(arg)
+            if not (0 <= idx < len(records)):
+                print(f"[undo] 序号越界：{idx}（共 {len(records)} 条，0-based）")
+                return
+            target_path = records[idx].get("original")
+        else:
+            target_path = arg
+        if target_path and rollback_source(target_path, source="tool_write"):
+            print(f"[已回滚] {target_path}（/undo 消费式回滚：每条快照只回一次）")
+        else:
+            print(f"[回滚失败] {target_path} 无可用快照（可能已回滚过或快照被清理）")
 
     def _cmd_rewind(self, arg: str) -> None:
         engine = self.engine

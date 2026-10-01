@@ -745,6 +745,7 @@ _register("/lsp", "_cmd_lsp", "LSP 服务器注册/删除/握手检查：/lsp ad
 _register("/checkpoint", "_cmd_checkpoint", "手动保存 checkpoint")
 _register("/recover", "_cmd_recover", "恢复最近中断的工具轮 checkpoint")
 _register("/rewind", "_cmd_rewind", "列出/回滚到历史 checkpoint 快照")
+_register("/undo", "_cmd_undo", "回滚工具写入的文件（文件级 rewind，M1）")
 _register("/fork", "_cmd_fork", "分叉当前会话（rollout 不可变分叉）")
 _register("/share", "_cmd_share", "自包含导出当前会话副本（JSONL，redact 已过）")
 _register("/resume", "_cmd_resume_adapted", "恢复指定会话；不带 ID 列出全部")
