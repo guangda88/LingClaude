@@ -540,9 +540,22 @@ def run_stream_call_model_loop(
             yield {"type": "text_delta", "text": _INCOMPLETE_TAG}
 
         if not round_tool_calls:
-            content = (
-                continuation_buffer + "\n" + round_content
-                if continuation_buffer else round_content
+            # M-A 修复（2026-10-01，tui_style_debug.log 16:34/18:28/19:13
+            # FP_MISMATCH 实证）：工具轮的前段文本此前从未进入正常收尾
+            # —— response_content 只被 loop-abort（:669）与超轮次（:707）
+            # 路径消费，done.content 恒缺开头段（用户长期只见素字），
+            # 且 _finalize_turn 落库的会话历史同样残缺。
+            # 统一语义：终轮收尾聚合三源（各自已含完整轮次文本，去空拼接，
+            # 天然幂等）——
+            #   response_content    工具轮累计文本（:685 逐轮并入）
+            #   continuation_buffer 截断续写段（终轮完成时仍未入账，:518
+            #                       只在「本轮也截断继续」时自增）
+            #   round_content       终轮文本
+            # 快速路径：纯单轮=[RC]；工具+终轮=[RC1,RC2]；截断续写=
+            # [buffer,RCn]（与旧行为等价）；工具+截断混合=[RCt,buffer,RCn]
+            # （旧行为丢 RCt，本实现严格更全）。
+            content = "\n".join(
+                p for p in (response_content, continuation_buffer, round_content) if p
             )
             if engine.hooks.should_hallucination_correct(prompt, used_tools, messages):
                 yield {"type": "status", "message": "幻觉闭环修正中..."}

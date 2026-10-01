@@ -658,7 +658,14 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
         # 语义，10:02 事故实证）前缀行与结果行各落一行不合并，台账分行记
         _ledger_append("tool", "")
         _ledger_append("tool", f"  [{name}] {args_preview} ...")
-        _stream_write(f"\n  [{name}] {args_preview} ... ")
+        # M-B 修复（2026-10-01 22:37 LEDGER_MISMATCH 实证）：前缀行直写
+        # 不带 \n 时是否与结果行合一行取决于 StdoutProxy 200ms 批量 drain
+        # 的时序（竞态）——测试同步驱动恒分行（全绿假象），生产 22:22 赶上
+        # 分行 ok=True、22:37 赶上合并必败。前缀行自带换行闭行后窗内
+        # **确定性两行**（前缀行/结果行），台账照记两行，逐行校验不再
+        # 依赖时序。视觉上「[bash] …」与 ✅ 各占一行（此前合并时同行的
+        # 紧凑观感放弃，确定性优先）。
+        _stream_write(f"\n  [{name}] {args_preview} ...\n")
     elif etype == "tool_call_end":
         is_error = event.get("is_error", False)
         preview = event.get("output_preview", "")
@@ -685,7 +692,8 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
             _turn_pending_tool = ""
     elif etype == "status":
         _flush_stream_line()
-        _stream_write(f"\n  [{event.get('message', '')}] ")
+        # M-B 同源修复：status 前缀行同样闭行（合并竞态与 tool_call_start 同理）
+        _stream_write(f"\n  [{event.get('message', '')}] \n")
         _ledger_append("tool", "")
         _ledger_append("tool", f"  [{event.get('message', '')}] ")
     elif etype == "done":
