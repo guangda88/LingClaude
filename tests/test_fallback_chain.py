@@ -64,7 +64,7 @@ class _Engine:
             consecutive_failure_limit = 3
         self.config = _Cfg()
 
-    def _build_messages(self, prompt: str) -> list[Any]:
+    def _build_messages(self, prompt: str, image_content: tuple[str, str] | None = None) -> list[Any]:
         from lingclaude.model.types import ModelMessage, MessageRole
         self._messages = [ModelMessage(role=MessageRole.USER, content=prompt)]
         return list(self._messages)

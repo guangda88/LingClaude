@@ -1100,7 +1100,7 @@ class TestAtomcodeP123:
                 self.session_id = "t123"
                 self._messages = ["hi"]  # _build_messages 后的形态占位
 
-            def _build_messages(self, prompt: str) -> list:
+            def _build_messages(self, prompt: str, image_content: tuple[str, str] | None = None) -> list:
                 return ["u", "s", prompt]
 
             def _build_openai_tools(self, query: str = "") -> list:
@@ -1153,7 +1153,7 @@ class TestAtomcodeP123:
             def __init__(self) -> None:
                 self.session_id = "t123s"
 
-            def _build_messages(self, prompt: str) -> list:
+            def _build_messages(self, prompt: str, image_content: tuple[str, str] | None = None) -> list:
                 return ["u", prompt]
 
             def _build_openai_tools(self, query: str = "") -> list:
