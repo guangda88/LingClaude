@@ -90,6 +90,11 @@ _SKIP_DIRS = frozenset({
     "__pycache__", ".git", ".venv", "venv", "node_modules",
     ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
     ".eggs", "*.egg-info",
+    # lc 自身运行时目录：file_history 快照 / worktrees / vault.db 等
+    # 属运行态产物而非项目源码，进索引窗口只会制造噪声
+    # （2026-10-02 实测事故：file_history 快照挤占 max_files=10 窗口
+    #  导致 test_index_current_directory 断言翻车——快照即证据）
+    ".lingclaude",
 })
 
 

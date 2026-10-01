@@ -177,13 +177,17 @@ class MyClass(BaseClass, AnotherBase):
 
 
 class TestIndexProject:
-    def test_index_current_directory(self) -> None:
-        result = index_project(".", max_files=10)
+    def test_index_current_directory(self, tmp_path) -> None:
+        # hermetic: 不再扫活仓库 "." —— 仓库增长/运行时目录都会让
+        # max_files=10 的窗口内容不可控（2026-10-02 曾被 file_history
+        # 快照挤占导致翻车）。改为受控 tmp 目录，契约等价保留。
+        (tmp_path / "alpha.py").write_text("def entry_point():\n    pass\n")
+        result = index_project(str(tmp_path), max_files=10)
         assert result.is_ok
         idx = result.data
         assert idx.root != ""
         assert idx.files_scanned > 0
-        assert len(idx.symbols) > 0
+        assert any(s.name == "entry_point" for s in idx.symbols)
 
     def test_index_nonexistent_directory(self) -> None:
         result = index_project("/nonexistent/path")
