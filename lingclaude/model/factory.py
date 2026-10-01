@@ -111,6 +111,19 @@ def _get_env_key(provider: str) -> str:
     return ""
 
 
+def _vault_get(key_name: str) -> str:
+    """P1b（2026-10-01）: vault 兜底读 key（env 先 vault 后的"后"）。
+
+    vault 锁着/条目缺失/任何故障 → 空串（零分叉降级，不阻断装配）。
+    """
+    try:
+        from lingclaude.model.vault import Vault
+
+        return Vault().get(key_name) or ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _key_store_get(key_name: str) -> str:
     try:
         # 跨仓契约：显式声明依赖 ling_lib 共享工具目录（env 可覆盖 LING_LIB_PATH），
@@ -119,9 +132,13 @@ def _key_store_get(key_name: str) -> str:
 
         ensure_import_path("ling_lib")
         from ling_key_store import get_key
-        return get_key(key_name) or ""
+        got = get_key(key_name) or ""
+        if got:
+            return got
+        # ling_lib key store 无 → vault 兜底（P1b: 明文退出 env/散落文件的长线）
+        return _vault_get(key_name)
     except (ImportError, ModuleNotFoundError, AttributeError):
-        return ""
+        return _vault_get(key_name)
 
 
 # P1-7 接线（2026-09-22）：credential_pool 进程级单例与取 key 助手。

@@ -308,6 +308,11 @@ def _resolve_api_key(provider_name: str, config_key: str) -> str:
 
     支持 ${ENV_VAR} 引用形式（与 core/config.py._resolve_api_key 同语义），
     展开 结果为空时再走 provider→env 映射兜底。
+
+    P1b（2026-10-01）: env 也空时查 vault（字段级 AES-GCM，密文落
+    ~/.lingclaude/vault.db）。查找顺序 env 先、vault 后——env 存在=
+    显式覆盖（向后兼容+测试环境友好），vault 是新部署默认静态存放点。
+    vault 锁着/条目缺失/解密失败 → 空串，既有行为零分叉。
     """
     if config_key:
         if config_key.startswith("${") and config_key.endswith("}"):
@@ -318,7 +323,16 @@ def _resolve_api_key(provider_name: str, config_key: str) -> str:
             return config_key
     env_name = _PROVIDER_ENV_KEY_MAP.get(provider_name)
     if env_name:
-        return os.environ.get(env_name, "")
+        env_val = os.environ.get(env_name, "")
+        if env_val:
+            return env_val
+        # env 无 → vault 兜底（条目名对齐 env 变量名，gen_env 迁移同名搬入）
+        try:
+            from lingclaude.model.vault import Vault
+
+            return Vault().get(env_name) or ""
+        except Exception:  # noqa: BLE001 — vault 任何故障不阻断路由装配
+            return ""
     return ""
 
 
