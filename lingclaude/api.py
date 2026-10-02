@@ -182,6 +182,9 @@ _start_bus_consumer_if_enabled()
 class AskRequest(BaseModel):
     question: str
     context: str = ""
+    # B: 跨端任务续接（2026-10-02）——会话锚点。缺省 = 一次性问答（原行为，
+    # 零破坏）；携带 session_id 时该问答轮持久化进对应会话（webUI 多端续接语义）。
+    session_id: str = ""
 
 
 class AskResponse(BaseModel):
@@ -266,6 +269,64 @@ async def list_sessions(api_key: str = Security(verify_api_key)):
     mgr = SessionManager()
     sessions = mgr.list_sessions()
     return {"sessions": list(sessions)}
+
+
+@app.get("/sessions/{session_id}/task_state")
+async def get_session_task_state(
+    session_id: str, api_key: str = Security(verify_api_key)
+):
+    """B: 任务状态投影（2026-10-02）——跨端续接的轻量读模型。
+
+    返回该会话的「做到哪了」最小面：最近 assistant 回复、工具调用谱、
+    token 用量、stop_reason、mtime。webUI（手机/LAN 端）据此渲染任务卡，
+    无需拉全量会话。404 = 会话不存在；乐观锁字段 last_write_unix 供
+    续写端检测冲突（配合既有线程写锁的 fork 语义）。
+    """
+    from lingclaude.core.session import SessionManager
+
+    mgr = SessionManager()
+    result = mgr.load(session_id)
+    if result.is_error:
+        raise HTTPException(404, f"Session not found: {session_id}")
+    session = result.data
+    messages = list(session.messages or ())
+    last_assistant = ""
+    tool_names: list[str] = []
+    for m in reversed(messages):
+        text = str(m)
+        if not last_assistant and ("assistant" in text[:24].lower()):
+            last_assistant = text
+        low = text.lower()
+        if low.startswith("tool:") or "tool_use" in low[:40]:
+            for name in ("bash", "read", "write", "edit", "grep", "glob"):
+                if f'"{name}"' in text or f"'{name}'" in text:
+                    if name not in tool_names:
+                        tool_names.append(name)
+    last_write_unix = 0
+    try:
+        # 与 save() 同一路径推导（含 _default/global 模式），拿存档 mtime 作
+        # 乐观锁字段；再 rglob 兜底（布局演进不炸端点）。
+        p = mgr._session_path(session)
+        last_write_unix = int(p.stat().st_mtime)
+    except Exception:  # noqa: BLE001 — 投影字段缺失不炸端点
+        try:
+            import os as _os
+
+            for cand in mgr.save_dir.rglob(f"{session.session_id}.json"):
+                last_write_unix = max(last_write_unix, int(cand.stat().st_mtime))
+        except Exception:  # noqa: BLE001
+            last_write_unix = 0
+    return {
+        "session_id": session.session_id,
+        "rounds": len(messages) // 2,
+        "last_assistant_preview": last_assistant[:400],
+        "tools_used": tool_names[:12],
+        "input_tokens": session.input_tokens,
+        "output_tokens": session.output_tokens,
+        "cached_tokens": session.cached_tokens,
+        "expires_at": session.expires_at,
+        "last_write_unix": last_write_unix,
+    }
 
 
 @app.get("/sessions/{session_id}")
@@ -427,6 +488,26 @@ async def ask_stream(req: AskRequest, api_key: str = Security(verify_api_key)):
     from lingclaude.engine.coding import CodingRuntime
 
     engine.set_runtime(CodingRuntime(load_config(None)))
+    # B: 跨端任务续接（2026-10-02）——session_id 携带时恢复会话上下文，
+    # 轮终持久化（带线程写锁 + fork 纪律）；缺省路径零变化（一次性问答）。
+    # 404 语义 = 显式锚点不存在（客户端配错/会话过期），fail-fast。
+    if getattr(req, "session_id", ""):
+        from lingclaude.core.session_persist import SessionPersister
+
+        persist = SessionPersister(engine)
+        if not persist.load_session(req.session_id):
+            raise HTTPException(404, f"Session not found: {req.session_id}")
+
+    def _persist_after_stream() -> None:
+        if not getattr(req, "session_id", ""):
+            return
+        try:
+            from lingclaude.core.session_persist import SessionPersister
+
+            SessionPersister(engine).persist_session()
+        except Exception:  # noqa: BLE001 — 持久化失败不炸 SSE 流
+            pass
+
     prompt = req.question
     if req.context:
         prompt = f"上下文：{req.context}\n\n问题：{req.question}"
@@ -463,6 +544,8 @@ async def ask_stream(req: AskRequest, api_key: str = Security(verify_api_key)):
             else:
                 payload = {"type": "text", "content": ""}
             yield f"event: {event_type}\ndata: {__import__('json').dumps(payload, ensure_ascii=False)}\n\n"
+        # B: 续接会话轮终持久化（流正常终结后；fork 纪律在 persist 内）
+        _persist_after_stream()
 
     return StreamingResponse(
         event_gen(),
