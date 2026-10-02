@@ -221,6 +221,19 @@ def run_call_model_loop(
     _pre_decide = getattr(engine.hooks, "pre_decide", None)
     fan_plan = _pre_decide(prompt, messages) if _pre_decide else None
     for round_idx in range(_resolve_max_tool_rounds(engine)):
+        # P1② 预算暂停闸·轮间版（2026-10-02）：turn 进行中达 pause 阈值，
+        # 剩余请求轮不再发起（与 submit/stream_submit 的 turn 前闸同一语义源）。
+        try:
+            from lingclaude.core.session_budget_gate import check_pause as _cp
+            _pause = _cp()
+        except Exception:  # noqa: BLE001
+            _pause = None
+        if _pause is not None:
+            return engine._finalize_turn(
+                prompt, _pause, used_tools, total_input, total_output,
+                resolved_config, total_cached,
+                ctx_input_tokens=last_round_input or None,
+            )
         result = engine._provider.complete(
             tuple(messages), config=resolved_config, tools=tools,
         )
@@ -390,6 +403,40 @@ def run_stream_call_model_loop(
         # 降级链健康度门禁(441行起)仍逐跳把关,熔断 slot 由 resolve 跳过,
         # 故放宽上限不会盲切到死节点,只会让失败轮有机会沉到更深候选。
         _MAX_FALLBACK_ATTEMPTS = 6  # 候选链长度上限（超出即放弃本轮）
+        # P1② 预算暂停闸·轮间版（2026-10-02）：语义同同步循环（loop_body.py
+        # 同名注释），达 pause 终止本 turn，剩余轮不发起。
+        try:
+            from lingclaude.core.session_budget_gate import check_pause as _cp
+            _pause = _cp()
+        except Exception:  # noqa: BLE001
+            _pause = None
+        if _pause is not None:
+            done = engine._finalize_turn(
+                prompt, _pause, used_tools, total_input, total_output,
+                resolved_config, total_cached,
+                ctx_input_tokens=last_round_input or None,
+            )
+            # 对齐自然完成路径的落库面（各自 try 包裹：暂停路径宁缺勿炸）
+            try:
+                engine._append_to_session_history(prompt, _pause)
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                engine.hooks.journal_append("turn_end", {
+                    "final_content_preview": _pause[:200],
+                    "total_input": total_input, "total_output": total_output,
+                    "stop_reason": "budget_paused",
+                })
+            except Exception:  # noqa: BLE001
+                pass
+            yield {"type": "text_delta", "text": _pause}
+            yield {
+                "type": "done", "finalized": True,
+                "content": _pause, "stop_reason": "budget_paused",
+                "usage": {"input_tokens": total_input, "output_tokens": total_output,
+                          "cached_tokens": total_cached},
+            }
+            return
         for cfg_attempt in range(_MAX_FALLBACK_ATTEMPTS):
             round_text_parts.clear()
             round_tool_calls.clear()
