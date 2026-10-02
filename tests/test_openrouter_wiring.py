@@ -115,5 +115,46 @@ class TestOpenrouterContract(unittest.TestCase):
         self.assertIn("/openrouter", SLASH_COMPLETER_WORDS)
 
 
+
+class TestOpenrouterModelsFilter(unittest.TestCase):
+    """A+C 守卫：/openrouter models <筛选> [--all] 打字筛选 + stealth 可见性。"""
+
+    def _run(self, arg, models):
+        import io
+        import contextlib
+        from lingclaude.cli.commands import SlashCommandProcessor as P
+        inst = P.__new__(P)
+        cfg = {"routing": {"providers": {"openrouter": {"models": models}}}}
+        buf = io.StringIO()
+        with mock.patch("lingclaude.model.task_router.CONFIG_PATH") as cp, \
+                contextlib.redirect_stdout(buf):
+            cp.read_text.return_value = json.dumps(cfg)
+            P._cmd_openrouter(inst, arg)
+        return buf.getvalue()
+
+    MODELS = [
+        "stealth/space-bunny-alpha",
+        "inclusionai/ling-3.0-flash-vl:free",
+        "qwen/qwen3.8-27b:free",
+    ]
+
+    def test_filter_substring_default_free_pool(self):
+        out = self._run("models ling", self.MODELS)
+        self.assertIn("ling-3.0-flash-vl:free", out)
+        self.assertNotIn("space-bunny", out)  # stealth 无 :free 后缀，默认池排除
+
+    def test_filter_all_includes_stealth(self):
+        out = self._run("models space --all", self.MODELS)
+        self.assertIn("stealth/space-bunny-alpha", out)
+
+    def test_all_flag_lists_everything(self):
+        out = self._run("models --all", self.MODELS)
+        self.assertIn("全部 3 个", out)
+        self.assertIn("space-bunny", out)
+
+    def test_filter_case_insensitive(self):
+        out = self._run("models SPACE --all", self.MODELS)
+        self.assertIn("space-bunny", out)
+
 if __name__ == "__main__":
     unittest.main()

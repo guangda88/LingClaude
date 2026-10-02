@@ -477,7 +477,7 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
         /openrouter          OAuth 授权（浏览器打开授权页，本地回调收 code）
         /openrouter status   查看接入状态（key 是否在 env/凭据仓 + 免费模型数）
         /openrouter logout   注销（删凭据仓 + 清 env）
-        /openrouter models   刷新免费模型清单（:free 结尾）进 lingcode config
+        /openrouter models   刷新免费模型清单进 config；models <筛选> [--all] 打字筛选清单
         授权成功后：key 落盘（0600）+ env 注入 + router api_key 热更新 +
         免费模型刷新，即刻可 /model openrouter/<:free 模型> 或 /model --unpin。
         """
@@ -502,14 +502,39 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
             orx.clear_saved_key()
             print("已注销 OpenRouter（凭据删除 + env 清除）")
             return
-        if sub == "models":
-            print("正在拉取免费模型清单…")
-            free = orx.fetch_free_models()
-            if free is None:
-                print("❌ 拉取失败（网络）——路由清单维持现状")
+        if sub.startswith("models"):
+            # /openrouter models [filter] [--all]
+            #   无参：拉取并合并免费模型（原行为）
+            #   filter：打字筛选当前路由清单（子串匹配，大小写不敏感）
+            #   --all：筛选时包含非 :free 条目（如定价 $0 的 stealth 模型）
+            rest = sub[len("models"):].strip()
+            show_all = "--all" in rest
+            filt = rest.replace("--all", "").strip()
+            if not filt and not show_all:
+                print("正在拉取免费模型清单…")
+                free = orx.fetch_free_models()
+                if free is None:
+                    print("❌ 拉取失败（网络）——路由清单维持现状")
+                    return
+                r = orx.merge_free_models_into_lingcode(free)
+                print(f"✅ 免费 {len(free)} 个，新增 {r['added']}，路由清单合计 {r['total']}")
                 return
-            r = orx.merge_free_models_into_lingcode(free)
-            print(f"✅ 免费 {len(free)} 个，新增 {r['added']}，路由清单合计 {r['total']}")
+            # 打字筛选：读路由清单，子串过滤，列清单
+            try:
+                from lingclaude.model.task_router import CONFIG_PATH
+                cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                models = cfg["routing"]["providers"]["openrouter"].get("models", [])
+            except Exception as e:  # noqa: BLE001
+                print(f"路由清单读取失败: {e}")
+                return
+            pool = models if show_all else [m for m in models if m.endswith(":free")]
+            hits = [m for m in pool if filt.lower() in m.lower()] if filt else pool
+            scope = "全部" if show_all else ":free"
+            print(f"[{scope} {len(pool)} 个，命中 {len(hits)}] 筛选: {filt or '(无)'}")
+            for m in hits:
+                print(f"  {m}")
+            if hits:
+                print(f"切换：/model openrouter/{hits[0]}")
             return
 
         # 默认：OAuth 授权全流程

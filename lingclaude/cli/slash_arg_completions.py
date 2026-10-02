@@ -62,6 +62,19 @@ def _p_model(engine: Any, args: list[str], current: str) -> list[tuple[str, str]
         for m in getattr(pinfo, "models", None) or []:
             mark = " ←默认" if m == default else ""
             out.append((f"{m}@{pname}", f"{pname}{mark}"))
+    # 打字筛选增强：候选形如 <model>@<provider>，前缀 startswith 在
+    # build_arg_completions 统一做；这里对「模型名段」做子串预筛，
+    # 使 /model space 能命中 stealth/space-bunny-alpha@openrouter
+    # （插入文本以 stealth/ 开头，纯 startswith 筛不到）。
+    if current:
+        low = current.lower()
+        def _hit(item: tuple[str, str]) -> bool:
+            text = item[0]
+            if text.startswith("--"):
+                return text.lower().startswith(low)
+            model_part = text.rsplit("@", 1)[0].lower()
+            return low in model_part or text.lower().startswith(low)
+        out = [it for it in out if _hit(it)]
     return out
 
 
@@ -313,8 +326,12 @@ def build_arg_completions(engine: Any, before_cursor: str) -> list[Completion]:
         return []
     out: list[Completion] = []
     low = current.lower()
+    # /model 的候选已在 _p_model 内做「模型名段子串」预筛，
+    # 插入文本（<model>@<provider>）与打字片段（常为模型名中段）
+    # 不构成前缀关系，故跳过此处的 startswith 二次过滤。
+    skip_prefix = main == "/model"
     for text, meta in items:
-        if current and not text.lower().startswith(low):
+        if current and not skip_prefix and not text.lower().startswith(low):
             continue
         out.append(Completion(
             text,

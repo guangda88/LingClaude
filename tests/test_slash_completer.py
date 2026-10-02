@@ -290,6 +290,38 @@ class TestArgCompletions:
         eng = MagicMock()
         assert self._run(self._comp(eng), "/tasks add 写个测试") == []
 
+
+    def test_model_substring_midsegment_filter(self):
+        """B 守卫：/model space 命中 stealth/space-bunny-alpha（模型名中段子串）。"""
+        from types import SimpleNamespace as NS
+        eng = MagicMock()
+        eng._task_router._providers = {
+            "openrouter": NS(default_model="", models=[
+                "stealth/space-bunny-alpha", "a/b:free"]),
+        }
+        got = self._run(self._comp(eng), "/model space")
+        assert got == ["stealth/space-bunny-alpha@openrouter"]
+
+    def test_model_option_prefix_still_works(self):
+        """B 守卫：-- 选项仍按前缀筛，不被子串逻辑误伤。"""
+        from types import SimpleNamespace as NS
+        eng = MagicMock()
+        eng._task_router._providers = {
+            "openrouter": NS(default_model="", models=["stealth/x"]),
+        }
+        got = self._run(self._comp(eng), "/model --u")
+        assert got == ["--unpin"]
+
+    def test_model_cross_provider_substring(self):
+        """B 守卫：gpt 跨 provider 命中所有含 gpt 的模型。"""
+        from types import SimpleNamespace as NS
+        eng = MagicMock()
+        eng._task_router._providers = {
+            "openrouter": NS(default_model="", models=["openai/gpt-4o:free"]),
+            "openai": NS(default_model="", models=["gpt-4o"]),
+        }
+        got = sorted(self._run(self._comp(eng), "/model gpt"))
+        assert got == ["gpt-4o@openai", "openai/gpt-4o:free@openrouter"]
     def test_unknown_or_noparam_commands_stay_quiet(self):
         eng = MagicMock()
         comp = self._comp(eng)
