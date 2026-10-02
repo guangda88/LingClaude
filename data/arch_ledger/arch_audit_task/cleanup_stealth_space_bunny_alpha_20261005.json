@@ -1,0 +1,7 @@
+{
+  "severity": "P2",
+  "finding": "临时模型清理（用户 2026-10-02 指令，10-5 24:00 即 10-06 00:00 到期）：移除 OpenRouter stealth 预览模型stealth/space-bunny-alpha——①lc: lingclaude/model/task_router.py openrouter.models 中该项+注释；②ac: /home/ai/.atomcode/config.toml [models.\"openrouter/stealth/space-bunny-alpha\"] 整段。两处均已标注同款清理注释，防止单侧漏删。执行人：lc 或灵克任一。",
+  "source": "user_directive_20261002",
+  "state": "open",
+  "created": "2026-10-02T11:38:18+00:00"
+}
