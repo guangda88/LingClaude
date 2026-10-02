@@ -262,7 +262,11 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "type": "openai",
         "base_url": "https://openrouter.ai/api/v1",
         "model": "anthropic/claude-3.5-sonnet",
-        "models": ["anthropic/claude-3.5-sonnet", "openai/gpt-4o"],
+        # 2026-10-02 用户指令加入：OpenRouter stealth 预览模型（匿名未发布），
+        # 临时试用；**2026-10-05 24:00（即 10-06 00:00）清理移除**，见台账
+        # cleanup 任务。用显式钉住：stealth/space-bunny-alpha@openrouter
+        "models": ["anthropic/claude-3.5-sonnet", "openai/gpt-4o",
+                   "stealth/space-bunny-alpha"],
     },
     "zai": {
         "type": "openai",
