@@ -58,3 +58,78 @@ directory_rules:
 #       allow: ["api.github.com", "objects.githubusercontent.com"]
 #   default:
 #     allow: []
+
+# ═══════════════════════════════════════════════════════════════════════
+# 激活示例模板（2026-10-02 整理；仅注释，取消注释才生效。PolicyLoader 热更，
+# 保存后下一条命令/下一次模型调用即按新规则裁决，无需重启）
+#
+# 字段级对照（与解析器逐键一致，勿自创字段）：
+#   net_allowlist   -> core/execution_domain.py（resolve_net_allowlist / net_allowed）
+#   directory_rules -> core/sandbox_rules.py（resolve_writable_dirs / check_write_allowed）
+#
+# 匹配语义（两段同构）：
+#   1. cwd 取 realpath 与 scope 做「目录边界前缀」匹配（/a/b 不会误命中 /a/bc）
+#   2. rules 列表序即优先级：首个命中生效，其后规则不再看
+#   3. 无命中 -> default 段兜底；default 缺失 -> 网络侧不限制（显式空口）
+#
+# 域名匹配（net 侧）：精确相等，或 example.com 覆盖其全部子域（a.example.com）；
+#   scheme/port/userinfo 剥除后比较，大小写不敏感；清单写裸域名即可（:443 不参与）。
+#
+# 可写目录钳制（目录侧）：writable 逐项过 is_safe_writable_dir（红线根/越可信根/
+#   不存在一律剔除）——规则层不是信任根，只是选择器。
+#
+# 两条消费路径的 fail 语义不同（设计如此，非缺陷）：
+#   bash extra_writable_dirs：规则激活但解析为空 -> 不追加任何可写目录
+#     （bwrap 维持只读基线，fail-safe，收得更紧）
+#   文件写 check_write_allowed：规则激活但解析为空 -> 返回 None，
+#     回退原有写白名单逻辑（fail-open 兼容旧链）
+#
+# 两个反直觉形态（最容易踩的坑）：
+#   default: {allow: []}   = 空口，非命中区域【不限制】（不是 deny！）
+#   default: {allow: [..]} = default-only 全域一条规则，清单外【一律拒】
+#   要全域白名单收紧，用后者；要「只收紧指定目录、其余不管」，只写 rules。
+#
+# 首次激活 net_allowlist 前必做：确认清单覆盖本机全部在用 provider 端点
+#   域名（grep baseUrl config.json），否则 lc 自己的模型调用会被 net_blocked
+#   （流/非流均返回错误契约，provider 轮换逐家被拒后报错 surfaced 到会话）。
+#
+# 与 network_allowed_commands 的关系（易混，务必分清）：
+#   network_allowed_commands = bash 命令前缀白名单（子进程出网许可，进程级）
+#   net_allowlist            = llm_proxy httpx 出口域名白名单（模型 API 调用，进程内）
+#   两层各管一头：把模型 API 域名写进 network_allowed_commands 不会放行模型调用，
+#   反之亦然。
+#
+# -- 示例 1：只收紧 lc 主仓开发域，其余目录零影响（推荐首发形态）--
+# net_allowlist:
+#   rules:
+#     - scope: "/home/ai/lingclaude"
+#       allow:
+#         - "api.github.com"                 # 及全部子域
+#         - "objects.githubusercontent.com"  # release 资产
+#         - "pypi.org"                       # 依赖安装
+#         - "files.pythonhosted.org"
+#         - "<本机在用 provider 端点域名，见 config.json baseUrl>"
+#   # 不写 default = 非命中目录不限制；观察稳定后再考虑收紧
+#
+# directory_rules:
+#   rules:
+#     - scope: "/home/ai/lingclaude"
+#       writable: ["/home/ai/lingclaude", "/tmp"]
+#   default:
+#     writable: ["/home/ai"]                 # 与现网基线一致，可按需收窄
+#
+# -- 示例 2：全域网络白名单（default-only，谨慎——影响所有目录的模型调用）--
+# net_allowlist:
+#   default:
+#     allow: ["api.github.com", "pypi.org", "<全部 provider 端点域名>"]
+#
+# -- 示例 3：多项目差异域（列表序即优先级，命中即停）--
+# net_allowlist:
+#   rules:
+#     - scope: "/home/ai/proj-oss"          # 更具体的 scope 放前面
+#       allow: ["api.github.com"]
+#     - scope: "/home/ai"                   # 兜底域放后面（永不会被前者遮蔽）
+#       allow: ["pypi.org"]
+#   default:
+#     allow: []
+# ═══════════════════════════════════════════════════════════════════════
