@@ -328,6 +328,42 @@ def _is_network_allowed(command: str) -> bool:
     return True
 
 
+
+# ── 三态网络分类（2026-10-03 sandbox 三态改造）──
+# ask 灰色区命令集合：明确有网络面但风险可控，需用户审批后放行
+_BASE_ASK_COMMANDS: frozenset[str] = frozenset({
+    "curl", "wget", "http", "https",  # HTTP 客户端
+    "ping", "ping6", "traceroute", "mtr",  # 网络诊断
+    "ssh", "scp", "sftp", "rsync",  # 远程访问/传输
+    "nc", "ncat", "netcat", "telnet",  # 网络工具
+    "dig", "nslookup", "host",  # DNS 查询
+    "ftp", "lftp",  # FTP 客户端
+    "npm", "pip", "pip3", "cargo", "go",  # 包管理器（网络安装）
+    "docker", "podman",  # 容器（pull/push 需网络）
+})
+
+
+def network_classify(command: str) -> str:
+    """三态网络分类（2026-10-03 sandbox 三态改造）。
+
+    返回三态之一：
+    - ``"allow"``：白名单命中（git push/fetch 等），放行网络（allow_network=True）
+    - ``"ask"``  ：灰色区命令（curl/wget/ping/ssh 等），需用户审批
+    - ``"deny"`` ：默认拒绝（未在白名单也未在 ask 集），隔离网络（--unshare-net）
+
+    复用 _is_network_allowed 的判定链（全链拆分 + 透明前缀剥离 + 参数注入防护），
+    ask 判定只查命令首词是否在 _BASE_ASK_COMMANDS（不递归拆分，保守）。
+    """
+    if _is_network_allowed(command):
+        return "allow"
+    # ask 判定：命令首词（经透明前缀剥离后）命中灰色区集合
+    norm = _strip_transparent_prefix(command).lower().replace("'", "").replace('"', "")
+    first_word = norm.split()[0] if norm.split() else ""
+    # 去掉路径前缀（如 /usr/bin/curl → curl）
+    first_word = first_word.rsplit("/", 1)[-1] if "/" in first_word else first_word
+    if first_word in _BASE_ASK_COMMANDS:
+        return "ask"
+    return "deny"
 # 网络类错误特征（2026-09-12 自动降级判定）：DNS 解析失败 / 网络不可达 / 连接被拒。
 _NETWORK_FAILURE_PATTERNS = (
     "could not resolve host",

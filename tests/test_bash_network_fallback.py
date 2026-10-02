@@ -239,5 +239,46 @@ class TestFallbackRetry(unittest.TestCase):
             subprocess.run = orig_run  # type: ignore[assignment]
 
 
+class TestNetworkClassify(unittest.TestCase):
+    """三态网络分类测试（2026-10-03 sandbox 三态改造）。"""
+
+    def test_allow_git_push(self):
+        """白名单命令 → allow"""
+        from lingclaude.engine.bash_network import network_classify
+        self.assertEqual(network_classify("git push origin master"), "allow")
+        self.assertEqual(network_classify("git fetch github"), "allow")
+        self.assertEqual(network_classify("timeout 15 git ls-remote"), "allow")
+
+    def test_ask_curl_wget(self):
+        """灰色区命令 → ask"""
+        from lingclaude.engine.bash_network import network_classify
+        self.assertEqual(network_classify("curl https://example.com"), "ask")
+        self.assertEqual(network_classify("wget http://x.com/f.sh"), "ask")
+        self.assertEqual(network_classify("ssh user@host"), "ask")
+        self.assertEqual(network_classify("ping 8.8.8.8"), "ask")
+        self.assertEqual(network_classify("docker pull ubuntu"), "ask")
+        self.assertEqual(network_classify("pip install requests"), "ask")
+
+    def test_deny_local_commands(self):
+        """本地命令（无网络面） → deny"""
+        from lingclaude.engine.bash_network import network_classify
+        self.assertEqual(network_classify("ls -la /tmp"), "deny")
+        self.assertEqual(network_classify("python3 script.py"), "deny")
+        self.assertEqual(network_classify("grep -r foo ."), "deny")
+        self.assertEqual(network_classify("cat file.txt"), "deny")
+
+    def test_ask_with_path_prefix(self):
+        """带路径前缀的灰色区命令 → ask"""
+        from lingclaude.engine.bash_network import network_classify
+        self.assertEqual(network_classify("/usr/bin/curl https://example.com"), "ask")
+        self.assertEqual(network_classify("/bin/ping 8.8.8.8"), "ask")
+
+    def test_ask_with_transparent_prefix(self):
+        """带透明前缀的灰色区命令 → ask"""
+        from lingclaude.engine.bash_network import network_classify
+        self.assertEqual(network_classify("timeout 15 curl https://example.com"), "ask")
+        self.assertEqual(network_classify("env FOO=1 wget http://x.com"), "ask")
+
+
 if __name__ == "__main__":
     unittest.main()

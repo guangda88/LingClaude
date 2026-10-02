@@ -407,7 +407,22 @@ class BashExecutor:
             # run() 读取后写入 BashResult.degraded，工具输出/审计可见。
             self._last_degraded = True
             return command
-        allow_network = _is_network_allowed(command)
+        # 三态网络分类（2026-10-03 sandbox 三态改造）
+        # allow → 放行网络；ask → 拒绝并提示需审批；deny → 隔离网络
+        from lingclaude.engine.bash_network import network_classify
+        net_state = network_classify(command)
+        if net_state == "ask":
+            # ask 档：当前简化为「拒绝并提示需审批」
+            # 后续接入四级审批系统（lingclaude/core/policies）
+            logging.getLogger(__name__).warning(
+                "网络命令需审批（ask 档）: %s",
+                command[:80],
+            )
+            raise RuntimeError(
+                f"网络命令需审批（ask 档）：{command[:80]}..."
+                f" 请用户在宿主终端执行，或后续接入审批系统"
+            )
+        allow_network = (net_state == "allow")
         # 额外可写目录白名单：策略层 allowed_paths 允许的协作路径在此放开写。
         # 对齐 sandbox_policy.DEFAULT_POLICY.allowed_paths=["/home/ai","/tmp"]——
         # 策略层已声明整个 /home/ai 可信，执行层不应与策略脱节。
