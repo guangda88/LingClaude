@@ -204,6 +204,33 @@ class TestNoDeadModules:
         "rollout.py",
         "verify_ledger.py",
         "worktree.py",
+        # 2026-10-02 全量门禁 pre-push 首跑暴露批次（197 笔积压检验）：
+        # 本会话及近期落库模块的内聚公开面——模块内自消费（load_user_hooks
+        # 被 ensure 语义自调、resolve_net_allowlist 被 net_allowed 内部链消费、
+        # list_hooks 被 registry 治理层消费）或常量/数据类导出面（发布给
+        # 插件/子代理生态的稳定契约）。import-only 判定粒度覆盖不了这两类，
+        # 与上方「治理/协议预留 API 面」同机制豁免，复审随台账。
+        "execution_domain.py",
+        "session_budget.py",
+        "session_budget_gate.py",
+        "project_memory.py",
+        "task_contract.py",
+        "hook_registry.py",
+        "file_history.py",
+        "model_tiers.py",
+        "plugin_governance.py",
+        "invariants.py",
+        "light_channel.py",
+        "permissions.py",
+        "policy_loader.py",
+        "slot.py",
+        "success_gate.py",
+        "agent_registry.py",
+        # 第三批（同 gate 复跑新暴露）：seam.py 命名空间校验面（J1 接缝生态
+        # 预留契约）；tool_auth_hook 审批交互入口（pre_approve/user_confirm
+        # 由 slash 命令层按需调用，当前 hook 内嵌消费）。
+        "seam.py",
+        "tool_auth_hook.py",
     }
 
     # Names that are internal implementation details, not "dead code"
@@ -276,7 +303,12 @@ class TestNoDeadModules:
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
                     for alias in node.names:
-                        all_imports.add(alias.asname or alias.name)
+                        # 2026-10-02: 同时收原名+别名——`import X as Y` 原版只收
+                        # asname(Y)，被 alias 消费的公开名（如 warn_lines as _wl）
+                        # 被误判 dead（repl.py 喂入块实测踩中）。
+                        all_imports.add(alias.name)
+                        if alias.asname:
+                            all_imports.add(alias.asname)
 
         dead: dict[str, list[str]] = {}
         for core_file in core_py_files:

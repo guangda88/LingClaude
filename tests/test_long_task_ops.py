@@ -66,4 +66,10 @@ def test_cli_wires_recover_and_metrics() -> None:
     assert '"--recover"' in app
     assert "_maybe_recover_on_startup(engine, args)" in app
     assert "append_long_task_metrics" in turn
-    assert "event=\"slash_recover\"" in cmds
+    # 2026-10-02: slash_recover 落点修正——斜杠命令拆分后事件实际在
+    # _commands_checkpoint.py:83（commands.py 聚合入口不再含字面量），
+    # 原断言读的是拆分前旧路径 → 全量门禁必红。
+    checkpoint = Path("lingclaude/cli/_commands_checkpoint.py").read_text(
+        encoding="utf-8"
+    )
+    assert "event=\"slash_recover\"" in checkpoint

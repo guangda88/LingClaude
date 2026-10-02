@@ -167,6 +167,14 @@ class TestWiringIntegration:
     ):
         from lingclaude.core.wiring import _make_layered_memory
 
+        # 2026-10-02 自持化修复：同 test_lingmemory_bridge 缝注册自持（原裸依赖
+        # registry_loader 先跑，xdist 分区即红——分区依赖债）。
+        from lingclaude.plugins.memory.lingmemory_experience_bridge.plugin import (
+            Plugin as _SinkPlugin,
+        )
+
+        _SinkPlugin().register()
+
         monkeypatch.setenv("LINGCLAUDE_MEMORY_DUALWRITE", "1")
         lm = _make_layered_memory(object())
         assert isinstance(lm.experience, InMemoryExperienceStore)

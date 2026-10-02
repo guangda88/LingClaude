@@ -358,7 +358,10 @@ def test_read_fastpath_allowed_reads_cache():
     calls = []
 
     class _Cache:
-        def read_file(self, path):
+        # 2026-10-02: 补 force_refresh 形参——09-28 d0ce0a5 长会话重读强制层
+        # 后 executor 快路径带 force_refresh 关键字调用，旧桩签名 TypeError
+        # → except 降级完整 pipeline → runtime 桩无 execute_tool 必红。
+        def read_file(self, path, force_refresh=False):
             calls.append(path)
             return ("content-abc", True)
 
@@ -371,8 +374,12 @@ def test_read_fastpath_allowed_reads_cache():
     # 2026-09-23 起（c3102e1 消费点⑨ + 9790999 spec_decision 默认开），read 快路径
     # 结果附带 success_verdict 元数据。断言只钉核心两键 + verdict 存在，
     # 不对 verdict 内部结构过度耦合（noul_fallback 兜底实现可能演进）。
-    assert tr.data["content"] == "content-abc"
+    # 2026-10-02: 09-28 长会话重读强制层后，cache_hit 不再回全文——改回
+    # content_omitted 惰性引用（防重复 token 税）。断言跟随现契约：路径命中 +
+    # cache_hit + 省略语义 + verdict，全量内容由 force_refresh 路径单独覆盖。
     assert tr.data["cache_hit"] is True
+    assert tr.data["content_omitted"] is True
+    assert tr.data["path"] == "/etc/ok.txt"
     assert "success_verdict" in tr.data
     assert calls == ["/etc/ok.txt"]
 

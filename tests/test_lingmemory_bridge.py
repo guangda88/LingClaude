@@ -180,8 +180,21 @@ class TestBypassDiscipline:
 
 class TestWiringIntegration:
     def test_make_cache_attaches_bridge_when_enabled(self, monkeypatch):
-        """装配层：开关开 → memory_sink 是桥实例；开关关 → None"""
+        """装配层：开关开 → memory_sink 是桥实例；开关关 → None
+
+        2026-10-02 自持化修复：原版裸依赖 registry_loader 先跑把桥注册进
+        MEMORY 缝——xdist 分区/单跑本文件时缝为空 → 必红（09-30 全量 pre-push
+        门禁上线即暴露的分区依赖债）。现测试内自注册（插件本体 register 语义
+        等价内联），不再依赖外部加载顺序。
+        """
         monkeypatch.setenv("LINGCLAUDE_MEMORY_DUALWRITE", "1")
+        from lingclaude.core.seam import SeamRegistry, SeamType
+        from lingclaude.plugins.memory.lingmemory_bridge.plugin import (
+            Plugin as _BridgePlugin,
+        )
+
+        _BridgePlugin().register()  # 自持：装载语义等价（SeamRegistry.register 同一入口）
+
         from lingclaude.core.wiring import _make_cache
 
         class FakeCtx:

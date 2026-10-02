@@ -175,11 +175,25 @@ def test_p11_bash_timeout_kills_process_group():
     # 确认 sleep 进程不残留（新会话组被 killpg）
     time.sleep(0.3)
     # 检查是否有残留的 sleep 30（当前用户）
+    # 2026-10-02: pgrep -f 是全文匹配——会把本机其他会话/守护（实测
+    # meeting_thread_watch.sh 的 sleep 300）误捕成「残留」。收紧为本测试
+    # 自生的 sleep 30 精确匹配（-x 全串匹配 sleep 30，sleep 300 不命中），
+    # 并在断言信息里带 pid 便于人工追责。
     try:
         ps = subprocess.run(
-            ["pgrep", "-f", "sleep 30"], capture_output=True, text=True, timeout=3
+            ["pgrep", "-x", "sleep"], capture_output=True, text=True, timeout=3
         )
-        assert ps.returncode != 0, f"残留 sleep 进程: {ps.stdout}"
+        if ps.returncode == 0:
+            leftovers = []
+            for pid in ps.stdout.split():
+                try:
+                    with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                        cmd = fh.read().decode(errors="replace").replace("\x00", " ").strip()
+                    if cmd == "sleep 30":  # 仅本测试形态；sleep 300 等他人进程不算
+                        leftovers.append(f"{pid}:{cmd}")
+                except (FileNotFoundError, PermissionError, OSError):
+                    pass
+            assert not leftovers, f"残留 sleep 进程: {leftovers}"
     except subprocess.TimeoutExpired:
         pass  # pgrep 超时不算失败
 

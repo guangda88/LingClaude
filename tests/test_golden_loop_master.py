@@ -340,14 +340,20 @@ def test_golden_b_stream_tool_then_text(tmp_path) -> None:
     r2_msgs = json.loads(snap["provider_msgs"])[1]
     assert any(m["role"].upper() == "TOOL" for m in r2_msgs)
     # done 契约：两轮 usage 累计 + finalized=True
-    assert events[-1]["content"] == "文件内容是 hello"
+    # 2026-10-02: content 断言跟随 d8571b1 三源聚合新契约——工具轮文本 RCt
+    # 不再丢弃（旧契约丢「先读文件」是显示丢字根因，属修复非回归）。
+    assert events[-1]["content"] == "先读文件\n文件内容是 hello"
     assert events[-1]["usage"] == {"input_tokens": 20, "output_tokens": 10, "cached_tokens": 0}
     assert events[-1]["finalized"] is True
     # journal：tool_call / tool_result / checkpoint / turn_end 齐全（stream 路径）
     kinds = {ev[0] for ev in hooks.journal_calls}
     assert {"tool_call", "tool_result", "checkpoint", "turn_end"} <= kinds
     # 会话镜像
-    assert json.loads(snap["conversation"])[-1] == ["assistant", "文件内容是 hello"]
+    # 2026-10-02: 会话镜像同随三源聚合契约（末条 assistant 含全轮文本）
+    assert json.loads(snap["conversation"])[-1] == [
+        "assistant",
+        "先读文件\n文件内容是 hello",
+    ]
 
 
 # ---------------------------------------------------------------------------

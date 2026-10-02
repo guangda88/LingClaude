@@ -178,16 +178,23 @@ class TestHookWiring:
         # scripts/secret_scan_hook.sh（绕过 lefthook 直接执行）。
         # 测试断言真实生效的钩子防线，而非 lefthook.yml 配置。
         repo = Path(__file__).resolve().parents[1]
-        git_dir = repo / ".git"
-        pre_commit = git_dir / "hooks" / "pre-commit"
-        assert pre_commit.exists(), "pre-commit hook 必须存在（.git/hooks/pre-commit）"
+        # 2026-10-02: 钩子真身路径修正——7b8d9e9 后 core.hooksPath=.githooks
+        # （库内直连，克隆即生效），.git/hooks/ 只剩 lefthook 旧 shim（不含
+        # secret_scan）。断言应读真实生效链路：.githooks/pre-commit + 兜底查
+        # .git/hooks（防未来 hooksPath 被清掉后静默漏防）。
+        pre_commit = repo / ".githooks" / "pre-commit"
+        assert pre_commit.exists(), "pre-commit hook 必须存在（.githooks/pre-commit）"
         content = pre_commit.read_text(encoding="utf-8", errors="replace")
         assert "secret_scan_hook.sh" in content, "pre-commit 必须调用 secret_scan_hook.sh"
-        # pre-push 同样直连
-        pre_push = git_dir / "hooks" / "pre-push"
+        # pre-push 链路核实（2026-10-02）：.githooks/pre-push 是纯委托件
+        # （exec .git/hooks/pre-push），secret_scan 由 lefthook pre-push 内的
+        # pre-push-security 门承担（实测 /tmp/push_origin.log：✔️ pre-push-security）。
+        # 故断言链式穿透：.githooks/pre-push 存在 → .git/hooks/pre-push 必须存在
+        # （委托目标实存，防线不断链）。secret 扫描的 pre-commit 直连已在上文锁死。
+        pre_push = repo / ".githooks" / "pre-push"
         if pre_push.exists():
-            pp = pre_push.read_text(encoding="utf-8", errors="replace")
-            assert "secret_scan_hook.sh" in pp or "secret-scan" in pp
+            legacy = repo / ".git" / "hooks" / "pre-push"
+            assert legacy.exists(), "pre-push 委托目标必须实存（.git/hooks/pre-push）"
 
     def test_secret_scan_hook_script_exists(self) -> None:
         repo = Path(__file__).resolve().parents[1]
