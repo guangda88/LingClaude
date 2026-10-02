@@ -1761,6 +1761,13 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
                 image_content = (_b64.b64encode(raw_bytes).decode("ascii"), mime)
             result = engine.submit(prompt, image_content=image_content)
             print(f"\n{result.output}\n")
+            # H17 Step A: 模型输出完成语义标注，blocker 报警，其余静默
+            try:
+                from lingclaude.core.evidence_protocol import classify_state, StateClass
+                if classify_state(result.output or "") is StateClass.BLOCKER:
+                    print("[⚠ 模型输出含阻塞声明（请人工复核）]")
+            except Exception:  # noqa: BLE001
+                pass
             if result.stop_reason.value == "max_turns_reached":
                 print(f"[会话结束: {result.stop_reason.value}]")
             _record_long_task_metrics(

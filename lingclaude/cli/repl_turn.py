@@ -359,6 +359,13 @@ def _single_turn(engine: QueryEngine, prompt: str, verbose: bool = False) -> int
     else:
         result = engine.submit(prompt)
         print(result.output)
+        # H17 Step A: 模型输出完成语义标注，blocker 报警，其余静默
+        try:
+            from lingclaude.core.evidence_protocol import classify_state, StateClass
+            if classify_state(result.output or "") is StateClass.BLOCKER:
+                print("[⚠ 模型输出含阻塞声明（请人工复核）]")
+        except Exception:  # noqa: BLE001
+            pass
     _feed_behavior_to_daemon(engine, None)
     if verbose:
         stats = engine.get_stats()
