@@ -1,0 +1,9 @@
+{
+  "kind": "hardcoded_direct",
+  "location": "scripts/exemption_review.py",
+  "reason": "P2② journal 链只覆盖 arch_debt 路径：豁免台账状态变更（apply 痕迹/resolve 翻档）不经过链，2026-10-02 16:08-16:13 八笔豁免 resolved 变更链外发生（人工复核翻档实证）。修法：exemption_review.py apply/apply --resolve 与人工翻档路径统一接 append-only journal，豁免档任何写操作先入链",
+  "due": "2026-10-09",
+  "resolve_hint": "apply() 翻档写盘处调 arch_ledger journal append（豁免类 op），补 10-02 八笔回溯行（标注 post-fact）",
+  "state": "open",
+  "created": "2026-10-02T08:17:57+00:00"
+}
