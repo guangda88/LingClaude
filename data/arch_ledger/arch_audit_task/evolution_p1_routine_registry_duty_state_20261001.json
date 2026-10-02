@@ -2,6 +2,10 @@
   "severity": "P2",
   "finding": "常驻责任对象化：LingBus 触发器注册表（cron/webhook/git_hook/ci → routine，带 owner/SLA/幂等键，触发先写 trace_id journal）+ Duty State（idle/read_only/busy/risky，busy 关跨域写，self_audit_trigger 指纹变化自动降级，H17 闭环后回升）+ 中断闩锁（常驻任务一条命令可停，停动作入账）。主动性由调度器驱动，禁模型自主空闲巡逻。来源：同报告建议5。",
   "source": "external_review_20261001",
-  "state": "open",
-  "created": "2026-09-30T23:29:29+00:00"
+  "state": "resolved",
+  "created": "2026-09-30T23:29:29+00:00",
+  "resolved_at": "2026-10-02T15:32:59",
+  "resolved_by": "lingclaude",
+  "scope": "resident-members",
+  "resolution": "2026-10-02 灵克裁定（lc 提请二选一，选 B 注记关闭）：scope=resident-members，lc=by-design 满足。证据：routine 注册表核心已存在——core/scheduler.py(get_schedule_manager/ScheduleType: @daily/after:N/at:HH:MM) + /schedule(task_id|cron|列表|cancel，commands.py _cmd_schedule) + SDT/cron 自驱面 + self_audit_trigger + a831612 任务级验收契约门 + aa27d95 task_state 投影；中断闩锁=/schedule cancel + AGENTS.md 精确 kill 纪律。残余（审计级增量，⚠未验证需求）：owner/SLA/幂等键/触发先写 trace_id journal——grep 零命中，未做。「灵信/灵通问道是真正消费者」系 lc scope 自评，未向两成员求证；若 resident-members 日后确认需求，凭本注记在其名下重新立项（owner=灵信/灵通），不复活本条。主动性由调度器驱动、禁模型自主巡逻的守则已在 AGENTS.md。裁决人：lingclaude（监督）；提请人：lc。"
 }

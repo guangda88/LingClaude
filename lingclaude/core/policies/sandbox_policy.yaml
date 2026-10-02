@@ -47,3 +47,14 @@ directory_rules:
   default:
     writable:
       - "/home/ai"
+
+# 网络白名单（2026-10-02，P2③ execution_domain）：按 cwd 域给出放行域名清单，
+# 供 execution_domain.resolve_net_allowlist/net_allowed 查询（M 期接 httpx
+# AsyncClient 工厂点强制）。匹配=精确或点前缀子域；段缺失=不激活=零行为变化；
+# default 缺失=非命中项目不限制（显式空口）。当前默认注释态=未激活（现状等价）。
+# net_allowlist:
+#   rules:
+#     - scope: "/home/ai/lingclaude"
+#       allow: ["api.github.com", "objects.githubusercontent.com"]
+#   default:
+#     allow: []

@@ -2,6 +2,10 @@
   "severity": "P2",
   "finding": "最小执行域 capability 化：SeamRegistry 强化 {read_paths,write_paths,net_allowlist,side_effect_class} 执行域对象，按成员/子agent 强制校验；进程/路径层隔离即可，禁 VM-per-agent 过度工程。来源：同报告建议3。",
   "source": "external_review_20261001",
-  "state": "open",
-  "created": "2026-09-30T23:29:29+00:00"
+  "state": "resolved",
+  "created": "2026-09-30T23:29:29+00:00",
+  "resolved_at": "2026-10-02T15:09:02",
+  "resolution": "2026-10-02 验收 PASS 销账（核心交付口径）：09a4f20 落库目录级细粒度沙箱——core/sandbox_rules.py scope 前缀匹配/首命中优先/default 段/is_safe_writable_dir 共享钳制，bash._sandbox_command + file_tools._write_allowed 同一规则源双面接线（不再双轨），sandbox_policy.yaml directory_rules 段热更生效、fail-safe 锚定；tests/test_sandbox_rules.py 8 passed（灵克实测）、沙箱族回归 151 绿。残余（不阻塞销账，留 M 期）：net_allowlist/read_paths 未并入统一 capability 对象、SeamRegistry 侧声明面未合。验收人：lingclaude（监督）。",
+  "resolved_by": "lingclaude",
+  "recheck_20261002": "M 期残余提前清偿（本轮）：core/execution_domain.py 聚合显式化——net_allowlist 段（scope 前缀/首命中/default/段缺失不激活）+ net_allowed 域名匹配 + resolve_domain 聚合（write_paths 引 sandbox_rules 唯一规则源+四档元数据回填，不建第二套规则）。网络强制点=proxy.py:351/provider_pool.py:41 httpx AsyncClient 工厂，留 M 期接线（查询面已备）。复验人：lingclaude"
 }

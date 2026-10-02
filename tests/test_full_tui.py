@@ -1291,23 +1291,21 @@ class TestPlainNoColor:
         assert "加粗" in err and "青色" in err  # 内容仍在，只去色
 
     def test_lingclaude_plain_no_color_alias(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """LINGCLAUDE_PLAIN_NO_COLOR=1 与 NO_COLOR 等效（行为级：零 SGR）。"""
-        import re
+        """LINGCLAUDE_PLAIN_NO_COLOR 是死开关（2026-09-22 废弃，不单独判定）。
 
+        2026-10-02 三裁后：该变量不再影响判定（默认自动检测彩色）。
+        此测试锁定"死开关"语义：设置了它，_plain_no_color() 仍返回 False。
+        真正的禁色口是 LINGCLAUDE_COLOR=0（强制）与 NO_COLOR（标准）。
+        """
         from lingclaude.cli import display, repl_io
 
         repl_io.set_full_tui_managed(False)
         monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.delenv("LINGCLAUDE_COLOR", raising=False)
         monkeypatch.setenv("LINGCLAUDE_PLAIN_NO_COLOR", "1")
-        console = display._get_console()
-        # 禁色分支显式传 force_terminal=False（rich 实测不存 _no_color 属性）
-        assert console._force_terminal is False
-        console.print("[bold red]加粗[/bold red]")
-        err = capsys.readouterr().err
-        assert not re.search(r"\x1b\[[0-9;]*m", err), f"残留 SGR: {err!r}"
-        assert "加粗" in err
+        assert display._plain_no_color() is False  # 死开关：不再禁色
 
     def test_managed_takes_precedence_over_no_color(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1323,24 +1321,106 @@ class TestPlainNoColor:
         finally:
             repl_io.set_full_tui_managed(False)
 
-    def test_plain_console_plain_by_default(
+    def test_lingclaude_color_off_forces_no_color(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """2026-10-02 三裁新增：LINGCLAUDE_COLOR=0 强制禁色（乱码环境逃生口）。
+
+        默认自动检测后，声明彩色却不消费 SGR 的终端用本开关物理归零；
+        行为级验证与 2026-09-21 乱码战役同款（零 SGR）。
+        """
+        import re
+
+        from lingclaude.cli import display, repl_io
+
+        repl_io.set_full_tui_managed(False)
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("LINGCLAUDE_COLOR", "0")
+        assert display._plain_no_color() is True
+        console = display._get_console()
+        assert console._force_terminal is False
+        assert console._color_system is None
+        console.print("[bold red]加粗[/bold red]")
+        err = capsys.readouterr().err
+        assert not re.search(r"\x1b\[[0-9;]*m", err), f"残留 SGR: {err!r}"
+        assert "加粗" in err
+
+    def test_managed_display_status_lines_are_colored(self) -> None:
+        """2026-10-02 托管期上色修正：✓/✗ 状态行在 TUI=2 输出窗有颜色。
+
+        旧行为：托管分支 force_terminal=False + 代理 isatty()=False →
+        rich 判零能力 → 恒素字（用户实测「仍看到素字」）。守卫：
+        display.print_success/print_error 在托管期必须产出 SGR（基础 8
+        色码），且经 _extract_sgr_styles 白名单解析后零裸 ESC 落窗。
+        """
+        import io
+        import re
+
+        from lingclaude.cli import display, repl_io
+
+        repl_io.set_full_tui_managed(True)
+        try:
+            proxy = io.StringIO()
+            proxy.isatty = lambda: False  # 模拟 full_tui._StdoutProxy
+            real_stdout = sys.stdout
+            sys.stdout = proxy  # type: ignore[assignment]
+            try:
+                display.print_success("守卫：托管期彩色")
+                display.print_error("守卫：托管期错误")
+            finally:
+                sys.stdout = real_stdout
+            out = proxy.getvalue()
+            assert re.search(r"\x1b\[[0-9;]*m", out), f"托管期状态行仍素字: {out!r}"
+            # 基础 8 色码在白名单内（_sgr_params_to_style 解析成样式段，非吞掉）
+            from lingclaude.cli.interface import _extract_sgr_styles
+
+            for line in out.splitlines():
+                if not line.strip():
+                    continue
+                text, spans = _extract_sgr_styles(line)
+                assert "\x1b" not in text, f"裸 ESC 残留: {line!r}"
+                if line != text:
+                    assert spans, f"SGR 被白名单吞掉: {line!r}"
+        finally:
+            repl_io.set_full_tui_managed(False)
+
+    def test_plain_console_auto_color_by_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """2026-09-22 终裁：默认纯文本（零 ESC 源头），彩色改 LINGCLAUDE_COLOR opt-in。
+        """2026-10-02 三裁：默认自动检测——rich 按终端能力协商彩色。
 
-        旧语义（无环境变量→彩色）随「声明彩色却不消费 SGR」终端的长期乱码
-        一起废弃；禁色 Console 显式 force_terminal=False + color_system=None。
+        2026-09-22 终裁（默认禁色 + LINGCLAUDE_COLOR opt-in）废止：为极端
+        乱码终端牺牲所有真彩终端不值；禁色改走 LINGCLAUDE_COLOR=0（强制）
+        与 NO_COLOR（标准）双逃生口。假 tty + TERM=xterm-256color 下
+        rich 自动协商出 8-bit 色系并产出 SGR。
         """
+        import io
+        import re
+        import sys
+
         from lingclaude.cli import display, repl_io
 
         monkeypatch.delenv("NO_COLOR", raising=False)
         monkeypatch.delenv("LINGCLAUDE_COLOR", raising=False)
         monkeypatch.delenv("LINGCLAUDE_PLAIN_NO_COLOR", raising=False)
+        monkeypatch.setenv("TERM", "xterm-256color")
+        # capsys 的 stderr 非 tty（rich 会正确判非终端）；模拟真实终端：
         repl_io.set_full_tui_managed(False)
+
+        class _SpyTty(io.StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        monkeypatch.setattr(sys, "stderr", _SpyTty())
         console = display._get_console()
-        # 禁色分支显式 force_terminal=False；color_system=None 物理归零
-        assert console._force_terminal is False
-        assert console._color_system is None
+        # 自动检测分支：不强制 force_terminal（rich 自行 isatty 判定）
+        assert console._force_terminal is None
+        # 假 tty + TERM 下 rich 能力协商成功：色系非 None（旧禁色分支恒 None）
+        assert console._color_system is not None
+        console.print("[bold red]加粗[/bold red]")
+        out = console.file.getvalue()
+        assert re.search(r"\x1b\[[0-9;]*m", out), f"自动检测彩色应产出 SGR: {out!r}"
+        assert "加粗" in out
 
 
 class TestToolbarStyle:

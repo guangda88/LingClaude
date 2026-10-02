@@ -212,3 +212,68 @@ class TestBangShell:
         with contextlib.redirect_stdout(buf):
             repl_mod._run_bang_shell(ctx, "!cat /etc/shadow")
         assert "拦截" in buf.getvalue()
+
+
+class TestClearSemantics:
+    """2026-10-02 /clear 语义升级：clear = 真·新会话（engine.reset() 全量复位）。
+
+    背景：34997fa（2026-08-25 app.py 巨石时代）内联逻辑只清 _messages/
+    _conversation 两列表，注册表化时原样外提，此后引擎 reset() 进化了
+    8 项语义（换 session_id/落盘/transcript/usage/denials/working 等），
+    /clear 一直没跟上——用户预期「clear = new session」落空。
+    """
+
+    def _make_processor(self, engine: object) -> Any:
+        return cmd_mod.SlashCommandProcessor(
+            engine, SimpleNamespace(), reader=lambda: "", submit=lambda t: None,
+        )
+
+    def test_clear_delegates_to_engine_reset(self) -> None:
+        """/clear 必须走 engine.reset() 单源，不得自造清列表旁路。"""
+        calls: list[str] = []
+
+        class _ResetSpyEngine:
+            def reset(self) -> None:
+                calls.append("reset")
+
+        proc = self._make_processor(_ResetSpyEngine())
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            proc._cmd_clear()
+        assert calls == ["reset"]
+        assert "会话已清空" in buf.getvalue()
+
+    def test_reset_full_semantics_documented_contract(self) -> None:
+        """引擎 reset() 契约自检：8 项全量复位（与 query_engine.reset 对齐）。
+
+        用轻构造引擎实测（模式同 test_agent_loop.py:619），防 reset()
+        未来缩水而 /clear 静默跟着缩水。
+        """
+        from lingclaude.core.models import UsageSummary
+        from lingclaude.core.query_engine import QueryEngine
+
+        class _NullProvider:
+            def complete(self, *a: object, **k: object) -> None:
+                raise AssertionError("not called")
+
+            async def acomplete(self, *a: object, **k: object) -> None:
+                raise AssertionError("not called")
+
+            def count_tokens(self, text: str) -> int:
+                return 0
+
+        engine = QueryEngine(model_provider=_NullProvider())  # type: ignore[arg-type]
+        old_sid = engine.session_id
+        engine._messages.append("u")
+        engine._conversation.append({"role": "user", "content": "u"})
+        engine._transcript.append("line")
+        engine._denials.append("d")
+        engine.reset()
+        assert engine.session_id != old_sid          # ① 新会话身份
+        assert engine._messages == []                # ② 消息清空
+        assert engine._conversation == []            # ③ 对话镜像清空
+        assert engine._transcript == []              # ④ transcript 清空
+        assert engine._denials == []                 # ⑤ 拒绝上下文清空
+        assert engine.turn_count == 0                # ⑥ 轮次归零
+        assert not engine.has_checkpoint             # ⑦ 检查点清空
+        assert engine.usage == UsageSummary()        # ⑧ usage 归零（query_engine.py:303）

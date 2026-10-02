@@ -406,9 +406,14 @@ class TestToolbarTips:
     def test_keybinding_tips_in_pool(self) -> None:
         # 2026-09-25 二期：键位/操作类入池（chord 事实源自 interface.py:311-312
         # 与 repl.py:1193 启动横幅，禁止未实测键位入池）
+        # 2026-10-02：Ctrl+Enter/Shift+Enter 从 tips 池下线——chord 映射虽在
+        # （interface._patch_pt_modifier_enter），但终端默认对 Enter 组合键发裸
+        # \r（full_tui.py 实测注释、scripts/keypress_probe.py 探针），提示成
+        # 空头承诺；恢复承诺前禁止重新入池。
         joined = " ".join(_TOOLBAR_TIPS)
-        for key in ("Esc+Enter", "Ctrl+Enter", "Ctrl+C", "Ctrl+D", "Tab"):
+        for key in ("Esc+Enter", "Ctrl+C", "Ctrl+D", "Tab"):
             assert key in joined, f"键位 {key} 缺席 tips 池"
+        assert "Ctrl+Enter" not in joined, "Ctrl+Enter 未实现换行（终端发裸\\r），不得入池"
 
     def test_all_slash_tokens_are_registered(self) -> None:
         from lingclaude.cli.commands import SLASH_COMPLETER_WORDS
