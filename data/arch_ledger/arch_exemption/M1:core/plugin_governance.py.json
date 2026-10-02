@@ -1,0 +1,22 @@
+{
+  "guard": "M1",
+  "file": "core/plugin_governance.py",
+  "reason": "M3 插件治理（084db26）: M1 命中行属该模块固有概念语义（agent/model/tool/policy 等为模块领域本体，非主干泄漏），沿 09-21 approval_matrix 先例行级登记，复审逐行确认可否改词收窄。",
+  "granted": "2026-10-02",
+  "state": "active",
+  "review_due": "2026-11-01",
+  "lines": [
+    1,
+    31,
+    36,
+    53,
+    54,
+    58,
+    90,
+    94,
+    95,
+    101,
+    105,
+    125
+  ]
+}

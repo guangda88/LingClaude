@@ -1,0 +1,11 @@
+{
+  "guard": "G11b",
+  "file": "core/hook_registry.py",
+  "reason": "P1① hook_registry 用户插件加载器（1da2f11）: spec_from_file_location 为hook 动态加载机制本体（与 plugin_loader 同构，机制豁免非盲区利用）；动态模块名无法静态判定。行级豁免，复审时确认可否收敛到 PluginLoader 间接入口。",
+  "granted": "2026-10-02",
+  "state": "active",
+  "review_due": "2026-11-01",
+  "lines": [
+    134
+  ]
+}

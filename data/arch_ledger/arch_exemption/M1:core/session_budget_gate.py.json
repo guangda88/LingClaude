@@ -1,0 +1,22 @@
+{
+  "guard": "M1",
+  "file": "core/session_budget_gate.py",
+  "reason": "P1② 预算线接线（a356ac3/0695b3d）: M1 命中行属该模块固有概念语义（agent/model/tool/policy 等为模块领域本体，非主干泄漏），沿 09-21 approval_matrix 先例行级登记，复审逐行确认可否改词收窄。",
+  "granted": "2026-10-02",
+  "state": "active",
+  "review_due": "2026-11-01",
+  "lines": [
+    1,
+    31,
+    63,
+    64,
+    69,
+    71,
+    74,
+    75,
+    85,
+    89,
+    93,
+    105
+  ]
+}

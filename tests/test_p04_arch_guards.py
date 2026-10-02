@@ -638,8 +638,15 @@ _G11B_EXEMPTION_DIR = ROOT / "data" / "arch_ledger" / "arch_exemption"
 def _g11b_exempted(rel_file: str, lineno: int) -> bool:
     """查 G11b 行级豁免台账（文件名级豁免，行号仅入诊断不参与匹配）。"""
     import json as _json
-    entry = _G11B_EXEMPTION_DIR / f"G11b:{rel_file.replace('/', '__')}.json"
-    if not entry.is_file():
+    # 双布局兼容（2026-10-02）：存量档为扁平名（G11b:core__x.py.json），而
+    # arch_ledger.py CLI 的嵌套约定会产生 G11b:core/x.py.json——先扁平后嵌套，
+    # 防经 CLI 入册的档被守卫漏读（hook_registry:134 实际踩坑后补）。
+    candidates = (
+        _G11B_EXEMPTION_DIR / f"G11b:{rel_file.replace('/', '__')}.json",
+        _G11B_EXEMPTION_DIR / f"G11b:{rel_file}.json",
+    )
+    entry = next((c for c in candidates if c.is_file()), None)
+    if entry is None:
         return False
     try:
         data = _json.loads(entry.read_text(encoding="utf-8"))

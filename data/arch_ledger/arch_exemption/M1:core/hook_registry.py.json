@@ -1,0 +1,19 @@
+{
+  "guard": "M1",
+  "file": "core/hook_registry.py",
+  "reason": "P1① Hook 生命周期（1da2f11）: M1 命中行属该模块固有概念语义（agent/model/tool/policy 等为模块领域本体，非主干泄漏），沿 09-21 approval_matrix 先例行级登记，复审逐行确认可否改词收窄。",
+  "granted": "2026-10-02",
+  "state": "active",
+  "review_due": "2026-11-01",
+  "lines": [
+    1,
+    45,
+    46,
+    96,
+    115,
+    126,
+    161,
+    162,
+    166
+  ]
+}
