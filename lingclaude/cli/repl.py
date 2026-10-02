@@ -1539,7 +1539,7 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
     try:
         from lingclaude.cli.slash_completer import SlashCompleter
 
-        _completer = SlashCompleter()
+        _completer = SlashCompleter(engine)  # 注入 engine：参数级补全的动态源
     except ImportError:
         _completer = None
     session: PromptSessionInterface = create_session(completer=_completer)

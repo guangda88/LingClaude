@@ -8,8 +8,9 @@
     ` → <arg_hint>` 第三段。display_meta 走 PT 补全浮层灰字通道（meta 列），
     与 atomcode「名称+注释」双列同构。
   • 补全触发语义：仅当整词恰为命令名（`/mo` → `/model`，start_position=负词长，
-    整词替换）；命令名后已有空格则不再补命令名（交给各命令的参数补全，
-    本期不实现参数级补全，见 docs §五 P2 之外的后续）。
+    整词替换）；命令名后已有空格 → 参数语境，转 slash_arg_completions
+    （B 2026-10-02：/model /session /resume /undo /rewind /lsp /schedule
+    /tasks /history 九命令参数级补全，动态源容错缩水）。
 """
 from __future__ import annotations
 
@@ -24,8 +25,9 @@ from lingclaude.cli.commands import SLASH_REGISTRY
 class SlashCompleter(Completer):
     """斜杠命令补全：注册表单源 + desc/arg_hint 双列注释（atomcode 同构）。"""
 
-    def __init__(self) -> None:
+    def __init__(self, engine: Any = None) -> None:
         self._cache: tuple[int, list[Completion]] | None = None
+        self.engine = engine
 
     def get_completions(self, document: Document, complete_event: Any) -> Any:
         line = document.text_before_cursor
@@ -34,9 +36,13 @@ class SlashCompleter(Completer):
         if not stripped.startswith("/"):
             return
         # 光标必须仍在第一个 token 内（命令词未完）才补命令名；
-        # 命令词后已空格 → 参数语境，本期无参数级补全，退出。
+        # 命令词后已空格 → 参数语境，交 slash_arg_completions（B 2026-10-02）。
+        # engine=None 也进：静态候选（--unpin / list / add…）不依赖 engine，
+        # 动态源经 getattr 链静默缩水。
         first_token_end = line.find(" ")
         if first_token_end != -1 and document.cursor_position > first_token_end:
+            from lingclaude.cli.slash_arg_completions import build_arg_completions
+            yield from build_arg_completions(self.engine, line)
             return
         token = line[: document.cursor_position]
         # 光标截断在命令词中间也算（/mo|del → 补 /model）；斜杠后零散字符可以

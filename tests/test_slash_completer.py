@@ -11,6 +11,7 @@
 """
 import importlib
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -102,8 +103,13 @@ class TestSlashCompletion:
         assert set(plugin_names) <= got
 
     def test_arg_context_no_command_completion(self, completer):
-        """命令词后已空格 → 参数语境，不补命令名（本期无参数级补全）。"""
-        assert _completions(completer, "/help ") == []
+        """命令词后已空格 → 参数语境，不补命令名（B 起转入参数级补全：
+        /help 有意升级为补 <命令> 主题，见 TestArgCompletions）。"""
+        # 用真无参命令断言「不串台到命令名补全」
+        assert _completions(completer, "/clear ") == []
+        # /help 参数语境出的是主题词（不带斜杠），不再是命令名
+        got = _completions(completer, "/help ")
+        assert got and all(not t.startswith("/") for t, _, _ in got)
 
     def test_hidden_excluded(self, completer):
         """/? hidden 别名不进候选（噪声防护）。"""
@@ -144,7 +150,8 @@ class TestWiring:
         from lingclaude.cli import repl
 
         src = inspect.getsource(repl)
-        assert "SlashCompleter()" in src
+        # B 2026-10-02: engine 注入（参数级补全动态源）
+        assert "SlashCompleter(engine)" in src
         # 旧接线不得残留
         assert "WordCompleter(SLASH_COMPLETER_WORDS" not in src
 
@@ -217,3 +224,137 @@ class TestAliasGrouping:
         """归组只改注释列，不改补全行为：敲别名照样出候选、能选中。"""
         texts = {x.text for x in completer.get_completions(Document("/to"), CompleteEvent())}
         assert "/todo" in texts
+
+
+# ============ B 2026-10-02: 参数级补全（/model /session 等） ============
+
+class TestArgCompletions:
+    """参数语境补全：命令词后空格 → slash_arg_completions 接管。"""
+
+    def _comp(self, engine=None):
+        from lingclaude.cli.slash_completer import SlashCompleter
+        return SlashCompleter(engine)
+
+    def _run(self, comp, line):
+        d = Document(line, len(line))
+        return [c.text for c in comp.get_completions(d, None)]
+
+    def test_model_unpin_and_providers(self):
+        from types import SimpleNamespace as NS
+        eng = MagicMock()
+        eng._task_router._providers = {
+            "openai": NS(default_model="gpt-4o", models=["gpt-4o", "gpt-4o-mini"]),
+        }
+        got = self._run(self._comp(eng), "/model ")
+        assert "--unpin" in got and "gpt-4o@openai" in got
+
+    def test_model_prefix_filter(self):
+        from types import SimpleNamespace as NS
+        eng = MagicMock()
+        eng._task_router._providers = {
+            "openai": NS(default_model="gpt-4o", models=["gpt-4o", "claude-x"]),
+        }
+        got = self._run(self._comp(eng), "/model gpt")
+        assert got == ["gpt-4o@openai"]
+
+    def test_session_static_and_dynamic_ids(self):
+        eng = MagicMock()
+        eng.session_manager.list_sessions.return_value = [
+            {"session_id": "aaaabbbb-cccc", "summary": "s1"},
+        ]
+        got = self._run(self._comp(eng), "/session ")
+        assert "list" in got and "switch" in got and "aaaabbbb" in got
+
+    def test_alias_fold_todo_to_tasks(self):
+        eng = MagicMock()
+        store = MagicMock()
+        store.list.return_value = [NS2(id="t1", status=NS2(value="pending"), content="x")]
+        eng._runtime._todo_store = store
+        got = self._run(self._comp(eng), "/todo st")
+        assert got == ["start"]
+
+    def test_engine_none_static_only_no_crash(self):
+        comp = self._comp(None)
+        assert "list" in self._run(comp, "/session ")
+        # 静态候选不依赖 engine，照出；动态模型清单缩水为空
+        got = self._run(comp, "/model ")
+        assert "--unpin" in got and not any("@" in g for g in got)
+
+    def test_provider_exception_swallowed(self):
+        eng = MagicMock()
+        eng.session_manager.list_sessions.side_effect = RuntimeError("boom")
+        got = self._run(self._comp(eng), "/resume ")  # 动态源炸 → 静默缩水
+        assert got == []
+
+    def test_free_text_args_not_completed(self):
+        eng = MagicMock()
+        assert self._run(self._comp(eng), "/tasks add 写个测试") == []
+
+    def test_unknown_or_noparam_commands_stay_quiet(self):
+        eng = MagicMock()
+        comp = self._comp(eng)
+        assert self._run(comp, "/clear ") == []
+        assert self._run(comp, "/multi ") == []
+        assert self._run(comp, "/exit ") == []
+
+    def test_history_show_id_fold(self):
+        eng = MagicMock()
+        eng.session_manager.list_sessions.return_value = [
+            {"session_id": "aaaabbbb-cccc", "summary": "s1"},
+        ]
+        got = self._run(self._comp(eng), "/history show ")
+        assert got == ["aaaabbbb"]
+
+    # ── C 2026-10-02 覆盖面补齐守卫 ──
+
+    def test_coverage_every_command_with_param_semantics(self):
+        """全注册表扫描：非「无参/自由参数」命令在参数语境必须有候选。
+        锁覆盖面——根除「只接了 9/33」式漏登复发。"""
+        free_or_none = {"/checkpoint", "/clear", "/compact", "/continue", "/exit",
+                        "/fork", "/image", "/multi", "/new", "/quit", "/recover",
+                        "/resync", "/share"}
+        comp = self._comp(None)  # engine=None：静态候选照出，足以判覆盖
+        from lingclaude.cli.commands import SLASH_REGISTRY
+        seen = set()
+        for e in SLASH_REGISTRY.values():
+            if e.name in seen or e.name in free_or_none or e.hidden:
+                continue
+            seen.add(e.name)
+            # /resume 动态源缩水属预期（engine=None），静态有 /session /undo 等兜着
+            if e.name in ("/resume", "/rewind", "/?"):
+                continue  # 纯动态源，engine=None 缩水属预期（静态兜底命令在别项已锁）
+            got = self._run(comp, f"{e.name} ")
+            assert got, f"{e.name} 参数语境零候选——覆盖面漏登"
+
+    def test_agent_static_words_and_tolerant(self):
+        got = self._run(self._comp(None), "/agent ")
+        assert {"list", "match", "reload"} <= set(got)
+
+    def test_help_bare_names_no_slash(self):
+        comp = self._comp(None)
+        assert "clear" in self._run(comp, "/help cl")
+        assert self._run(comp, "/help m") == ["multi", "model"]  # 注册序：/multi 先于 /model
+
+    def test_vault_delete_lists_entry_names(self, monkeypatch):
+        import lingclaude.model.vault as vault_mod
+
+        class FakeVault:
+            def list(self):
+                return [{"name": "credential_pool_keys", "updated_at": "t"}]
+
+        monkeypatch.setattr(vault_mod, "Vault", FakeVault)
+        got = self._run(self._comp(None), "/vault delete ")
+        assert got == ["credential_pool_keys"]
+
+    def test_openrouter_webui_budget_policy_static(self):
+        comp = self._comp(None)
+        assert self._run(comp, "/openrouter ") == ["status", "logout", "models"]
+        assert self._run(comp, "/webui ") == ["--local"]
+        assert self._run(comp, "/budget ") == ["reset"]
+        assert self._run(comp, "/policy ") == ["reload"]
+
+
+class NS2:
+    """MagicMock 属性访问会吞 dict/int 对比的坑，用真 namespace。"""
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
