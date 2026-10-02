@@ -80,6 +80,9 @@ class CognitiveMemory:
     created_at: float = 0.0
     updated_at: float = 0.0
     access_count: int = 0
+    # supersede 链（2026-10-02 P1③）：本条被哪条新记忆取代。NULL/空 = 现行；
+    # 非空 = 历史版本（检索出口统一过滤，链可回溯不丢）。
+    superseded_by: str = ""
 
     def __post_init__(self):
         if not self.id:

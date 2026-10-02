@@ -235,6 +235,18 @@ def build_dynamic_system_suffix(
     if memory_text:
         extras.append("\n\n" + memory_text)
 
+    # P1③ 件 B（2026-10-02）：per-project memory 注入——文件式、人类可手编、
+    # 按项目目录隔离。落动态尾随块遵守 P0-2/P0-3 前缀缓存纪律（前缀冻结，
+    # 动态内容只进尾部）。fail-soft：缺失/禁用/超限内部处理，绝不反噬主 prompt。
+    try:
+        from lingclaude.core.project_memory import load_project_memory
+
+        pm_text = load_project_memory()
+        if pm_text:
+            extras.append(pm_text)
+    except Exception as _pm_err:  # noqa: BLE001 — fail-soft
+        logger.debug("project_memory 注入失败（fail-soft）: %s", _pm_err)
+
     meta_text = meta_cognition.get_system_prompt_injection()
     if meta_text:
         extras.append("\n\n" + meta_text)

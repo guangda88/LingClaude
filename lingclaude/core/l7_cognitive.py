@@ -110,13 +110,16 @@ CREATE TABLE IF NOT EXISTS l7_cognitive_memories (
     tags TEXT DEFAULT '[]',
     created_at REAL,
     updated_at REAL,
-    access_count INTEGER DEFAULT 0
+    access_count INTEGER DEFAULT 0,
+    superseded_by TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_l7c_tier ON l7_cognitive_memories(tier);
 CREATE INDEX IF NOT EXISTS idx_l7c_type ON l7_cognitive_memories(okf_type);
 CREATE INDEX IF NOT EXISTS idx_l7c_importance ON l7_cognitive_memories(importance DESC);
 CREATE INDEX IF NOT EXISTS idx_l7c_key ON l7_cognitive_memories(key);
 CREATE INDEX IF NOT EXISTS idx_l7c_source ON l7_cognitive_memories(source);
+-- 注意：superseded_by 相关索引不放这里——存量库 executescript 先于
+-- ALTER 迁移执行会因缺列炸掉，索引统一由 _migrate_supersede_column 创建。
 
 CREATE TABLE IF NOT EXISTS l7_doc_index (
     id TEXT PRIMARY KEY,
@@ -192,7 +195,33 @@ class CognitiveStore(SqliteStoreBase):
         legacy_sink: Any | None = None,
     ) -> None:
         super().__init__(db_path=db_path, legacy_sink=legacy_sink, db_name="l7_cognitive.db")
+        self._migrate_supersede_column()
         self._l7_available = self._try_load_l7()
+
+    def _migrate_supersede_column(self) -> None:
+        """存量库补列（2026-10-02 P1③ supersede 链）。
+
+        executescript 的 CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，
+        存量 l7_cognitive.db 需 ALTER 补 superseded_by；幂等（列在即跳过）。
+        迁移失败仅告警——读路径会用 getattr 兜底（旧行无该列时 sqlite3.Row
+        按名取值会 KeyError，故列缺失时检索过滤自动降级为不过滤）。
+        """
+        try:
+            conn = self._get_conn()
+            cols = {r[1] for r in conn.execute(
+                "PRAGMA table_info(l7_cognitive_memories)").fetchall()}
+            if "superseded_by" not in cols:
+                conn.execute(
+                    "ALTER TABLE l7_cognitive_memories "
+                    "ADD COLUMN superseded_by TEXT DEFAULT ''")
+                logger.info("l7_cognitive: superseded_by 列迁移完成")
+            # 检索过滤主索引（新库旧库统一在此创建，见 _SCHEMA 注释）
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_l7c_active "
+                "ON l7_cognitive_memories(key, superseded_by)")
+            safe_commit(conn)
+        except Exception:
+            logger.warning("l7_cognitive: superseded_by 列迁移失败", exc_info=True)
 
     def _try_load_l7(self) -> bool:
         """尝试加载灵极优 L7 存储引擎（走显式插片契约），不可用时降级。
@@ -217,14 +246,39 @@ class CognitiveStore(SqliteStoreBase):
 
     def put_memory(self, mem: CognitiveMemory) -> str:
         conn = self._get_conn()
+        # P1③ supersede 链（2026-10-02）：同 key 旧版标记被取代，不再堆双份。
+        # 主键是新生成的 mem.id，INSERT OR REPLACE 防不住同 key 增量写入——
+        # 原行为下 get_always/ondemand/triggered/search 会把新旧版本全数返回，
+        # 召回噪声随写入次数线性膨胀（豆包坑①「记忆膨胀」在本库的真实形态）。
+        # 语义：旧条目保留（superseded_by 指向新 id，链可回溯），检索出口过滤。
+        # 冲突面：若旧条目已是 superseded（更新竞态），以 updated_at 新者为准续链。
+        try:
+            old_rows = conn.execute(
+                """SELECT id, updated_at FROM l7_cognitive_memories
+                   WHERE key = ? AND superseded_by = ''""",
+                (mem.key,),
+            ).fetchall()
+            if old_rows:
+                superseded_ids = [r["id"] for r in old_rows]
+                qmarks = ",".join("?" for _ in superseded_ids)
+                safe_execute(
+                    conn,
+                    f"UPDATE l7_cognitive_memories SET superseded_by = ? "
+                    f"WHERE id IN ({qmarks})",
+                    (mem.id, *superseded_ids),
+                )
+        except Exception:
+            logger.warning("put_memory: supersede 标记失败（新记忆照常写入）",
+                           exc_info=True)
+
         safe_execute(conn, """INSERT OR REPLACE INTO l7_cognitive_memories
             (id, key, value, source, session_id, importance, tier, okf_type,
-             tags, created_at, updated_at, access_count)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+             tags, created_at, updated_at, access_count, superseded_by)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (mem.id, mem.key, json.dumps(mem.value, ensure_ascii=False),
              mem.source, mem.session_id, mem.importance, mem.tier.value,
              mem.okf_type.value, json.dumps(mem.tags, ensure_ascii=False),
-             mem.created_at, mem.updated_at, mem.access_count),
+             mem.created_at, mem.updated_at, mem.access_count, ""),
         )
         safe_commit(conn)
 
@@ -258,39 +312,69 @@ class CognitiveStore(SqliteStoreBase):
         ).fetchone()
         return self._row_to_memory(row) if row else None
 
+    def get_memory_history(self, key: str) -> list[CognitiveMemory]:
+        """P1③ supersede 链回溯：同 key 全版本（现行在前，历史其后按时间降序）。
+
+        检索出口（get_always/ondemand/triggered/search）只回现行版本；
+        需要看演变史（审计/争议仲裁/回滚参考）时走本入口。
+        """
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT * FROM l7_cognitive_memories WHERE key = ?
+               ORDER BY CASE WHEN superseded_by = '' THEN 0 ELSE 1 END,
+                        updated_at DESC""",
+            (key,),
+        ).fetchall()
+        return [self._row_to_memory(r) for r in rows]
+
     def _row_to_memory(self, row: sqlite3.Row) -> CognitiveMemory:
+        # P1③ 加固：value/tags 假定为 JSON，但存量/手写行可能非 JSON——
+        # 解析失败回退原文（检索健壮性优先于数据纯度，坏行不该炸掉整个查询）。
+        try:
+            value = json.loads(row["value"]) if row["value"] else None
+        except (ValueError, TypeError):
+            value = row["value"]
+        try:
+            tags = json.loads(row["tags"]) if row["tags"] else []
+        except (ValueError, TypeError):
+            tags = []
         return CognitiveMemory(
             id=row["id"], key=row["key"],
-            value=json.loads(row["value"]) if row["value"] else None,
+            value=value,
             source=row["source"], session_id=row["session_id"],
             importance=row["importance"],
             tier=MemoryTier(row["tier"]),
             okf_type=OKFType(row["okf_type"]),
-            tags=json.loads(row["tags"]) if row["tags"] else [],
+            tags=tags,
             created_at=row["created_at"], updated_at=row["updated_at"],
             access_count=row["access_count"],
+            # P1③：存量行迁移失败时无该列 → sqlite3.Row 按名取键 KeyError，
+            # 降级返回空（= 视为现行，检索不因迁移失败而丢条目）。
+            superseded_by=(row["superseded_by"]
+                           if "superseded_by" in row.keys() else ""),
         )
 
     # ── 分层记忆检索 ──
 
     def get_always_context(self, max_items: int = 5) -> list[CognitiveMemory]:
-        """Always 层: 重要度 >= 8, 每次会话自动加载"""
+        """Always 层: 重要度 >= 8, 每次会话自动加载（P1③: 只回现行版本）"""
         conn = self._get_conn()
         rows = conn.execute(
             """SELECT * FROM l7_cognitive_memories
-               WHERE tier = 'always'
+               WHERE tier = 'always' AND superseded_by = ''
                ORDER BY importance DESC, updated_at DESC LIMIT ?""",
             (max_items,),
         ).fetchall()
         return [self._row_to_memory(r) for r in rows]
 
     def get_ondemand_context(self, query: str, max_items: int = 10) -> list[CognitiveMemory]:
-        """OnDemand 层: 重要度 3-7, 语义检索触发"""
+        """OnDemand 层: 重要度 3-7, 语义检索触发（P1③: 只回现行版本）"""
         conn = self._get_conn()
         pattern = f"%{query}%"
         rows = conn.execute(
             """SELECT * FROM l7_cognitive_memories
                WHERE tier = 'ondemand'
+               AND superseded_by = ''
                AND (key LIKE ? OR value LIKE ? OR tags LIKE ?)
                ORDER BY importance DESC, updated_at DESC LIMIT ?""",
             (pattern, pattern, f'%"{query}"%', max_items),
@@ -315,6 +399,7 @@ class CognitiveStore(SqliteStoreBase):
             rows = conn.execute(
                 """SELECT * FROM l7_cognitive_memories
                    WHERE tier = 'triggered' AND okf_type = ?
+                   AND superseded_by = ''
                    ORDER BY updated_at DESC LIMIT ?""",
                 (okf_type.value, max_items),
             ).fetchall()
@@ -322,27 +407,29 @@ class CognitiveStore(SqliteStoreBase):
             rows = conn.execute(
                 """SELECT * FROM l7_cognitive_memories
                    WHERE tier = 'triggered'
+                   AND superseded_by = ''
                    ORDER BY updated_at DESC LIMIT ?""",
                 (max_items,),
             ).fetchall()
         return [self._row_to_memory(r) for r in rows]
 
     def search(self, query: str, top_k: int = 5, okf_type: OKFType | None = None) -> list[CognitiveMemory]:
-        """跨层搜索 - 按 type 过滤"""
+        """跨层搜索 - 按 type 过滤（P1③: 只回现行版本）"""
         conn = self._get_conn()
         pattern = f"%{query}%"
         if okf_type:
             rows = conn.execute(
                 """SELECT * FROM l7_cognitive_memories
                    WHERE (key LIKE ? OR value LIKE ? OR tags LIKE ?)
-                   AND okf_type = ?
+                   AND okf_type = ? AND superseded_by = ''
                    ORDER BY importance DESC, updated_at DESC LIMIT ?""",
                 (pattern, pattern, f'%"{query}"%', okf_type.value, top_k),
             ).fetchall()
         else:
             rows = conn.execute(
                 """SELECT * FROM l7_cognitive_memories
-                   WHERE key LIKE ? OR value LIKE ? OR tags LIKE ?
+                   WHERE (key LIKE ? OR value LIKE ? OR tags LIKE ?)
+                   AND superseded_by = ''
                    ORDER BY importance DESC, updated_at DESC LIMIT ?""",
                 (pattern, pattern, f'%"{query}"%', top_k),
             ).fetchall()
