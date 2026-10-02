@@ -285,6 +285,21 @@ class TestNoDeadModules:
         # - task_aggregation.AggregationTaskPriority = TaskPriority 的兼容别名
         #   （真实类型 TaskPriority 有消费，AggregationTaskPriority 供旧代码引用）
         "BASE_PROMPT", "AggregationTaskPriority",
+        # 2026-10-02: execution_domain 是内部查询面模块——四函数只被 resolve_domain
+        # 内部调用（resolve_domain 调用 net_rules_configured/resolve_net_allowlist）；
+        # ExecutionDomain 数据类只由 resolve_domain 构造；net_allowed 供 provider_pool
+        # 的 _net_gate 函数内局部引用（resolve_net_allowlist → net_allowed 链，
+        # 均为模块内自洽的内部 API）。全部不是死代码，登记豁免。
+        "ExecutionDomain", "net_rules_configured", "resolve_domain",
+        "resolve_net_allowlist", "net_allowed",
+        # 2026-10-02: agent_registry.py 的测试配置常量——USER_AGENT_DIR/PROJECT_AGENT_DIR
+        # 是 pytest monkeypatch 的注入目标（test_agent_registry 用例），非生产导入消费；
+        # 登记豁免。
+        "PROJECT_AGENT_DIR", "USER_AGENT_DIR",
+        # 2026-10-02: file_history.py 的硬编码阈值常量——MAX_SNAPSHOT_BYTES/MAX_TOTAL_BYTES
+        # 是 pytest monkeypatch 的注入目标（test_file_undo_pipeline 用例），非生产导入消费；
+        # 登记豁免。
+        "MAX_SNAPSHOT_BYTES", "MAX_TOTAL_BYTES",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:
