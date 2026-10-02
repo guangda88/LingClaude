@@ -110,3 +110,16 @@ data/arch_ledger/arch_audit_state/
 =*
 # 2026-09-28 (外部审计卫生项): "> null" 误写相对路径产物（应为 /dev/null）
 /null/
+
+# 2026-10-02: 台账账目本体优先于安全规则（gitignore 最后匹配生效）。
+# 两次误伤复盘：① data/arch_ledger/tool_auth_20261002.jsonl（四档策略引擎
+#   活体裁决台账）与 ② verify_log/*.jsonl（record_verify 验证证据链）被上方
+#   *.jsonl 规则吞掉不入库——账目本体须随库分发（J5：CI arch-guards checkout
+#   即查，缺席=守卫失效）。潜伏雷：handover.*.json 按名匹配会吞台账豁免记录
+#   形态文件（M1:core/handover.py.json 是"对 core/handover.py 模块的豁免"，
+#   非会话交接文件；现存文件靠先于规则入库幸存，同形新文件仍会被吞）。
+# 修复：arch_ledger 全域 json/jsonl 重新纳入；arch_audit_state（运行时指纹，
+#   上方已有排除）必须在其后再次排除，否则被本轮 ! 重新吞回。
+!data/arch_ledger/**/*.json
+!data/arch_ledger/**/*.jsonl
+data/arch_ledger/arch_audit_state/
