@@ -21,6 +21,15 @@ class FileToolsMixin:
     # P2-2: 写路径白名单 — verification.allowed_write_roots 非空时强制。
     # 空列表 = 不限制(向后兼容)。fail-closed:路径解析失败一律拒绝。
     def _write_allowed(self, path: str) -> str | None:
+        # C 项（2026-10-02）：directory_rules 激活时写路径必须落规则 writable 内
+        #（与 bash 沙箱同一规则源）；未激活 → None 走旧白名单逻辑（零行为变化）。
+        try:
+            from lingclaude.core.sandbox_rules import check_write_allowed
+            rule_denied = check_write_allowed(path)
+            if rule_denied:
+                return rule_denied
+        except Exception:  # noqa: BLE001 — 规则层故障不拦截写路径（回退旧逻辑）
+            pass
         config = getattr(self, "config", None)
         roots = tuple(getattr(getattr(config, "verification", None), "allowed_write_roots", ()) or ())
         if not roots:

@@ -35,3 +35,15 @@ bwrap_binary: bwrap
 
 # 网络隔离开关（fail-closed 默认隔离；设 false 仅为特殊环境诊断用，不建议）
 network_isolation_enabled: true
+
+# 目录级细粒度规则（2026-10-02，C 项）：cwd 命中 scope 前缀 → 该规则的 writable
+# 作为 bash extra_writable_dirs 与文件写白名单（复用同一规则源）。
+# 段缺失/空 = 规则层不激活（现状等价）；解析仍过 is_safe_writable_dir 钳制。
+# 当前默认 = 现状等价（/home/ai 全可写）；收窄示例（取消注释即生效）：
+#   rules:
+#     - scope: "/home/ai/lingclaude"
+#       writable: ["/home/ai/lingclaude", "/tmp"]
+directory_rules:
+  default:
+    writable:
+      - "/home/ai"

@@ -420,29 +420,43 @@ class BashExecutor:
         # 必须落在策略可信根（/home/ai、/tmp）内、必须存在的目录。
         # env 不再是信任根——只是策略允许范围内的选择器。
         extra_dirs: list[str] = []
-        env_extra = os.environ.get("LINGCLAUDE_EXTRA_WRITABLE_DIRS", "")
-        if env_extra:
-            extra_dirs = [
-                d.strip()
-                for d in env_extra.split(",")
-                if d.strip() and is_safe_writable_dir(d.strip())
-            ]
-            if not extra_dirs:
-                logging.getLogger(__name__).warning(
-                    "LINGCLAUDE_EXTRA_WRITABLE_DIRS 全部被白名单钳制拒绝（红线/越可信根/不存在）: %r",
-                    env_extra,
-                )
-        else:
-            # 未显式设置：默认对齐策略层 allowed_paths（P2-1: 读 sandbox_policy.yaml
-            # 的 default_writable_dirs，热更生效；读失败回退 /home/ai）
-            from lingclaude.core.policy_loader import get as policy_get
-
-            sdata = policy_get("sandbox_policy")
-            defaults = sdata.get("default_writable_dirs")
-            if isinstance(defaults, list) and defaults:
-                extra_dirs = [str(d) for d in defaults]
+        # C 项（2026-10-02）：directory_rules 激活时按 cwd 取规则化可写集
+        #（替代 env/全局 default_writable_dirs）。注意 fail-safe 语义：规则
+        # 激活但解析结果为空（全被钳制）时**保持空**——不得回落旧逻辑重新
+        # 放开 /home/ai；仅「规则段未配置」才走原三段逻辑。
+        rules_active = False
+        try:
+            from lingclaude.core.sandbox_rules import rules_configured, resolve_writable_dirs
+            rules_active = rules_configured()
+            if rules_active:
+                extra_dirs = resolve_writable_dirs(self.working_dir)
+        except Exception:  # noqa: BLE001 — 规则层故障按未激活回退旧逻辑
+            rules_active = False
+            extra_dirs = []
+        if not rules_active:
+            env_extra = os.environ.get("LINGCLAUDE_EXTRA_WRITABLE_DIRS", "")
+            if env_extra:
+                extra_dirs = [
+                    d.strip()
+                    for d in env_extra.split(",")
+                    if d.strip() and is_safe_writable_dir(d.strip())
+                ]
+                if not extra_dirs:
+                    logging.getLogger(__name__).warning(
+                        "LINGCLAUDE_EXTRA_WRITABLE_DIRS 全部被白名单钳制拒绝（红线/越可信根/不存在）: %r",
+                        env_extra,
+                    )
             else:
-                extra_dirs = ["/home/ai"]
+                # 未显式设置：默认对齐策略层 allowed_paths（P2-1: 读 sandbox_policy.yaml
+                # 的 default_writable_dirs，热更生效；读失败回退 /home/ai）
+                from lingclaude.core.policy_loader import get as policy_get
+
+                sdata = policy_get("sandbox_policy")
+                defaults = sdata.get("default_writable_dirs")
+                if isinstance(defaults, list) and defaults:
+                    extra_dirs = [str(d) for d in defaults]
+                else:
+                    extra_dirs = ["/home/ai"]
         # 兼容旧 wrap 签名（无 extra_writable_dirs 参数的 provider，如测试 Fake）：
         # 尝试传 extra_writable_dirs，TypeError 则回退旧参数（能力降级不报错）。
         try:
