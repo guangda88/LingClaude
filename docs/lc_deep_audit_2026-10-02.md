@@ -94,6 +94,29 @@
 - **性质**：lc 主线迁移排期决策，需 lc 方给排期；不应挂在「未确认」状态空转。
 - **处置**：记入本附录，移交 lc 方排期。
 
+## 附：P2 directory_rules 激活（2026-10-02 晚，k3-256k 落盘）
+
+**两项决策（用户裁定）**：
+
+**① allow_within 保守枚举清单（禁用 default=/home/ai 宽口径）**
+- 依据：宽口径已实证失败（20 连红退回，09a4f20 教训）。
+- 覆盖实证（逐项已核验存在）：四家仓库 `lingclaude/lingflow/lingmessage/lingxi` + 状态面 `~/.lingclaude`、`~/.atomcode`（stealth 配置写入面）+ 临时目录 `/tmp`、`/var/tmp`。
+- 落盘：`sandbox_policy.yaml` 增激活态 `directory_rules`（rules + default 同口径枚举 8 项）。
+
+**② net_allowlist 不同时激活，directory_rules 先行 48h**
+- 三条理由（用户裁定）：
+  1. 无 observe/dry-run 灰度手段，通电即硬闸——两闸同开故障无法归因（目录域 or 网络域）；
+  2. 失败形态不对称：目录闸=测试红（可见可回滚）；网络闸挂 llm_proxy 主链路，收紧错一步=降级链全灭（183719 的 11 分钟卡死前科）；
+  3. yaml 注释自带要求「首次激活前必确认清单覆盖全部在用 provider 端点」——独立工作量，不捆绑抢跑。
+
+**激活实测（钳制在案）**：
+- `rules_configured() = True`；yaml 解析 OK；
+- `/var/tmp` 命中 `_FORBIDDEN_WRITABLE_ROOTS` 的 `/var` 前缀 → 被 `is_safe_writable_dir` **静默剔除**（配 8 项、生效 7 项）；
+- 行为验证：写仓内/`~/.atomcode` 放行；写 `/etc/passwd`、`/home/ai/other` 拒绝（收窄生效）；
+- `tests/test_sandbox_rules.py + test_wiring_gate.py` 12/12 绿；全量门禁进行中。
+
+**48h 观察计划**：directory_rules 激活 → 全量门禁绿 + 48h 真实会话无误伤 → 再激活 net_allowlist（清单从 task_router/config 逐枚举：bigmodel/minimax/openrouter/deepseek/kimi/volcengine 各域 + proxy3 127.0.0.1 + LingBus/灵忆 host；push 通道归属需先确认是否走主进程不受闸管辖）。
+
 ## 附：审计期间并行落库记录
 
 - `9ae6c05` gitignore 台账解禁（*.jsonl/handover.*.json 两次误伤复盘，灵克改写 lc 收编）
