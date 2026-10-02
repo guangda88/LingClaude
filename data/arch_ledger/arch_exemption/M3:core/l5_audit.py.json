@@ -1,9 +1,16 @@
 {
-  "guard": "M3",
-  "file": "core/l5_audit.py",
-  "reason": "P0-A 过渡态(2026-09-22二次校准): 模块级导入已删, L5RoundResult 函数内延迟import(:88)为唯一遗留边; L1收尾回收 | 2026-09-23 M3 接管: engine 静态边归 G1 计数基线, lines[88] 退役(含伴生死行号, AST 实测); 本单仅存续于 plugins/动态 import 边。 注意: lines=[] 为显式无豁免行(空表非缺省——缺省即整文件豁免语义), plugins/动态边照常执法。",
-  "granted": "2026-09-22",
-  "state": "active",
-  "review_due": "2026-10-31",
-  "lines": []
+ "guard": "M3",
+ "file": "core/l5_audit.py",
+ "reason": "P0-A 过渡态(2026-09-22二次校准): 模块级导入已删, L5RoundResult 函数内延迟import(:88)为唯一遗留边; L1收尾回收 | 2026-09-23 M3 接管: engine 静态边归 G1 计数基线, lines[88] 退役(含伴生死行号, AST 实测); 本单仅存续于 plugins/动态 import 边。 注意: lines=[] 为显式无豁免行(空表非缺省——缺省即整文件豁免语义), plugins/动态边照常执法。",
+ "granted": "2026-09-22",
+ "state": "resolved",
+ "review_due": "2026-10-31",
+ "lines": [],
+ "resolved_at": "2026-10-02T16:13:58",
+ "resolved_by": "lingclaude",
+ "last_review": {
+  "date": "2026-10-02",
+  "verdict": "paidoff",
+  "note": "显式 lines=[] 行级空集（初筛器 L121 口径 isinstance(list) and not lines），机器零歧义清偿判定，翻 resolved。2026-10-02 灵克执行；同日误翻 95 条已全量回滚后按正确口径重做，见 bus 记录"
+ }
 }

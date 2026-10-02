@@ -1,9 +1,16 @@
 {
-  "guard": "M3",
-  "file": "core/mcp_tools.py",
-  "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源。2026-09-22 schema透传+懒发现改造后行号更新 2026-09-22 A2 核对：4 条 mcp_proxy/mcp_client 动态边均属 mcp 工具面，不在循环体上，**不列 L1 回收**（契约 §L1 执行记录已裁定），维持台账豁免至 mcp 工具面独立轨 | 2026-09-23 M3 接管: engine 静态边归 G1 计数基线, lines[77, 133, 158, 159] 退役(含伴生死行号, AST 实测); 本单仅存续于 plugins/动态 import 边。 注意: lines=[] 为显式无豁免行(空表非缺省——缺省即整文件豁免语义), plugins/动态边照常执法。",
-  "granted": "2026-09-17",
-  "state": "active",
-  "review_due": "2026-10-31",
-  "lines": []
+ "guard": "M3",
+ "file": "core/mcp_tools.py",
+ "reason": "S3纪律存量函数内延迟import engine，与G1白名单同源。2026-09-22 schema透传+懒发现改造后行号更新 2026-09-22 A2 核对：4 条 mcp_proxy/mcp_client 动态边均属 mcp 工具面，不在循环体上，**不列 L1 回收**（契约 §L1 执行记录已裁定），维持台账豁免至 mcp 工具面独立轨 | 2026-09-23 M3 接管: engine 静态边归 G1 计数基线, lines[77, 133, 158, 159] 退役(含伴生死行号, AST 实测); 本单仅存续于 plugins/动态 import 边。 注意: lines=[] 为显式无豁免行(空表非缺省——缺省即整文件豁免语义), plugins/动态边照常执法。",
+ "granted": "2026-09-17",
+ "state": "resolved",
+ "review_due": "2026-10-31",
+ "lines": [],
+ "resolved_at": "2026-10-02T16:13:58",
+ "resolved_by": "lingclaude",
+ "last_review": {
+  "date": "2026-10-02",
+  "verdict": "paidoff",
+  "note": "显式 lines=[] 行级空集（初筛器 L121 口径 isinstance(list) and not lines），机器零歧义清偿判定，翻 resolved。2026-10-02 灵克执行；同日误翻 95 条已全量回滚后按正确口径重做，见 bus 记录"
+ }
 }
