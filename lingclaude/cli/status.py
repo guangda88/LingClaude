@@ -78,6 +78,13 @@ class StatusModel:
     # 解决"熔断发生时用户在别处、回来只看到静止界面不知发生过中断"的可观测缺口。
     # bool 不可变，快照浅拷贝安全；旧快照对象缺字段由渲染层 getattr 兜 False。
     loop_interrupted: bool = False
+    # 2026-10-02: 预算 WARN 段（P1② 预算线展示层补全）——session_budget_gate
+    # 达 warn 阈值的维度行（warn_lines() 产出，每秒随 heavy 块喂入）。此前
+    # warn 只有 /budget 手动消费，常驻状态栏断接：warn 触发用户不可见（本会话
+    # 1341 次调用 > 800 阈值实证漏报）。元组不可变，快照浅拷贝安全；旧快照
+    # 对象缺字段由渲染层 getattr 兜空。pause 闸走 submission/loop_body 阻断
+    # 路径，不经此处。
+    budget_warn: tuple[str, ...] = ()
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def snapshot(self) -> "StatusModel":
@@ -114,6 +121,8 @@ class StatusModel:
                 degraded=self.degraded,
                 # 2026-10-01: 熔断/循环中断红点透传（bool 不可变，浅拷贝安全）
                 loop_interrupted=self.loop_interrupted,
+                # 2026-10-02: 预算 WARN 段透传（元组不可变，浅拷贝安全）
+                budget_warn=self.budget_warn,
             )
 
     # ---- 更新方法（主循环调用） ----
@@ -201,6 +210,12 @@ class StatusModel:
     def set_perm_mode(self, mode: str) -> None:
         with self._lock:
             self.perm_mode = mode
+
+    # 2026-10-02: 预算 WARN 段喂入（P1② 展示层补全）——_toolbar_snapshot
+    # 每秒随 heavy 块调用；元组整体替换（warn_lines() 每次全量重算）。
+    def set_budget_warn(self, lines: "tuple[str, ...]") -> None:
+        with self._lock:
+            self.budget_warn = tuple(lines)
 
     # 2026-09-25 P0 普查：状态源降级登记——feed 失败记名，成功喂入即清除。
     # 渲染层见非空 degraded 即点亮红字降级行（可见降级，替代静默 pass）。
@@ -409,6 +424,12 @@ def toolbar_fragments(s: StatusModel):
     _deg = getattr(s, "degraded", ()) or ()
     if _deg:
         frag.append(("class:red", f" ⚠状态源降级:{'+'.join(_deg[:3])}{'…' if len(_deg) > 3 else ''} │"))
+    # 2026-10-02: 预算 WARN 段（P1② 展示层补全）——达 warn 阈值的维度行，
+    # 黄字提示（阈值体系里 warn=提醒，pause 走闸阻断不经此段）。getattr 兜空：
+    # 旧快照/测试桩缺字段时静默跳过，渲染层永不因脏快照炸（防腐铁律）。
+    _bw = getattr(s, "budget_warn", ()) or ()
+    for _line in _bw[:2]:  # 状态行最多 2 维（四维上限内 3+ 维同爆属极端，/budget 看全量）
+        frag.append(("class:yellow", f" {_line} │"))
     cwd_display = s.cwd
     if len(cwd_display) > 28:
         cwd_display = "…" + cwd_display[-27:]

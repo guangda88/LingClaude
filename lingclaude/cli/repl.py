@@ -343,6 +343,21 @@ def _toolbar_snapshot(ctx: _ReplCtx) -> Any:
             status.clear_degraded("plan")
         except Exception:  # noqa: BLE001 — plan 指示失败不阻塞渲染
             status.mark_degraded("plan")
+        # 2026-10-02: 预算 WARN 段喂入——session_budget_gate.warn_lines()（自防护
+        # fail-open，异常=空元组静默，warn 展示缺失 ≠ 反噬快照链）。闸阻断路径在
+        # submission/loop_body（check_pause），此处纯展示层。状态段见 toolbar_fragments。
+        try:
+            from lingclaude.core.session_budget_gate import warn_lines as _wl
+            status.set_budget_warn(tuple(_wl()))
+            status.clear_degraded("budget")
+        except Exception:  # noqa: BLE001 — 预算展示失败不阻塞渲染
+            status.mark_degraded("budget")
+            # 2026-10-02: budget 源降级时清空 WARN 段——降级行（红字）是唯一信号，
+            # 留 stale WARN 行会与降级行并存制造「又降级又在报警」的矛盾画面。
+            try:
+                status.set_budget_warn(())
+            except Exception:  # noqa: BLE001
+                pass
         # 2026-09-22: 状态球判定（对标 atomcode）——纯只读探测运行时信号，
         # 零新增状态机：blocked（interrupt 置位）> busy（streaming 或活跃任务）
         # > idle。会话对象可能无对应属性（fallback/测试桩），逐一 getattr 兜 None，
