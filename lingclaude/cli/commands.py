@@ -74,6 +74,19 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
         # 审计#3 修复（语义保留）:/quit /exit 特判置 quit_requested。
         # 注册表里两条以 handler=None 登记仅供补全/帮助派生，不可分发。
         if name in ("/quit", "/exit"):
+            # M2 任务验收契约门（2026-10-02）：未清零拦一次出报告；
+            # "/quit force" 显式越过。门故障永远放行（fail-open 任务门）。
+            argv = parts[1].split() if len(parts) > 1 else []
+            force = bool(argv) and argv[0] == "force"
+            try:
+                from lingclaude.core import task_contract
+
+                blocked, report = task_contract.exit_gate(force)
+            except Exception:  # noqa: BLE001 — 门炸了不锁人
+                blocked, report = False, ""
+            if blocked:
+                print(report)
+                return True  # 消费输入但不置 quit_requested
             self.quit_requested = True
             return True
         # A(2026-09-26) 歧义形状守卫（atomcode parse_slash_line 借鉴）：
