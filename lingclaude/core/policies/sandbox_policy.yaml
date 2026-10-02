@@ -121,6 +121,39 @@ network_isolation_enabled: true
 #   default:
 #     writable: ["/home/ai"]                 # 与现网基线一致，可按需收窄
 #
+# ── 激活态（2026-10-02 P2 激活，k3-256k 落盘）──────────────────────────────
+# 决策一：allow_within 保守枚举清单，禁用 default=/home/ai 宽口径
+#         （该口径已实证失败：20 连红退回，09a4f20 教训）。
+# 决策二：net_allowlist 不同时激活——directory_rules 先行 48h（无 observe/dry-run
+#         灰度手段，通电即硬闸；目录闸失败形态=测试红可见可回滚，网络闸挂主链路
+#         故障不对称，归因纪律要求分离）。
+# 覆盖实证：四家仓库 + ~/.lingclaude + ~/.atomcode + /tmp /var/tmp（逐项已核验存在）。
+# 钳制注意：/var/tmp 命中 _FORBIDDEN_WRITABLE_ROOTS 的 /var 前缀，将被
+#           is_safe_writable_dir 静默剔除（在案标注，生效面以钳制后为准）。
+directory_rules:
+  rules:
+    - scope: "/home/ai/lingclaude"
+      writable:
+        - "/home/ai/lingclaude"
+        - "/home/ai/lingflow"
+        - "/home/ai/lingmessage"
+        - "/home/ai/lingxi"
+        - "/home/ai/.lingclaude"
+        - "/home/ai/.atomcode"
+        - "/tmp"
+        - "/var/tmp"
+  default:
+    writable:
+      - "/home/ai/lingclaude"
+      - "/home/ai/lingflow"
+      - "/home/ai/lingmessage"
+      - "/home/ai/lingxi"
+      - "/home/ai/.lingclaude"
+      - "/home/ai/.atomcode"
+      - "/tmp"
+      - "/var/tmp"
+# ────────────────────────────────────────────────────────────────────────────
+#
 # -- 示例 2：全域网络白名单（default-only，谨慎——影响所有目录的模型调用）--
 # net_allowlist:
 #   default:
