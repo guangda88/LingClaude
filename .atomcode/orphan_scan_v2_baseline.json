@@ -314,7 +314,7 @@
    ],
    [
     "lingclaude/api.py",
-    426,
+    487,
     "prod②"
    ],
    [
@@ -760,7 +760,7 @@
    ],
    [
     "lingclaude/cli/repl.py",
-    1570,
+    1573,
     "prod②"
    ],
    [
@@ -801,7 +801,7 @@
    ],
    [
     "lingclaude/core/query_engine_turn_mixin.py",
-    273,
+    282,
     "prod②"
    ],
    [
@@ -811,12 +811,12 @@
    ],
    [
     "lingclaude/core/system_prompt_builder.py",
-    266,
+    278,
     "prod②"
    ],
    [
     "lingclaude/core/system_prompt_builder.py",
-    301,
+    313,
     "prod②"
    ],
    [
@@ -1066,6 +1066,22 @@
   ],
   "hits_test": []
  },
+ "execution_domain": {
+  "prod_count": 0,
+  "test_count": 1,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_execution_domain.py",
+    21,
+    "⑤test②"
+   ]
+  ]
+ },
  "fact_checker": {
   "prod_count": 3,
   "test_count": 7,
@@ -1282,7 +1298,7 @@
   "hits_prod": [
    [
     "lingclaude/api.py",
-    660,
+    743,
     "prod②"
    ],
    [
@@ -1387,7 +1403,7 @@
   "hits_prod": [
    [
     "lingclaude/core/query_engine_turn_mixin.py",
-    246,
+    255,
     "prod②"
    ]
   ],
@@ -1416,7 +1432,7 @@
  },
  "hook_registry": {
   "prod_count": 7,
-  "test_count": 5,
+  "test_count": 6,
   "channels_prod": [
    "prod②"
   ],
@@ -1486,6 +1502,11 @@
     "tests/test_hook_registry.py",
     227,
     "⑤test③str"
+   ],
+   [
+    "tests/test_plugin_governance.py",
+    121,
+    "⑤test②"
    ]
   ]
  },
@@ -1506,7 +1527,7 @@
    ],
    [
     "lingclaude/cli/repl.py",
-    1593,
+    1596,
     "prod②"
    ],
    [
@@ -1758,7 +1779,7 @@
   "hits_prod": [
    [
     "lingclaude/core/l7_cognitive.py",
-    168,
+    198,
     "prod②"
    ],
    [
@@ -1771,7 +1792,7 @@
  },
  "l7_cognitive": {
   "prod_count": 4,
-  "test_count": 5,
+  "test_count": 6,
   "channels_prod": [
    "prod②",
    "prod③str"
@@ -1818,6 +1839,11 @@
     "⑤test②"
    ],
    [
+    "tests/test_p1c_supersede_and_project_memory.py",
+    11,
+    "⑤test②"
+   ],
+   [
     "tests/test_w20260911_audit_fixes.py",
     126,
     "⑤test②"
@@ -1841,7 +1867,7 @@
   "hits_prod": [
    [
     "lingclaude/core/l7_cognitive.py",
-    602,
+    828,
     "prod②"
    ]
   ],
@@ -1863,7 +1889,7 @@
   "hits_prod": [
    [
     "lingclaude/core/l7_cognitive.py",
-    597,
+    823,
     "prod②"
    ]
   ],
@@ -1884,7 +1910,7 @@
    ],
    [
     "lingclaude/core/l7_cognitive.py",
-    39,
+    65,
     "prod②"
    ]
   ],
@@ -2432,7 +2458,7 @@
    ],
    [
     "lingclaude/core/submission.py",
-    380,
+    412,
     "prod②"
    ],
    [
@@ -2571,7 +2597,7 @@
  },
  "models": {
   "prod_count": 8,
-  "test_count": 8,
+  "test_count": 9,
   "channels_prod": [
    "prod②"
   ],
@@ -2660,6 +2686,11 @@
     "tests/test_session_write_lock.py",
     53,
     "⑤test②"
+   ],
+   [
+    "tests/test_slash_registry.py",
+    252,
+    "⑤test②"
    ]
   ]
  },
@@ -2688,12 +2719,12 @@
    ],
    [
     "lingclaude/api.py",
-    531,
+    614,
     "prod②"
    ],
    [
     "lingclaude/api.py",
-    541,
+    624,
     "prod②"
    ],
    [
@@ -2743,7 +2774,7 @@
    ],
    [
     "lingclaude/core/submission.py",
-    403,
+    435,
     "prod②"
    ],
    [
@@ -2980,6 +3011,40 @@
    ]
   ]
  },
+ "plugin_governance": {
+  "prod_count": 3,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/slash_plugin_loader.py",
+    60,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/hook_registry.py",
+    156,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/plugin_loader.py",
+    177,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_plugin_governance.py",
+    16,
+    "⑤test②"
+   ]
+  ]
+ },
  "plugin_lifecycle": {
   "prod_count": 0,
   "test_count": 3,
@@ -3008,7 +3073,7 @@
  },
  "plugin_loader": {
   "prod_count": 3,
-  "test_count": 10,
+  "test_count": 11,
   "channels_prod": [
    "prod②"
   ],
@@ -3033,6 +3098,11 @@
    ]
   ],
   "hits_test": [
+   [
+    "tests/test_plugin_governance.py",
+    158,
+    "⑤test②"
+   ],
    [
     "tests/test_s4_plugin_loader_mechanism.py",
     45,
@@ -3087,7 +3157,7 @@
  },
  "plugin_manifest": {
   "prod_count": 1,
-  "test_count": 2,
+  "test_count": 3,
   "channels_prod": [
    "prod②"
   ],
@@ -3103,6 +3173,11 @@
   ],
   "hits_test": [
    [
+    "tests/test_plugin_governance.py",
+    159,
+    "⑤test②"
+   ],
+   [
     "tests/test_s4_plugin_loader_mechanism.py",
     164,
     "⑤test②"
@@ -3115,7 +3190,7 @@
   ]
  },
  "policy_loader": {
-  "prod_count": 45,
+  "prod_count": 48,
   "test_count": 15,
   "channels_prod": [
    "prod②"
@@ -3167,6 +3242,11 @@
     "prod②"
    ],
    [
+    "lingclaude/core/execution_domain.py",
+    191,
+    "prod②"
+   ],
+   [
     "lingclaude/core/l10_a_post_audit.py",
     36,
     "prod②"
@@ -3189,6 +3269,16 @@
    [
     "lingclaude/core/model_tiers.py",
     63,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/plugin_governance.py",
+    27,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/sandbox_rules.py",
+    111,
     "prod②"
    ],
    [
@@ -3218,7 +3308,7 @@
    ],
    [
     "lingclaude/engine/bash.py",
-    438,
+    452,
     "prod②"
    ],
    [
@@ -3536,9 +3626,43 @@
    ]
   ]
  },
+ "project_memory": {
+  "prod_count": 2,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    324,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/system_prompt_builder.py",
+    242,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_p1c_supersede_and_project_memory.py",
+    12,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_budget_wiring.py",
+    153,
+    "⑤test②"
+   ]
+  ]
+ },
  "query_engine": {
   "prod_count": 10,
-  "test_count": 66,
+  "test_count": 67,
   "channels_prod": [
    "prod②"
   ],
@@ -3554,7 +3678,7 @@
    ],
    [
     "lingclaude/api.py",
-    415,
+    476,
     "prod②"
    ],
    [
@@ -3594,7 +3718,7 @@
    ],
    [
     "lingclaude/core/submission.py",
-    219,
+    234,
     "prod②"
    ]
   ],
@@ -3865,6 +3989,11 @@
     "⑤test③str"
    ],
    [
+    "tests/test_slash_registry.py",
+    253,
+    "⑤test②"
+   ],
+   [
     "tests/test_strict.py",
     10,
     "⑤test②"
@@ -3981,7 +4110,7 @@
  },
  "query_engine_turn_mixin": {
   "prod_count": 1,
-  "test_count": 2,
+  "test_count": 4,
   "channels_prod": [
    "prod②"
   ],
@@ -4004,6 +4133,16 @@
    [
     "tests/test_r9_decomposition.py",
     130,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_budget_wiring.py",
+    159,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_budget_wiring.py",
+    169,
     "⑤test②"
    ]
   ]
@@ -4260,7 +4399,7 @@
    ],
    [
     "lingclaude/core/submission.py",
-    356,
+    388,
     "prod②"
    ]
   ],
@@ -4327,7 +4466,7 @@
    ],
    [
     "lingclaude/core/l7_cognitive.py",
-    29,
+    30,
     "prod②"
    ],
    [
@@ -4378,6 +4517,45 @@
   ],
   "hits_test": []
  },
+ "sandbox_rules": {
+  "prod_count": 3,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/execution_domain.py",
+    143,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/bash.py",
+    429,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/tool_handlers/file_tools.py",
+    27,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_execution_domain.py",
+    22,
+    "⑤test②"
+   ],
+   [
+    "tests/test_sandbox_rules.py",
+    20,
+    "⑤test②"
+   ]
+  ]
+ },
  "scheduler": {
   "prod_count": 1,
   "test_count": 8,
@@ -4391,7 +4569,7 @@
   "hits_prod": [
    [
     "lingclaude/cli/commands.py",
-    545,
+    566,
     "prod②"
    ]
   ],
@@ -4440,7 +4618,7 @@
  },
  "seam": {
   "prod_count": 56,
-  "test_count": 27,
+  "test_count": 29,
   "channels_prod": [
    "prod②",
    "prod③str"
@@ -4828,6 +5006,16 @@
     "⑤test②"
    ],
    [
+    "tests/test_plugin_governance.py",
+    160,
+    "⑤test②"
+   ],
+   [
+    "tests/test_plugin_governance.py",
+    167,
+    "⑤test②"
+   ],
+   [
     "tests/test_plugin_storm_breaker.py",
     18,
     "⑤test②"
@@ -4870,8 +5058,8 @@
   ]
  },
  "session": {
-  "prod_count": 15,
-  "test_count": 22,
+  "prod_count": 16,
+  "test_count": 24,
   "channels_prod": [
    "prod②"
   ],
@@ -4887,27 +5075,32 @@
    ],
    [
     "lingclaude/api.py",
-    264,
+    267,
     "prod②"
    ],
    [
     "lingclaude/api.py",
-    274,
+    285,
     "prod②"
    ],
    [
     "lingclaude/api.py",
-    286,
+    335,
     "prod②"
    ],
    [
     "lingclaude/api.py",
-    302,
+    347,
     "prod②"
    ],
    [
     "lingclaude/api.py",
-    317,
+    363,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    378,
     "prod②"
    ],
    [
@@ -4960,6 +5153,16 @@
    [
     "tests/e2e/conftest.py",
     57,
+    "⑤test②"
+   ],
+   [
+    "tests/e2e/test_session_task_state.py",
+    30,
+    "⑤test②"
+   ],
+   [
+    "tests/e2e/test_session_task_state.py",
+    31,
     "⑤test②"
    ],
    [
@@ -5070,17 +5273,115 @@
   ]
  },
  "session_budget": {
-  "prod_count": 0,
-  "test_count": 1,
-  "channels_prod": [],
-  "channels_test": [
-   "⑤test②"
+  "prod_count": 4,
+  "test_count": 5,
+  "channels_prod": [
+   "prod②"
   ],
-  "hits_prod": [],
+  "channels_test": [
+   "⑤test②",
+   "⑤test③str"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/core/session_budget_gate.py",
+    57,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_budget_gate.py",
+    41,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_budget_gate.py",
+    66,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/session_budget_gate.py",
+    81,
+    "prod②"
+   ]
+  ],
   "hits_test": [
    [
     "tests/test_session_budget.py",
     11,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_budget_wiring.py",
+    25,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_budget_wiring.py",
+    83,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_budget_wiring.py",
+    119,
+    "⑤test②"
+   ],
+   [
+    "tests/test_session_budget_wiring.py",
+    85,
+    "⑤test③str"
+   ]
+  ]
+ },
+ "session_budget_gate": {
+  "prod_count": 7,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/slash_plugins/budget.py",
+    12,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    201,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/query_engine_turn_mixin.py",
+    338,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    58,
+    "prod②"
+   ],
+   [
+    "lingclaude/core/submission.py",
+    267,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    227,
+    "prod②"
+   ],
+   [
+    "lingclaude/engine/loop/loop_body.py",
+    409,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_session_budget_wiring.py",
+    24,
     "⑤test②"
    ]
   ]
@@ -5205,7 +5506,7 @@
   ]
  },
  "session_persist": {
-  "prod_count": 2,
+  "prod_count": 4,
   "test_count": 13,
   "channels_prod": [
    "prod②"
@@ -5215,6 +5516,16 @@
    "⑤test②"
   ],
   "hits_prod": [
+   [
+    "lingclaude/api.py",
+    495,
+    "prod②"
+   ],
+   [
+    "lingclaude/api.py",
+    505,
+    "prod②"
+   ],
    [
     "lingclaude/core/query_engine.py",
     17,
@@ -5306,7 +5617,7 @@
   "hits_prod": [
    [
     "lingclaude/api.py",
-    318,
+    379,
     "prod②"
    ],
    [
@@ -5389,7 +5700,7 @@
   "hits_prod": [
    [
     "lingclaude/core/submission.py",
-    357,
+    389,
     "prod②"
    ],
    [
@@ -5556,7 +5867,7 @@
   "hits_prod": [
    [
     "lingclaude/core/l7_cognitive.py",
-    30,
+    31,
     "prod②"
    ],
    [
@@ -6070,7 +6381,7 @@
  },
  "system_prompt_builder": {
   "prod_count": 4,
-  "test_count": 20,
+  "test_count": 21,
   "channels_prod": [
    "prod②"
   ],
@@ -6129,6 +6440,11 @@
    [
     "tests/test_message_builder.py",
     17,
+    "⑤test②"
+   ],
+   [
+    "tests/test_p1c_supersede_and_project_memory.py",
+    151,
     "⑤test②"
    ],
    [
@@ -6233,6 +6549,35 @@
    [
     "tests/test_q2_taskstatus_disambiguation.py",
     16,
+    "⑤test②"
+   ]
+  ]
+ },
+ "task_contract": {
+  "prod_count": 2,
+  "test_count": 1,
+  "channels_prod": [
+   "prod②"
+  ],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [
+   [
+    "lingclaude/cli/commands.py",
+    82,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/slash_plugins/contract.py",
+    15,
+    "prod②"
+   ]
+  ],
+  "hits_test": [
+   [
+    "tests/test_task_contract.py",
+    18,
     "⑤test②"
    ]
   ]
@@ -6629,12 +6974,12 @@
   "hits_prod": [
    [
     "lingclaude/cli/commands.py",
-    319,
+    340,
     "prod②"
    ],
    [
     "lingclaude/cli/repl.py",
-    1568,
+    1571,
     "prod②"
    ],
    [
@@ -6902,7 +7247,7 @@
    ],
    [
     "lingclaude/core/submission.py",
-    313,
+    345,
     "prod②"
    ],
    [
