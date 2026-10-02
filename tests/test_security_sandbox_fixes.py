@@ -334,10 +334,8 @@ def test_extra_writable_dirs_dedup_wd_and_tmp():
     assert parts.count("/tmp") == 2  # ro-bind / 内隐含 + 自身 bind
 
 
-def test_bash_extra_writable_dirs_from_env():
-    """bash.py 应从 LINGCLAUDE_EXTRA_WRITABLE_DIRS 读取额外可写目录并传给 wrap。"""
-    import os
-    from unittest.mock import patch
+def _make_capture_executor():
+    """构造捕获 extra_writable_dirs 的 BashExecutor（FakeProvider 记录 wrap 参数）。"""
     from lingclaude.engine.bash import BashExecutor
 
     captured = {}
@@ -352,17 +350,53 @@ def test_bash_extra_writable_dirs_from_env():
 
     b = BashExecutor()
     b._sandbox_provider = FakeProvider()
-    with patch.dict(os.environ, {"LINGCLAUDE_EXTRA_WRITABLE_DIRS": "/home/ai/lingcode,/tmp"}):
+    return b, captured
+
+
+def test_bash_extra_writable_dirs_from_env():
+    """规则未激活时，bash.py 应透传 LINGCLAUDE_EXTRA_WRITABLE_DIRS。
+
+    2026-10-03（373cccd 契约变更）：directory_rules 激活后 bash.py:442-451
+    以 rules_configured() 为最高优先级，env 覆盖被完全绕过。因此本用例
+    必须 mock rules_configured()->False 隔离新契约，才能测到旧三段逻辑。
+    """
+    import os
+    from unittest.mock import patch
+
+    b, captured = _make_capture_executor()
+
+    with patch("lingclaude.core.sandbox_rules.rules_configured", return_value=False), \
+            patch.dict(os.environ, {"LINGCLAUDE_EXTRA_WRITABLE_DIRS": "/home/ai/lingcode,/tmp"}):
         b._sandbox_command("echo hi")
     assert captured["extra"] == ["/home/ai/lingcode", "/tmp"], f"got {captured.get('extra')}"
 
     captured.clear()
-    with patch.dict(os.environ, {}, clear=False):
+    with patch("lingclaude.core.sandbox_rules.rules_configured", return_value=False), \
+            patch.dict(os.environ, {}, clear=False):
         os.environ.pop("LINGCLAUDE_EXTRA_WRITABLE_DIRS", None)
         b._sandbox_command("echo hi")
     # B1 (2026-09-13): 未显式设置时默认对齐策略层 allowed_paths —— /home/ai 可写。
     # 显式设置仍全量尊重用户指定（上方断言）。此断言从 None 改为默认目录。
     assert captured["extra"] == ["/home/ai"], f"未设置时应默认 /home/ai，got {captured.get('extra')}"
+
+
+def test_bash_rules_active_bypasses_env_override():
+    """directory_rules 激活时，env 覆盖被绕过，可写集由 cwd 规则决定。
+
+    2026-10-03：固化 373cccd 引入的 fail-safe 契约——规则激活即以规则集
+    为准，env 变量不再叠加（防止 env 重新放开 /home/ai 全域可写）。
+    """
+    from unittest.mock import patch
+    from lingclaude.core.sandbox_rules import resolve_writable_dirs
+
+    b, captured = _make_capture_executor()
+    expected = resolve_writable_dirs(b.working_dir)
+
+    with patch.dict(os.environ, {"LINGCLAUDE_EXTRA_WRITABLE_DIRS": "/etc,/root,/home/ai/lingcode"}):
+        b._sandbox_command("echo hi")
+    assert captured["extra"] == expected, f"规则激活时应以规则集为准，got {captured.get('extra')}"
+    # 红线目录绝不能因 env 混入
+    assert "/etc" not in (captured["extra"] or []), "红线目录不得混入可写集"
 
 
 # ---------- P0-5: bash 只读白名单高危副作用命令移除 + curl/wget 二级参数判定 ----------
