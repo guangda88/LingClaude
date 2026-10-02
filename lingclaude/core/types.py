@@ -13,6 +13,10 @@ class StopReason(str, Enum):
     COMPLETED = "completed"
     MAX_TURNS_REACHED = "max_turns_reached"
     MAX_BUDGET_REACHED = "max_budget_reached"
+    # P1②（2026-10-02）会话预算线暂停闸：与 MAX_BUDGET_REACHED（上下文累计
+    # 硬停）分立 —— 本值为「策略阈值暂停」，恢复出口 /budget reset，见
+    # core/session_budget_gate.py。
+    BUDGET_PAUSED = "budget_paused"
     CONSECUTIVE_FAILURE = "consecutive_failure"
     ERROR = "error"
 

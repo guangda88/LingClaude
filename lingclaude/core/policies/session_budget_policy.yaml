@@ -12,21 +12,22 @@
 #             决策对象（供接线轮消费：pause → turn 循环中断+报告）
 #
 # 语义约定:
-#   - enabled: false  → v1 暗发车（接线落地前置），evaluate() 恒 OK
-#   - 任一阈值 0      → 该维度不限（暗发车默认全 0，接线前零行为变化）
+#   - enabled: true   → 已接线生效（2026-10-02 接线轮：记录点/暂停闸//budget 全通）
+#   - 任一阈值 0      → 该维度不限
 #   - pause 优先于 warn（同维度双超时取更严）；跨维度全部列入报告
 #   - 新增维度 = 本文件加一段（BudgetTracker 按 budgets 键泛化迭代，不新增代码）
 #   - 生命周期 = 进程内会话（跨重启不续算，诚实边界见 session_budget.py docstring）
 #
 # 热更: 经 PolicyLoader mtime watch，改本文件下个 evaluate 生效，不重启。
 
-enabled: false
+enabled: true
 
 budgets:
-  # 工具调用次数（本会话累计；warn 约在 800~1000 量级起步，接线轮按实测校准）
-  tool_calls:  {warn: 0, pause: 0}
+  # 工具调用次数（本会话累计）：本会话 766+ 实测基线上，warn 800 起提示、
+  # pause 2000 兜底（约等于半天的重活；防的是失控循环，不是正常工作量）
+  tool_calls:  {warn: 800, pause: 2000}
   # 模型请求次数（一次 turn 含 N 个请求轮，工具循环会放大）
-  model_calls: {warn: 0, pause: 0}
+  model_calls: {warn: 400, pause: 1200}
   # token 分项（累计口径；累计 in+out 的硬停已由 max_budget_tokens 负责，此处管分项偏斜）
-  input_tokens:  {warn: 0, pause: 0}
-  output_tokens: {warn: 0, pause: 0}
+  input_tokens:  {warn: 8000000, pause: 20000000}
+  output_tokens: {warn: 400000, pause: 1000000}

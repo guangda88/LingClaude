@@ -50,6 +50,21 @@ class SubmissionMixin:
         denied_tools: tuple[PermissionDenial, ...] = (),
         image_content: tuple[str, str] | None = None,
     ) -> Any:
+        # P1② 预算暂停闸（2026-10-02）：达 pause 阈值不再请求模型。
+        # fail-open：gate 缺席/故障一律放行；恢复出口 /budget reset。
+        # 口径：只在「即将发起模型请求」前查——斜杠命令/本地路径不受闸影响。
+        _pause_report = None
+        try:
+            from lingclaude.core.session_budget_gate import check_pause
+            _pause_report = check_pause()
+        except Exception:  # noqa: BLE001 — gate 故障不阻断主流程
+            _pause_report = None
+        if _pause_report is not None:
+            return self._make_turn_result(
+                prompt, _pause_report,
+                matched_commands, matched_tools, denied_tools,
+                StopReason.BUDGET_PAUSED,
+            )
         if len(self._messages) // 2 >= self.config.max_turns:
             return self._make_turn_result(
                 prompt, f"已达最大轮次 ({self.config.max_turns})。",
@@ -245,6 +260,23 @@ class SubmissionMixin:
             # R2: 逐条记录 denial 到 flywheel + journal
             for d in denied_tools:
                 self._log_denial(d)
+        # P1② 预算暂停闸（stream 路径，2026-10-02）：语义同 submit；
+        # 合成 message_delta + message_stop，前端 SSE 事件契约不变。
+        _pause_report = None
+        try:
+            from lingclaude.core.session_budget_gate import check_pause
+            _pause_report = check_pause()
+        except Exception:  # noqa: BLE001 — gate 故障不阻断主流程
+            _pause_report = None
+        if _pause_report is not None:
+            yield {"type": "message_delta", "text": _pause_report}
+            yield {
+                "type": "message_stop",
+                "usage": self._usage.to_dict(),
+                "stop_reason": StopReason.BUDGET_PAUSED.value,
+                "transcript_size": len(self._transcript),
+            }
+            return
         if self._provider is None:
             result = self.submit(prompt, matched_commands, matched_tools, denied_tools)
             yield {"type": "message_delta", "text": result.output}

@@ -195,6 +195,13 @@ class QueryEngineTurnMixin:
                 self._last_turn_input = ctx_input_tokens
             total_input = abs(total_input)
             self._usage = self._usage.add_usage(total_input, total_output, total_cached)
+            # P1② 预算记录点（2026-10-02）：model_calls + in/out 分项，与 D3
+            # record_turn_usage 同源口径（total_input/total_output），不二次估算。
+            try:
+                from lingclaude.core.session_budget_gate import record_model_call
+                record_model_call(total_input, total_output, total_cached)
+            except Exception:  # noqa: BLE001 — 记账绝不反噬回合落库
+                pass
             self._last_turn_cached = total_cached
             # token schema 老路径接入 (2026-09-24): 缓存本轮单轮 output——
             # 此前只存 input/cached，_last_turn_output 全仓无人赋值，老路径
@@ -228,6 +235,8 @@ class QueryEngineTurnMixin:
             # 即为脱敏后的稳定字节，发送时原样透传（见 _build_messages 注释）。
             self._conversation.append(("user", _redact_text(prompt)))
             self._conversation.append(("assistant", final_content))
+            # P1③ 配套（2026-10-02）：项目学习笔记（自带触发词门槛 + fail-soft）
+            self._learn_project_memory(prompt, final_content)
             self._layered_memory.working.append("user", prompt)
             self._layered_memory.working.append("assistant", final_content)
             # H20 (2026-09-16): _messages 镜像在此统一写入 — 此前只有非流式
@@ -298,7 +307,38 @@ class QueryEngineTurnMixin:
 
             return final_content
 
+        def _learn_project_memory(
+            self,
+            prompt: str,
+            final_content: str,
+        ) -> None:
+            """P1③ 配套 hook（2026-10-02）：回合终结时沉淀项目学习笔记。
+
+            策略：不是每轮都写 —— 仅当用户 prompt 带显式记忆触发词
+            （记住 / 记下来 / 以后注意 / 别忘了）时落一行，防噪声膨胀
+            （P1③ docstring 边界：记忆价值密度 > 数量；膨胀由 supersede
+            链在检索侧兜底，但源头仍应克制）。
+            fail-soft：任何异常吞掉，绝不反噬回合。
+            """
+            try:
+                from lingclaude.core.project_memory import append_project_memory
+
+                text = " ".join(str(prompt).split())
+                triggers = ("记住", "记下来", "以后注意", "别忘了")
+                if not any(t in text for t in triggers):
+                    return
+                line = text[:280]
+                append_project_memory(f"笔记: {line}")
+            except Exception:  # noqa: BLE001 — 学习笔记性质，宁缺勿炸
+                pass
+
         def _execute_tool_with_retry(self, name: str, arguments_json: str) -> str:
+            # P1② 预算记录点（2026-10-02）：含重试在内每次工具执行 +1
+            try:
+                from lingclaude.core.session_budget_gate import record_tool_call
+                record_tool_call(1)
+            except Exception:  # noqa: BLE001 — 记账绝不反噬工具执行
+                pass
             result = self._execute_tool(name, arguments_json)
             if not is_tool_error(result):
                 return result
