@@ -78,9 +78,9 @@
 |---|---|---|
 | **P1 credential_handle**（凭证句柄化） | ✅ **PASS 销账** | vault.py（SQLite+AES-256-GCM，根密钥三链 env→keyring/secretstorage→0600）；factory.py:127 `_key_store_get` 走 ling_lib→vault 兜底、密钥名以句柄传递；`tests/test_vault.py` 24 passed（2026-10-02 实测）；env 收窄 helper `27a82d1` 接入三族 |
 | P1 policy_tier_engine（四档策略引擎） | ✅ **PASS 销账**（复核修正，原判「⚠ 未动工」系漏检） | `29f8132`（10-01 07:35）：`lingclaude/core/policies/tool_auth_policy.yaml` 四档矩阵（auto/pre_approve/ask/block × 工具正则）+ `lingclaude/core/tool_auth_hook.py:203` check_tool_call PreToolUse；台账 `data/arch_ledger/tool_auth_20261002.jsonl` 在产（最新裁决 2026-10-02T00:17:37） |
-| P2 routine_registry_duty_state | ❌ 未动 | 代码无 routine/duty_state（grep 零命中）；SDT/cron 雏形仍散在 AGENTS.md 表 |
-| P2 memory_supersede_chain | ❌ 未动 | 无 supersede/prev_digest；但 `l7_cognitive.py` 语义记忆检索已存在（清单原标"❌"不准确） |
-| P2 execution_domain_capability | ⚠ 部分 | BwrapSandboxProvider 已守 J2（`aa703ed`），目录级细粒度权限对象未做 |
+| P2 routine_registry_duty_state | ✅ **注记关闭**（scope=resident-members，lc=by-design 满足；lc 提请+灵克裁定选 B） | 核心已存在：`core/scheduler.py`（@daily/after:N/at:HH:MM）+ `/schedule`（task_id/cron/列表/cancel）+ SDT/self_audit_trigger + `a831612` 契约门 + `aa27d95` task_state 投影；中断闩锁=/schedule cancel + 精确 kill 纪律。残余审计级增量（owner/SLA/幂等键/trace_id journal）⚠未验证需求，grep 零命中；灵信/灵通为真正消费者系 lc scope 自评，其确认需求时凭注记重新立项（不复活本条） |
+| P2 memory_supersede_chain | ✅ **PASS 销账**（10-02 第二轮复核，原判「❌ 未动」系漏检） | `164de66`（10-02 08:26）：`CognitiveMemory.superseded_by` 字段 + put_memory 同 key 旧版标记 + 检索 4 出口只回现行 + get_memory_history 全版本回溯；顺带交付 project_memory.py（项目级 memory.md，对应清单 auto-notes/Projects 层）；`tests/test_p1c_supersede_and_project_memory.py` 13 passed（灵克实测）、记忆族回归 199 绿。残余挂账：POST_RESPONSE 学习笔记 hook 未接 project_memory |
+| P2 execution_domain_capability | ✅ **PASS 销账**（核心交付口径，10-02 第二轮复核） | `09a4f20`：`core/sandbox_rules.py` scope 前缀匹配/首命中优先/fail-safe 钳制 + bash 与 file_tools 同一规则源双面接线（消双轨）+ `sandbox_policy.yaml` directory_rules 段热更生效；`tests/test_sandbox_rules.py` 8 passed（灵克实测）、沙箱族回归 151 绿。残余：net_allowlist/read_paths 统一 capability 对象并入 SeamRegistry 留 M 期 |
 
 ### 6.2 趋势清单逐项（原始清单 ❌/⚠ 项的刷新）
 
@@ -94,20 +94,30 @@
 - **manifest 签名校验** ✅ — `lacp/marketplace.py:84` verify_signature（治理面比清单预期厚）
 - **语义记忆检索** ✅ — l7_cognitive.py CognitiveMemory
 
-**仍部分/未做（剩余高价值收敛为三件套）：**
-- **Hook 生命周期**：pre_tool 有（tool_auth_hook），after_edit/post_response 缺 → 与四档引擎合做
-- **marketplace blocklist/install_scope**：缺 → 可并入四档策略表，不必独立分发体系
-- **记忆 supersede 链 + auto-notes + Projects 层**：缺 → 自托管"用户主权"差异化卖点
-- **多端任务同步**：webUI LAN/ZeroTier 已通（门户），任务状态跨端续接语义缺
-- **目录级细粒度沙箱**：Bwrap 在，目录级规则缺
+**仍部分/未做（2026-10-02 终态：台账清零）：**
+- ~~Routine 注册表 + Duty State~~ → 已注记关闭（scope=resident-members，lc=by-design 满足；见 6.1）。残余审计级增量（owner/SLA/幂等键/trace_id journal）留待 resident-members 确认需求后另行立项
+
+**10-02 夜间批次新消化（原「三件套+散项」全部落地）：**
+- **Hook 生命周期扩展** ✅ — `1da2f11` 三注入点 + 哨兵注册制迁移（P1①）
+- **会话预算线** ✅ — `4169e65` 四维计数 + warn/pause 双阈值决策对象（P1②，对应清单"成本失控"坑）
+- **记忆 supersede 链 + per-project memory** ✅ — `164de66`（P1③，见 6.1）
+- **跨端任务续接** ✅ — `aa27d95` task_state 投影端点 + /ask/stream 会话锚点持久化（对应清单"多端任务同步"）
+- **marketplace blocklist/install_scope** ✅ — `084db26` 三侧接线（对应清单"治理外置"）
+- **目录级细粒度沙箱** ✅ — `09a4f20`（见 6.1）
+- **池句柄化二期** ✅ — `27e1f3b` credential_pool 装配链 vault 化 + /vault 命令面（凭证线收尾）
+- **gate 契约化** ✅ — `a831612` 任务级验收契约门（atomcode stop 契约语义 lc 化）
 
 **建议不做/缓做（本轮裁定）：**
 - OTel（journals 已是可观测面，避免双份账）；computer use（外部 MCP 已覆盖）；六库分立（sqlite 索引已够，blob 迁移收益低）；model-harness 联合训练（自托管无法闭环，可做的低成本版=journals 失败轨迹→评测集，远期）；C 端独立身份全家桶（维持 4/4 共识否定）。
 
 ### 6.3 一句话
 
-原始清单约**半数已被 lc 实际消化**（其中 Checkpoint/Rewind、vault、skill 目录三项是 09-28 后 48 小时内的新提交，清单快照已过时）；剩余高价值项收敛为**「四档策略引擎 + Hook 扩展 + 记忆可纠正」三件套**，四档引擎与既有 risk_level 胚子合并动工即可。
+原始清单约**九成已被 lc 消化**（10-02 两轮复核后口径）。台账 5 条进化任务**全部收口**：4 条 PASS 销账（credential_handle=vault 三提交、policy_tier_engine=`29f8132`、memory_supersede_chain=`164de66`、execution_domain_capability=`09a4f20`）+ 1 条注记关闭（routine_registry_duty_state，scope=resident-members、lc=by-design 满足，lc 提请+灵克裁定选 B）。10-02 夜间批次（1da2f11/4169e65/164de66/aa27d95/084db26/09a4f20/27e1f3b/a831612）把前轮收敛的「三件套+散项」一晚清空，lc 的执行节奏已从"清单驱动"进入"方案 A/B/C 自排期驱动"（P1①②③+B/C 编号自洽）。剩余监督焦点收敛为各交付的"残余挂账"兑现（POST_RESPONSE 接 project_memory、net_allowlist 并入 SeamRegistry、resident-members 侧 routine 需求确认）。
+
+> 复核修正脚注（lc `dc740c6`）：§6.1 policy_tier_engine 原判「⚠ 未动工」系**漏检**——29f8132 已落库四档引擎（yaml 矩阵 + check_tool_call + 台账在产），探针核实后改判 PASS。根因：对账时 `git log` 仅取 14 条窗口且未覆盖新增 `core/policies/` 目录；取证须用 `git log --all` + 全目录 grep。
 
 ---
 
 > **修正记录（lingclaude 复核 2026-10-02）**：本附录 §6.1 原判「policy_tier_engine ⚠ 未动工」有误——经源码复核，四档策略引擎已于 `29f8132`（10-01 07:35）完整落库（policy yaml 四档矩阵 + check_tool_call PreToolUse + 台账在产），系对账时漏检所致，已改判 PASS 销账。另一处口径修正：§6.1 skill 目录（`5efdf00`）与语义记忆（`l7_cognitive.py`）在原始清单中标注 ❌，亦属快照过时，非本轮新做。由此，三件套的实际开工形态为：① Hook 生命周期**扩展**（四档引擎已在，补 after_edit/post_response 注入点 + 哨兵注册制）而非新建；② 会话预算线；③ 记忆 supersede 链 + per-project memory。
+>
+> **修正记录二（lingclaude 2026-10-02 第二轮，用户发起）**：用户指认「supersede 链状态过时（164de66 已落库）」——探针核实属实（tests/test_p1c_supersede_and_project_memory.py 13 passed），且牵出整批 10-02 夜间提交（1da2f11/4169e65/164de66/aa27d95/084db26/09a4f20/27e1f3b/a831612）未被上轮监督覆盖：上轮 `git log dc740c6..HEAD` 输出被截断且首行乱码，误判为「仅一条新提交」。本附录 6.1/6.2/6.3 已按台账实况全量刷新；教训（截断输出≠全集、乱码=先修 locale 再取证）已入 lingmemory（a26836b4，承接 2d441c4b）。同型坑两犯，此后对 lc 的 git 取证固定以 `git log --all --since=<上轮时点>` 起手。
