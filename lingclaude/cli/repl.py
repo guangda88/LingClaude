@@ -19,7 +19,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from lingclaude.cli.commands import SLASH_COMPLETER_WORDS, SlashCommandProcessor
+from lingclaude.cli.commands import SlashCommandProcessor
 from lingclaude.cli.display import SessionSummary
 from lingclaude.cli.mode_cycle import set_plan_runtime_provider, shift_mode
 from lingclaude.cli.input_queue import EOF_SENTINEL, InputQueue
@@ -1531,12 +1531,15 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
         reset_terminal_key_modes()
 
     # RFC §3.3: I/O 抽象层 — LINGCLAUDE_CLI_MODE=plain 或非 TTY → FallbackSession
-    # Step 3: Tab 补全（prompt_toolkit WordCompleter）
+    # Step 3: Tab 补全（A 2026-10-02: SlashCompleter 注册表单源 + desc/arg_hint
+    # 注释渲染，atomcode 同构；替代旧 WordCompleter——其取词不含 '/'，
+    # '/mo' 场景零候选，历史摆设）。FallbackSession/P1 旧输入路径 completer
+    # 形参缺失时 create_session 内部已兜底忽略。
     _completer: Any = None
     try:
-        from prompt_toolkit.completion import WordCompleter
+        from lingclaude.cli.slash_completer import SlashCompleter
 
-        _completer = WordCompleter(SLASH_COMPLETER_WORDS, ignore_case=True)
+        _completer = SlashCompleter()
     except ImportError:
         _completer = None
     session: PromptSessionInterface = create_session(completer=_completer)

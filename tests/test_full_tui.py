@@ -304,9 +304,11 @@ class TestResidentFullTui:
         assert s.pending_submissions() == 0
 
     def test_accept_echoes_input_to_output_area(self, _pt_available: None, tmp_path: Path) -> None:
-        """2026-09-21 输入回显：_on_accept 提交的输入以 "> " 前缀进输出窗。
+        """2026-09-21 输入回显：_on_accept 提交的输入进输出窗。
 
-        此前提交后输出窗无痕，用户输入与模型回复在回放里无法区分。
+        2026-10-02 升级：前缀从 "> " 改为「🧑 用户: 」+ 亮品红粗体
+        （SGR 白名单内联），与历史回放（repl.py:486）格式统一，
+        翻历史会话时按图标即定位每轮用户输入。
         """
         s = self._make(tmp_path, started=True)
 
@@ -315,10 +317,43 @@ class TestResidentFullTui:
 
         assert s._on_accept(_Buf()) is False  # 返回 False 交给 PT reset 清 buffer
         text = s._out_buffer.text  # noqa: SLF001
-        assert "> 帮我看看 repl.py" in text
+        assert "🧑 用户: 帮我看看 repl.py" in text
+        # 窗内文本零裸 ESC（SGR 已被 _write_via_buffer 解析进样式表）
+        assert "\x1b" not in text  # noqa: SLF001
+        # 样式表：回显行全行反显+粗体（用户输入高亮，任何主题下强对比）
+        with s._style_lock:  # noqa: SLF001
+            spans = [sp for row_spans in s._style_map.values() for sp in row_spans]
+        assert any(
+            st == "reverse bold" and a == 0
+            for a, b, st in spans
+        )
         # 回显不影响提交主路径：文本仍进提交队列
         assert s.pending_submissions() == 1  # noqa: SLF001
         assert s.prompt() == "帮我看看 repl.py"
+
+    def test_accept_multiline_echo_all_lines_styled(self, _pt_available: None, tmp_path: Path) -> None:
+        """2026-10-02 多行回显：Esc+Enter 换行的续行同样着色。
+
+        _write_via_buffer 按行独立解析 SGR（样式不跨行继承），回显
+        必须逐行包裹 SGR，否则续行裸奔回素字。
+        """
+        s = self._make(tmp_path, started=True)
+
+        class _Buf:
+            text = "第一行\n第二行\n第三行"
+
+        assert s._on_accept(_Buf()) is False
+        text = s._out_buffer.text  # noqa: SLF001
+        assert "🧑 用户: 第一行" in text
+        assert "第二行" in text and "第三行" in text
+        assert "\x1b" not in text
+        with s._style_lock:  # noqa: SLF001
+            styled_rows = {
+                row for row, spans in s._style_map.items()
+                if any(st == "reverse bold" for _, _, st in spans)
+            }
+        # 三行全部着色（行号 0/1/2 各自独立 span）
+        assert styled_rows == {0, 1, 2}
 
     def test_accept_empty_text_no_echo(self, _pt_available: None, tmp_path: Path) -> None:
         """空文本 accept：不回显、不入队（与旧行为一致）。"""

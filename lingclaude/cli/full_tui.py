@@ -68,7 +68,14 @@ try:
     from prompt_toolkit.document import Document
     from prompt_toolkit.history import FileHistory, InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.layout import HSplit, Layout, Window
+    from prompt_toolkit.layout import (
+        CompletionsMenu,
+        FloatContainer,
+        HSplit,
+        Layout,
+        Window,
+    )
+    from prompt_toolkit.layout.containers import Float
     from prompt_toolkit.layout.dimension import Dimension
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.layout.processors import (
@@ -756,12 +763,23 @@ class FullTuiSession:
         返回未 run 的 Application 实例（生命周期归 cutover/start 管）。
         """
         return Application(
-            layout=Layout(HSplit([
-                self._output_area,
-                self._sep_win,
-                self._status_win,
-                self._input_area,
-            ])),
+            # A(2026-10-02) 斜杠补全菜单：PT 补全下拉必须挂 FloatContainer
+            # float（裸 HSplit 无浮层容器，completer 算出候选也无处渲染）。
+            # xcursor/ycursor 跟随输入光标，max_height=8 防长清单撑爆布局。
+            layout=Layout(FloatContainer(
+                content=HSplit([
+                    self._output_area,
+                    self._sep_win,
+                    self._status_win,
+                    self._input_area,
+                ]),
+                floats=[
+                    Float(
+                        xcursor=True, ycursor=True,
+                        content=CompletionsMenu(max_height=8, scroll_offset=1),
+                    ),
+                ],
+            )),
             key_bindings=self._kb,
             # 2026-09-22: 状态栏样式注册 —— class:green/yellow/red/accent
             # fragment（状态球、上下文分色、todo ⚙/·）此前无规则匹配，
@@ -2265,7 +2283,24 @@ class FullTuiSession:
             full_text = self._expand_placeholders(text)
             echo_text = self._fold_echo(full_text)
             try:
-                self.append_output("> " + echo_text + "\n")
+                # 2026-10-02 用户回显高亮：🧑 图标 + 亮品红粗体（SGR 白名单
+                # 内，_write_via_buffer → _extract_sgr_styles 解析进
+                # _style_map，processor 按列上色，窗内零裸 ESC）。emoji 🧑
+                # 宽度实测三方一致（_disp_width=east_asian_width=W=2、
+                # wcwidth=2、PT fragment 宽度=2），色段列坐标不错位。
+                # 前缀格式对齐历史回放（repl.py:486 「🧑 用户: 」），活线
+                # 与重启回放视觉统一，翻历史会话时按图标即扫到每轮入口。
+                # 逐行包裹：多行输入（Esc+Enter 换行）的续行同样着色——
+                # _write_via_buffer 按行独立解析 SGR，样式不跨行继承。
+                echo_lines = echo_text.split("\n") or [""]
+                echo_lines[0] = "🧑 用户: " + echo_lines[0]
+                # 用户回显：反显+粗体——反显用终端自身前景/背景互换，任何
+                # 配色主题下都与背景强对比（2026-10-02 用户反馈：亮品红在
+                # 其背景下对比不足）。SGR 7;1 在白名单内，写窗层解析成
+                # 'reverse bold' 样式段；回放链（_strip_ansi_text）剥色后
+                # 仍留 🧑 前缀可辨识。
+                body = "\x1b[0m\n\x1b[7;1m".join(echo_lines)
+                self.append_output("\x1b[7;1m" + body + "\x1b[0m\n")
             except Exception:  # noqa: BLE001 — 回显失败不阻断提交
                 pass
             self._submit(full_text)

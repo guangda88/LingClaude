@@ -234,12 +234,15 @@ class StatusModel:
 # 斜杠命令（防虚构守卫见 test_cli_status.py：池内命令必须 ∈ SLASH_COMPLETER_WORDS）。
 # 2026-09-25 二期：键位/操作类也入池（全部实测验证，见 repl.py:1193 启动横幅与
 # interface.py:311-312 chord 表——Ctrl+Enter/Shift+Enter 同为换行）。
+# 2026-10-02 修正：Ctrl+Enter/Shift+Enter 下线——chord 映射存在（interface.py
+# _patch_pt_modifier_enter），但终端默认对 Enter 组合键发裸 \r（full_tui.py:639
+# 实测注释、scripts/keypress_probe.py 探针定谳），提示成空头承诺，已从池中移除。
 _TOOLBAR_TIPS: tuple[str, ...] = (
     # ── EVOLVE-BLOCK: toolbar_tips begin（借鉴③，AlphaEvolve 对标）──────────
     # 可自改区：本块内 tips 条目可由自进化机制增删改；块外（_TIP_EVERY_TURNS、
     # toolbar_tip 轮换逻辑、防虚构守卫）冻结执法。锚点成对性由
     # test_p04_arch_guards::test_evolve_block_paired 锁死。
-    "Esc+Enter 换行 · Ctrl+Enter/Shift+Enter 亦然 · /multi 多行",
+    "Esc+Enter 换行 · /multi 多行",
     "/compact 压缩上下文",
     "/tasks 看任务面板",
     "/checkpoint 快照存档",

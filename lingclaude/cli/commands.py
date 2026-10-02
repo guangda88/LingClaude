@@ -114,10 +114,18 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
     # 会话/检查点/任务域方法已外提到 _commands_*.py mixin，本类保留通用命令。
 
     def _cmd_clear(self) -> None:
-        """A(2026-09-26) 注册表化时从 handle() 内联逻辑外提（语义不变）。"""
-        self.engine._messages.clear()
-        self.engine._conversation.clear()
-        print("[会话已清空]")
+        """A(2026-09-26) 注册表化时从 handle() 内联逻辑外提（语义不变）。
+
+        2026-10-02 语义升级：原实现仅清 _messages/_conversation 两列表
+        （34997fa 2026-08-25 app.py 巨石时代内联逻辑的原样外提），与引擎
+        reset()（query_engine.py）相比缺 6 项——不换 session_id、不落盘、
+        transcript/usage/denials/working-memory 残留，用户预期「clear =
+        new session」落空。现改调 engine.reset() 全量复位（先落盘再清，
+        /continue 可找回），与 test_agent_loop.py:619 既有的 reset 契约
+        同源。
+        """
+        self.engine.reset()
+        print("[会话已清空]（原会话已存档，/continue 可恢复）")
 
     # ---- A(2026-09-26) 注册表适配层：三参 handler 折成统一 (self, arg) 形状 ----
 
@@ -742,7 +750,8 @@ def _register(
 
 # 表体顺序 = /help 展示顺序（补全清单同序派生）。
 _register("/help", "_cmd_help", "本帮助；/help <命令> 查单条用法", aliases=("/?",))
-_register("/clear", "_cmd_clear", "清空会话上下文")
+_register("/clear", "_cmd_clear", "清空会话上下文（存档后开新会话，/continue 可恢复）",
+          aliases=("/new",))
 _register("/multi", "_cmd_multi", "多行输入模式（'.' 结束提交；平时用 Esc+Enter 换行）")
 _register("/resync", "_cmd_resync", "全量重绘输出窗（全屏 TUI）")
 _register("/image", "_cmd_image",

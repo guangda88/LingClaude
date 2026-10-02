@@ -310,6 +310,10 @@ def render_markdown_lines(text: str) -> tuple[list[str], list[list[tuple[int, in
             "markdown.h4": "bold bright_blue",
             "markdown.h5": "bold bright_yellow",
             "markdown.h6": "bold bright_white",
+            # 2026-10-02 引用块醒目化：rich 默认 block_quote=暗品红（无 bright），
+            # 深色终端上与背景对比弱（用户实测「▌ add-only 新落盘拾取」不显眼）。
+            # bright_yellow（SGR 93）深底对比最强，警示语义贴合「诚实边界」类声明。
+            "markdown.block_quote": "bold bright_yellow",
         }
     )
     buf = StringIO()
@@ -767,6 +771,9 @@ def _handle_stream_event(event: dict[str, Any]) -> None:
                         "markdown.h4": "bold bright_blue",
                         "markdown.h5": "bold bright_yellow",
                         "markdown.h6": "bold bright_white",
+                        # 2026-10-02 引用块醒目化（对齐 render_markdown_lines）：
+                        # rich 默认 block_quote=暗品红，深底对比弱，用户反馈不显眼。
+                        "markdown.block_quote": "bold bright_yellow",
                     }
                 )
                 ansi_console = Console(

@@ -45,35 +45,35 @@ class QualityReport:
 
 
 def _plain_no_color() -> bool:
-    """plain 模式禁色判定（2026-09-22 终裁：默认纯文本，彩色 opt-in）。
+    """plain 模式禁色判定（2026-10-02 三裁：默认自动检测，沿用 rich 能力协商）。
 
-    背景（2026-09-21 乱码战役收尾）：plain 模式 rich 经 stderr 直通渲染
-    「彩色正式版」，前提假设是终端真实消费 SGR。实测启动终端声明
-    TERM=xterm-256color 却把 ESC 显示为字面 '?'（声明能力≠真实能力）
-    → 彩色直通 = 乱码。且环境变量从外层 shell 向主进程传导不可靠
-    （会话内 export 只影响子进程），故语义反转为：
+    历次裁决：
+    - 2026-09-21 原语义：无环境变量 → 彩色（rich 自动检测）。
+    - 2026-09-22 终裁改 opt-in：因「终端声明 TERM=xterm-256color 却把 ESC
+      显示为字面 '?'」的乱码环境实测存在，默认物理归零，LINGCLAUDE_COLOR=1
+      显式开启。代价：真实彩色终端里也默认无色，体验降级。
+    - 2026-10-02 三裁（用户指令）：改回**自动检测**。乱码环境由
+      LINGCLAUDE_COLOR=0（强制禁色）/ NO_COLOR（标准）双逃生口兜底，
+      不再为极端环境牺牲多数终端的开箱彩色。
 
-    - 默认禁色（返回 True）：color_system=None 物理归零，源头零 ESC
-    - LINGCLAUDE_COLOR=1/true/yes/on 显式 opt-in 彩色（优先级最高）
-    - 标准 NO_COLOR 仍然尊重
-    - LINGCLAUDE_PLAIN_NO_COLOR 已废弃为无害死开关（默认恒禁色，
-      保留仅为旧测试兼容，不再单独判定）
+    语义表（按优先级）：
+    1. LINGCLAUDE_COLOR=1/true/yes/on  → 强制彩色（False）
+    2. LINGCLAUDE_COLOR=0/false/no/off → 强制禁色（True）
+    3. NO_COLOR 非空                    → 禁色（True，标准行为）
+    4. 默认                             → False（rich 按终端真实能力协商）
     """
     import os
 
-    # 2026-09-22 终裁：默认纯文本，彩色改为显式 opt-in（LINGCLAUDE_COLOR=1）。
-    # 理由：终端「声明 TERM=xterm-256color 却把 ESC 显示为字面 '?'」的环境
-    # 实测长期存在（声明能力≠真实能力），且环境变量从外层 shell 向
-    # lingclaude 主进程传导不可靠（会话内 export 只影响子进程）。
-    # opt-in 彩色：LINGCLAUDE_COLOR=1/true/yes/on
-    if os.environ.get("LINGCLAUDE_COLOR", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }:
+    val = os.environ.get("LINGCLAUDE_COLOR", "").strip().lower()
+    if val in {"1", "true", "yes", "on"}:
         return False
+    if val in {"0", "false", "no", "off"}:
+        return True
     # 标准 NO_COLOR 仍然尊重
     if os.environ.get("NO_COLOR", "") != "":
         return True
-    return True
+    # 默认：不干预，交给 rich 的终端能力检测（isatty → color_system 协商）
+    return False
 
 
 def _get_console() -> Any:
@@ -91,7 +91,20 @@ def _get_console() -> Any:
         from lingclaude.cli.repl_io import is_full_tui_managed
 
         if is_full_tui_managed():
-            return Console(theme=_THEME, file=sys.stdout, force_terminal=False)
+            # 2026-10-02 托管期上色修正：原 force_terminal=False + 代理
+            # isatty()=False（full_tui._StdoutProxy.write）→ rich 判定终端
+            # 零能力，✓/✗/⚠/ℹ 状态行在 TUI=2 输出窗恒素字（用户实测）。
+            # 改 force_terminal=True 强制产出 SGR；color_system="standard"
+            # 保证基础 8 色码——写窗层 _extract_sgr_styles 白名单恰好全收
+            # （_StdoutProxy keep_sgr=True 保 SGR，非 SGR CSI 照吞，零裸
+            # ESC 落窗）。三裁的 LINGCLAUDE_COLOR/NO_COLOR 逃生口按 P2
+            # 语义不进托管分支（见 test_managed_takes_precedence_over_no_color）。
+            return Console(
+                theme=_THEME,
+                file=sys.stdout,
+                force_terminal=True,
+                color_system="standard",
+            )
         if _plain_no_color():
             # 2026-09-22 终裁补充：no_color=True 只禁颜色 SGR，粗体/下划线
             # 仍会出码（实测 ESC[1m/[4m 残留）。color_system=None 才是物理
@@ -125,28 +138,31 @@ def print_header(title: str, subtitle: str = "") -> None:
 
 def print_success(message: str) -> None:
     if _HAS_RICH:
-        _get_console().print(f"[success]✓[/success] {message}")
+        # 2026-10-02 可见性修正：此前只有 ✓ 符号着色、消息文本素字，
+        # 托管输出窗（TUI=2）里一个字符的色差肉眼几乎不可辨（用户实测
+        # 「还是素字」）。整行包样式后 SGR 白名单仍全收（bold green=1;32）。
+        _get_console().print(f"[success]✓ {message}[/success]")
     else:
         print(f"✓ {message}")
 
 
 def print_error(message: str) -> None:
     if _HAS_RICH:
-        _get_console().print(f"[error]✗[/error] {message}")
+        _get_console().print(f"[error]✗ {message}[/error]")
     else:
         print(f"✗ {message}", file=sys.stderr)
 
 
 def print_warning(message: str) -> None:
     if _HAS_RICH:
-        _get_console().print(f"[warning]⚠[/warning] {message}")
+        _get_console().print(f"[warning]⚠ {message}[/warning]")
     else:
         print(f"⚠ {message}")
 
 
 def print_info(message: str) -> None:
     if _HAS_RICH:
-        _get_console().print(f"[info]ℹ[/info] {message}")
+        _get_console().print(f"[info]ℹ {message}[/info]")
     else:
         print(f"ℹ {message}")
 
