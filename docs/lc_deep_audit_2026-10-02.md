@@ -71,12 +71,28 @@
 3. **降级锁输入**：已落地（`loop_body.py` 耗尽路径 yield hard_interrupt + return 三路径同构、`_hard_interrupt_message` 四 scope 单源、TUI 红点 latch 188f359、input-freeze ⑤ 6 用例），待真实故障实战验证（183719 为修复前实例）；
 4. **sandbox 闸门默认全开**：`sandbox_policy.yaml` 激活示例仅注释（0afb377 自述）；directory_rules 激活曾被 20 连红退回（default writable=/home/ai 误伤 /tmp 测试），重启需按目录域收紧；
 5. **会话 blob 仍 json**（`session_persist.py` 落 .json，无 sqlite blob）——严格快照完整性依赖 P2-13；
-6. **loop_purification 前提过时**：loop_body 已无 `engine._conversation` 残留，StateStore 302 行仍未接入——任务前提需 lc 重核；
+6. **loop_purification 前提过时（10-02 晚复核修正）**：loop_body 已无 `engine._conversation` 残留；StateStore **并非未接线**——实为 52 文件消费中、处于五阶段迁移状态机的 double-write 阶段（切片1：写双份 json+灵忆、读走 json，见其 docstring 与 `docs/design/state_migration_dualwrite_protocol.md`）。该条从"接线缺失"降级为 **"P3 迁移推进待排期"**：真需求=确认 15 模块清单中下一个从 double-write 走到 read-source 的切片，与 loop_body 无直接交集；
 7. 打磨项：.bak 99 个死重、硬中断提示未含 /model 钉住指引、多端手机闭环未验证。
 
 ## 六、总判
 
 近 48h 净增 19 提交，能力面十域齐备且布线断言 15/15 实锚通过（初判 5 FAIL 全为审计脚本口径误差，逐个下钻归零——审计工具自身的口径纪律在本轮被校准）。欠账面收敛为**一笔急账（journal-gap，10-09）+ 一笔人力账（~115 条三问，10-10 启动）+ 一条可销账（M2）**。弱点面头条：**classify_state 输出前接线**——唯一"知道解法、有实锚、没做"的守卫缺口。
+
+## 附：P3 对账销账与排期转记（2026-10-02 晚）
+
+**① P3「loop_body × StateStore 前提重核」→ 销账关闭（缺陷类）**
+
+- **结论**：需求本体不存在，按缺陷类任务销账。
+- **实证**：
+  - `loop_body.py` 774 行，**0 处 StateStore 引用**（grep 实测复核），纯工具轮次循环体，无散挂状态残留；
+  - StateStore **并非接线缺失**——52 文件消费中，处于五阶段迁移状态机的 **double-write 阶段**（切片1：写双份 json+灵忆、读走 json），属设计内中间态，见 `docs/design/state_migration_dualwrite_protocol.md`。
+- **处置**：任务面板 P3 项已销账；handover 文档 P3 行同步标记。
+
+**② 转排期问题（lc 架构路线题，非派单实现题）**
+
+- **真问题**：「15 个状态模块里下一个从 double-write → read-source 的切片选谁、何时走」。
+- **性质**：lc 主线迁移排期决策，需 lc 方给排期；不应挂在「未确认」状态空转。
+- **处置**：记入本附录，移交 lc 方排期。
 
 ## 附：审计期间并行落库记录
 

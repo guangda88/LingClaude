@@ -179,7 +179,7 @@ def rules_configured(rules=None):
 | **P0 急** | 清偿 a11f2ec journal-gap 债 | 同上 | ~5 分钟 |
 | P1 | classify_state 接 REPL 输出路径（Step A） | 头条弱点，方案已定 | ~1-2 小时 |
 | P2 | directory_rules 激活测试集 | 稳妥上线节奏 | ~1 小时 |
-| P3 | loop_body × StateStore 前提重核 | 需求未确认 | 待定 |
+| ~~P3~~ | ~~loop_body × StateStore 前提重核~~ | **已销账**（需求本体不存在，实证见 lc_deep_audit 对账附录） | 关闭 |
 | 排期待定 | 会话 blob 迁移研究 | 非急，收益有限 | 待定 |
 
 ---
