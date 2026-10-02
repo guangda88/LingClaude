@@ -66,6 +66,7 @@ try:
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.document import Document
+    from prompt_toolkit.filters import has_completions
     from prompt_toolkit.history import FileHistory, InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import (
@@ -715,6 +716,14 @@ class FullTuiSession:
             buf = event.app.layout.current_buffer
             if buf is not None:
                 buf.insert_text("\n")
+
+        # 补全菜单 ESC 关闭（2026-10-02）：has_completions 过滤器保证
+        # 仅在补全浮层展开时拦截——此时 cancel_completion() 收掉菜单；
+        # 浮层未开时过滤器为 False，ESC 完全放行（Esc+Enter 多行组合的
+        # 前缀键照常进入 PT 序列缓冲，两条路径互不干扰）。
+        @self._kb.add("escape", filter=has_completions)
+        def _on_esc_close_completion(event: Any) -> None:
+            event.app.current_buffer.cancel_completion()
 
         # Ctrl+L 硬重绘（2026-09-27 错位根治）：必须覆盖 PT 默认
         # clear-screen（basic.py:155 → renderer.clear() →

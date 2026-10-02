@@ -670,6 +670,7 @@ class PromptToolkitSession:
         """
         try:
             from prompt_toolkit.key_binding import KeyBindings
+            from prompt_toolkit.filters import has_completions
             from prompt_toolkit.keys import Keys
         except Exception:  # noqa: BLE001 — PT 版本差异时静默回退默认键位
             return None
@@ -688,6 +689,13 @@ class PromptToolkitSession:
         @kb.add("escape", "enter")
         def _newline(event: Any) -> None:
             event.app.current_buffer.insert_text("\n")
+
+        # 补全菜单 ESC 关闭（2026-10-02）：与全屏 TUI 同构。仅在补全浮层
+        # 展开时（has_completions）拦截 ESC 并收掉菜单；未展开时放行，
+        # 不影响 Esc+Enter 换行组合。PT 序列匹配长序列优先，二者共存。
+        @kb.add("escape", filter=has_completions)
+        def _esc_close_completion(event: Any) -> None:
+            event.app.current_buffer.cancel_completion()
 
         # 2026-09-22: Shift+Tab 循环切换工作模式（auto→ask→strict→plan，同全屏
         # TUI；回调按下时才读取，未注入时静默空转）。键名用 Keys.BackTab 枚举

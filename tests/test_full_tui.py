@@ -1554,3 +1554,77 @@ class TestCutoverGeneration:
                                   verify=lambda c: None)  # 自定义 verify 放行
         assert ok is True
         assert s._app is cand
+
+
+class TestEscClosesCompletion:
+    """补全菜单 ESC 关闭（2026-10-02）。
+
+    背景：PT emacs 默认键位把裸 ESC 绑为 no-op（emacs.py:57 pass），
+    补全浮层展开时按 ESC 无反应（官方关菜单是 Ctrl+G）。两处输入控件
+    （全屏 TUI _kb / P1 interface._build_key_bindings）各加一条
+    `escape + has_completions` 过滤绑定 → 菜单开着才拦截收掉，未开时
+    完全放行，Esc+Enter 换行组合不受影响（PT 长序列优先匹配）。
+    """
+
+    def _escape_binding(self, kb: Any) -> Any:
+        from prompt_toolkit.keys import Keys
+
+        hits = [b for b in kb.bindings if b.keys == (Keys.Escape,)]
+        assert len(hits) == 1
+        return hits[0]
+
+    def test_escape_binding_registered_with_filter(self) -> None:
+        """裸 ESC 绑定存在且挂 has_completions 条件过滤器（两处路径）。"""
+        pytest.importorskip("prompt_toolkit")
+        from prompt_toolkit.key_binding import KeyBindings
+
+        s = FullTuiSession(history_file="/tmp/h_esc_test_tui")
+        esc = self._escape_binding(s._kb)
+        assert esc.filter is not None
+
+        # P1 路径：interface._build_key_bindings 同构
+        from lingclaude.cli.interface import PromptToolkitSession
+
+        class _Stub:
+            _build_key_bindings = PromptToolkitSession._build_key_bindings
+
+        kb1 = _Stub()._build_key_bindings()
+        assert kb1 is not None
+        esc1 = self._escape_binding(kb1)
+        assert esc1.filter is not None
+
+    def test_escape_closes_menu_only_when_open(self) -> None:
+        """菜单开 → ESC 收掉；菜单关 → 过滤器为假（放行）。"""
+        pytest.importorskip("prompt_toolkit")
+        from prompt_toolkit.application.current import set_app
+        from prompt_toolkit.application.dummy import DummyApplication
+        from prompt_toolkit.buffer import CompletionState
+        from prompt_toolkit.completion import Completion
+        from prompt_toolkit.document import Document
+        from prompt_toolkit.layout import Layout, Window
+        from prompt_toolkit.layout.controls import BufferControl
+
+        s = FullTuiSession(history_file="/tmp/h_esc_test_tui")
+        buf = s._input_area.buffer
+        esc = self._escape_binding(s._kb)
+
+        app = DummyApplication()
+        app.layout = Layout(Window(content=BufferControl(buffer=buf)))
+        with set_app(app):
+            buf.complete_state = CompletionState(
+                completions=[Completion("x")], original_document=Document("/model ")
+            )
+            assert esc.filter() is True  # 菜单开：绑定生效
+            esc.call(SimpleNamespace(app=app))
+            assert buf.complete_state is None  # ESC 收掉菜单
+            assert esc.filter() is False  # 菜单关：绑定休眠（ESC 放行）
+
+    def test_esc_enter_newline_unaffected(self) -> None:
+        """Esc+Enter 换行组合与 ESC 关菜单互不干扰（长序列优先）。"""
+        pytest.importorskip("prompt_toolkit")
+        from prompt_toolkit.keys import Keys
+
+        s = FullTuiSession(history_file="/tmp/h_esc_test_tui")
+        buf = s._input_area.buffer
+        seq = [b for b in s._kb.bindings if b.keys == (Keys.Escape, Keys.ControlM)]
+        assert len(seq) == 1  # 换行绑定未被本次改动移除
