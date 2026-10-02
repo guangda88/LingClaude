@@ -31,6 +31,13 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# journal 链：豁免写操作路由到 arch_ledger（2026-10-02 P0 修复）
+sys.path.insert(0, str(ROOT / "scripts"))
+from arch_ledger import (  # noqa: E402
+    debt_resolve,
+    exemption_delete_record,
+    exemption_update_fields,
+)
 LEDGER = ROOT / "data" / "arch_ledger" / "arch_exemption"
 # 源码根：台账 file 字段相对 lingclaude/ 包根（core/xxx → lingclaude/core/xxx）
 SRC_ROOTS = (ROOT / "lingclaude", ROOT)
@@ -192,7 +199,7 @@ def apply(results: list[dict], resolve: set[str], dry: bool) -> int:
             if dry:
                 print(f"[dry] 将摘除 live 豁免档 {p.name}（{v}: {r['detail']}）")
             else:
-                p.unlink()
+                exemption_delete_record(d["guard"], d["file"])
                 print(f"[resolved] 摘除 live 豁免档 {p.name}（{v}: {r['detail']}）")
             changed += 1
             continue
@@ -201,9 +208,11 @@ def apply(results: list[dict], resolve: set[str], dry: bool) -> int:
             if dry:
                 print(f"[dry] {p.name}: state {d.get('state')} → {new_state}")
             else:
-                d["state"] = new_state
-                d["state_flip_note"] = f"exemption_review 初筛 {today}: {r['detail']}"
-                p.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+                exemption_update_fields(
+                    d["guard"], d["file"],
+                    state=new_state,
+                    state_flip_note=f"exemption_review 初筛 {today}: {r['detail']}",
+                )
                 print(f"[resolved] {p.name}: state → {new_state}")
             changed += 1
             continue
@@ -212,10 +221,10 @@ def apply(results: list[dict], resolve: set[str], dry: bool) -> int:
         if dry:
             print(f"[dry] 将标记 last_review={today} → {p.name}（{v}）")
         else:
-            d["last_review"] = today
-            d["last_review_note"] = f"机器初筛 {v}: {r['detail']}；语义三问待人工"
-            p.write_text(
-                json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8"
+            exemption_update_fields(
+                d["guard"], d["file"],
+                last_review=today,
+                last_review_note=f"机器初筛 {v}: {r['detail']}；语义三问待人工",
             )
             print(f"[marked] {p.name} → last_review={today}（{v}）")
         changed += 1
@@ -235,6 +244,9 @@ def main() -> int:
         resolve = {s.strip() for s in args.resolve.split(",") if s.strip()}
         n = apply(results, resolve, args.dry_run)
         print(f"\napply: {n} 条台账变更{'（dry-run 未落盘）' if args.dry_run else ''}")
+        # a11f2ec 清偿：journal 链修复路径已激活（apply 成功写 journal 即偿债）
+        if not args.dry_run and n > 0:
+            debt_resolve("exemption-journal-gap")
     return 0
 
 

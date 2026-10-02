@@ -46,15 +46,22 @@ class TestSlashCommandsEndToEnd:
 
 
 class TestF2UndoRemoval:
-    """F2 验证 — src-grep /undo 已从 completer 移除."""
+    """F2 历史背景:2026-09 路由降级期间临时禁止 /undo 在补全里出现;
+    8c83f50 已重新放行 /undo 命令(文件级 rewind 入口),该禁令撤销。
+    本类仅保留「旧 dispatch 路径已死」一项断言,补全层守卫由 SlashCompleter
+    注册表单源 + commands.py:770 _register 共同覆盖."""
 
     def test_undo_not_in_completer_source(self):
+        # F2 临时防御已撤——补全器从 WordCompleter 替换为 SlashCompleter(48b1006),
+        # 候选集合由 SLASH_REGISTRY 派生,/undo 在 commands.py:770 正式注册。
+        # 此处只做最弱锚点断言:repl.py 已不再依赖旧 WordCompleter,且 /undo 在
+        # 注册表里(补全器同源派生)。
         from pathlib import Path
-        app_py = Path("/home/ai/lingclaude/lingclaude/cli/repl.py").read_text(encoding="utf-8")
-        idx = app_py.find("WordCompleter(")
-        assert idx > 0
-        block = app_py[idx:idx + 500]
-        assert '"/undo"' not in block, "F2 未修复:/undo 仍在 completer"
+        repl = Path("/home/ai/lingclaude/lingclaude/cli/repl.py").read_text(encoding="utf-8")
+        assert "WordCompleter(" not in repl, "旧补全器 WordCompleter 残留(应已替换为 SlashCompleter)"
+        assert "SlashCompleter" in repl, "SlashCompleter 未在 repl.py 接入"
+        commands = Path("/home/ai/lingclaude/lingclaude/cli/commands.py").read_text(encoding="utf-8")
+        assert '_register("/undo"' in commands, "/undo 应在 SLASH_REGISTRY 注册"
 
     def test_undo_no_handler_in_source(self):
         from pathlib import Path

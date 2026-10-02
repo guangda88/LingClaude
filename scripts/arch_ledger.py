@@ -213,6 +213,38 @@ def exemption_remove(guard: str, rel_path: str) -> None:
     print(f"exemption 移除: {key}")
 
 
+
+def exemption_delete_record(guard: str, rel_path: str) -> None:
+    """标记豁免档为已删除（p.unlink() 的 journal-aware 替选）。
+
+    与 exemption_remove() 等价，但命名更贴近 exemption_review 的语义——
+    exemption_review 语义是「摘除 live 档」，不等同于「移除豁免身份」（后者可能留痕）。
+    本函数把文件 state 翻为 removed 并写 journal，与 exemption_remove() 同链。
+    """
+    exemption_remove(guard, rel_path)
+
+
+def exemption_update_fields(guard: str, rel_path: str, **fields: str) -> None:
+    """部分更新豁免档字段（journal-aware）。
+
+    用途：exemption_review.py 的 state flip / last_review 写操作，
+    原来直接 p.write_text() 跳过了 journal 链；本函数补全该路径。
+
+    Args:
+        guard: 守卫 ID（e.g. "G11b"）
+        rel_path: 相对于 lingclaude/ 的路径（e.g. "core/hook_registry.py"）
+        **fields: 要合并进记录的额外字段（e.g. state="removed", last_review="2026-10-02"）
+    """
+    key = f"{guard}:{rel_path}"
+    s = _store()
+    rec = s.load(T_EXEMPT, key)
+    if not rec:
+        raise SystemExit(f"豁免记录不存在: {key}（exemption_review 与台账不一致）")
+    rec.update(fields)
+    s.save(T_EXEMPT, key, rec)
+    _append_journal("exemption_update_fields", T_EXEMPT, key, rec)
+    print(f"exemption 字段更新: {key} ← {fields}")
+
 def iter_records(record_type: str) -> list[tuple[str, dict]]:
     """遍历某 type 全部 record（含嵌套 key：相对路径即 key）。"""
     items: list[tuple[str, dict]] = []
