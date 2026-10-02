@@ -43,10 +43,13 @@ network_isolation_enabled: true
 #   rules:
 #     - scope: "/home/ai/lingclaude"
 #       writable: ["/home/ai/lingclaude", "/tmp"]
-directory_rules:
-  default:
-    writable:
-      - "/home/ai"
+# 2026-10-02: directory_rules 退回注释态——09a4f20 曾以激活态入库（default
+# writable=/home/ai），测试在 /tmp 下写文件被判域外 → 全量门禁 20 连红。
+# 现恢复「段缺失=不激活=零行为变化」承诺；需收紧时按下方模板取消注释。
+# directory_rules:
+#   default:
+#     writable:
+#       - "/home/ai"
 
 # 网络白名单（2026-10-02，P2③ execution_domain）：按 cwd 域给出放行域名清单，
 # 供 execution_domain.resolve_net_allowlist/net_allowed 查询（M 期接 httpx

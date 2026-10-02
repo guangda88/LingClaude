@@ -183,6 +183,6 @@ def register(seam_registry=None) -> dict:
     """供 SeamRegistry.register(SeamType.AGENT, ...) 调用（J1 变化走接缝）。"""
     plugin = GuangdaTwinPlugin()
     if seam_registry is not None:
-        from lingclaude.core.seams import SeamType
+        from lingclaude.core.seam import SeamType  # 2026-10-02: 修 47c0e90 断链（core.seams 复数不存在，真名 core.seam）
         seam_registry.register(SeamType.AGENT, plugin.name, plugin)
     return {"registered": plugin.name, "plug_level": "L1", "trust_level": "T1"}

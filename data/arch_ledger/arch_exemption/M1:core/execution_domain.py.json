@@ -1,0 +1,15 @@
+{
+  "guard": "M1",
+  "file": "core/execution_domain.py",
+  "reason": "P2③ execution_domain 核心模块（1a301a3，晚于 3d4b7c7 铁律清偿故漏登）——docstring/注释/规则字段名引用 sandbox/policy/tool 域词汇属模块领域本体非主干泄漏；30 天复审逐行确认可否改词收窄",
+  "granted": "2026-10-02",
+  "state": "active",
+  "review_due": "2026-11-01",
+  "lines": [
+    29,
+    53,
+    73,
+    161,
+    173
+  ]
+}
