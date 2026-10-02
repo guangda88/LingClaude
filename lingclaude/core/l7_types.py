@@ -83,6 +83,9 @@ class CognitiveMemory:
     # supersede 链（2026-10-02 P1③）：本条被哪条新记忆取代。NULL/空 = 现行；
     # 非空 = 历史版本（检索出口统一过滤，链可回溯不丢）。
     superseded_by: str = ""
+    # P2② 哈希链（2026-10-02）：指向链上上一条记录（同 key 前驱）的规范 JSON
+    # sha256 摘要，用于沿链校验记录是否被篡改。空 = pre-chain 存量（不回填）。
+    prev_digest: str = ""
 
     def __post_init__(self):
         if not self.id:

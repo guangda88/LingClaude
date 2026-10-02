@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -30,6 +31,31 @@ from lingclaude.core.safe_db import safe_commit, safe_execute
 from lingclaude.core.sqlite_store_base import SqliteStoreBase
 
 logger = logging.getLogger(__name__)
+
+# ── P2② 哈希链（2026-10-02）──
+# 记录参与摘要的字段集：**内容字段 + 链字段**，排除 id（uuid 随机生成，进
+# 摘要会破坏「同内容同摘要」的可复算性）与 updated_at 由内容决定故纳入。
+# access_count 是运行时可变读计数——纳入会让正常读取漂移破坏校验，排除。
+_DIGEST_FIELDS = ("key", "value", "source", "session_id", "importance",
+                  "tier", "okf_type", "tags", "created_at", "updated_at",
+                  "superseded_by", "prev_digest")
+
+
+def _memory_record_digest(record: dict) -> str:
+    """规范 JSON → sha256。与存储层无耦合，导出档案可离线复算同值。
+
+    键排序 + ensure_ascii=False + 分隔符固定，跨进程跨语言可复现。
+    tags 已是 JSON 字符串（row 直取）或 list（构建期）——统一先规范化。
+    """
+    canonical = {}
+    for f in _DIGEST_FIELDS:
+        v = record.get(f, "")
+        if f == "tags" and not isinstance(v, str):
+            v = json.dumps(v, ensure_ascii=False)
+        canonical[f] = v
+    blob = json.dumps(canonical, sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 # ── 分层记忆 tier ──
@@ -111,7 +137,8 @@ CREATE TABLE IF NOT EXISTS l7_cognitive_memories (
     created_at REAL,
     updated_at REAL,
     access_count INTEGER DEFAULT 0,
-    superseded_by TEXT DEFAULT ''
+    superseded_by TEXT DEFAULT '',
+    prev_digest TEXT DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_l7c_tier ON l7_cognitive_memories(tier);
 CREATE INDEX IF NOT EXISTS idx_l7c_type ON l7_cognitive_memories(okf_type);
@@ -215,6 +242,14 @@ class CognitiveStore(SqliteStoreBase):
                     "ALTER TABLE l7_cognitive_memories "
                     "ADD COLUMN superseded_by TEXT DEFAULT ''")
                 logger.info("l7_cognitive: superseded_by 列迁移完成")
+            # P2②（2026-10-02）：prev_digest 哈希链列（存量补列，链从启用点
+            # 起算）。verify_claim 寻父走同 key 全行内容摘要映射，
+            # 不按 prev_digest 建索引查询——寻父是 O(n) 遍历而非 O(log n) 点查。
+            if "prev_digest" not in cols:
+                conn.execute(
+                    "ALTER TABLE l7_cognitive_memories "
+                    "ADD COLUMN prev_digest TEXT DEFAULT ''")
+                logger.info("l7_cognitive: prev_digest 列迁移完成（链从现在起算）")
             # 检索过滤主索引（新库旧库统一在此创建，见 _SCHEMA 注释）
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_l7c_active "
@@ -252,13 +287,23 @@ class CognitiveStore(SqliteStoreBase):
         # 召回噪声随写入次数线性膨胀（豆包坑①「记忆膨胀」在本库的真实形态）。
         # 语义：旧条目保留（superseded_by 指向新 id，链可回溯），检索出口过滤。
         # 冲突面：若旧条目已是 superseded（更新竞态），以 updated_at 新者为准续链。
+        # P2② 哈希链（同轮）：新记录 prev_digest = 同 key 现行前驱的规范摘要，
+        # 链从启用点起算（存量不回填，前驱无 prev_digest 不阻断写入）。
+        prev_digest = ""
         try:
             old_rows = conn.execute(
-                """SELECT id, updated_at FROM l7_cognitive_memories
+                """SELECT id, rowid, updated_at, value, source, session_id,
+                          importance, tier, okf_type, tags, created_at,
+                          updated_at, access_count, superseded_by, prev_digest
+                   FROM l7_cognitive_memories
                    WHERE key = ? AND superseded_by = ''""",
                 (mem.key,),
             ).fetchall()
             if old_rows:
+                # 同 key 单活跃链不变式：现行至多一条；竞态超一条时以
+                # updated_at 最新者为前驱（与 supersede 续链口径一致），
+                # 多余现行在 UPDATE 中一并标记被取代（检索唯一性保住）。
+                newest = max(old_rows, key=lambda r: r["updated_at"] or 0)
                 superseded_ids = [r["id"] for r in old_rows]
                 qmarks = ",".join("?" for _ in superseded_ids)
                 safe_execute(
@@ -267,18 +312,29 @@ class CognitiveStore(SqliteStoreBase):
                     f"WHERE id IN ({qmarks})",
                     (mem.id, *superseded_ids),
                 )
+                # 指针盖在「安息态」：先 supersede 后重读，摘要对象是前驱
+                # 入史后的最终内容——否则 UPDATE 改字段使指针必然失配。
+                post = conn.execute(
+                    "SELECT * FROM l7_cognitive_memories WHERE id = ?",
+                    (newest["id"],),
+                ).fetchone()
+                if post is not None:
+                    prev_digest = _memory_record_digest(
+                        {k: post[k] for k in post.keys()})
         except Exception:
-            logger.warning("put_memory: supersede 标记失败（新记忆照常写入）",
-                           exc_info=True)
+            logger.warning("put_memory: supersede/prev_digest 前驱解析失败"
+                           "（新记忆照常写入，链该处断点）", exc_info=True)
 
         safe_execute(conn, """INSERT OR REPLACE INTO l7_cognitive_memories
             (id, key, value, source, session_id, importance, tier, okf_type,
-             tags, created_at, updated_at, access_count, superseded_by)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             tags, created_at, updated_at, access_count, superseded_by,
+             prev_digest)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (mem.id, mem.key, json.dumps(mem.value, ensure_ascii=False),
              mem.source, mem.session_id, mem.importance, mem.tier.value,
              mem.okf_type.value, json.dumps(mem.tags, ensure_ascii=False),
-             mem.created_at, mem.updated_at, mem.access_count, ""),
+             mem.created_at, mem.updated_at, mem.access_count, "",
+             prev_digest),
         )
         safe_commit(conn)
 
@@ -352,7 +408,90 @@ class CognitiveStore(SqliteStoreBase):
             # 降级返回空（= 视为现行，检索不因迁移失败而丢条目）。
             superseded_by=(row["superseded_by"]
                            if "superseded_by" in row.keys() else ""),
+            prev_digest=(row["prev_digest"]
+                         if "prev_digest" in row.keys() else ""),
         )
+
+    # ── P2② 哈希链校验 ──
+
+    def verify_claim(self, key: str) -> dict:
+        """沿哈希链校验同 key 记忆演变是否被篡改（P2②，2026-10-02）。
+
+        寻父语义：子记录的 prev_digest = 前驱「安息态」（被 supersede 标记
+        后）的内容摘要。校验时同 key 全行取回，逐行复算内容摘要建映射，
+        从现行条目沿 prev_digest 在映射中向历史逐跳比对。
+
+        返回机器可读结论：
+
+        ``{"claim_ok": bool, "chain_len": int, "pre_chain": bool,
+           "breaks": [{"at": id, "reason": str}], "latest": {...}}``
+
+        - ``claim_ok``：链上每条记录内容与指向它的指针一致（未篡改）。
+        - ``pre_chain``：链头之前同 key 还有未入链的更早记录（链从启用点
+          起算，正常链头此前无记录时为 False）。
+        - 边界（诚实声明）：本链锚定的是**历史演变**——任意非头节点被改
+          都会使其子记录的指针失配；**现行头节点自身是活值**（可变存储的
+          设计语义），其内容不在校验面内，需外部锚点（如 journal 行自摘要
+          那样的 head 印章）才能闭合，超出本层职责。
+        - 幂等只读，不改库；异常路径 fail-soft 返回 claim_ok=False。
+        """
+        conn = self._get_conn()
+        result: dict = {"claim_ok": True, "chain_len": 0, "pre_chain": False,
+                        "breaks": [], "latest": {}}
+        try:
+            rows = conn.execute(
+                "SELECT * FROM l7_cognitive_memories WHERE key = ?", (key,)
+            ).fetchall()
+            if not rows:
+                result["breaks"].append(
+                    {"at": "", "reason": "no_active_record_for_key"})
+                result["claim_ok"] = False
+                return result
+            # 内容摘要 → 行 映射（同 key 一次取回一次复算；版本数小，O(n) 足够）。
+            digest_map: dict = {}
+            current = None
+            for r in rows:
+                d = _memory_record_digest({c: r[c] for c in r.keys()})
+                digest_map[d] = r
+                if (r["superseded_by"] or "") == "":
+                    # 同 key 单活跃链不变式；竞态多条时取 updated_at 最新。
+                    if current is None or (r["updated_at"] or 0) > (current["updated_at"] or 0):
+                        current = r
+            if current is None:
+                result["breaks"].append(
+                    {"at": "", "reason": "no_active_record_for_key"})
+                result["claim_ok"] = False
+                return result
+            result["latest"] = {"id": current["id"], "key": current["key"],
+                                "updated_at": current["updated_at"]}
+            seen: set = set()
+            row = current
+            while row is not None:
+                seen.add(row["id"])
+                result["chain_len"] += 1
+                pd = row["prev_digest"] if "prev_digest" in row.keys() else ""
+                if not pd:
+                    # 链头语义分型：全行已入链 = 启用点起的正常链头；
+                    # 尚有链外更早记录 = 链头落在 pre-chain 存量之后。
+                    result["pre_chain"] = bool(len(rows) > len(seen))
+                    break
+                parent = digest_map.get(pd)
+                if parent is None:
+                    result["breaks"].append({
+                        "at": row["id"],
+                        "reason": "prev_digest_no_match_or_tampered"})
+                    result["claim_ok"] = False
+                    break
+                if parent["id"] in seen:
+                    result["breaks"].append(
+                        {"at": parent["id"], "reason": "cycle_detected"})
+                    result["claim_ok"] = False
+                    break
+                row = parent
+        except Exception as exc:
+            result["claim_ok"] = False
+            result["breaks"].append({"at": "", "reason": f"internal:{exc}"})
+        return result
 
     # ── 分层记忆检索 ──
 

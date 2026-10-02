@@ -1,0 +1,10 @@
+{
+  "kind": "hardcoded_direct",
+  "location": "scripts/arch_ledger.py",
+  "reason": "P2② journal 链冒烟：链首行实证",
+  "due": "2026-10-09",
+  "resolve_hint": "",
+  "state": "resolved",
+  "created": "2026-10-02T07:27:32+00:00",
+  "resolved_at": "2026-10-02T07:27:32+00:00"
+}

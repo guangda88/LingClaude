@@ -23,11 +23,14 @@ record 约定：
   python3 scripts/arch_ledger.py exemption remove <guard> <rel_path>
   python3 scripts/arch_ledger.py list [debt|exemption|snapshot] [--open-only]
   python3 scripts/arch_ledger.py query expired    # 到期未清债务（守卫消费点）
+  python3 scripts/arch_ledger.py verify           # P2② journal 哈希链离线校验
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -57,6 +60,99 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# ── P2② journal 哈希链（2026-10-02）──
+# 动机：台账 record 文件是覆盖写（只留最新态），「只翻 state 不删档」纪律
+# 依赖人自觉 + 事后对账。journal 以 append-only 行 + 单向哈希链把该纪律
+# 升级为数据结构：每行 = {seq, ts, op, type, key, payload, entry_digest}，
+# entry_digest = sha256(prev_digest + 规范化行内容)。链断/行改/行删皆可验。
+# 存量档不回填，链从启用点起算（旧档 = pre-chain）。
+
+
+def _journal_path() -> Path:
+    return _store()._json_backend._root / "journal.jsonl"
+
+
+def _canonical_line(entry: dict) -> str:
+    """journal 行规范化：键排序 + 紧凑分隔符，跨进程复算一致。"""
+    return json.dumps(entry, sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":"))
+
+
+def _read_journal() -> list[dict]:
+    p = _journal_path()
+    if not p.exists():
+        return []
+    out = []
+    for ln in p.read_text(encoding="utf-8").splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            out.append(json.loads(ln))
+        except ValueError:
+            out.append({"corrupt": True, "raw": ln[:200]})
+    return out
+
+
+def _append_journal(op: str, record_type: str, key: str, payload: dict) -> str:
+    """追加一行进 journal 并盖章哈希链（fail-soft：链失败不阻断台账操作）。"""
+    try:
+        entries = _read_journal()
+        chain_head = ""
+        for e in entries:
+            if not e.get("corrupt"):
+                chain_head = e.get("entry_digest", "")
+        entry = {
+            "seq": len(entries), "ts": _now(), "op": op,
+            "type": record_type, "key": key, "payload": payload,
+        }
+        entry["entry_digest"] = hashlib.sha256(
+            (chain_head + _canonical_line(entry)).encode("utf-8")).hexdigest()
+        p = _journal_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(_canonical_line(entry) + "\n")
+        return entry["entry_digest"]
+    except Exception:
+        # 哈希链是审计增强层，绝不为它阻断台账主操作（豁免/债务写入必须活）。
+        return ""
+
+
+def verify_journal() -> int:
+    """离线校验 journal 链完整性。返回 0=全绿，1=断链/篡改，2=无 journal。"""
+    entries = _read_journal()
+    if not entries:
+        print("journal 不存在或为空：链未启用（pre-chain 存量不回填）")
+        return 2
+    prev = ""
+    seq = 0
+    ok = True
+    for e in entries:
+        seq += 1
+        if e.get("corrupt"):
+            print(f"× seq {seq}: 行损坏（半行写入或手改）")
+            ok = False
+            continue
+        expected_payload = {k: v for k, v in e.items()
+                            if k not in ("entry_digest",)}
+        digest = hashlib.sha256(
+            (prev + _canonical_line(expected_payload)).encode("utf-8")
+        ).hexdigest()
+        if digest != e.get("entry_digest"):
+            print(f"× seq {seq} (op={e.get('op')} key={e.get('key')}): "
+                  f"digest 不匹配——行内容被改或链断裂")
+            ok = False
+        if e.get("seq") != seq - 1:
+            print(f"× seq {seq}: 序号错位（期望 {seq - 1}，实际 {e.get('seq')}）"
+                  f"——疑似删行/插行")
+            ok = False
+        prev = e.get("entry_digest", "")
+    if ok:
+        print(f"journal 链校验通过：{len(entries)} 行全绿")
+        return 0
+    return 1
+
+
 def debt_add(slug: str, location: str, reason: str, due: str, kind: str = "hardcoded_direct",
              resolve_hint: str = "") -> None:
     date.fromisoformat(due)  # 校验格式，fail fast
@@ -64,11 +160,13 @@ def debt_add(slug: str, location: str, reason: str, due: str, kind: str = "hardc
     if s.load(T_DEBT, slug):
         raise SystemExit(f"债务已存在: {slug}（先 resolve 或换 slug）")
     _ensure_dirs(T_DEBT, slug)
-    s.save(T_DEBT, slug, {
+    payload = {
         "kind": kind, "location": location, "reason": reason,
         "due": due, "resolve_hint": resolve_hint,
         "state": "open", "created": _now(),
-    })
+    }
+    s.save(T_DEBT, slug, payload)
+    _append_journal("debt_add", T_DEBT, slug, payload)
     print(f"debt 入册: {slug} (due {due})")
 
 
@@ -80,6 +178,7 @@ def debt_resolve(slug: str) -> None:
     rec["state"] = "resolved"
     rec["resolved_at"] = _now()
     s.save(T_DEBT, slug, rec)
+    _append_journal("debt_resolve", T_DEBT, slug, rec)
     print(f"debt 清偿: {slug}")
 
 
@@ -97,6 +196,7 @@ def exemption_add(guard: str, rel_path: str, reason: str, lines: list[int] | Non
         payload["lines"] = lines  # 行级豁免（M2/M3）；缺省=整文件（M1）
     _ensure_dirs(T_EXEMPT, key)
     s.save(T_EXEMPT, key, payload)
+    _append_journal("exemption_add", T_EXEMPT, key, payload)
     print(f"exemption 入册: {key}" + (f" lines={lines}" if lines else ""))
 
 
@@ -109,6 +209,7 @@ def exemption_remove(guard: str, rel_path: str) -> None:
     rec["state"] = "removed"
     rec["removed_at"] = _now()
     s.save(T_EXEMPT, key, rec)
+    _append_journal("exemption_remove", T_EXEMPT, key, rec)
     print(f"exemption 移除: {key}")
 
 
@@ -177,6 +278,9 @@ def main() -> int:
     q = sub.add_parser("query")
     q.add_argument("what", choices=["expired"])
 
+    v = sub.add_parser("verify", help="P2② journal 哈希链离线校验")
+    v.add_argument("what", nargs="?", default="journal")
+
     args = ap.parse_args()
     if args.cmd == "debt":
         if args.op == "add":
@@ -195,6 +299,8 @@ def main() -> int:
     elif args.cmd == "query":
         for line in expired_debts():
             print(line)
+    elif args.cmd == "verify":
+        return verify_journal()
     return 0
 
 
