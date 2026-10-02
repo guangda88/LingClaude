@@ -153,8 +153,20 @@ def load_user_hooks(hooks_dir: Path | None = None, force: bool = False) -> dict[
     try:
         if not d.is_dir():
             return status
+        from lingclaude.core import plugin_governance
+
         for f in sorted(d.glob("*.py")):
             if f.name.startswith("_"):
+                continue
+            verdict = plugin_governance.deny_on_error(
+                plugin_governance.check_file_allowed, f
+            )
+            if not verdict.allowed:
+                logger.warning(
+                    "user hook %s 被插件治理拒绝装载: %s", f.name, verdict.reason
+                )
+                _LOADED_HOOK_FILES[str(f.resolve())] = f"blocked: {verdict.reason}"
+                status[f.name] = f"blocked: {verdict.reason}"
                 continue
             key = str(f.resolve())
             if not force and key in _LOADED_HOOK_FILES:

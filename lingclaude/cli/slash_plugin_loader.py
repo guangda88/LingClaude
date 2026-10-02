@@ -57,9 +57,17 @@ def load_slash_plugins() -> list[str]:
     if not PLUGINS_DIR.is_dir():
         return []
     new_cmds: list[str] = []
+    from lingclaude.core import plugin_governance
+
     for path in sorted(PLUGINS_DIR.glob("*.py")):
         if path.name.startswith("_"):
             continue  # 私有/共享工具模块，不作为插件
+        verdict = plugin_governance.deny_on_error(
+            plugin_governance.check_file_allowed, path
+        )
+        if not verdict.allowed:
+            print(f"[slash 插件被治理拒绝] {path.name}: {verdict.reason}")
+            continue
         before = set(_cmds.SLASH_REGISTRY)
         try:
             module = _import_file(path)

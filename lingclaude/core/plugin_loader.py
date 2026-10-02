@@ -172,6 +172,19 @@ class PluginLoader:
         if errors:
             return LoadResult(False, error="manifest 非法: " + "; ".join(errors), manifest=manifest)
 
+        # M3 插件治理（2026-10-02）：blocklist + entry install scope，
+        # 检查异常 deny（fail-safe）。策略未启用时 verdict 恒 allow 零分叉。
+        from lingclaude.core import plugin_governance
+
+        verdict = plugin_governance.deny_on_error(
+            plugin_governance.check_manifest_entry, manifest.name, manifest.entry
+        )
+        if not verdict.allowed:
+            logger.warning(
+                "PluginLoader: 插件 %s 被治理拒绝: %s", manifest.name, verdict.reason
+            )
+            return LoadResult(False, error=f"插件治理拒绝: {verdict.reason}", manifest=manifest)
+
         # 铁律 2「停层声明」门禁（J3 制度化，2026-09-15）：
         # 每插片必须声明自己的内核 / 子插片接缝 / 实现数（停层显式化）。
         #   - 未声明 → warning 不阻断（存量兼容，审计留痕，限期补齐）

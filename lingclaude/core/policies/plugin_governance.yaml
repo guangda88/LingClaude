@@ -1,0 +1,28 @@
+# 插件治理策略：blocklist + install scope（M3，2026-10-02）
+# 规则源唯一：本文件；热更生效（policy_loader mtime watch）
+# 缺省 enabled=false = 治理未启用，全部放行（opt-in 增强，现状零分叉）
+#
+# blocklist:      插件文件 stem（hook/slash 用户落点）或 manifest 插件名
+#                 支持 fnmatch 通配（* ? [seq]）；命中 → 拒绝装载 + 告警
+# install_scopes: 仅约束 core manifest 插件的 entry 路径
+#   default:      allow | deny —— 插件无专属 scope_rules 时的兜底（语义外值按 deny 收紧）
+#   scope_rules:  [{plugin: 名, entry_patterns: ["core/plugins/*", ...]}]
+#                 fnmatch 对 entry 原文匹配；有规则但全不命中 → 拒绝
+#
+# fail 纪律：治理检查自身异常 → 消费方统一拒绝（fail-safe，守卫炸了绝不放行）
+
+enabled: false
+
+blocklist:
+  plugin_names: []
+  # 示例:
+  # - "sketchy_helper"     # 精确名
+  # - "*cred*"             # 通配：stem/插件名带 cred 的一律禁运
+
+install_scopes:
+  default: allow
+  # scope_rules:
+  #   - plugin: "some_plugin"
+  #     entry_patterns:
+  #       - "core/plugins/*"
+  #       - "vendor/approved/*"
