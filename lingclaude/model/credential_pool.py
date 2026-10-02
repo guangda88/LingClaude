@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from typing import Any
 import os
 
+from lingclaude.model import pool_vault_loader  # noqa: F401 — from_spec 用其 parse_pool_spec（模块级仅 stdlib，无循环）
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,17 +83,23 @@ class CredentialPool:
         env LINGCLAUDE_CREDENTIAL_POOL_KEYS 格式：`provider:key1,key2;other:key3`
         （分号分 provider，逗号分账号）。env 未设/解析为空 → 返回空池（调用方
         next_key 返回 None，落回 env/key_store 链，行为零分叉）。
+
+        2026-10-02 起解析委托 from_spec（env 与 vault 单一解析器，防双格式
+        漂移）；vault 装配路径见 pool_vault_loader.build_pool。
+        """
+        raw = os.environ.get("LINGCLAUDE_CREDENTIAL_POOL_KEYS", "")
+        return cls.from_spec(raw)
+
+    @classmethod
+    def from_spec(cls, raw: str) -> "CredentialPool":
+        """从池规格原文装配（`provider:key1,key2;other:key3`）。
+
+        唯一解析器：env 通道（from_env）与 vault 通道（pool_vault_loader）
+        都落到这里，格式只此一份。非法片段跳过不 raise。
         """
         pool = cls()
-        raw = os.environ.get("LINGCLAUDE_CREDENTIAL_POOL_KEYS", "")
-        for part in raw.split(";"):
-            part = part.strip()
-            if not part or ":" not in part:
-                continue
-            provider, _, keys = part.partition(":")
-            api_keys = [k.strip() for k in keys.split(",") if k.strip()]
-            if provider and api_keys:
-                pool.add_accounts(provider.strip(), api_keys)
+        for provider, api_keys in pool_vault_loader.parse_pool_spec(raw).items():
+            pool.add_accounts(provider, api_keys)
         return pool
 
     def add_accounts(

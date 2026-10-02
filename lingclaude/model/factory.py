@@ -152,9 +152,10 @@ def _pool_get_key(provider: str) -> str:
     """
     global _CREDENTIAL_POOL
     try:
-        from lingclaude.model.credential_pool import CredentialPool
+        from lingclaude.model import pool_vault_loader
         if _CREDENTIAL_POOL is None:
-            _CREDENTIAL_POOL = CredentialPool.from_env()
+            # 2026-10-02 池句柄化：装配走 pool_vault_loader（env 显式 > vault > 空池）
+            _CREDENTIAL_POOL = pool_vault_loader.build_pool()
         if _CREDENTIAL_POOL is None:
             return ""
         return _CREDENTIAL_POOL.next_key(provider) or ""
