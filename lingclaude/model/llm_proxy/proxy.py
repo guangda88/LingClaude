@@ -348,6 +348,17 @@ class LLMProxy:
             "X-Caller": "_peer_fallback",
             "X-Purpose": purpose or "",
         }
+        # M 期强制点（2026-10-02）：peer 出口同过执行域网络闸，与 pool 路径
+        # 同源同语义；dict 契约下折算 error 键（caller 消费 peer_result 前有
+        # "error" not in peer_result 判定，语义无损）。
+        from lingclaude.core.execution_domain import net_allowed as _peer_net_allowed
+        try:
+            _verdict = _peer_net_allowed(url)
+        except Exception:  # noqa: BLE001 — 守卫故障同未激活（fail-open）
+            _verdict = None
+        if _verdict is False:
+            logger.warning("net gate denied peer egress (host not in domain allowlist)")
+            return {"error": "net_blocked", "detail": {"stage": "peer_fallback"}}
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(url, json=body, headers=headers)
             data = resp.json()

@@ -8,12 +8,35 @@ from typing import Any, AsyncIterator
 
 import httpx
 
+from lingclaude.core.execution_domain import net_allowed
+
 logger = logging.getLogger(__name__)
 
 # 修复:标量 120s 会变成 total 上限,长生成的流式响应在 120s 被掐断。
 # httpx 的 read 超时本就是"单次读空闲"语义——None 总上限 + 300s 读空闲
 # 与同步路径(openai/anthropic provider)的静默超时策略对齐。
 _REQUEST_TIMEOUT = httpx.Timeout(None, connect=30.0, read=300.0, write=60.0, pool=30.0)
+
+
+def _net_gate(url: str) -> bool:
+    """execution_domain 网络闸（M 期强制点，2026-10-02）。
+
+    三条语义（详 core/execution_domain.py docstring 与 .atomcode/M_wiring_plan.md）：
+      未激活(net_allowed→None) = True 放行零行为变化；激活后域外 False。
+      deny 只记 warning（gatekeeper 家族先例：不回显域名进响应）。
+      本函数永不 raise——execution_domain 自身 fail-open，读故障同未激活。
+    """
+    try:
+        verdict = net_allowed(url)
+    except Exception as e:  # noqa: BLE001 — 守卫自身故障不反噬模型调用
+        logger.warning("net gate evaluate failed (fail-open): %s", e)
+        return True
+    if verdict is None:
+        return True
+    if verdict:
+        return True
+    logger.warning("net gate denied egress (host not in domain allowlist)")
+    return False
 
 
 @dataclass
@@ -66,6 +89,11 @@ class ProviderPool:
         }
 
         t0 = time.monotonic()
+        if not _net_gate(url):
+            return ProviderResponse(
+                content="", model=model, provider="",
+                latency_ms=0.0, status="net_blocked",
+            )
         try:
             resp = await self._client.post(url, json=body, headers=headers)
             latency = (time.monotonic() - t0) * 1000
@@ -164,6 +192,11 @@ class ProviderPool:
         # 故已产出内容时保持原语义(finish_reason=timeout/error),由上层决策。
         # 消除"首字节前连接失败→整轮作废→全上下文回灌"的最高频中断路径。
         emitted = False
+        if not _net_gate(url):
+            # 与 call 同构：折算错误块，不 raise（流路径消费方 except 兜底）。
+            # deny 是确定性判定，置于重试循环外——重试不改变裁决。
+            yield StreamChunk(delta="", finish_reason="error", model=model)
+            return
         for attempt in (1, 2):
             try:
                 async with self._client.stream("POST", url, json=body, headers=headers) as resp:
