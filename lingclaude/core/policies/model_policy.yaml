@@ -14,3 +14,7 @@ temp_locked_model_prefixes:
   # 推荐设置 temperature: 1, top_p: 0.95）；旧值会偏离官方采样建议。
   - "glm-5.3"
   - "glm-5"
+  # Kimi Code 套餐模型（api.kimi.com/coding/v1）硬约束 temperature=1，
+  # 越界即 400: "invalid temperature: only 1 is allowed for this model"。
+  # 前缀匹配同时覆盖 kimi-for-coding 与 kimi-for-coding-highspeed。
+  - "kimi-for-coding"

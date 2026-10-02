@@ -39,7 +39,12 @@ logger = logging.getLogger(__name__)
 # only 1 is allowed for this model"）。前缀匹配覆盖 k3 / k3-256k / kimi-k3 等。
 # 2026-09-14 灵元：策略外置 —— 前缀列表迁到 policies/model_policy.yaml，
 # 改温度约束只改 YAML 不动代码（PolicyLoader mtime watch 热更）。
-_FALLBACK_TEMP_LOCKED_PREFIXES: tuple[str, ...] = ("k3", "kimi-k3", "kimi-k2-thinking")
+_FALLBACK_TEMP_LOCKED_PREFIXES: tuple[str, ...] = (
+    "k3",
+    "kimi-k3",
+    "kimi-k2-thinking",
+    "kimi-for-coding",
+)
 
 
 def _temp_locked_prefixes() -> tuple[str, ...]:

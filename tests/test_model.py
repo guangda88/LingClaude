@@ -1312,3 +1312,26 @@ class TestAnthropicStreamComplete:
             (ModelMessage(role=MessageRole.USER, content="hi"),),
         ))
         assert any(e["type"] == "error" and "429" in e["error"] for e in events)
+
+
+class TestTempLockedModels:
+    """守卫：kimi-for-coding 系列硬约束 temperature=1。"""
+
+    def test_kimi_for_coding_temperature_locked(self):
+        from lingclaude.model.openai_provider import _effective_temperature
+
+        for model in ("kimi-for-coding", "kimi-for-coding-highspeed"):
+            assert _effective_temperature(model, 0.7) == 1.0, model
+            assert _effective_temperature(model, 0.0) == 1.0, model
+
+    def test_unlocked_models_keep_temperature(self):
+        from lingclaude.model.openai_provider import _effective_temperature
+
+        for model in ("gpt-4o", "deepseek-chat", "glm-4"):
+            assert _effective_temperature(model, 0.7) == 0.7, model
+
+    def test_policy_yaml_contains_kimi_for_coding(self):
+        from lingclaude.core import policy_loader
+
+        data = policy_loader.load("model_policy")
+        assert "kimi-for-coding" in data["temp_locked_model_prefixes"]
