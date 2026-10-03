@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -137,24 +138,81 @@ class TestSandboxWrapOrder:
         from lingclaude.engine.sandbox_provider import BwrapSandboxProvider
         return BwrapSandboxProvider().available()
 
-    def test_wrap_contains_home_ai_writable_when_default(self) -> None:
-        """默认（未设环境变量）应注入 /home/ai 可写（对齐策略层）。"""
-        import os
-        os.environ.pop("LINGCLAUDE_EXTRA_WRITABLE_DIRS", None)
-        if not self._provider_available():
-            pytest.skip("bwrap 不可用，跳过 wrap 断言")
+    def _capture_wrap(self) -> tuple[object, dict]:
+        """构造捕获 extra_writable_dirs 的 BashExecutor（FakeProvider 记录 wrap 参数）。
+
+        2026-10-03：原实现依赖 _provider_available() 探测真实 bwrap 才断言，
+        而 bash.py:400-411 在 bwrap 不可用时提前 return（走降级路径），
+        根本走不到 bind 注入逻辑 —— 导致该用例时绿时红（门禁间歇性红）。
+        改为注入 FakeProvider 脱离环境抖动，只断言 bash.py 自身的决策契约。
+        """
         from lingclaude.engine.bash import BashExecutor
-        ex = BashExecutor()
-        wrapped = ex._sandbox_command("echo hi")
-        assert "--bind /home/ai /home/ai" in wrapped
+
+        captured = {}
+
+        class FakeProvider:
+            name = "fake"
+
+            def available(self):
+                return True
+
+            def wrap(self, command, working_dir=None, allow_network=False, extra_writable_dirs=None):
+                captured["extra"] = extra_writable_dirs
+                captured["wrapped"] = command
+                return command
+
+        b = BashExecutor()
+        b._sandbox_provider = FakeProvider()
+        return b, captured
+
+    def test_wrap_contains_home_ai_writable_when_default(self) -> None:
+        """V-01 收紧契约：沙箱不再整体 bind /home/ai，改由 directory_rules 细粒度放行。
+
+        2026-10-03（373cccd + V-01）：规则激活后 bash.py:442-451 以
+        rules_configured() 为最高优先级，可写集由 sandbox_policy.yaml 的
+        directory_rules 决定（实测 16 项），/home/ai 整体可写已随 09a4f20 一并撤销。
+        本用例从「断言宽口径（/home/ai 整体可写）」转为「钉住 V-01 收紧成果」
+        的回归防线：
+        - 反向断言：--bind /home/ai /home/ai 必须不存在（防 V-01 被回退）
+        - 正向断言：新枚举生效（16 项白名单，其中 /home/ai/lingan 在内）
+        """
+        from lingclaude.core.sandbox_rules import resolve_writable_dirs
+
+        ex, captured = self._capture_wrap()
+        ex._sandbox_command("echo hi")
+
+        extra = captured.get("extra")
+        assert extra is not None, "wrap 必须注入 extra_writable_dirs"
+        assert "/home/ai" not in extra, (
+            f"V-01 收紧契约被回退：/home/ai 整体 bind 已撤销，不得出现在白名单: {extra}"
+        )
+        assert "/home/ai/lingan" in extra, (
+            f"V-01 修复未生效：灵安仓应在白名单内（审计官需能落盘报告）: {extra}"
+        )
+        assert extra == resolve_writable_dirs(ex.working_dir), (
+            f"可写集应等于 resolve_writable_dirs(cwd) 的规则集: {extra}"
+        )
 
     def test_wrap_mount_order_parent_before_child(self) -> None:
-        """父目录 bind 应在子目录（wd）之前（否则父覆盖子写权限）。"""
-        if not self._provider_available():
-            pytest.skip("bwrap 不可用，跳过 wrap 顺序断言")
-        from lingclaude.engine.bash import BashExecutor
-        ex = BashExecutor()
-        wrapped = ex._sandbox_command("echo hi")
+        """父目录 bind 应在子目录（wd）之前（否则父覆盖子写权限）。
+
+        2026-10-03：不再依赖真实 bwrap 探测（探测在受限环境下时通时不通）。
+        BwrapSandboxProvider.wrap() 首行是 `if not self.available(): return command`，
+        故 monkeypatch available()->True 即可让纯字符串拼装分支生效——只验拼装，
+        不执行 bwrap。
+        """
+        from lingclaude.engine.sandbox_provider import BwrapSandboxProvider
+
+        provider = BwrapSandboxProvider()
+        if not provider._bwrap:
+            pytest.skip("bwrap 二进制不在 PATH，无法验字符串拼装")
+        with patch.object(BwrapSandboxProvider, "available", return_value=True):
+            wrapped = provider.wrap(
+                "echo hi",
+                working_dir=Path("/home/ai/lingclaude"),
+                extra_writable_dirs=["/home/ai/lingclaude", "/home/ai/lingan", "/tmp"],
+            )
+        assert "--bind" in wrapped, f"应注入 --bind: {wrapped[:200]}"
         # 提取 --bind 目标序列
         bind_targets = []
         parts = wrapped.split("--bind")
@@ -162,11 +220,14 @@ class TestSandboxWrapOrder:
             tokens = part.strip().split()
             if tokens:
                 bind_targets.append(tokens[0])
-        if "/home/ai" in bind_targets and "/home/ai/lingclaude" in bind_targets:
-            assert bind_targets.index("/home/ai") < bind_targets.index("/home/ai/lingclaude"), (
-                f"父目录应 bind 在子目录前: {bind_targets}"
-            )
-        # 子目录不在 bind 列表 = 被父目录 /home/ai bind 覆盖（粒度收敛，允许）
+        # V-01 收紧：/home/ai 整体 bind 不得再出现（09a4f20 事故源头已撤销）
+        assert "/home/ai" not in bind_targets, (
+            f"V-01 收紧契约被回退：/home/ai 整体 bind 不得出现: {bind_targets}"
+        )
+        # 同为子路径的 /home/ai/lingan 与 /home/ai/lingclaude 无父子关系；
+        # 真正要验的是两者都被独立 bind（顺序无关），且无 /home/ai 覆盖它们。
+        assert "/home/ai/lingclaude" in bind_targets
+        assert "/home/ai/lingan" in bind_targets
 
 
 # ---------- C1: hook 接线（只读验证配置） ----------

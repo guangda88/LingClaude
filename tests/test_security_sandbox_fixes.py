@@ -257,10 +257,23 @@ def test_p13_list_all_tools_skips_unavailable():
 
 
 def test_p13_call_tool_rejects_unavailable():
-    """调用 unavailable server 的工具 → SERVER_UNAVAILABLE。"""
+    """调用 unavailable server 的工具 → SERVER_UNAVAILABLE。
+
+    2026-10-03: 原实现依赖前一用例注册的 tool_x——但 _SERVERS 是模块级全局
+    （mcp_proxy.py:57），-n 并行下两用例可能被分到不同 worker，注册不可见
+    → 误报 TOOL_NOT_FOUND。改为本用例自注册独立工具名，消除顺序耦合。
+    """
     from lingclaude.engine import mcp_proxy
 
-    res = mcp_proxy.call_tool("tool_x")
+    mcp_proxy.register_server(
+        "test_missing_bin_call",
+        "test",
+        "test",
+        ("tool_x_call",),
+        transport="stdio",
+        command=("definitely_not_exist_binary_xyz", "--flag"),
+    )
+    res = mcp_proxy.call_tool("tool_x_call")
     assert res.is_error
     assert "unavailable" in str(res.error).lower()
 
@@ -535,3 +548,54 @@ def test_jq_readonly_whitelisted():
 
     assert is_readonly_bash_command("jq . data.json")
     assert is_readonly_bash_command("jq . data.json | head -5")
+
+
+
+class TestV01FamilyWritableWhitelist:
+    """V-01 修复 (2026-10-03): 沙箱白名单必须覆盖全部灵字辈仓库。
+
+    事故链: directory_rules 激活态只列 4 家仓库 -> 灵安 (lingan) 审计
+    lingclaude 时写文件工具被白名单闸拦下 -> 审计报告落盘为 0 字节空文件
+    (证据: /home/ai/lingan/.lingclaude/file_history/20261002T170326989455Z_*.md)。
+    本类固化「灵安等灵字辈仓库必须在白名单内」这一契约，防回归。
+    """
+
+    FAMILY_DIRS = [
+        "lingclaude", "lingflow", "lingmessage", "lingxi", "lingan",
+        "lingresearch", "lingzhi", "lingtongask", "lingyang", "lingweb",
+        "lingcreate", "lingminopt", "lingos",
+    ]
+
+    def test_all_family_dirs_in_writable_list(self):
+        """rules 段必须覆盖全部灵字辈仓库（含灵安）。"""
+        from lingclaude.core.sandbox_rules import resolve_writable_dirs
+        writable = resolve_writable_dirs("/home/ai/lingclaude")
+        missing = [d for d in self.FAMILY_DIRS if f"/home/ai/{d}" not in writable]
+        assert not missing, f"白名单缺失灵字辈仓库: {missing}"
+
+    def test_lingan_own_cwd_is_writable(self):
+        """灵安以自己仓库为 cwd 时，必须能写自己的仓库（V-01 事故场景）。"""
+        from lingclaude.core.sandbox_rules import resolve_writable_dirs
+        writable = resolve_writable_dirs("/home/ai/lingan")
+        assert "/home/ai/lingan" in writable
+        assert "/home/ai/lingclaude" in writable, "跨仓库协作需要写灵克仓库"
+
+    def test_tmp_always_writable(self):
+        """fail-safe 出口: 任何 cwd 下 /tmp 均可写（灵安的落盘兜底路径）。"""
+        from lingclaude.core.sandbox_rules import resolve_writable_dirs
+        for cwd in ("/home/ai/lingclaude", "/home/ai/lingan", "/tmp"):
+            assert "/tmp" in resolve_writable_dirs(cwd), f"cwd={cwd} 丢失 /tmp"
+
+    def test_write_allowed_accepts_lingan_report_path(self):
+        """check_write_allowed 放行灵安报告路径（回归到事故前的可用状态）。"""
+        from lingclaude.core.sandbox_rules import check_write_allowed
+        p = "/home/ai/lingan/docs/audit/2026-10-03_lingan_audit_recheck.md"
+        reason = check_write_allowed(p, "/home/ai/lingan")
+        assert reason is None, f"灵安报告路径仍被拒写: {reason}"
+
+    def test_write_allowed_still_blocks_redline(self):
+        """修复不得放宽红线: 根目录等仍必须被拒（fail-closed 保持）。"""
+        from lingclaude.core.sandbox_rules import check_write_allowed
+        for bad in ("/etc/passwd", "/usr/lib/x", "/home/ai/lingclaude/../.."):
+            reason = check_write_allowed(bad, "/home/ai/lingan")
+            assert reason is not None, f"红线路径 {bad} 被放行=安全回归"

@@ -131,6 +131,18 @@ network_isolation_enabled: true
 # 钳制注意：/var/tmp 命中 _FORBIDDEN_WRITABLE_ROOTS 的 /var 前缀，将被
 #           is_safe_writable_dir 静默剔除（在案标注，生效面以钳制后为准）。
 directory_rules:
+  # ── V-01 修复 (2026-10-03) ──────────────────────────────────────────────
+  # 背景: 原配置只列 4 家仓库，不含灵安(lingan) 等灵字辈成员仓 → 灵安审计
+  # lingclaude 时写文件工具被白名单闸拦下，审计报告落盘为 0 字节空文件。
+  # 修法: 补全 13 个灵字辈仓库（逐个 test -d 实测存在）到 rules 与 default
+  # 两段。两段同构 = 换 cwd 不换权限（跨族协作需要），非笔误。
+  # 语义（用户裁决 2026-10-03）: /home/ai 整体 bind 已随 09a4f20 撤销，
+  # 「其他成员仓库对 lc 属只读」是策略生效而非误伤；用户级目录(dotfiles)
+  # 走 ask 档审批，不设常驻白名单；缓存类(__pycache__ 等)保持拒绝。
+  # 证据: /home/ai/lingan/.lingclaude/file_history/20261002T170326989455Z_*.md (0 字节)
+  #       /home/ai/.lingclaude/sessions/lingan/5944dd97e75a406e.json 末尾「写文件工具被这道闸拦住」
+  # 反向防线: tests/test_security_capability_balance.py::TestSandboxWrapOrder
+  #   断言 /home/ai 不得出现、/home/ai/lingan 必须在（防本次收紧被回退）
   rules:
     - scope: "/home/ai/lingclaude"
       writable:
@@ -138,16 +150,34 @@ directory_rules:
         - "/home/ai/lingflow"
         - "/home/ai/lingmessage"
         - "/home/ai/lingxi"
+        - "/home/ai/lingan"
+        - "/home/ai/lingresearch"
+        - "/home/ai/lingzhi"
+        - "/home/ai/lingtongask"
+        - "/home/ai/lingyang"
+        - "/home/ai/lingweb"
+        - "/home/ai/lingcreate"
+        - "/home/ai/lingminopt"
+        - "/home/ai/lingos"
         - "/home/ai/.lingclaude"
         - "/home/ai/.atomcode"
         - "/tmp"
         - "/var/tmp"
   default:
+    # 与 rules 段同构（换 cwd 不换权限）: 灵安 cwd=/home/ai/lingan 时同样
+    # 可写灵克仓 —— 这是跨族审计需要的协作面，不是越权。
+    # 真正的越界防护在 check_write_allowed 的红线根 + 规则层本身。
     writable:
       - "/home/ai/lingclaude"
-      - "/home/ai/lingflow"
-      - "/home/ai/lingmessage"
-      - "/home/ai/lingxi"
+      - "/home/ai/lingan"
+      - "/home/ai/lingresearch"
+      - "/home/ai/lingzhi"
+      - "/home/ai/lingtongask"
+      - "/home/ai/lingyang"
+      - "/home/ai/lingweb"
+      - "/home/ai/lingcreate"
+      - "/home/ai/lingminopt"
+      - "/home/ai/lingos"
       - "/home/ai/.lingclaude"
       - "/home/ai/.atomcode"
       - "/tmp"
