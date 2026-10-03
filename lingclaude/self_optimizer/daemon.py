@@ -196,7 +196,12 @@ class OptimizationDaemon:
             self.state.best_ever_params = {}
             self.state.best_ever_cycle_id = None
         # P0-4: session snapshot/rewind
-        self._session_mgr = SessionManager(save_dir=P(".lingclaude/sessions"))
+        # 修复会话泄漏：此前用 cwd 相对路径 P(".lingclaude/sessions")，
+        # daemon 从哪个目录启动就把快照写进哪个 <cwd>/.lingclaude/sessions/，
+        # 跨 cwd 起 daemon 会把同项目快照分裂到多个目录。
+        # 改为无参构造 → 走 _global_sessions_root()（~/.lingclaude/sessions），
+        # 与交互/api 主链路一致，并按 project_path 分目录隔离。
+        self._session_mgr = SessionManager()
         self._current_session = self._session_mgr.create(
             project_path=str(P(target).resolve()),
             project_name=P(target).name,
@@ -206,7 +211,11 @@ class OptimizationDaemon:
         if sessions:
             latest = sorted(sessions, key=lambda s: s.get("created_at", ""))[-1]
             sid = latest["session_id"]
-            snap_dir = self._session_mgr.save_dir
+            # 全局根模式下快照落在 save_dir/<project_dir>/（与 session json 同目录），
+            # 需在项目子目录内 glob，而非根层（根层 glob 在全局模式下会漏）。
+            snap_dir = self._session_mgr.save_dir / P(target).name
+            if not snap_dir.exists():
+                snap_dir = self._session_mgr.save_dir
             snap_candidates = list(snap_dir.glob(f"{self._session_mgr.SNAPSHOT_PREFIX}{sid}_*.json")) if snap_dir.exists() else []
             if snap_candidates:
                 latest_snap = sorted(snap_candidates)[-1]

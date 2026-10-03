@@ -426,3 +426,99 @@ class TestOptimizationDaemon:
         assert report_path.exists()
         content = report_path.read_text()
         assert "Self-Optimization Report" in content
+
+
+class TestDaemonSessionRootGuard:
+    """守卫：daemon 会话存储必须走全局根（~/.lingclaude/sessions），禁止 cwd 相对路径泄漏。
+
+    回归目标：daemon.py 曾用 SessionManager(save_dir=P(".lingclaude/sessions"))，
+    daemon 从哪个 cwd 启动就把快照写进哪个 <cwd>/.lingclaude/sessions/，
+    跨 cwd 起 daemon 会把同项目快照分裂到多个目录（会话泄漏）。
+    修复后必须走 _global_sessions_root()，且按 project_path 分目录。
+    """
+
+    @pytest.fixture
+    def isolated_home(self, tmp_path, monkeypatch):
+        """隔离 Path.home，防止测试向真实 ~/.lingclaude/sessions 写垃圾。"""
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr("lingclaude.core.session.Path.home", classmethod(lambda cls: fake_home))
+        return fake_home
+
+    def test_session_mgr_uses_global_root_not_cwd(self, isolated_home, tmp_path):
+        """构造 daemon 后，其 session_mgr 必须处于全局模式（_global_mode=True），
+        save_dir 必须指向全局根，而非进程 cwd 下的相对路径。"""
+        daemon = OptimizationDaemon(target="lingclaude", state_dir=tmp_path / "state")
+        mgr = daemon._session_mgr
+        # 全局模式标志：无参构造才会置 True，传 save_dir 则为 False
+        assert mgr._global_mode is True, (
+            "daemon session_mgr 未走全局根——疑似回归为显式 save_dir（cwd 相对泄漏）"
+        )
+        # save_dir 必须等于全局根（Path.home()/.lingclaude/sessions）
+        assert mgr.save_dir == isolated_home / ".lingclaude" / "sessions"
+        # 绝不等于 cwd 相对解析出的 .lingclaude/sessions
+        assert mgr.save_dir != (Path.cwd() / ".lingclaude" / "sessions").resolve()
+
+    def test_session_saved_under_project_dir(self, isolated_home, tmp_path):
+        """全局根模式下，save() 后会话必须落到 save_dir/<project_dir>/ 子目录，
+        验证 project_path 分目录隔离生效，而非全堆在根层。
+        （create() 纯内存建对象不落盘，目录由 save()/_session_path 建出，故断言放在 save 后。）"""
+        target_name = "lingclaude"
+        daemon = OptimizationDaemon(target=target_name, state_dir=tmp_path / "state")
+        mgr = daemon._session_mgr
+        # save() 触发真实落盘（全局根 _session_path 会 mkdir 项目子目录）
+        save_result = mgr.save(daemon._current_session)
+        assert save_result.is_ok, f"save() 失败: {save_result}"
+        project_dir = mgr.save_dir / target_name
+        assert project_dir.exists(), (
+            f"全局根模式下项目子目录 {project_dir} 未建出——project 分目录隔离失效"
+        )
+        # 当前会话 json 应落在项目子目录内
+        session_files = list(project_dir.glob("*.json"))
+        assert any(daemon._current_session.session_id in f.name for f in session_files), (
+            "当前会话 json 未写入项目子目录"
+        )
+
+
+class TestCliAppSessionRootGuard:
+    """守卫：cli/app.py 的 session/metrics 子命令必须锚定 ~ 而非 cwd。
+
+    atomcode 2026-10-03 派单（全机「状态路径相对化」同族病 lc 侧实例）：
+    app.py 曾直接 SessionManager(Path(config.session.save_dir))，配置默认
+    ".lingclaude/sessions/" 是相对路径 → _global_mode=False → 按进程 cwd
+    落盘。同一用户从不同目录跑 `lingclaude session list` / `lingclaude
+    metrics stats` 会看到不同的会话清单/指标库，状态被 cwd 切裂。
+    修复：resolve_configured_save_dir 相对路径锚定 ~。
+    """
+
+    @pytest.fixture
+    def isolated_home(self, tmp_path, monkeypatch):
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        monkeypatch.setattr(
+            "lingclaude.core.session.Path.home",
+            classmethod(lambda cls: fake_home),
+        )
+        return fake_home
+
+    def test_resolve_relative_anchors_home_not_cwd(self, isolated_home, tmp_path, monkeypatch):
+        from lingclaude.core.session import resolve_configured_save_dir
+
+        monkeypatch.chdir(tmp_path / "elsewhere") if (tmp_path / "elsewhere").mkdir() else None
+        out = resolve_configured_save_dir(".lingclaude/sessions/")
+        assert out.is_absolute(), "解析结果必须是绝对路径"
+        assert str(tmp_path / "elsewhere") not in str(out), "禁止锚定 cwd"
+        assert out == isolated_home / ".lingclaude" / "sessions", "相对路径必须锚定 ~"
+
+    def test_resolve_absolute_passthrough(self, tmp_path):
+        from lingclaude.core.session import resolve_configured_save_dir
+
+        absolute = tmp_path / "custom" / "sessions"
+        assert resolve_configured_save_dir(str(absolute)) == absolute, "绝对路径必须原样保留"
+
+    def test_resolve_expanduser(self, isolated_home, monkeypatch):
+        from lingclaude.core.session import resolve_configured_save_dir
+
+        monkeypatch.setenv("HOME", str(isolated_home))
+        out = resolve_configured_save_dir("~/.lingclaude/sessions")
+        assert out == isolated_home / ".lingclaude" / "sessions"

@@ -62,6 +62,26 @@ def _global_sessions_root() -> Path:
     return root
 
 
+
+
+def resolve_configured_save_dir(raw: str | Path) -> Path:
+    """把配置里的 session.save_dir 解析为绝对路径。
+
+    atomcode 2026-10-03 派单（全机「状态路径相对化」同族病 lc 侧实例）：
+    配置默认值 ".lingclaude/sessions/" 是相对路径。此前调用方直接
+    SessionManager(Path(save_dir)) → _global_mode=False → 按进程 cwd 落盘，
+    同一用户从不同目录跑 `lingclaude session list` 会看到不同的会话清单，
+    会话事实被 cwd 切裂。
+
+    语义：绝对路径原样使用；相对路径锚定 ~（与 _global_sessions_root
+    同一全局根），禁止锚定 cwd。
+    """
+    p = Path(raw).expanduser()
+    if p.is_absolute():
+        return p
+    return Path.home() / ".lingclaude" / p.name
+
+
 class SessionManager:
     def __init__(self, save_dir: Path | None = None, state_store: object | None = None) -> None:
         if save_dir is not None:

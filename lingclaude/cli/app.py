@@ -401,7 +401,10 @@ def _cmd_session(args: argparse.Namespace) -> int:
     from lingclaude.core.session import SessionManager
 
     config = load_config(Path(args.config) if args.config else None)
-    manager = SessionManager(Path(config.session.save_dir))
+    # 相对 save_dir 锚定 ~ 而非 cwd（atomcode 派单：状态路径相对化同族病）
+    from lingclaude.core.session import resolve_configured_save_dir
+
+    manager = SessionManager(resolve_configured_save_dir(config.session.save_dir))
 
     if args.session_action == "list":
         sessions = manager.list_sessions()
@@ -609,7 +612,10 @@ def _cmd_metrics(args: argparse.Namespace) -> int:
     from lingclaude.core.metrics import MetricsStore, QualityScorer
 
     config = load_config(Path(args.config) if args.config else None)
-    db_path = Path(config.session.save_dir).parent / "metrics.db"
+    # 同族病第二处：metrics.db 依托 save_dir 的 parent，同样必须锚定 ~ 而非 cwd
+    from lingclaude.core.session import resolve_configured_save_dir
+
+    db_path = resolve_configured_save_dir(config.session.save_dir).parent / "metrics.db"
     store = MetricsStore(db_path)
 
     if args.metrics_action == "stats":
