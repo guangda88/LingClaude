@@ -1,11 +1,12 @@
 {
   "guard": "G11b",
   "file": "engine/subagent/seam_backend.py",
-  "lines": null,
   "reason": "【已撤销·改写】2026-09-28 B2 修复：spec_from_file_location 兜底已移除（原豁免两条事实前提经 opencode 注入探针双重证伪——前提1「plugins/ 无 __init__.py 包 import 必 ImportError」被 PEP 420 命名空间包证伪，前提2「sys.modules key 一致防双副本」被 exec_module 不写 sys.modules 证伪）。现改走标准 importlib.import_module 包路径（幂等单例，入 sys.modules），与 registry_loader.load_all 内部通路同源。本文件保留作审计留痕（J5 条件4：失准口径须定价留存），不再豁免任何行——G11b 对本文件已无命中点。",
   "granted": "2026-09-28",
   "review_due": "2026-12-31",
   "no_renewal": true,
   "source": "外部审计 B2（opencode 守卫覆盖面审计 2026-09-28）——豁免事实前提证伪后兜底移除，豁免撤销",
-  "status": "revoked"
+  "status": "revoked",
+  "anchors": [],
+  "corrected": "2026-10-03 显式空锚化：revoked 档原 lines=null 曾可借 lines is None 分支整文件放行（守卫漏洞，本次守卫改造同步封堵）；anchors=[] 表零豁免。"
 }

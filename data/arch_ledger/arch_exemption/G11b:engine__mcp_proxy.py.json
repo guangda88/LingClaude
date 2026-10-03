@@ -1,14 +1,15 @@
 {
   "guard": "G11b",
   "file": "engine/mcp_proxy.py",
-  "lines": [
-    255,
-    300
-  ],
   "reason": "MCP server 模块热加载：模块名 mcp_proxy_<key> 不挂 lingclaude.plugins.*；路径受 ALLOWED_MODULE_DIRS 白名单约束（/home/ai/lingclaude, /home/ai/lingmessage, /tmp）且 resolve 后校验 is_relative_to——白名单外路径直接拒绝。属带路径白名单的受控动态加载，非插件命名空间穿透。",
   "granted": "2026-09-28",
   "review_due": "2026-12-31",
   "no_renewal": false,
   "source": "外部审计 B1（claude 架构审计 2026-09-28）",
-  "drift_note": "2026-10-03 mcp_proxy.py L159 定向路由(+9行)致原 [246,291] 平移至 [255,300]；调用点数量与豁免理由(路径白名单受控动态加载)不变，仅行号对齐。"
+  "drift_note": "2026-10-03 mcp_proxy.py L159 定向路由(+9行)致原 [246,291] 平移至 [255,300]；调用点数量与豁免理由(路径白名单受控动态加载)不变，仅行号对齐。",
+  "anchors": [
+    "63f5489d83a9",
+    "63f5489d83a9"
+  ],
+  "corrected": "2026-10-03 行号→内容哈希锚定迁移（方案b，族长批准）：行号制平移即假红（本日 mcp_proxy [246,291]→[255,300] 实证）；anchors=['63f5489d83a9', '63f5489d83a9'] 与命中行 1:1 多重集匹配，行内容变动即假红（守卫意图）。原 lines=[255, 300] 退役。"
 }

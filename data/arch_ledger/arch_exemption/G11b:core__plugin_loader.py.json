@@ -1,11 +1,13 @@
 {
   "guard": "G11b",
   "file": "core/plugin_loader.py",
-  "lines": [237],
   "reason": "PluginLoader 本体——G11 钦定的插件动态加载机制（「加载是机制，import 是倒装」）。模块名为 lingclaude_plugin_<name>_<id>_<seq> 唯一时间戳名，不挂 lingclaude.plugins.* 命名空间；路径来自 manifest 校验后的插件目录。守卫对该文件放行属机制本体豁免，非盲区利用。",
   "granted": "2026-09-28",
   "review_due": "2026-12-31",
-  "corrected": "2026-10-02 行号漂移修正（代码插入+13，224→237，锚点内容 sed 实测核验：spec_from_file_location 机制本体行）",
+  "corrected": "2026-10-03 行号→内容哈希锚定迁移（方案b，族长批准）：行号制平移即假红（本日 mcp_proxy [246,291]→[255,300] 实证）；anchors=['cb93541d4da7'] 与命中行 1:1 多重集匹配，行内容变动即假红（守卫意图）。原 lines=[237] 退役。",
   "no_renewal": false,
-  "source": "外部审计 B1（claude 架构审计 2026-09-28）"
+  "source": "外部审计 B1（claude 架构审计 2026-09-28）",
+  "anchors": [
+    "cb93541d4da7"
+  ]
 }

@@ -633,10 +633,34 @@ def test_g11_no_core_import_plugins():
 # 豁免通道：data/arch_ledger/arch_exemption/G11b:<file>.json，reason 必填，
 #           review_due 到期必复审（与 M3 豁免台账同源对称）。
 _G11B_EXEMPTION_DIR = ROOT / "data" / "arch_ledger" / "arch_exemption"
+_G11B_ANCHOR_STATE: dict = {}  # rel_file -> 剩余锚配额（同一文件多次命中间累计消耗）
 
 
-def _g11b_exempted(rel_file: str, lineno: int) -> bool:
-    """查 G11b 行级豁免台账（文件名级豁免，行号仅入诊断不参与匹配）。"""
+def _line_anchor(text: str) -> str:
+    """行内容锚点：去首尾空白的 SHA-256 前 12 位（行号漂移免疫）。"""
+    import hashlib as _hl
+    return _hl.sha256(text.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def _g11_line_text(f, lineno: int) -> str:
+    """取源文件指定行原文（越界返回空串，由调用方从严处理）。"""
+    lines = f.read_text(encoding="utf-8").splitlines()
+    return lines[lineno - 1] if 0 < lineno <= len(lines) else ""
+
+
+def _g11b_exempted(rel_file: str, lineno: int, line_text: str = "") -> bool:
+    """查 G11b 豁免台账。
+
+    2026-10-03 起「行内容哈希锚定」多重集匹配（方案 b，族长批准）：
+      - anchors: ["<hash12>", ...] 与源文件命中行按多重集 1:1 消耗匹配
+        （同内容命中数超过登记数即红），行号漂移免疫；
+      - lines 行号仅在无 anchors 时兼容（存量平移即假红，病灶：本日 mcp_proxy
+        +9 行致 [246,291]→[255,300] 假红一次）；
+      - lines 与 anchors 并存属台账自相矛盾 → 不豁免（从严）；
+      - 无任何定位字段（lines/anchors 双缺）→ 不豁免（封堵 revoked 档
+        lines=null 借 lines is None 分支整文件放行的漏洞）。
+    旧 docstring「行号仅入诊断不参与匹配」系历史失实描述，随本次改造废止。
+    """
     import json as _json
     # 双布局兼容（2026-10-02）：存量档为扁平名（G11b:core__x.py.json），而
     # arch_ledger.py CLI 的嵌套约定会产生 G11b:core/x.py.json——先扁平后嵌套，
@@ -655,7 +679,22 @@ def _g11b_exempted(rel_file: str, lineno: int) -> bool:
     if not data.get("reason") or not data.get("review_due"):
         return False  # 缺字段的豁免不生效（豁免必须显式完整）
     lines = data.get("lines")
-    return True if lines is None else lineno in lines
+    anchors = data.get("anchors")
+    if anchors is not None:
+        if lines is not None or not isinstance(anchors, list) or not anchors:
+            return False  # 双定位并存或 anchors 非法 → 台账缺陷，从严不豁免
+        # 配额池：同文件首次命中初始化，后续命中从同一池累计消耗——
+        # 同内容命中数 > 台账登记数时，超额部分转红（真 1:1 多重集，
+        # 每调用重载台账会使消耗失效，特此以模块级状态跨命中累计）
+        pool = _G11B_ANCHOR_STATE.setdefault(rel_file, list(anchors))
+        anchor = _line_anchor(line_text)
+        if anchor in pool:
+            pool.remove(anchor)
+            return True
+        return False
+    if lines is None:
+        return False  # 无任何行定位的档不再整文件放行（封堵 revoked/null 漏洞）
+    return lineno in lines
 
 
 def test_g11b_no_spec_from_file_location_bypass():
@@ -696,13 +735,13 @@ def test_g11b_no_spec_from_file_location_bypass():
                     if first.value == "lingclaude.plugins" or first.value.startswith(
                         "lingclaude.plugins."
                     ):
-                        if not _g11b_exempted(rel, node.lineno):
+                        if not _g11b_exempted(rel, node.lineno, _g11_line_text(f, node.lineno)):
                             offenders.append(
                                 f"{rel}:{node.lineno}:spec_from_file_location({first.value!r}, ...)"
                             )
                 else:
                     # 非字面量模块名：无法静态排除插件路径，强制人工豁免
-                    if not _g11b_exempted(rel, node.lineno):
+                    if not _g11b_exempted(rel, node.lineno, _g11_line_text(f, node.lineno)):
                         offenders.append(
                             f"{rel}:{node.lineno}:spec_from_file_location(<动态模块名>, ...) 无法静态判定，须豁免登记"
                         )
