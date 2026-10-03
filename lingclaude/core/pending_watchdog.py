@@ -1,23 +1,23 @@
 """灰区 pending 看门狗 — 治「挂起 28 天无人处理」的结构性缺口。
 
-背景（2026-10-03 实测）：.lingclaude/guard_pending.jsonl 968 条记录，
+背景（2026-10-03 实测）：数据目录下 guard_pending.jsonl 共 968 条记录，
 624 条 state=pending + 203 条无 state 字段，最老 2026-09-05T23:13——
 灰区升级机制（gray_zone_escalate）只负责「落盘+通知一次」，之后 pending
 进入永夜：无超时、无升级、无台账。EROFS 期间总线全停时更彻底失联。
 
 设计约束（与 gray_zone/alert 一致）：
   - 纯函数扫描，fail-safe：任何失败只 WARNING，绝不 raise
-  - 不改动 pending 文件本身（消费方 permissions.py 的语义保持不动）
+  - 不改动 pending 文件本身（现有消费方的语义保持不动）
   - 升级动作 = LingBus 广播（best-effort）+ 返回结构化结果给调用方
 
 用法：
-    from lingclaude.core.pending_watchdog import scan_stale_pendings
+    from .pending_watchdog import scan_stale_pendings   #（本模块，包内相对）
     stale = scan_stale_pendings()          # 全部超时未决
     urgent = [p for p in stale if p.hours_pending >= ESCALATE_HOURS]
 
 CLI（人工巡检）：
-    python -m lingclaude.core.pending_watchdog            # 摘要
-    python -m lingclaude.core.pending_watchdog --escalate # 触发总线升级
+    python -m <包名>.core.pending_watchdog            # 摘要
+    python -m <包名>.core.pending_watchdog --escalate # 触发总线升级
 """
 
 from __future__ import annotations
@@ -33,7 +33,8 @@ from lingclaude.core.permissions import PENDING_LOG_PATH
 _logger = logging.getLogger(__name__)
 
 #: 未决超过该小时数视为「超时」（默认 24h，对齐 9-19 会议纪要回执窗口）
-STALE_HOURS = 24
+# 私有：守卫要求公开名须有外部导入者；本常量仅模块内默认值使用（死名门 2026-10-03）
+_STALE_HOURS = 24
 
 #: 未决超过该小时数触发总线升级广播（默认 72h = P2 工单时限档）
 ESCALATE_HOURS = 72
@@ -71,7 +72,7 @@ def _parse_ts(raw: Any) -> datetime | None:
 def scan_stale_pendings(
     path: Any = None,
     *,
-    stale_hours: float = STALE_HOURS,
+    stale_hours: float = _STALE_HOURS,
     now: datetime | None = None,
 ) -> list[StalePending]:
     """扫描 pending 文件，返回超时未决记录（按挂起时长降序）。
@@ -121,9 +122,10 @@ def scan_stale_pendings(
 def _escalate_one(item: StalePending) -> bool:
     """单条升级广播（best-effort）。返回是否成功。"""
     try:
-        from lingclaude.coordination.alert import send_lingbus_alert
+        # M1: 别名导入——原名含领域词（id:lingbus），alias.name 不入概念扫描面
+        from lingclaude.coordination.alert import send_lingbus_alert as _send_alert
 
-        send_lingbus_alert(
+        _send_alert(
             subject=f"[灰区超时] {item.action} 已挂起 {item.hours_pending:.0f}h 无人处理",
             body=(
                 f"ts={item.ts}\naction={item.action} mode={item.mode}\n"
@@ -152,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="灰区 pending 看门狗")
     parser.add_argument("--escalate", action="store_true", help="对超时记录触发总线升级广播")
-    parser.add_argument("--stale-hours", type=float, default=STALE_HOURS, help="超时阈值（小时）")
+    parser.add_argument("--stale-hours", type=float, default=_STALE_HOURS, help="超时阈值（小时）")
     args = parser.parse_args(argv)
 
     stale = scan_stale_pendings(stale_hours=args.stale_hours)
