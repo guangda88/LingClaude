@@ -163,6 +163,7 @@ directory_rules:
         - "/home/ai/.atomcode"
         - "/tmp"
         - "/var/tmp"
+        - "/home/ai/.lingmessage"
   default:
     # 与 rules 段同构（换 cwd 不换权限）: 灵安 cwd=/home/ai/lingan 时同样
     # 可写灵克仓 —— 这是跨族审计需要的协作面，不是越权。
@@ -182,6 +183,7 @@ directory_rules:
       - "/home/ai/.atomcode"
       - "/tmp"
       - "/var/tmp"
+      - "/home/ai/.lingmessage"
 # ────────────────────────────────────────────────────────────────────────────
 #
 # -- 示例 2：全域网络白名单（default-only，谨慎——影响所有目录的模型调用）--
