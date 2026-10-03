@@ -1141,8 +1141,13 @@ class FullTuiSession:
                     self._sel_dragged = True
             elif kind == "up":
                 if self._sel_start is not None:
-                    # UP 坐标即最终终点（终端拖选惯例）：先落终点再取词
-                    self._sel_end = pos
+                    # UP 坐标即最终终点（终端拖选惯例）：先落终点再取词。
+                    # 滚轮联动（2026-10-03）：拖选中滚过屏时 _sel_end 行已被
+                    # _scroll_out_lines 延伸；松手格只在该行**更远**时才覆盖
+                    # （终点=max(滚轮延伸, 松手位置)），否则松手格把滚出的
+                    # 选区拽回、选不全——正是本修复要消灭的现象。
+                    if self._sel_end is None or pos >= self._sel_end:
+                        self._sel_end = pos
                 if self._sel_start is not None and self._sel_dragged:
                     text = self._extract_selected_text()
                     if text:
@@ -2154,6 +2159,13 @@ class FullTuiSession:
 
         滚到最后一行时光标钉到文末 → is_cursor_at_the_end=True → 自动
         恢复跟随模式（后续新输出把视口拽回底部）。
+
+        拖选复制联动（2026-10-03）：拖选进行中（_sel_active）滚轮/翻页时，
+        选区**终点行随视口同步平移**、起点锚定——对齐 xterm/VSCode 等
+        终端惯例（按住拖选+滚轮 = 选区向滚动方向延伸，滚过多少选多少）。
+        修复「拖选时无法滚动屏幕导致不能选全」：此前滚动只移视口，选区
+        坐标钉死在 DOWN/MOVE 时的行，滚出的新内容永远不在选区内。
+        _sel_dragged 置真保证 UP 落锤取词（纯滚动未动鼠标也视为有效拖选）。
         """
         try:
             buf = self._out_buffer
@@ -2167,6 +2179,12 @@ class FullTuiSession:
                 buf.cursor_position = len(buf.text)
             else:
                 buf.cursor_position = doc.translate_row_col_to_index(row, 0)
+            if self._sel_active and self._sel_start is not None:
+                # 拖选中滚屏：终点行平移 delta（钳制到合法行域），起点不动
+                if self._sel_end is not None:
+                    er = max(0, min(self._sel_end[0] + delta, line_count - 1))
+                    self._sel_end = (er, self._sel_end[1])
+                self._sel_dragged = True
             self._follow_output = buf.document.is_cursor_at_the_end
             self._invalidate()
         except Exception:  # noqa: BLE001 — 滚动异常不反噬事件循环

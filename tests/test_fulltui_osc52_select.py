@@ -278,3 +278,77 @@ class TestSelectionHighlight:
         s = _make_session(tmp_path)
         s._sel_start, s._sel_end = (0, 2), (0, 5)
         assert self._reversed_text(self._apply(s, 9, "abcdef").fragments) == ""
+
+
+class TestScrollDuringSelect:
+    """拖选进行中滚屏联动（2026-10-03）。
+
+    修复「拖选复制时无法滚动屏幕，导致不能选全」：拖选中滚轮/翻页，
+    选区终点行随视口平移（起点锚定）——对齐终端原生「拖选+滚轮=延伸选区」
+    惯例；_sel_dragged 置真保证 UP 落锤取词。
+    """
+
+    def test_wheel_extends_selection_downward(self, tmp_path: Any) -> None:
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"line{i}" for i in range(20)))
+        s._on_select_event("down", Point(x=3, y=2))
+        s._scroll_out_lines(3)
+        assert s._sel_end[0] == 5  # 终点随滚动 +3
+        assert s._sel_start == (2, 3)  # 起点锚定
+        assert s._sel_dragged is True  # UP 将落锤取词
+
+    def test_wheel_up_shrinks_end_clamped(self, tmp_path: Any) -> None:
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"line{i}" for i in range(20)))
+        s._on_select_event("down", Point(x=0, y=4))
+        s._on_select_event("move", Point(x=5, y=8))
+        s._scroll_out_lines(-2)
+        assert s._sel_end[0] == 6  # 8-2
+
+    def test_end_clamped_to_last_line(self, tmp_path: Any) -> None:
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"line{i}" for i in range(20)))
+        s._on_select_event("down", Point(x=0, y=5))
+        s._scroll_out_lines(1000)
+        assert s._sel_end[0] == 19  # 钳制到末行
+
+    def test_scroll_without_selection_untouched(self, tmp_path: Any) -> None:
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"line{i}" for i in range(20)))
+        s._scroll_out_lines(3)  # 无拖选：纯滚动
+        assert s._sel_start is None and s._sel_end is None
+
+    def test_follow_mode_restored_on_full_scroll(self, tmp_path: Any) -> None:
+        """滚回文末应恢复跟随（既有语义），拖选中亦然。"""
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"line{i}" for i in range(20)))
+        s._on_select_event("down", Point(x=0, y=2))
+        s._scroll_out_lines(-5)
+        assert s._follow_output is False
+        s._scroll_out_lines(100)  # 到底
+        assert s._follow_output is True
+
+    def test_wheel_during_select_then_copy_captures_scrolled_content(
+        self, tmp_path: Any
+    ) -> None:
+        """端到端：DOWN→滚轮 3 行→UP，取词应覆盖滚过的行（选全）。"""
+        s = _make_session(tmp_path)
+        lines = [f"row{i}" for i in range(20)]
+        _set_out_text(s, "\n".join(lines))
+        r, w = _capture_fd(s)
+        try:
+            s._on_select_event("down", Point(x=0, y=2))
+            s._scroll_out_lines(3)
+            s._on_select_event("up", Point(x=0, y=2))  # 松手格(2,0) 不得拽回选区
+            raw = _drain(r)
+            assert raw.startswith(b"\x1b]52;c;"), "OSC52 序列头"
+            payload = raw[len(b"\x1b]52;c;"):-2]  # 剥头（ESC]52;c;）与尾（ESC\）
+            data = base64.b64decode(payload).decode()
+            got = data.split("\n")
+            assert got[0] == "row2" and got[1] == "row3" and got[2] == "row4"
+            # 末行 = row5 首字符：滚轮延伸的终点行 5 被保留（UP 松手格 (2,0)
+            # 小于延伸终点 (5,0)，不得覆盖——否则选区被拽回、选不全）
+            assert got[-1] == "r" and len(got) == 4
+        finally:
+            os.close(r)
+            os.close(w)
