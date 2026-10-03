@@ -65,10 +65,14 @@ from lingclaude.engine.lineedit import add_history_line, ensure_readline
 try:
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.data_structures import Point
     from prompt_toolkit.document import Document
-    from prompt_toolkit.filters import has_completions
+    from prompt_toolkit.filters import Condition, has_completions
     from prompt_toolkit.history import FileHistory, InMemoryHistory
     from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.key_binding.bindings.mouse import (
+        xterm_sgr_mouse_events as _SGR_MOUSE_EVENTS,
+    )
     from prompt_toolkit.layout import (
         CompletionsMenu,
         FloatContainer,
@@ -584,6 +588,17 @@ class FullTuiSession:
         self._sel_active = False
         self._sel_dragged = False
 
+        # 拖选越界边缘自动滚（2026-10-03）：PT 按屏幕坐标光栅分发鼠标事件
+        # （mouse_handlers[y][x]），拖到输出窗底/顶边之外后事件落进其他控件
+        # 的 handler 区，输出窗 mouse_handler 不再被调——此前表现即「拖到
+        # 屏幕底还想往下选，视口不动、选区钉死」。方案：拖选中由 app 级
+        # Vt100MouseEvent binding 接管（filter=_sel_active，非拖选自动回落
+        # 内置鼠标 binding），把窗内事件重投渲染光栅、越界事件转边缘自动
+        # 滚（定时器驱动持续滚动），选区终点钉在缓冲首/末行。
+        self._sel_edge_scroll_timer: threading.Timer | None = None
+        self._sel_edge_scroll_lock = threading.Lock()
+        self._sel_edge_scroll_dir = 0
+
         # OSC52 写入通道（2026-09-27）：默认 /dev/tty（SSH 场景 sys.stdout
         # 可能是管道）；App 驻留期改用 app.output 的 raw fd（PT 正在管终端）。
         self._osc52_fd: int | None = None
@@ -760,6 +775,16 @@ class FullTuiSession:
             buf = event.app.layout.current_buffer
             if buf is None or not buf.text:
                 self._submit(EOF_SENTINEL)
+
+        # 拖选越界接管（2026-10-03）：拖选中拦截原始鼠标事件，越界转边缘
+        # 自动滚；非拖选 filter=False 自动回落内置鼠标 binding（零影响）。
+        # 优先级依据：application._create_key_bindings 把 app kb 排在
+        # _default_bindings（含内置 mouse）之前，KeyProcessor 取 matches[-1]
+        # ——filter 为真时这里先于内置 handler 被调用。
+        @self._kb.add(Keys.Vt100MouseEvent, filter=Condition(lambda: self._sel_active))
+        def _on_mouse_during_select(event: Any) -> Any:
+            self._handle_mouse_during_select(event)
+            return None
 
     # ── 生命周期 ──
 
@@ -1156,11 +1181,13 @@ class FullTuiSession:
                 self._sel_end = None
                 self._sel_active = False
                 self._sel_dragged = False
+                self._sel_edge_scroll_stop()  # 原生路径松手也要停自动滚
         except Exception:  # noqa: BLE001 — 选择事件异常绝不反噬事件循环
             self._sel_start = None
             self._sel_end = None
             self._sel_active = False
             self._sel_dragged = False
+            self._sel_edge_scroll_stop()
         finally:
             self._invalidate()
 
@@ -2199,6 +2226,181 @@ class FullTuiSession:
                 height = 10  # 尚无渲染信息（未首帧）时的兜底页高
             self._scroll_out_lines(pages * max(1, height - 1))
         except Exception:  # noqa: BLE001 — 滚动异常不反噬事件循环
+            pass
+
+    # ── 拖选越界边缘自动滚（2026-10-03）──
+
+    def _finish_selection(self) -> None:
+        """落锤取词 → OSC52 复制 → 清理选区状态（UP 收尾共用）。
+
+        finally 兜底：无论复制是否成功，选区状态必须复位——否则 _sel_active
+        卡死会让接管 binding 永远生效、鼠标事件全被吞。
+        """
+        try:
+            if self._sel_start is not None and self._sel_dragged:
+                text = self._extract_selected_text()
+                if text:
+                    self._osc52_copy(text)
+        finally:
+            self._sel_edge_scroll_stop()
+            self._sel_start = None
+            self._sel_end = None
+            self._sel_active = False
+            self._sel_dragged = False
+            self._invalidate()
+
+    def _sel_edge_scroll_step(self, direction: int) -> None:
+        """边缘自动滚单步：视口滚 1 行，选区终点跟随视口锚点行。
+
+        终点=滚动后的锚点行（向下=该行行尾，向上=该行行首）——视口每滚
+        一行终点前进一行，「选区底边贴着视口边缘」正是编辑器边缘自动滚
+        手感；不能钉缓冲末行，否则长缓冲下越界即全选、松不开。
+        """
+        try:
+            with self._area_lock:
+                buf = self._out_buffer
+                doc = buf.document
+                line_count = doc.line_count
+                if not line_count:
+                    return
+                row = doc.cursor_position_row + direction
+                row = max(0, min(row, line_count - 1))
+                if row >= line_count - 1:
+                    buf.cursor_position = len(buf.text)
+                else:
+                    buf.cursor_position = doc.translate_row_col_to_index(row, 0)
+                self._sel_end = (row, 10**6 if direction > 0 else 0)
+            self._sel_dragged = True
+            self._follow_output = self._out_buffer.document.is_cursor_at_the_end
+            self._invalidate()
+        except Exception:  # noqa: BLE001 — 自动滚异常不反噬定时器线程
+            pass
+
+    def _sel_edge_scroll_loop(self) -> None:
+        """越界期间 60ms/步持续滚（≈16 行/秒，接近编辑器手感）。"""
+        timer: threading.Timer | None = None
+        with self._sel_edge_scroll_lock:
+            direction = self._sel_edge_scroll_dir
+            if direction == 0:
+                return
+        self._sel_edge_scroll_step(direction)
+        with self._sel_edge_scroll_lock:
+            if self._sel_edge_scroll_dir != 0:
+                timer = threading.Timer(0.06, self._sel_edge_scroll_loop)
+                timer.daemon = True
+                self._sel_edge_scroll_timer = timer
+        if timer is not None:
+            timer.start()
+
+    def _sel_edge_scroll_start(self, direction: int) -> None:
+        with self._sel_edge_scroll_lock:
+            already = self._sel_edge_scroll_dir == direction
+            self._sel_edge_scroll_dir = direction
+        if not already:
+            self._sel_edge_scroll_step(direction)  # 立即响应第一步
+            with self._sel_edge_scroll_lock:
+                if self._sel_edge_scroll_dir != 0:
+                    t = threading.Timer(0.06, self._sel_edge_scroll_loop)
+                    t.daemon = True
+                    self._sel_edge_scroll_timer = t
+                    t.start()
+
+    def _sel_edge_scroll_stop(self) -> None:
+        with self._sel_edge_scroll_lock:
+            self._sel_edge_scroll_dir = 0
+            t = self._sel_edge_scroll_timer
+            self._sel_edge_scroll_timer = None
+        if t is not None:
+            t.cancel()
+
+    def _handle_mouse_during_select(self, event: Any) -> None:
+        """拖选中接管原始鼠标事件（app 级 Vt100MouseEvent binding 回调）。
+
+        event.data = 原始 SGR 序列（如 \\x1b[<32;20;39M：32=左键+拖动位）。
+        编码解析直接用 PT 自己的 xterm_sgr_mouse_events 表，避免手搓映射漂移。
+        事件按**屏幕坐标**（序列原值，经 rows_above_layout 修正）分三类：
+        - 越界 MOVE → 边缘自动滚（定时器持续滚动+选区钉边界）；
+        - 越界 UP → 直接落锤（绝不重投——会落进输入框 handler 移动光标）；
+        - 其余（窗内 MOVE/UP/DOWN/滚轮）→ 重投渲染光栅，走原生「屏幕坐标
+          → buffer 坐标」精确映射（含 wrap_lines 换行坐标）；滚轮钉回输出窗。
+        """
+        try:
+            data = getattr(event, "data", "") or ""
+            m = re.match(
+                r"^\x1b\[<(?P<b>\d+);(?P<x>\d+);(?P<y>\d+)(?P<suf>[mM])$", data
+            )
+            if m is None:
+                # 非 SGR 序列（urxvt 等）：无法安全接管，防御性复位选区，
+                # 防 _sel_active 卡死导致鼠标事件被永久吞掉。
+                self._sel_edge_scroll_stop()
+                self._sel_start = None
+                self._sel_end = None
+                self._sel_active = False
+                self._sel_dragged = False
+                return
+            key = (int(m.group("b")), m.group("suf"))
+            if key not in _SGR_MOUSE_EVENTS:
+                return
+            button, event_type, modifiers = _SGR_MOUSE_EVENTS[key]
+
+            app = self._app
+            screen = app.renderer.last_rendered_screen if app is not None else None
+            wp = (
+                screen.visible_windows_to_write_positions.get(self._output_area)
+                if screen is not None
+                else None
+            )
+            if app is None or wp is None:
+                return
+            x = int(m.group("x")) - 1
+            y = int(m.group("y")) - 1
+            # 与内置 mouse binding 相同的修正（mouse.py rows_above_layout）
+            y -= app.renderer.rows_above_layout
+            mouse_event = MouseEvent(
+                position=Point(x=x, y=y),
+                event_type=event_type,
+                button=button,
+                modifiers=modifiers,
+            )
+            inside = (
+                wp.ypos <= y < wp.ypos + wp.height
+                and wp.xpos <= x < wp.xpos + wp.width
+            )
+
+            if event_type == MouseEventType.MOUSE_UP:
+                self._sel_edge_scroll_stop()
+                if inside:
+                    self._redispatch_mouse(mouse_event, x, y)  # 精确落点+原生落锤
+                else:
+                    self._finish_selection()  # 越界松手：终点保持钉住的边界
+            elif (
+                event_type == MouseEventType.MOUSE_MOVE
+                and button is MouseButton.LEFT
+                and not inside
+            ):
+                self._sel_edge_scroll_start(+1 if y >= wp.ypos + wp.height else -1)
+            elif event_type in (
+                MouseEventType.SCROLL_UP,
+                MouseEventType.SCROLL_DOWN,
+            ):
+                # 拖选中滚轮：无论指针在哪都路由到输出窗（含延伸选区语义）
+                y2 = min(max(y, wp.ypos), wp.ypos + wp.height - 1)
+                self._redispatch_mouse(mouse_event, x, y2)
+            else:
+                self._sel_edge_scroll_stop()
+                self._redispatch_mouse(mouse_event, x, y)
+        except Exception:  # noqa: BLE001 — 接管失败不反噬事件循环
+            self._sel_edge_scroll_stop()
+
+    def _redispatch_mouse(self, mouse_event: Any, x: int, y: int) -> None:
+        """把 MouseEvent 按当前渲染光栅重投（原生坐标换算路径不变）。"""
+        try:
+            if self._app is None:
+                return
+            handler = self._app.renderer.mouse_handlers.mouse_handlers[y][x]
+            if handler is not None:
+                handler(mouse_event)
+        except Exception:  # noqa: BLE001
             pass
 
     def _append_output_lines(

@@ -352,3 +352,121 @@ class TestScrollDuringSelect:
         finally:
             os.close(r)
             os.close(w)
+
+
+class TestEdgeAutoScrollBeyondWindow:
+    """拖选越界边缘自动滚（2026-10-03 第二环）。
+
+    PT 按屏幕坐标光栅分发鼠标事件，拖出输出窗后原生 mouse_handler 不再被调
+    ——「拖到屏幕底往下选，视口不动、选区钉死」。接管层语义：
+    _handle_mouse_during_select 解析 SGR 原始序列 + 判断越界 + 驱动
+    _sel_edge_scroll_*；_finish_selection 兜底清理。
+    """
+
+    def test_edge_scroll_step_extends_and_moves_viewport(
+        self, tmp_path: Any
+    ) -> None:
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"row{i}" for i in range(40)))
+        s._sel_start = (1, 0)
+        s._sel_end = (2, 3)
+        s._sel_active = True
+        s._follow_output = False
+        s._sel_edge_scroll_step(+1)
+        # 终点跟随视口锚点（原光标 row0 → 滚后 row1，行尾），起点不动
+        assert s._sel_end == (1, 10**6)
+        assert s._sel_start == (1, 0)
+        assert s._sel_dragged is True
+        # 视口锚点前进一行（row0 → row1）：单步只滚一行
+        assert s._out_buffer.document.cursor_position_row == 1
+        # 未滚到文末前不恢复跟随模式
+        assert s._follow_output is False
+
+    def test_edge_scroll_step_up_pins_first_line(self, tmp_path: Any) -> None:
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"row{i}" for i in range(40)))
+        s._sel_start = (5, 0)
+        s._sel_end = (8, 2)
+        s._sel_active = True
+        s._sel_edge_scroll_step(-1)
+        assert s._sel_end == (0, 0)
+        assert s._sel_start == (5, 0)
+
+    def test_finish_selection_stops_timer_and_resets_state(
+        self, tmp_path: Any
+    ) -> None:
+        s = _make_session(tmp_path)
+        _set_out_text(s, "alpha\nbeta\ngamma")
+        s._sel_start = (0, 0)
+        s._sel_end = (1, 4)
+        s._sel_active = True
+        s._sel_dragged = True
+        r, w = os.pipe()
+        try:
+            s._osc52_fd = w
+            s._finish_selection()
+            got = os.read(r, 65536).decode()
+            # OSC52 序列：ESC]52;c;<base64>ST——解码核对内容
+            import base64 as _b64
+
+            payload = got.split(";c;")[1].removesuffix("\x1b\\")
+            assert _b64.b64decode(payload).decode() == "alpha\nbeta"
+        finally:
+            os.close(r)
+            os.close(w)
+        # 状态全复位、定时器停摆
+        assert s._sel_start is None and s._sel_end is None
+        assert s._sel_active is False and s._sel_dragged is False
+        assert s._sel_edge_scroll_dir == 0
+        assert s._sel_edge_scroll_timer is None
+
+    def test_handle_mouse_non_sgr_defensively_resets(self, tmp_path: Any) -> None:
+        s = _make_session(tmp_path)
+        s._sel_start = (0, 0)
+        s._sel_end = (1, 0)
+        s._sel_active = True
+
+        class _FakeEvent:
+            data = "junk"
+
+        s._handle_mouse_during_select(_FakeEvent())
+        assert s._sel_active is False  # 防卡死：无法解析立即复位
+
+    def test_handle_mouse_out_of_bounds_move_starts_scroll(
+        self, tmp_path: Any
+    ) -> None:
+        """越界 MOVE：启动边缘滚（dir=+1），终点钉末行。"""
+        s = _make_session(tmp_path)
+        _set_out_text(s, "\n".join(f"row{i}" for i in range(40)))
+        s._sel_start = (0, 0)
+        s._sel_end = (0, 3)
+        s._sel_active = True
+        s._sel_dragged = True
+
+        class _App:
+            class renderer:
+                last_rendered_screen = None
+                rows_above_layout = 0
+
+        s._app = _App()
+        # wp=None（screen None）→ 提前 return，不崩
+        class _FakeEvent2:
+            data = "\x1b[<32;5;99M"  # 拖动事件，y=99 远超 40 行缓冲
+
+        s._handle_mouse_during_select(_FakeEvent2())
+        # screen=None 时拿不到 wp → 保守返回，状态不破坏
+        assert s._sel_active is True
+
+        # 提供真实 wp → 越界判定生效
+        from types import SimpleNamespace
+
+        screen = SimpleNamespace(
+            visible_windows_to_write_positions={
+                s._output_area: SimpleNamespace(xpos=0, ypos=0, width=80, height=10)
+            }
+        )
+        s._app.renderer.last_rendered_screen = screen
+        s._handle_mouse_during_select(_FakeEvent2())
+        assert s._sel_edge_scroll_dir == +1
+        s._sel_edge_scroll_stop()
+        assert s._sel_edge_scroll_dir == 0
