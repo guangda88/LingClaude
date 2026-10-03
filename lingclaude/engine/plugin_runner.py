@@ -252,11 +252,13 @@ def register_plugin_server(manifest_path: str | Path) -> str | None:
         return None
     key = f"plugin:{name}"
     try:
-        from lingclaude.engine.mcp_proxy import find_server
+        from lingclaude.engine.mcp_proxy import find_server_by_key
 
-        if find_server(key) is not None:
+        # 2026-10-03 修复: 原实现 find_server(key) 把 key 当工具名查（恒 None），
+        # 幂等永远失效、重复注册覆盖连接池。改按 key 精确查。
+        if find_server_by_key(key) is not None:
             return key
-    except Exception:  # noqa: BLE001 — find_server 可能未导出
+    except Exception:  # noqa: BLE001 — proxy 未导出时按首次注册处理
         pass
     register_server(
         key=key,
@@ -286,9 +288,33 @@ def call_plugin_server(key: str, tool_name: str, args: dict[str, Any]) -> dict[s
     """
     from lingclaude.engine.mcp_proxy import call_tool, find_server
 
+    # 2026-10-03: 持有 key 则定向路由（防 -n 并行下同名工具被其他注册者劫持）；
+    # key 失效时回落按工具名全局查找（兼容卸载/热替换窗口）。
+    if key.startswith("plugin:"):
+        from lingclaude.engine.mcp_proxy import find_server_by_key
+
+        if find_server_by_key(key) is not None:
+            return _call_tool_directed(key, tool_name, args)
     if find_server(tool_name) is None:
         return {"ok": False, "error": f"MCP server 未注册工具: {tool_name}（key={key}）"}
     result = call_tool(tool_name, **args)
+    if result.is_error:
+        return {"ok": False, "error": result.error}
+    tc = result.data
+    if not tc.success:
+        return {"ok": False, "error": tc.error}
+    return {"ok": True, "data": tc.output}
+
+
+def _call_tool_directed(key: str, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """经 mcp_proxy.call_tool 的 _server_key 定向通道调用（2026-10-03）。
+
+    与 call_plugin_server 尾段同构，差别仅在传入 _server_key——
+    proxy 按 key 精确命中注册表，同名工具不会被其他 server 劫持。
+    """
+    from lingclaude.engine.mcp_proxy import call_tool
+
+    result = call_tool(tool_name, _server_key=key, **args)
     if result.is_error:
         return {"ok": False, "error": result.error}
     tc = result.data

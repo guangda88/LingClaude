@@ -159,6 +159,15 @@ def find_server(tool_name: str) -> MCPServerInfo | None:
     return None
 
 
+def find_server_by_key(key: str) -> MCPServerInfo | None:
+    """按 server key 精确查找（warm 插件通道定向路由用，2026-10-03）。
+
+    find_server 按工具名扫全表，同名工具在 -n 并行下会被先注册者劫持路由；
+    调用方持有 key 时必须走本函数精确命中，杜绝串线。
+    """
+    return _SERVERS.get(key)
+
+
 def find_server_with_conflicts(tool_name: str) -> tuple[MCPServerInfo | None, list[str]]:
     """查找工具归属 + 冲突报告（P2）。
 
@@ -328,7 +337,21 @@ def _get_tool_function(server: MCPServerInfo, tool_name: str) -> Callable[..., A
 
 
 def call_tool(tool_name: str, **kwargs: Any) -> Result[ToolCallResult]:
-    server = find_server(tool_name)
+    server: MCPServerInfo | None = None
+
+    # 2026-10-03: 定向路由 —— 调用方持有 server_key 时精确命中，
+    # 防止同名工具被全局注册表中先注册者劫持（-n 并行下 warm 插件串线根因）。
+    requested_key = kwargs.pop("_server_key", None)
+    if requested_key:
+        server = find_server_by_key(requested_key)
+        if server is None:
+            return Result.fail(
+                f"MCP server not registered: {requested_key}",
+                code="SERVER_NOT_FOUND",
+            )
+
+    if server is None:
+        server = find_server(tool_name)
     if server is None:
         return Result.fail(
             f"No server found for tool: {tool_name}",

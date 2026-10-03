@@ -321,8 +321,19 @@ class TestToolAliasHotplug:
         assert "lines" in text      # read_plugin 结果
         assert "via" not in text    # 非主干占位
 
-    def test_unload_falls_back_to_core(self):
-        """卸载插件 → 工具名别名清理 → execute 回退主干。"""
+    def test_unload_falls_back_to_core(self, monkeypatch):
+        """卸载插件 → 工具名别名清理 → execute 回退主干。
+
+        2026-10-03: 原实现对全局装载旗标 _PLUGIN_LOAD_DONE 有隐性时序依赖——
+        若 execute 时旗标仍为 False（warm 线程未完成），tools.py:193 的
+        _ensure_tool_plugins_loaded() 会把刚卸载的插件重新装回，别名复活、
+        断言必红（-n 并行下必现）。惰性回填是产品语义（fail-soft），
+        测试应显式钉住「已装载」前提，而非赌 warm 时序。
+        """
+        import lingclaude.engine.tools as tools_mod
+
+        # 钉住「插件已装载」前提：ensure() 早退，不再回填刚卸载的插件
+        monkeypatch.setattr(tools_mod, "_PLUGIN_LOAD_DONE", True)
         reg = self._build_registry()
         loader = PluginLoader()
         loader.load_plugins_from_dir(TOOLS_DIR)
