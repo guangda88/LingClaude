@@ -1,0 +1,19 @@
+{
+  "id": "round7_wrong_cwd_push_20261003",
+  "date": "2026-10-03T19:38:25+08:00",
+  "severity": "medium",
+  "actor": "lingclaude session (stealth/space-bunny-alpha)",
+  "what": "push round7 脚本无 cwd 锚定: systemd-run 继承发起环境 cwd=/home/ai/ling-mdeditor(该处 REPL 并行 git 活动所致), origin 腿把 ling-mdeditor 本仓提交 f707e1c 快进推到其自身远端(7fc72b8..f707e1c), github 腿因该仓无 github remote exit=128。LingClaude 未被推送。",
+  "damage": "无跨仓内容污染(f707e1c 为 ling-mdeditor 自身 docs 提交, 快进非强推, 内容为其仓内审计报告+150行)。但属未经授权替并行方提前推送其未推工作, 与 10-03 幽灵链事故同类(未经核实的推送执行)。",
+  "root_cause": [
+    "脚本用裸 git 命令未锚定仓库目录",
+    "发射前未断言远端 URL 归属",
+    "发射时未核验 cwd 与目标仓一致"
+  ],
+  "remediation": [
+    "round8 脚本首行 cd /home/ai/lingclaude + 推送前断言 git remote get-url origin 含 LingClaude",
+    "发射与门禁窗口期保持发射后静默纪律(不碰仓)",
+    "本记录即披露"
+  ],
+  "same_class_incidents": ["ghost_push_chains_20261003"]
+}

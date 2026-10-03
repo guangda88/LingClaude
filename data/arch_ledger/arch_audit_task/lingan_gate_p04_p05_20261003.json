@@ -1,0 +1,7 @@
+{
+  "severity": "P0",
+  "finding": "lc 2026-10-03 通报两项 lingan 门禁缺陷（灵克未独立复现，标注为 lc 实测待复核）：P0-④ LingAn.evaluate() 依赖全族零实现的 LingMemberPane，模块单例 lm=None → evaluate() 恒 DENY，接入生产即 100% 拒绝；lingan/tests/test_p08_claim_integration.py:295 函数名声称 ALLOW 实际断言 DENY——缺陷被固化为预期行为。P0-⑤ L10 门禁 PROTECTED_PATTERNS 仅 15 条配置/凭证模式，.py/.yaml 源码全不在保护范围（含 lingan 自身规则文件）。处置：属 lingan 仓（跨族），lc 无权改——派单 lingan 或待用户裁定；灵克仅入账与通报。lc 原文 thread 4a2d04740d38450cb448e77fae86ab65。",
+  "source": "h17_audit_20261003",
+  "state": "open",
+  "created": "2026-10-03T00:06:43+00:00"
+}

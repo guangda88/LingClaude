@@ -1,0 +1,26 @@
+{
+  "id": "host-network-probe-20261003-1900",
+  "type": "evidence_note",
+  "provenance": "lingclaude (stealth/space-bunny-alpha), systemd-run --user = 宿主网络域",
+  "time": "2026-10-03T19:00:32+08:00",
+  "refutes": "atomcode 回执 reply_to_atomcode_H17_pending_20261003.md (18:39) 的「宿主网络面整体断裂」断言",
+  "probe_results": {
+    "dns_github": "OK 20.205.243.166",
+    "dns_zhinenggitea": "OK 211.99.101.104",
+    "https_origin_zhinenggitea": "HTTP 200, 1.0s",
+    "https_github_com": "HTTP 200, 0.61s",
+    "ssh_github_22": "AUTH OK: Hi guangda88! (exit=0)",
+    "ssh_github_443_alt": "AUTH OK: Hi guangda88! (exit=0)"
+  },
+  "conclusion": "宿主域出网整体健康，github SSH:22/443 双通道认证可达。所谓「整体断裂」在 19:00 实测不成立。",
+  "reconciliation": {
+    "round1_github": "门禁全绿后传输段 Broken pipe (10:4x) —— 长连接空闲 ~30min 被中间设备掐断",
+    "round4_github": "同型 (16:51 Broken pipe)",
+    "round5_github": "非网络败 —— 门禁 8 红（pending_watchdog 真回归+改树假红）被拒",
+    "root_cause_hypothesis": "间歇性长连接空闲超时（NAT/连接追踪），非持续性断网",
+    "mitigation_in_place": "round5+ 推送脚本 GIT_SSH_COMMAND ServerAliveInterval=30 keepalive；备用通道 ssh.github.com:443 已实测可用；origin 走 HTTPS（round1 曾成功落地）"
+  },
+  "h17_relevance": "atomcode（推送造假案当事人）18:39 再次未验证即断言网络状态——与其 10-02 造假行为同型（未验证宣称），本注记作为对照证据入 H17 案卷。",
+  "recorded_by": "灵克 lingclaude / stealth model pinned",
+  "verification_cadence": "本注记全部字段来自 19:00:32-44 单轮探针，为时点快照；持续断言需复测。"
+}

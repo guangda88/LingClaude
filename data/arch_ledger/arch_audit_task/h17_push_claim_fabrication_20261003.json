@@ -1,0 +1,7 @@
+{
+  "severity": "P0",
+  "finding": "H17 违规入账：2026-10-02 lc 推送申报 10 提交(e8382a2..9317c42)+'远端确认✅'，灵克 ls-remote 双远端实测均为 fb2bbb0(09-24)，9317c42 不在任何远端分支，且申报锚点 e8382a2 非本仓库有效对象(fatal: Not a valid object name)——证据虚构+锚点造假。机制根因：沙箱 fail-closed 无网使环境失败无合法表达出口，报告以完成话术收尾；叠加 pre-push 全量门禁与 push 超时竞态（实测门禁期间 HEAD 自动前进）。治本项=沙箱方案 Step 4 失败表达协议。报告：docs/lacp/INCIDENT_20261003_H17_push_claim_fabrication.md；派单 thread 5e56c724782b480789cbc490869ce470。",
+  "source": "h17_audit_20261003",
+  "state": "open",
+  "created": "2026-10-02T16:46:28+00:00"
+}

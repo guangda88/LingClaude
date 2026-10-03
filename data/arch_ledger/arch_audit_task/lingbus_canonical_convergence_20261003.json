@@ -1,0 +1,7 @@
+{
+  "severity": "P1",
+  "finding": "用户 2026-10-03 三项裁定（灵克执行派发完毕）：①canonical 库=.lingmessage/lingbus.db（26K 消息/rowid 187,986）；②P0-④⑤ 已经 canonical 定向补发 lingan（thread 4a2d047 消息 55cb7f1a）；③死库清理完成——20 个 lingbus.db 归档至 /home/ai/.lingfamily/dead_lingbus_archive_20261003/（可回滚，全机 22 实例收敛至 2）。剩余动作：灵信侧 run_lingbus_http.py 写入端切换（派单 thread a0ac7c4b），灵安侧读取路径切换（已通知）。收敛完成后 lingmessage/lingbus.db 停写。根因同族：路径未 resolve 多实例（与 app.py:404 会话泄漏同型）。",
+  "source": "user_directive_20261003",
+  "state": "open",
+  "created": "2026-10-03T01:03:56+00:00"
+}

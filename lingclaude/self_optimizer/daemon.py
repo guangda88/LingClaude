@@ -759,6 +759,15 @@ class OptimizationDaemon:
                     self._maybe_rotate_goal()
                 except Exception:  # noqa: BLE001
                     logger.exception("[R10轮换] 决策异常（不阻塞循环）")
+                # P0-4 灰区看门狗（24h 节流, 摘要式升级, fail-safe）
+                try:
+                    tick = self._pending_watchdog_tick(
+                        last_run=_pending_watchdog_state_last_run()
+                    )
+                    if tick:
+                        logger.info("[PW看门狗] 本轮处理 %d 条超时未决", len(tick))
+                except Exception:  # noqa: BLE001
+                    logger.exception("[PW看门狗] tick 异常（不阻塞循环）")
                 time.sleep(self._watch_interval)
         except KeyboardInterrupt:
             logger.info("自由化框架已停止")
@@ -1250,3 +1259,68 @@ class OptimizationDaemon:
             logger.info("已记录质量指标 cycle=#%d", cycle.cycle_id)
         except Exception:
             logger.debug("质量指标记录失败", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# P0-4 债务清偿（2026-10-03）: 灰区 pending 看门狗接线（24h 节流 + fail-safe）
+# 契约: tests/test_pending_watchdog.py::TestDaemonWiring
+# 设计: 摘要式升级（最老 10 条）——积压期逐条广播会把总线打爆
+# ---------------------------------------------------------------------------
+
+PW_STATE_PATH = Path.home() / ".lingclaude" / "pending_watchdog_state.json"
+
+try:
+    from lingclaude.core import pending_watchdog as _pw
+except Exception:  # noqa: BLE001 — 模块缺失时看门狗整体降级为 no-op
+    _pw = None
+
+
+def _pending_watchdog_state_last_run() -> str | None:
+    """读上次看门狗扫描时间；无记录/损坏返回 None（视作到期）。"""
+    try:
+        return PW_STATE_PATH.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def _pending_watchdog_tick(last_run: str | None, now: datetime | None = None):
+    """看门狗 tick：24h 节流；到期扫描+摘要升级；任何异常不外抛。"""
+    if last_run is not None:
+        try:
+            ref = now or datetime.now()
+            elapsed = ref - datetime.fromisoformat(str(last_run)) if ref.tzinfo is None else ref.replace(tzinfo=None) - datetime.fromisoformat(str(last_run))
+            if abs(elapsed.total_seconds()) < 24 * 3600:
+                return None
+        except (ValueError, TypeError):
+            pass  # 时间戳损坏 → 视作到期照扫
+    if _pw is None:
+        logger.debug("[PW看门狗] 模块不可用, 跳过")
+        return []
+    try:
+        stale = _pw.scan_stale_pendings(stale_hours=24.0)
+    except Exception as e:  # noqa: BLE001 — fail-safe 契约
+        logger.warning("[PW看门狗] 扫描异常(忽略): %s", e)
+        return []
+    for item in stale[:10]:
+        try:
+            item.escalated = _pw._escalate_one(item)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[PW看门狗] 升级失败(忽略): %s", e)
+    if stale:
+        oldest = stale[0]
+        print(
+            f"[PW看门狗] 超时未决 {len(stale)} 条, "
+            f"最老 {oldest.hours_pending:.0f}h ({oldest.action}); "
+            f"本轮升级最老 {min(10, len(stale))} 条"
+        )
+    try:
+        PW_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PW_STATE_PATH.write_text(
+            (now or datetime.now()).isoformat(), encoding="utf-8"
+        )
+    except OSError as e:
+        logger.warning("[PW看门狗] 状态写入失败(不影响本轮): %s", e)
+    return stale
+
+
+OptimizationDaemon._pending_watchdog_tick = staticmethod(_pending_watchdog_tick)
