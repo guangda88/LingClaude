@@ -631,6 +631,10 @@ class FullTuiSession:
             style="class:output",
             always_hide_cursor=True,
         )
+        # 边缘自动滚（2026-10-03 第三轮）需要 Window 实例本身：直接驱动
+        # Window._scroll_down/_scroll_up（原生滚动语义），并读 render_info
+        # 的 vertical_scroll 算可见行域。
+        self._out_window = self._output_area
         self._input_area = TextArea(
             text="",
             multiline=True,
@@ -2249,27 +2253,73 @@ class FullTuiSession:
             self._sel_dragged = False
             self._invalidate()
 
-    def _sel_edge_scroll_step(self, direction: int) -> None:
-        """边缘自动滚单步：视口滚 1 行，选区终点跟随视口锚点行。
+    def _sel_visible_row_bounds(self) -> tuple[int, int] | None:
+        """当前视口可见的 buffer 行域 [top, bottom]（含）。
 
-        终点=滚动后的锚点行（向下=该行行尾，向上=该行行首）——视口每滚
-        一行终点前进一行，「选区底边贴着视口边缘」正是编辑器边缘自动滚
-        手感；不能钉缓冲末行，否则长缓冲下越界即全选、松不开。
+        取自渲染光栅 write_position + render_info.vertical_scroll；
+        渲染未就绪时返回 None。
         """
         try:
+            app = self._app
+            screen = app.renderer.last_rendered_screen if app is not None else None
+            wp = (
+                screen.visible_windows_to_write_positions.get(self._output_area)
+                if screen is not None
+                else None
+            )
+            if wp is None:
+                return None
+            outwin = self._out_window
+            if outwin is None or outwin.render_info is None:
+                return None
+            top = outwin.render_info.vertical_scroll
+            return (top, top + wp.height - 1)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _sel_edge_scroll_step(self, direction: int) -> None:
+        """边缘自动滚单步：视口滚 1 行，选区终点钉在视口边缘行。
+
+        两个历史根因（2026-10-03 第三轮，均由 vscroll 探针实证）：
+        1. 锚点不能是 buffer 光标行——跟随模式下光标钉在文末，向下越界
+           时 row=末行+1 被钳回末行、步进空转（vscroll 1.2s 纹丝不动）；
+        2. 也不能让选区终点从拖选位置向视口边缘「爬行」——0.06s/步爬过
+           动辄几十行的屏内距离要 1~2 秒屏幕才开滚（用户体感=没反应）。
+
+        正确语义（编辑器惯例）：进入越界态瞬间选区终点**吸到视口边缘
+        行**（_handle_mouse_during_select 越界分支做 snap），此后每步
+        =视口滚 1 行（直接驱动 Window._scroll_down/_scroll_up，不依赖
+        keep-cursor-visible 的间接效应）+ 终点钉回新边缘行。
+        """
+        try:
+            win = self._out_window
+            if win is None:
+                return
             with self._area_lock:
                 buf = self._out_buffer
                 doc = buf.document
                 line_count = doc.line_count
                 if not line_count:
                     return
-                row = doc.cursor_position_row + direction
-                row = max(0, min(row, line_count - 1))
-                if row >= line_count - 1:
+                prev_bounds = self._sel_visible_row_bounds()
+                if prev_bounds is None:
+                    return
+                # 1) 视口真滚 1 行（PT 原生窗口滚动语义，含边界钳制）
+                if direction > 0:
+                    win._scroll_down()
+                else:
+                    win._scroll_up()
+                # 2) 选区终点钉到滚动后的视口边缘行
+                new_bounds = self._sel_visible_row_bounds() or prev_bounds
+                edge = new_bounds[1] if direction > 0 else new_bounds[0]
+                edge = max(0, min(edge, line_count - 1))
+                self._sel_end = (edge, 10**6 if direction > 0 else 0)
+                # 3) 光标随行搬运（保持「视口锚点=光标」的全局滚动模型一致；
+                #    钳在 edge 行避免 follow 模式光标跳文末干扰）
+                if edge >= line_count - 1:
                     buf.cursor_position = len(buf.text)
                 else:
-                    buf.cursor_position = doc.translate_row_col_to_index(row, 0)
-                self._sel_end = (row, 10**6 if direction > 0 else 0)
+                    buf.cursor_position = doc.translate_row_col_to_index(edge, 0)
             self._sel_dragged = True
             self._follow_output = self._out_buffer.document.is_cursor_at_the_end
             self._invalidate()
@@ -2378,6 +2428,23 @@ class FullTuiSession:
                 and button is MouseButton.LEFT
                 and not inside
             ):
+                # 吸边（snap）：进入越界态瞬间，选区终点吸到视口边缘行——
+                # 消除「爬行死区」（终点从拖选位置以 0.06s/步爬向边缘，屏幕
+                # 要 1~2 秒才开滚，用户体感=没反应）。行坐标从重投换算链
+                # （yx_to_rowcol）语义直接取：越界时钳到视口底/顶边缘行。
+                with self._area_lock:
+                    line_count = self._out_buffer.document.line_count
+                    bounds = self._sel_visible_row_bounds()
+                    if bounds is not None and line_count:
+                        edge_row = (
+                            bounds[1] if y >= wp.ypos + wp.height else bounds[0]
+                        )
+                        edge_row = max(0, min(edge_row, line_count - 1))
+                        self._sel_end = (
+                            edge_row,
+                            10**6 if y >= wp.ypos + wp.height else 0,
+                        )
+                        self._sel_dragged = True
                 self._sel_edge_scroll_start(+1 if y >= wp.ypos + wp.height else -1)
             elif event_type in (
                 MouseEventType.SCROLL_UP,

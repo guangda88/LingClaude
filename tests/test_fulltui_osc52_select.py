@@ -355,41 +355,42 @@ class TestScrollDuringSelect:
 
 
 class TestEdgeAutoScrollBeyondWindow:
-    """拖选越界边缘自动滚（2026-10-03 第二环）。
+    """拖选越界边缘自动滚（2026-10-03 第二环；第三轮重写步进语义）。
 
     PT 按屏幕坐标光栅分发鼠标事件，拖出输出窗后原生 mouse_handler 不再被调
     ——「拖到屏幕底往下选，视口不动、选区钉死」。接管层语义：
-    _handle_mouse_during_select 解析 SGR 原始序列 + 判断越界 + 驱动
-    _sel_edge_scroll_*；_finish_selection 兜底清理。
+    _handle_mouse_during_select 解析 SGR 原始序列 + 判断越界 + 吸边（snap）
+    + 驱动 _sel_edge_scroll_*；_finish_selection 兜底清理。
+
+    第三轮关键语义（vscroll 探针实证的两条死路，勿回退）：
+    - 步进锚点不能是 buffer 光标行（跟随模式光标钉文末 → 钳制空转）；
+    - 选区终点不能从拖选位置向视口边缘「爬行」（屏内距离长时屏幕要
+      1~2 秒才开滚）。正确：越界 MOVE 瞬间吸边 + 步进直接驱动
+      Window._scroll_down/_scroll_up，终点钉视口边缘行。
+    无渲染光栅（单测无 start()）时步进/吸边防御性空转——真实链路由
+    tests/e2e 真实事件流探针覆盖（vscroll 采样 84→103/1.5s）。
     """
 
-    def test_edge_scroll_step_extends_and_moves_viewport(
-        self, tmp_path: Any
-    ) -> None:
+    def test_edge_scroll_step_no_screen_is_safe_nop(self, tmp_path: Any) -> None:
+        """无渲染光栅：步进不崩、不改状态（防御语义）。"""
         s = _make_session(tmp_path)
         _set_out_text(s, "\n".join(f"row{i}" for i in range(40)))
         s._sel_start = (1, 0)
         s._sel_end = (2, 3)
         s._sel_active = True
-        s._follow_output = False
-        s._sel_edge_scroll_step(+1)
-        # 终点跟随视口锚点（原光标 row0 → 滚后 row1，行尾），起点不动
-        assert s._sel_end == (1, 10**6)
-        assert s._sel_start == (1, 0)
-        assert s._sel_dragged is True
-        # 视口锚点前进一行（row0 → row1）：单步只滚一行
-        assert s._out_buffer.document.cursor_position_row == 1
-        # 未滚到文末前不恢复跟随模式
-        assert s._follow_output is False
+        s._sel_edge_scroll_step(+1)  # 无 app/screen → 直接 return
+        assert s._sel_end == (2, 3)  # 状态不被破坏
+        assert s._sel_active is True
 
-    def test_edge_scroll_step_up_pins_first_line(self, tmp_path: Any) -> None:
+    def test_edge_scroll_step_up_no_screen_is_safe_nop(self, tmp_path: Any) -> None:
+        """无渲染光栅（向上向）：步进不崩、不改状态（防御语义）。"""
         s = _make_session(tmp_path)
         _set_out_text(s, "\n".join(f"row{i}" for i in range(40)))
         s._sel_start = (5, 0)
         s._sel_end = (8, 2)
         s._sel_active = True
         s._sel_edge_scroll_step(-1)
-        assert s._sel_end == (0, 0)
+        assert s._sel_end == (8, 2)  # 状态不被破坏
         assert s._sel_start == (5, 0)
 
     def test_finish_selection_stops_timer_and_resets_state(
@@ -435,7 +436,7 @@ class TestEdgeAutoScrollBeyondWindow:
     def test_handle_mouse_out_of_bounds_move_starts_scroll(
         self, tmp_path: Any
     ) -> None:
-        """越界 MOVE：启动边缘滚（dir=+1），终点钉末行。"""
+        """越界 MOVE：启动边缘滚（dir=+1）；渲染未就绪时保守返回。"""
         s = _make_session(tmp_path)
         _set_out_text(s, "\n".join(f"row{i}" for i in range(40)))
         s._sel_start = (0, 0)
@@ -457,7 +458,7 @@ class TestEdgeAutoScrollBeyondWindow:
         # screen=None 时拿不到 wp → 保守返回，状态不破坏
         assert s._sel_active is True
 
-        # 提供真实 wp → 越界判定生效
+        # 提供真实 wp（无 render_info → bounds None → 吸边跳过）→ 越界判定生效
         from types import SimpleNamespace
 
         screen = SimpleNamespace(
