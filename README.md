@@ -2,7 +2,7 @@
 
 > 开源 AI 编程助手，对标 Claude Code，内置自优化能力——越用越懂你。
 
-**Version**: 0.5.0 | **Python**: >=3.10 | **License**: MIT
+**Version**: 0.6.0+lingyuan | **Python**: >=3.10 | **License**: MIT
 
 ## 为什么做灵克？
 

@@ -412,6 +412,30 @@ def test_bash_rules_active_bypasses_env_override():
     assert "/etc" not in (captured["extra"] or []), "红线目录不得混入可写集"
 
 
+def test_bash_rules_active_env_silently_swallowed_warns(caplog):
+    """2026-10-03（atomcode 10-02 报告）：rules 激活时 env 被吞必须留 WARNING。
+
+    行为上规则优先（上方用例已固化）没有错，但「以为设了实际没设」的
+    静默失效不可接受——本用例钉死告警语义，防止未来重构再次吞掉告警。
+    """
+    import logging as _logging
+    from unittest.mock import patch
+
+    from lingclaude.core.sandbox_rules import resolve_writable_dirs
+
+    b, captured = _make_capture_executor()
+    expected = resolve_writable_dirs(b.working_dir)
+
+    with caplog.at_level(_logging.WARNING, logger="lingclaude.engine.bash"), \
+            patch.dict(os.environ, {"LINGCLAUDE_EXTRA_WRITABLE_DIRS": "/home/ai/lingcode"}):
+        b._sandbox_command("echo hi")
+    assert captured["extra"] == expected, "行为不变：仍以规则集为准"
+    assert any(
+        "LINGCLAUDE_EXTRA_WRITABLE_DIRS" in r.message and "已忽略" in r.message
+        for r in caplog.records
+    ), "rules 激活吞 env 时必须发 WARNING 告警（防配置静默失效）"
+
+
 # ---------- P0-5: bash 只读白名单高危副作用命令移除 + curl/wget 二级参数判定 ----------
 
 def test_p05_high_risk_cmds_removed_from_readonly_whitelist():

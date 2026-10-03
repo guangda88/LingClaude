@@ -1,6 +1,6 @@
 {
  "agent_registry": {
-  "prod_count": 1,
+  "prod_count": 2,
   "test_count": 1,
   "channels_prod": [
    "prod②"
@@ -9,6 +9,11 @@
    "⑤test②"
   ],
   "hits_prod": [
+   [
+    "lingclaude/cli/slash_arg_completions.py",
+    177,
+    "prod②"
+   ],
    [
     "lingclaude/cli/slash_plugins/agent.py",
     61,
@@ -324,7 +329,7 @@
    ],
    [
     "lingclaude/cli/app.py",
-    530,
+    533,
     "prod②"
    ],
    [
@@ -334,7 +339,7 @@
    ],
    [
     "lingclaude/cli/app.py",
-    690,
+    696,
     "prod②"
    ],
    [
@@ -755,12 +760,12 @@
   "hits_prod": [
    [
     "lingclaude/cli/repl.py",
-    413,
+    428,
     "prod②"
    ],
    [
     "lingclaude/cli/repl.py",
-    1573,
+    1588,
     "prod②"
    ],
    [
@@ -1051,13 +1056,23 @@
   ]
  },
  "evidence_protocol": {
-  "prod_count": 1,
+  "prod_count": 3,
   "test_count": 0,
   "channels_prod": [
    "prod②"
   ],
   "channels_test": [],
   "hits_prod": [
+   [
+    "lingclaude/cli/repl.py",
+    1766,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/repl_turn.py",
+    364,
+    "prod②"
+   ],
    [
     "lingclaude/core/model_call.py",
     137,
@@ -1067,17 +1082,35 @@
   "hits_test": []
  },
  "execution_domain": {
-  "prod_count": 0,
-  "test_count": 1,
-  "channels_prod": [],
+  "prod_count": 2,
+  "test_count": 2,
+  "channels_prod": [
+   "prod②"
+  ],
   "channels_test": [
    "⑤test②"
   ],
-  "hits_prod": [],
+  "hits_prod": [
+   [
+    "lingclaude/model/llm_proxy/provider_pool.py",
+    11,
+    "prod②"
+   ],
+   [
+    "lingclaude/model/llm_proxy/proxy.py",
+    354,
+    "prod②"
+   ]
+  ],
   "hits_test": [
    [
     "tests/test_execution_domain.py",
     21,
+    "⑤test②"
+   ],
+   [
+    "tests/test_net_gate_wiring.py",
+    23,
     "⑤test②"
    ]
   ]
@@ -1148,7 +1181,7 @@
   ]
  },
  "file_history": {
-  "prod_count": 4,
+  "prod_count": 5,
   "test_count": 3,
   "channels_prod": [
    "prod②"
@@ -1163,18 +1196,23 @@
     "prod②"
    ],
    [
+    "lingclaude/cli/slash_arg_completions.py",
+    88,
+    "prod②"
+   ],
+   [
     "lingclaude/engine/coding_wiring.py",
     160,
     "prod②"
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    868,
+    877,
     "prod②"
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    1009,
+    1018,
     "prod②"
    ]
   ],
@@ -1210,7 +1248,7 @@
   "hits_prod": [
    [
     "lingclaude/cli/repl_turn.py",
-    381,
+    388,
     "prod②"
    ],
    [
@@ -1220,12 +1258,12 @@
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    828,
+    837,
     "prod②"
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    973,
+    982,
     "prod②"
    ]
   ],
@@ -1332,7 +1370,7 @@
   "hits_prod": [
    [
     "lingclaude/cli/app.py",
-    680,
+    686,
     "prod②"
    ]
   ],
@@ -1527,7 +1565,7 @@
    ],
    [
     "lingclaude/cli/repl.py",
-    1596,
+    1611,
     "prod②"
    ],
    [
@@ -2200,12 +2238,12 @@
   "hits_prod": [
    [
     "lingclaude/cli/app.py",
-    609,
+    612,
     "prod②"
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    1207,
+    1216,
     "prod②"
    ]
   ],
@@ -2286,12 +2324,12 @@
    ],
    [
     "tests/test_full_tui.py",
-    1093,
+    1128,
     "⑤test②"
    ],
    [
     "tests/test_full_tui.py",
-    1148,
+    1183,
     "⑤test②"
    ],
    [
@@ -2694,8 +2732,44 @@
    ]
   ]
  },
+ "pending_watchdog": {
+  "prod_count": 0,
+  "test_count": 5,
+  "channels_prod": [],
+  "channels_test": [
+   "⑤test②"
+  ],
+  "hits_prod": [],
+  "hits_test": [
+   [
+    "tests/test_pending_watchdog.py",
+    14,
+    "⑤test②"
+   ],
+   [
+    "tests/test_pending_watchdog.py",
+    115,
+    "⑤test②"
+   ],
+   [
+    "tests/test_pending_watchdog.py",
+    132,
+    "⑤test②"
+   ],
+   [
+    "tests/test_pending_watchdog.py",
+    150,
+    "⑤test②"
+   ],
+   [
+    "tests/test_pending_watchdog.py",
+    157,
+    "⑤test②"
+   ]
+  ]
+ },
  "permissions": {
-  "prod_count": 25,
+  "prod_count": 26,
   "test_count": 35,
   "channels_prod": [
    "prod②",
@@ -2768,6 +2842,11 @@
     "prod③str"
    ],
    [
+    "lingclaude/core/pending_watchdog.py",
+    31,
+    "prod②"
+   ],
+   [
     "lingclaude/core/skill_parser.py",
     238,
     "prod②"
@@ -2819,17 +2898,17 @@
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    801,
+    810,
     "prod②"
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    907,
+    916,
     "prod②"
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    968,
+    977,
     "prod②"
    ]
   ],
@@ -3191,7 +3270,7 @@
  },
  "policy_loader": {
   "prod_count": 48,
-  "test_count": 15,
+  "test_count": 16,
   "channels_prod": [
    "prod②"
   ],
@@ -3308,7 +3387,7 @@
    ],
    [
     "lingclaude/engine/bash.py",
-    452,
+    477,
     "prod②"
    ],
    [
@@ -3408,7 +3487,7 @@
    ],
    [
     "lingclaude/model/openai_provider.py",
-    48,
+    53,
     "prod②"
    ],
    [
@@ -3423,7 +3502,7 @@
    ],
    [
     "lingclaude/model/task_router.py",
-    488,
+    492,
     "prod②"
    ],
    [
@@ -3433,12 +3512,12 @@
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    963,
+    972,
     "prod②"
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    532,
+    541,
     "prod②"
    ]
   ],
@@ -3456,6 +3535,11 @@
    [
     "tests/test_intelligent_router_hotupdate.py",
     26,
+    "⑤test②"
+   ],
+   [
+    "tests/test_model.py",
+    1334,
     "⑤test②"
    ],
    [
@@ -3688,7 +3772,7 @@
    ],
    [
     "lingclaude/cli/app.py",
-    524,
+    527,
     "prod②"
    ],
    [
@@ -3940,12 +4024,12 @@
    ],
    [
     "tests/test_security_capability_balance.py",
-    210,
+    278,
     "⑤test②"
    ],
    [
     "tests/test_security_capability_balance.py",
-    234,
+    302,
     "⑤test②"
    ],
    [
@@ -4279,19 +4363,19 @@
    ],
    [
     "lingclaude/model/openai_provider.py",
-    100,
+    105,
     "prod②"
    ]
   ],
   "hits_test": [
    [
     "tests/test_security_capability_balance.py",
-    11,
+    12,
     "⑤test②"
    ],
    [
     "tests/test_security_capability_balance.py",
-    253,
+    321,
     "⑤test②"
    ]
   ]
@@ -4519,12 +4603,13 @@
  },
  "sandbox_rules": {
   "prod_count": 3,
-  "test_count": 2,
+  "test_count": 12,
   "channels_prod": [
    "prod②"
   ],
   "channels_test": [
-   "⑤test②"
+   "⑤test②",
+   "⑤test③str"
   ],
   "hits_prod": [
    [
@@ -4534,7 +4619,7 @@
    ],
    [
     "lingclaude/engine/bash.py",
-    429,
+    444,
     "prod②"
    ],
    [
@@ -4553,11 +4638,61 @@
     "tests/test_sandbox_rules.py",
     20,
     "⑤test②"
+   ],
+   [
+    "tests/test_security_capability_balance.py",
+    179,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    403,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    424,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    595,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    602,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    609,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    615,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    622,
+    "⑤test②"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    381,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_security_sandbox_fixes.py",
+    387,
+    "⑤test③str"
    ]
   ]
  },
  "scheduler": {
-  "prod_count": 1,
+  "prod_count": 2,
   "test_count": 8,
   "channels_prod": [
    "prod②"
@@ -4569,7 +4704,12 @@
   "hits_prod": [
    [
     "lingclaude/cli/commands.py",
-    566,
+    591,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/slash_arg_completions.py",
+    130,
     "prod②"
    ]
   ],
@@ -4617,8 +4757,8 @@
   ]
  },
  "seam": {
-  "prod_count": 56,
-  "test_count": 29,
+  "prod_count": 57,
+  "test_count": 30,
   "channels_prod": [
    "prod②",
    "prod③str"
@@ -4691,6 +4831,11 @@
    [
     "lingclaude/plugins/agents/agent_ghidra/plugin.py",
     218,
+    "prod②"
+   ],
+   [
+    "lingclaude/plugins/agents/agent_guangda_twin/plugin.py",
+    186,
     "prod②"
    ],
    [
@@ -4961,6 +5106,11 @@
     "⑤test②"
    ],
    [
+    "tests/test_lingmemory_bridge.py",
+    191,
+    "⑤test②"
+   ],
+   [
     "tests/test_mcp_subagent_backend.py",
     12,
     "⑤test②"
@@ -5058,8 +5208,8 @@
   ]
  },
  "session": {
-  "prod_count": 16,
-  "test_count": 24,
+  "prod_count": 18,
+  "test_count": 29,
   "channels_prod": [
    "prod②"
   ],
@@ -5111,6 +5261,16 @@
    [
     "lingclaude/cli/app.py",
     401,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    405,
+    "prod②"
+   ],
+   [
+    "lingclaude/cli/app.py",
+    616,
     "prod②"
    ],
    [
@@ -5176,8 +5336,33 @@
     "⑤test②"
    ],
    [
+    "tests/test_daemon.py",
+    505,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon.py",
+    514,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon.py",
+    520,
+    "⑤test②"
+   ],
+   [
+    "tests/test_daemon.py",
+    445,
+    "⑤test③str"
+   ],
+   [
+    "tests/test_daemon.py",
+    499,
+    "⑤test③str"
+   ],
+   [
     "tests/test_full_tui.py",
-    735,
+    770,
     "⑤test③str"
    ],
    [
@@ -5333,15 +5518,21 @@
   ]
  },
  "session_budget_gate": {
-  "prod_count": 7,
-  "test_count": 1,
+  "prod_count": 8,
+  "test_count": 2,
   "channels_prod": [
    "prod②"
   ],
   "channels_test": [
-   "⑤test②"
+   "⑤test②",
+   "⑤test③str"
   ],
   "hits_prod": [
+   [
+    "lingclaude/cli/repl.py",
+    350,
+    "prod②"
+   ],
    [
     "lingclaude/cli/slash_plugins/budget.py",
     12,
@@ -5380,6 +5571,11 @@
   ],
   "hits_test": [
    [
+    "tests/test_budget_toolbar_wiring.py",
+    66,
+    "⑤test③str"
+   ],
+   [
     "tests/test_session_budget_wiring.py",
     24,
     "⑤test②"
@@ -5403,12 +5599,12 @@
    ],
    [
     "lingclaude/core/session.py",
-    85,
+    105,
     "prod②"
    ],
    [
     "lingclaude/core/session.py",
-    238,
+    258,
     "prod②"
    ]
   ],
@@ -5475,7 +5671,7 @@
    ],
    [
     "tests/test_security_capability_balance.py",
-    12,
+    13,
     "⑤test②"
    ],
    [
@@ -5957,17 +6153,17 @@
    ],
    [
     "lingclaude/core/session.py",
-    118,
+    138,
     "prod②"
    ],
    [
     "lingclaude/core/session.py",
-    204,
+    224,
     "prod②"
    ],
    [
     "lingclaude/core/session.py",
-    77,
+    97,
     "prod②"
    ],
    [
@@ -6122,7 +6318,7 @@
    ],
    [
     "lingclaude/self_optimizer/daemon.py",
-    1179,
+    1188,
     "prod②"
    ]
   ],
@@ -6979,12 +7175,12 @@
    ],
    [
     "lingclaude/cli/repl.py",
-    1571,
+    1586,
     "prod②"
    ],
    [
     "lingclaude/cli/repl.py",
-    418,
+    433,
     "prod②"
    ],
    [
@@ -7046,12 +7242,12 @@
    ],
    [
     "tests/test_tool_result_protocol.py",
-    382,
+    389,
     "⑤test②"
    ],
    [
     "tests/test_tool_result_protocol.py",
-    442,
+    449,
     "⑤test②"
    ]
   ]
@@ -7991,12 +8187,12 @@
    ],
    [
     "tests/test_lingmemory_bridge.py",
-    185,
+    198,
     "⑤test②"
    ],
    [
     "tests/test_lingmemory_bridge.py",
-    195,
+    208,
     "⑤test②"
    ],
    [
@@ -8006,7 +8202,7 @@
    ],
    [
     "tests/test_lingmemory_experience_bridge.py",
-    177,
+    185,
     "⑤test②"
    ],
    [

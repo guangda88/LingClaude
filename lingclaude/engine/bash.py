@@ -448,6 +448,16 @@ class BashExecutor:
         except Exception:  # noqa: BLE001 — 规则层故障按未激活回退旧逻辑
             rules_active = False
             extra_dirs = []
+        # 2026-10-03（atomcode 10-02 报告的「配置静默失效」缺口）：
+        # rules 激活时 env 显式值会被本分支吞掉且无任何痕迹——用户「以为设了
+        # 实际没设」。此处不做行为变更（规则优先是设计语义），只补一条
+        # WARNING 留痕，让静默失效变成可见事实。
+        if rules_active and os.environ.get("LINGCLAUDE_EXTRA_WRITABLE_DIRS", "").strip():
+            logging.getLogger(__name__).warning(
+                "directory_rules 激活：LINGCLAUDE_EXTRA_WRITABLE_DIRS 已忽略"
+                "（规则 writable 优先）。被忽略值: %r",
+                os.environ["LINGCLAUDE_EXTRA_WRITABLE_DIRS"],
+            )
         if not rules_active:
             env_extra = os.environ.get("LINGCLAUDE_EXTRA_WRITABLE_DIRS", "")
             if env_extra:
