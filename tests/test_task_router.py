@@ -338,6 +338,121 @@ class TestF12EnvKeyFallback(unittest.TestCase):
         self.assertIsNone(name2)
         Path(f.name).unlink()
 
+    # ---- P-FB1 (2026-10-03): _fallback 防"盲兜"守卫 ----
+
+    def _fb_config(self, providers: dict) -> Path:
+        import tempfile as _tf
+        f = _tf.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"routing": {
+            "default_target": "cheap",
+            "providers": providers,
+            "task_routes": {},
+        }}, f)
+        f.close()
+        return Path(f.name)
+
+    def test_pfb1_fallback_skips_cooled_default(self):
+        """default_provider 冷却中 → fallback 必须跳过它，选可用候选。"""
+        path = self._fb_config({
+            "cheap": {"type": "openai", "api_key": "ck", "base_url": "https://cheap.example/v1",
+                      "model": "cheap-m", "models": ["cheap-m"],
+                      "rate_limit": {"rpm": 30, "burst": 5}},
+            "glm": {"type": "openai", "api_key": "gk", "base_url": "https://glm.example/v1",
+                    "model": "glm-5.1", "models": ["glm-5.1"],
+                    "rate_limit": {"rpm": 10, "burst": 3}},
+        })
+        router = TaskRouter(config_path=path)
+        router.record_error("cheap", "HTTP 410: Gone")  # 硬错误→立即熔断30min
+        cfg = router._fallback(max_tokens=1024, temperature=0.7)
+        self.assertEqual(cfg.model, "glm-5.1", "default 冷却中应落到可用候选 glm")
+        path.unlink()
+
+    def test_pfb1_fallback_skips_cloud_no_key(self):
+        """云端 provider 缺 api_key → fallback 不兜到它。"""
+        path = self._fb_config({
+            "cheap": {"type": "openai", "api_key": "", "base_url": "https://cheap.example/v1",
+                      "model": "cheap-m", "models": ["cheap-m"],
+                      "rate_limit": {"rpm": 30, "burst": 5}},
+            "glm": {"type": "openai", "api_key": "gk", "base_url": "https://glm.example/v1",
+                    "model": "glm-5.1", "models": ["glm-5.1"],
+                    "rate_limit": {"rpm": 10, "burst": 3}},
+        })
+        router = TaskRouter(config_path=path)
+        cfg = router._fallback(max_tokens=1024, temperature=0.7)
+        self.assertEqual(cfg.model, "glm-5.1", "云端无 key 的 default 应被跳过")
+        path.unlink()
+
+    def test_pfb1_fallback_last_resort_returns_default(self):
+        """全灭（default 冷却+其余无 key）→ P-FB2 走 openrouter/free 而非死磕冷却中的 default，
+        符合'套餐全灭时免费兜底'语义（至少试一次由 free 承接，不再强撞冷却节点）。"""
+        path = self._fb_config({
+            "cheap": {"type": "openai", "api_key": "ck", "base_url": "https://cheap.example/v1",
+                      "model": "cheap-m", "models": ["cheap-m"],
+                      "rate_limit": {"rpm": 30, "burst": 5}},
+            "glm": {"type": "openai", "api_key": "", "base_url": "https://glm.example/v1",
+                    "model": "glm-5.1", "models": ["glm-5.1"],
+                    "rate_limit": {"rpm": 10, "burst": 3}},
+        })
+        router = TaskRouter(config_path=path)
+        router.record_error("cheap", "HTTP 410: Gone")  # 硬错误→立即熔断
+        cfg = router._fallback(max_tokens=1024, temperature=0.7)
+        self.assertEqual(cfg.model, "free", "套餐全灭时走 openrouter/free 而非死磕冷却节点")
+        self.assertEqual(cfg.base_url, "https://openrouter.ai/api/v1")
+        path.unlink()
+
+    def test_pfb1_fallback_after_recovery_prefers_default(self):
+        """record_success 清冷却后 → fallback 应回到 default 优先。"""
+        path = self._fb_config({
+            "cheap": {"type": "openai", "api_key": "ck", "base_url": "https://cheap.example/v1",
+                      "model": "cheap-m", "models": ["cheap-m"],
+                      "rate_limit": {"rpm": 30, "burst": 5}},
+            "glm": {"type": "openai", "api_key": "gk", "base_url": "https://glm.example/v1",
+                    "model": "glm-5.1", "models": ["glm-5.1"],
+                    "rate_limit": {"rpm": 10, "burst": 3}},
+        })
+        router = TaskRouter(config_path=path)
+        router.record_error("cheap", "HTTP 410: Gone")  # 硬错误→立即熔断
+        router.record_success("cheap")  # 自愈
+        cfg = router._fallback(max_tokens=1024, temperature=0.7)
+        self.assertEqual(cfg.model, "cheap-m", "default 恢复后 fallback 应回到 default")
+        path.unlink()
+
+    # ---- P-FB2 (2026-10-03): free-pool 仅作套餐全灭时的最后兜底 ----
+
+    def test_pfb2_fallback_prefers_openrouter_free_when_all_cloud_keys_missing(self):
+        """套餐全灭（所有 api_key 缺失）时，_fallback 应优先返回 openrouter/free，
+        而非走 default_provider glm（其 key 可能缺失或冷却）。"""
+        path = self._fb_config({
+            "glm": {"type": "openai", "api_key": "", "base_url": "https://glm.example/v1",
+                    "model": "glm-flash", "models": ["glm-flash"],
+                    "rate_limit": {"rpm": 30, "burst": 5}},
+            "openrouter": {"type": "openai", "api_key": "", "base_url": "https://openrouter.ai/api/v1",
+                           "model": "free", "models": ["free"],
+                           "rate_limit": {"rpm": 100, "burst": 10}},
+        })
+        router = TaskRouter(config_path=path)
+        cfg = router._fallback(max_tokens=4096, temperature=0.7)
+        self.assertEqual(cfg.model, "free")
+        self.assertEqual(cfg.base_url, "https://openrouter.ai/api/v1")
+        path.unlink()
+
+    def test_pfb2_fallback_prefers_default_over_free_when_default_available(self):
+        """套餐 default 有 key 且未冷却时，_fallback 应走套餐而非 free-pool，
+        符合'套餐优先保证质量'的设计意图。"""
+        path = self._fb_config({
+            "cheap": {"type": "openai", "api_key": "ck", "base_url": "https://cheap.example/v1",
+                      "model": "cheap-m", "models": ["cheap-m"],
+                      "rate_limit": {"rpm": 30, "burst": 5}},
+            "openrouter": {"type": "openai", "api_key": "", "base_url": "https://openrouter.ai/api/v1",
+                           "model": "free", "models": ["free"],
+                           "rate_limit": {"rpm": 100, "burst": 10}},
+        })
+        router = TaskRouter(config_path=path)
+        cfg = router._fallback(max_tokens=4096, temperature=0.7)
+        self.assertEqual(cfg.model, "cheap-m", "default 套餐可用时应走套餐，free 仅套餐全灭时触发")
+        self.assertEqual(cfg.base_url, "https://cheap.example/v1")
+        path.unlink()
+
 
 if __name__ == "__main__":
     unittest.main()

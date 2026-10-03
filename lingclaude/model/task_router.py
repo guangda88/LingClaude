@@ -644,6 +644,46 @@ class TaskRouter:
         return None
 
     def _fallback(self, max_tokens: int, temperature: float) -> ModelConfig:
+        """route 全灭时的兜底（P-FB1, 2026-10-03 修复"盲兜"）。
+
+        套餐优先保证质量，free-pool 仅作所有套餐兜底：
+          ① 套餐链：default 优先，其余次之，本地健康闸同 _pick_from_route
+          ② 套餐全灭（所有云端无 key 或冷却）→ openrouter/free
+          ③ 仍全灭 → 回退 default_provider 原样（"至少试一次"语义）
+        """
+        # 套餐链：default 优先，其余次之，本地健康闸同 _pick_from_route
+        candidates: list[str] = []
+        if self._default_provider in self._providers:
+            candidates.append(self._default_provider)
+        for name in self._providers:
+            if name not in candidates:
+                candidates.append(name)
+        for name in candidates:
+            pinfo = self._providers[name]
+            if not pinfo.api_key and not _is_local_base(pinfo.base_url):
+                continue  # 云端无 key，请求必炸
+            slot = self._slots.get(name)
+            if slot and not slot.is_available:
+                continue  # 熔断/冷却中，跳下一候选
+            return ModelConfig(
+                model=pinfo.default_model,
+                api_key=pinfo.api_key,
+                base_url=pinfo.base_url,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system_prompt="",
+            )
+        # P-FB2: 套餐全灭 → openrouter/free（无 key 免费智能端点）
+        or_slot = self._slots.get("openrouter")
+        if or_slot is None or or_slot.is_available:
+            return ModelConfig(
+                model="free",
+                api_key="",
+                base_url="https://openrouter.ai/api/v1",
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        # 全灭:回退 default_provider 原样（至少试一次）
         pinfo = self._providers.get(self._default_provider)
         if pinfo:
             return ModelConfig(
@@ -660,6 +700,10 @@ class TaskRouter:
         slot = self._slots.get(provider_name)
         if slot:
             slot.consecutive_errors = 0
+            # P-FB1 (2026-10-03): 真实成功必须同时清熔断冷却——硬错误 30min
+            # 冷却期间节点可能已恢复（如 key 已换），继续跳过它与
+            # "真实成功是最强健康证据"的设计意图矛盾，也会把流量多压 30min。
+            slot.cooldown_until = 0.0
         # P1-F1: 真实成功是最强健康证据——清探活缓存，防陈旧 hard_4xx 结论
         # 在 TTL 内继续误杀已恢复的节点（探活只在路由前做，样本远少于真实调用）
         self._probe.invalidate(provider_name)

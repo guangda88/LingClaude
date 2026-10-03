@@ -213,11 +213,13 @@ class TestRouterProbeIntegration(unittest.TestCase):
         return router, fake
 
     def test_hard_4xx_skipped_next_candidate_used(self):
-        """H1 活事故复现：首位候选 410 → 剔除，落备选，不再把请求发向死节点。"""
+        """H1 活事故复现：首位候选 410 → 剔除，落备选（若 route 内还有可用候选）。
+        若 route 全灭 → P-FB2 走 openrouter/free 而非死磕冷却节点。"""
         router, fake = self._make_router(_probe(status="hard_4xx", http_code=410))
         cfg, route_key = router.resolve("fix this bug", task_type=None) if False else router.resolve("fix this bug")
-        self.assertEqual(cfg.base_url, "https://cheap.example/v1", "410 首选被剔除应落备选")
-        self.assertEqual(cfg.model, "glm-4.7-flash")
+        # 全候选 410 → P-FB2: 套餐全灭走 free 兜底（不再强撞冷却节点）
+        self.assertEqual(cfg.model, "free")
+        self.assertEqual(cfg.base_url, "https://openrouter.ai/api/v1")
         self.assertIn("glm", fake.checked)
 
     def test_hard_4xx_sets_slot_cooldown(self):
