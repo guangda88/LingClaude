@@ -33,7 +33,7 @@ _FORBIDDEN_WRITABLE_ROOTS = (
 )
 # 策略层可信根：DEFAULT_POLICY.allowed_paths 与 PARANOID_WHITELIST["paths"] 的并集。
 # 环境变量显式覆盖时仍受此钳制——信任根收敛到策略（代码/yaml），不完全由 env 决定。
-TRUSTED_WRITABLE_ROOTS = ("/home/ai", "/tmp")
+TRUSTED_WRITABLE_ROOTS = ("/home/ai", "/tmp", "/data", "/mnt/llm")
 
 
 def is_safe_writable_dir(d: str) -> bool:

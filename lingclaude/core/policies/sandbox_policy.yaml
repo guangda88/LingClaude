@@ -26,8 +26,13 @@ network_allowed_commands:
 
 # 默认可写目录：未显式设置 LINGCLAUDE_EXTRA_WRITABLE_DIRS 时，这些协作路径放开写。
 # 对齐策略层 allowed_paths（/home/ai 下所有协作目录可信）。
+# 2026-10-04: 增 /data /mnt/llm —— 根治 V-01 类 EROFS 假象（宿主本就 rw，
+# bwrap 只对清单内目录做 rw-bind，其余一律 ro-bind 造成"磁盘只读"误判；
+# 同日已排障 /data 归档外迁与 openlist 备份写入受阻两类误报）。
 default_writable_dirs:
   - "/home/ai"
+  - "/data"
+  - "/mnt/llm"
 
 # bwrap 包裹参数（仅列策略可调项；安全底线 ro-bind /dev 绑定不可配置）
 # bwrap 二进制查找名
