@@ -1,0 +1,10 @@
+{
+  "type": "灵依重建启动",
+  "members": [
+    "lingyi"
+  ],
+  "note": "灵依转入 linghealth 产品线承担 AI 健康助手(web 问诊/方案生成)。2026-10-04 重建第一步: linghealth 契约路由 /api/v1/plan/generate + whisper 惰性降级 + 8902 服务化。本条修正 2026-09-17 灵依退出条目的定性: 退出的是灵族 MCP 编制, 非项目废弃。AGENTS.md 定性补记同批落地(见 lingyi 仓)。",
+  "ts": "2026-10-04T18:10:00+00:00",
+  "state": "active",
+  "created": "2026-10-04T18:10:00+00:00"
+}
