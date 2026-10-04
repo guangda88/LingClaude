@@ -4,6 +4,7 @@ from lingclaude.cli.display import (
     QualityReport,
     SessionSummary,
     format_header,
+    format_queue_hint,
     format_score,
     format_tool_call,
     format_tool_result,
@@ -171,3 +172,40 @@ class TestPrintFunctions:
         output = captured.out + captured.err
         assert "42" in output
         assert "quality" in output
+
+
+class TestFormatQueueHint:
+    """排队/插队提示行高亮（2026-10-04）：steal=黄粗体, queued=青, 三分支禁色。"""
+
+    def test_steal_explicit_color(self) -> None:
+        result = format_queue_hint("[round 3 插队] 检查日志", kind="steal", color=True)
+        assert result == "\033[1;33m[round 3 插队] 检查日志\033[0m"
+
+    def test_queued_explicit_color(self) -> None:
+        result = format_queue_hint("[排队执行] 修复测试", kind="queued", color=True)
+        assert result == "\033[36m[排队执行] 修复测试\033[0m"
+
+    def test_color_false_passthrough(self) -> None:
+        text = "[排队执行] 原样透传"
+        assert format_queue_hint(text, kind="queued", color=False) == text
+
+    def test_no_color_env_disables(self, monkeypatch: object) -> None:
+        import os
+
+        monkeypatch.setenv("NO_COLOR", "1")  # type: ignore[attr-defined]
+        text = "[round 1 插队] 文本"
+        assert format_queue_hint(text, kind="steal") == text
+
+    def test_managed_tui_always_colors(self, monkeypatch: object) -> None:
+        from lingclaude.cli import repl_io
+
+        monkeypatch.setattr(repl_io, "_full_tui_managed", True, raising=False)  # type: ignore[attr-defined]
+        result = format_queue_hint("[排队执行] x", kind="queued", color=None)
+        assert result.startswith("\033[36m")
+
+    def test_nontty_nocolor_by_default(self, monkeypatch: object) -> None:
+        monkeypatch.delenv("NO_COLOR", raising=False)  # type: ignore[attr-defined]
+        monkeypatch.delenv("LINGCLAUDE_COLOR", raising=False)  # type: ignore[attr-defined]
+        # pytest 捕获流非 tty → 默认不上色（不污染日志）
+        text = "[round 2 插队] 文本"
+        assert format_queue_hint(text, kind="steal") == text

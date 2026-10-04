@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 from lingclaude.cli.commands import SlashCommandProcessor
-from lingclaude.cli.display import SessionSummary
+from lingclaude.cli.display import SessionSummary, format_queue_hint
 from lingclaude.cli.mode_cycle import set_plan_runtime_provider, shift_mode
 from lingclaude.cli.input_queue import EOF_SENTINEL, InputQueue
 from lingclaude.cli.interface import (
@@ -1457,7 +1457,7 @@ def _consume_queue_round(ctx: _ReplCtx, round_idx: int) -> None:
         # 插队：当前 round 的 tool 轮继续，turn 结束后作为下一轮输入
         ctx.queued_next = queued_next
         if get_output_format() == "plain":
-            print(f"\n[round {round_idx} 插队] {queued_next[:40]}")
+            print("\n" + format_queue_hint(f"[round {round_idx} 插队] {queued_next[:40]}", kind="steal"))
 
 
 def _consume_queue(ctx: _ReplCtx) -> str:
@@ -1791,7 +1791,7 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
             ctx.queued_next = None
             next_prompt_hint = f"[排队执行] {prompt[:40]}"
             if get_output_format() == "plain":
-                print(next_prompt_hint)
+                print(format_queue_hint(next_prompt_hint, kind="queued"))
         else:
             prompt = ""
             try:

@@ -304,6 +304,37 @@ def print_diff(diff_text: str, language: str = "diff") -> None:
             print(line)
 
 
+def _queue_hint_color_enabled() -> bool:
+    """排队/插队提示是否着色（2026-10-04，对齐 print_diff 双逃生口语义）。
+
+    - full TUI 托管期：恒 True —— 写窗层 _fallback_strip_ansi(keep_sgr=True)
+      白名单保留 SGR（同 ✓/✗ 状态行受控富文本先例），非 SGR CSI 照吞。
+    - 真终端 plain：尊重 LINGCLAUDE_COLOR=0 / NO_COLOR 逃生口。
+    - 非 tty（管道/重定向/pytest capsys）：不上色，防污染日志与捕获流。
+    """
+    from lingclaude.cli.repl_io import is_full_tui_managed  # 函数内延迟 import 防环
+
+    if is_full_tui_managed():
+        return True
+    return sys.stdout.isatty() and not _plain_no_color()
+
+
+def format_queue_hint(text: str, kind: str = "queued", color: bool | None = None) -> str:
+    """排队/插队提示行高亮（2026-10-04 用户需求：回看会话历史更醒目）。
+
+    - kind="steal"  : 黄色粗体 \\033[1;33m —— 插队（生成期打断注入，最醒目）
+    - kind="queued" : 青色 \\033[36m —— 排队执行（turn 间顺序消费）
+    文本内容原样透传，仅包裹 SGR；color=None 时按 _queue_hint_color_enabled
+    自动判定，显式传 bool 供测试确定性。
+    """
+    if color is None:
+        color = _queue_hint_color_enabled()
+    if not color:
+        return text
+    sgr = "\033[1;33m" if kind == "steal" else "\033[36m"
+    return f"{sgr}{text}\033[0m"
+
+
 def print_metrics_stats(stats: dict[str, Any]) -> None:
     if _HAS_RICH:
         console = _get_console()
