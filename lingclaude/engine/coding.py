@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from uuid import uuid4
 from typing import Any
 
 from lingclaude.core.config import lingclaudeConfig
@@ -215,15 +216,56 @@ class CodingRuntime(
         # P3: loop_detector 走轻通道（保形状包装器，阈值外置策略可热更）
         self._loop_detector = LazyLoopDetector(self._light.loop_detector)
         self._denial_abort_log: str | None = None
-        # 5b 第一道门: log_denial 桥（复用 SessionRuntime→DataFlywheel，不造新文件）。
-        # session_id 兜底 "default"，与 execute_tool 里 permission store 的取法一致。
-        self.session_id = getattr(self.config, "session_id", "default")
+        # 会话身份单源（2026-10-07 会话级隔离）：不再构造期固化
+        # getattr(config,'session_id','default')（lingclaudeConfig 无该字段，
+        # 旧写法恒为 "default" → todo/权限审批等会话级数据全部串台）。
+        # session_id 改为动态 property（见类尾），跟随宿主 engine（set_runtime
+        # 注入的 QueryEngine）的真实会话 id；resume/--continue/L2 压缩换 id 后
+        # 自动跟随。无宿主的独立装配路径回落 config 字段或随机新 id（惰性）。
         # P4: session_runtime 槽已在开头统一注册（SLOT_WIRING_MANIFEST）。
         # 句柄经 getattr 透明代理，lifecycle mixin / subagent_tools 访问零改动。
         # P2 (2026-09-18): VerifyCadenceHook — 编辑后未验证 nudge + 死循环检测。
         # T0 零推理（纯字符串匹配），独立开关 LINGCLAUDE_VERIFY_CADENCE（默认开）。
         # P3: 走轻通道（保形状包装器，env 开关迁入 YAML 策略可热更）
         self._verify_cadence = LazyVerifyCadence(self._light.verify_cadence)
+
+    # ── 会话身份单源（2026-10-07 会话级隔离）─────────────────────────────
+    # 旧实现：构造期 self.session_id = getattr(config,'session_id','default')
+    # → lingclaudeConfig 无顶层 session_id 字段，恒为 "default"；与宿主
+    # QueryEngine（uuid4 随机 id，resume/load_session/L2 压缩会换 id）身份
+    # 分裂 —— todo 面板、审批决策、flywheel 日志全部落 "default" 一个桶里。
+    # 新语义：runtime 无自己的会话身份，始终委托宿主 engine；宿主换 id
+    # （/resume /continue /session switch /rewind /clear L2压缩）零接线跟随。
+    @property
+    def session_id(self) -> str:
+        host = getattr(self, "_host_engine", None)
+        if host is not None:
+            return str(getattr(host, "session_id", "") or "")
+        cfg_sid = getattr(self.config, "session_id", "") if self.config is not None else ""
+        if cfg_sid:
+            return str(cfg_sid)
+        # 无宿主兜底：惰性随机（api.py / bus_responder 独立装配路径），
+        # 每实例稳定、实例间不串台。
+        sid = getattr(self, "_fallback_session_id", None)
+        if sid is None:
+            sid = uuid4().hex[:16]
+            self._fallback_session_id = sid
+        return sid
+
+    @session_id.setter
+    def session_id(self, value: str) -> None:
+        # 写穿透到宿主（engine.session_id = X 后 runtime.session_id 同步可见）；
+        # 无宿主时落 fallback。l5_audit L2 压缩等「engine.session_id = 新id」
+        # 调用若经 runtime 句柄书写，语义不变。
+        host = getattr(self, "_host_engine", None)
+        if host is not None:
+            host.session_id = value
+        else:
+            self._fallback_session_id = value
+
+    def set_host_engine(self, host: Any) -> None:
+        """绑定宿主 engine（app/api/bus_responder 的 set_runtime 后调用）。"""
+        self._host_engine = host
 
     def close(self) -> None:
         """释放资源（进程退出/会话结束调用）。
@@ -289,7 +331,7 @@ class CodingRuntime(
         from lingclaude.engine.lsp_ab import apply_lsp_ab_gate
 
         self._lsp_ab_recorder = apply_lsp_ab_gate(
-            self.registry, getattr(self.config, "session_id", "default")
+            self.registry, self.session_id  # 会话身份单源：跟随宿主 engine（2026-10-07）
         )
         self._plan_mode_active: bool = False
         # T0-1: plan_mode 接入 — 用于过滤写工具
@@ -507,7 +549,7 @@ class CodingRuntime(
         """T0-3: 当前会话的审批 store — webUI /permission 决策的落点与查询入口。"""
         from lingclaude.core.permissions import PermissionStore, get_permission_store
 
-        store: PermissionStore = get_permission_store(getattr(self.config, "session_id", "default"))
+        store: PermissionStore = get_permission_store(self.session_id)
         return store
 
     def _gate_sensitive(self, name: str, *candidates: str | None) -> str | None:
@@ -523,7 +565,7 @@ class CodingRuntime(
                 continue
             is_sensitive, reason = check_sensitive_path(str(cand))
             if is_sensitive:
-                store = get_permission_store(getattr(self.config, "session_id", "default"))
+                store = get_permission_store(self.session_id)
                 if store.explicitly_allowed(name):
                     return None
                 return (
@@ -676,7 +718,7 @@ class CodingRuntime(
         """权限判定入口（ToolExecutor 快路径预检复用；模式/store 实时读取）。"""
         from lingclaude.core.permissions import get_permission_mode, get_permission_store
 
-        store = get_permission_store(getattr(self.config, "session_id", "default"))
+        store = get_permission_store(self.session_id)
         return self._tool_blocked(tool_name, store, get_permission_mode(), kwargs)
 
     def _tool_scope_is_readonly(self, tool_name: str) -> bool:
@@ -756,7 +798,7 @@ class CodingRuntime(
             get_permission_store,
         )
 
-        store = get_permission_store(getattr(self.config, "session_id", "default"))
+        store = get_permission_store(self.session_id)
         # T1-2 深化: 全局 mode 优先（webUI /permission/mode 可实时切换，覆盖静态 config mode）
         active_mode = get_permission_mode()
 

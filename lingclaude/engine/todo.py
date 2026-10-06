@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -79,15 +79,28 @@ class TodoStore:
     CREATE INDEX IF NOT EXISTS idx_todos_parent  ON todos(parent_id);
     """
 
-    def __init__(self, db_path: str | Path, session_id: str):
+    def __init__(self, db_path: str | Path, session_id: "str | Callable[[], str]"):
         self.db_path = Path(db_path)
-        self.session_id = session_id
+        # 会话级隔离（2026-10-07）：session_id 支持传 callable（如绑定 runtime
+        # 的 lambda），property 每次访问动态解析 —— /resume、L2 压缩等换会话
+        # 后，任务面板自动重绑到新会话，不再读旧 id 的存量行。
+        self._session_id: "str | Callable[[], str]" = session_id
         # 2026-09-17 Bug B 修复：工具执行器每轮可能在不同线程调用同一 store，
         # 连接若缓存在实例属性上会跨线程复用，被 sqlite3 默认
         # check_same_thread=True 拒绝（报错 "SQLite objects created in a thread
         # can only be used in that same thread"）。改为 threading.local，
         # 每线程各自持一条连接，天然线程安全且无锁开销。
         self._local = threading.local()
+
+    @property
+    def session_id(self) -> str:
+        """当前会话 id（callable 时动态解析，随宿主 engine 换会话自动跟随）。"""
+        sid = self._session_id
+        return str(sid()) if callable(sid) else str(sid)
+
+    @session_id.setter
+    def session_id(self, value: "str | Callable[[], str]") -> None:
+        self._session_id = value
 
     def _connect(self) -> sqlite3.Connection:
         conn = getattr(self._local, "conn", None)

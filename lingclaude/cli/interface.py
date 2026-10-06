@@ -14,7 +14,7 @@ import sys
 import threading
 import unicodedata
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable, Callable, Iterable
 
 from lingclaude.cli.repl_io import replay_stdin_bytes
 from lingclaude.core.policy_loader import get as _policy_get
@@ -23,7 +23,7 @@ from lingclaude.engine.lineedit import add_history_line, ensure_readline, load_h
 # prompt_toolkit 为可选依赖 — 未安装时 PromptToolkitSession 不可用，FallbackSession 兜底
 try:
     from prompt_toolkit import PromptSession as _PTSession
-    from prompt_toolkit.history import FileHistory, InMemoryHistory
+    from prompt_toolkit.history import FileHistory, History, InMemoryHistory
     from prompt_toolkit.shortcuts import prompt as _pt_prompt
     from prompt_toolkit.styles import Style as _PTStyle
 
@@ -72,6 +72,11 @@ PT_TUI_STYLE = (
 # 在 ~/lingclaude 按上键也会还原出来（跨项目泄露）。改为 ".lingclaude/history"
 # （相对当前工作目录）：每个项目独立历史，不跨项目污染。
 DEFAULT_HISTORY_FILE = ".lingclaude/history"
+
+# 2026-10-07 会话级隔离：SessionRoutedHistory 的 PT 基类别名（PT 缺失时
+# 落 object 兜底 —— 该模块 fallback 分支本就不依赖 PT；类定义在下方，
+# 仅在 _HAS_PROMPT_TOOLKIT 时继承 FileHistory 协议）。
+_FileHistoryBase = FileHistory if _HAS_PROMPT_TOOLKIT else object
 
 
 # ---------------------------------------------------------------------------
@@ -619,6 +624,87 @@ class PromptSessionInterface(Protocol):
         ...
 
 
+class SessionRoutedHistory(_FileHistoryBase if _HAS_PROMPT_TOOLKIT else object):
+    """会话级路由的输入历史（2026-10-07 会话级隔离）。
+
+    旧行为：单文件 .lingclaude/history 按项目共享 —— 同目录下 A 会话退出、
+    B 会话（或 --resume 旧会话）按上键能翻出 A 的输入，会话间泄露。
+    新行为：base 文件同目录兄弟文件 history.<session_id>，输入按当前会话
+    归档；get_session_id 为 callable 时动态解析（resume /clear 换会话后，
+    下一条输入自动落新会话文件，翻历史只见本会话内容）。
+
+    兼容：不传 get_session_id（恒 None）→ 全部落 base 文件，行为与旧
+    FileHistory 完全一致（WebUI/CI 路径零变化）。协议只覆写
+    load_history_strings/store_string（PT 3.x History 抽象面），重置内部
+    缓存以支持运行中切换会话文件。
+    """
+
+    def __init__(self, base_file: str, get_session_id: Callable[[], str | None] | None = None) -> None:
+        # 显式调 History（而非 FileHistory）初始化 —— FileHistory.__init__ 强制
+        # filename 参数；此处只借 History 的缓存字段（_loaded/_loaded_strings）。
+        (History.__init__ if _HAS_PROMPT_TOOLKIT else object.__init__)(self)
+        self._base = Path(base_file).expanduser()
+        self._get_sid = get_session_id
+        self._current_key: str | None = self._session_key()
+        self._current_file = self._file_for(self._current_key)
+        self._ensure_parent()
+        self._delegate = self._new_delegate()
+
+    # -- 路由 --------------------------------------------------------------
+    def _session_key(self) -> str | None:
+        if self._get_sid is None:
+            return None
+        try:
+            sid = self._get_sid()
+        except Exception:  # noqa: BLE001 — 会话解析失败不反噬输入路径
+            return None
+        sid = str(sid or "").strip()
+        return sid or None
+
+    def _file_for(self, key: str | None) -> Path:
+        if key is None:
+            return self._base
+        safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in key)
+        return self._base.parent / f"{self._base.name}.{safe}"
+
+    def _ensure_parent(self) -> None:
+        try:
+            self._current_file.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass  # FileHistory 自身会再失败并抛，调用方在输入主路径上容错
+
+    def _new_delegate(self) -> Any:
+        if _HAS_PROMPT_TOOLKIT:
+            return FileHistory(str(self._current_file))
+        return None
+
+    def _retarget_if_needed(self) -> None:
+        key = self._session_key()
+        if key == self._current_key:
+            return
+        self._current_key = key
+        self._current_file = self._file_for(key)
+        self._ensure_parent()
+        self._delegate = self._new_delegate()
+        # PT History 缓存失效：下次 load() 重放新文件内容
+        self._loaded_strings = []
+        self._loaded = False
+
+    @property
+    def current_file(self) -> Path:
+        """当前会话正在使用的历史文件（Fallback 读写线镜像用）。"""
+        return self._current_file
+
+    # -- PT History 协议 ----------------------------------------------------
+    def load_history_strings(self) -> Iterable[str]:
+        self._retarget_if_needed()
+        return self._delegate.load_history_strings()
+
+    def store_string(self, string: str) -> None:
+        self._retarget_if_needed()
+        self._delegate.store_string(string)
+
+
 class PromptToolkitSession:
     """L1 实现 — 包 prompt_toolkit.PromptSession + FileHistory。"""
 
@@ -626,12 +712,15 @@ class PromptToolkitSession:
         self,
         history_file: str = DEFAULT_HISTORY_FILE,
         completer: Any | None = None,
+        get_session_id: Callable[[], str | None] | None = None,
     ) -> None:
         if not _HAS_PROMPT_TOOLKIT:
             raise RuntimeError("prompt_toolkit 未安装，请使用 FallbackSession")
         history_path = Path(history_file).expanduser()
         history_path.parent.mkdir(parents=True, exist_ok=True)
-        self._history = FileHistory(str(history_path))
+        # 会话级隔离（2026-10-07）：经 SessionRoutedHistory 按当前会话路由到
+        # history.<session_id>；无会话源时回落 base 文件（旧语义）。
+        self._history = SessionRoutedHistory(str(history_path), get_session_id)
         # 2026-09-22: Shift+Tab 模式环回调（repl 装配时经 install_mode_toggler
         # 注入；键位按下时才读取，构造后再注入同样生效）
         self._mode_toggler = None
@@ -817,15 +906,22 @@ class FallbackSession:
     支持方向键上/下翻历史。
     """
 
-    def __init__(self, history_file: str = DEFAULT_HISTORY_FILE) -> None:
-        self._history: list[str] = []
+    def __init__(
+        self,
+        history_file: str = DEFAULT_HISTORY_FILE,
+        get_session_id: Callable[[], str | None] | None = None,
+    ) -> None:
         self._history_file = Path(history_file).expanduser()
+        # 会话级隔离（2026-10-07）：经 SessionRoutedHistory 按当前会话路由；
+        # self._history 退化为当前会话文件的只读视图（翻历史用）。
+        self._routed_history = SessionRoutedHistory(str(self._history_file), get_session_id)
+        self._history = self._routed_history.get_strings()
         self._interrupt = threading.Event()
         self._load_history()
         # 2026-09-18 方向键/历史修复：已落盘历史喂进 readline 内存历史 ——
         # 裸 input() 路径（含 streaming/泵收集）上键翻历史跨进程延续。
         # prompt() 的非流式分支同样经 ensure_readline 挂钩（见下）。
-        load_history_file(str(self._history_file))
+        load_history_file(str(self._routed_history.current_file))
         # 2026-09-16（TUI 输入泵问题修复）: streaming 标志
         self._streaming = False
         # readline 历史翻页位置（-1 = 最末，即新输入位置）
@@ -1116,24 +1212,34 @@ class FallbackSession:
         return self._interrupt
 
     def _load_history(self) -> None:
+        # 会话级隔离（2026-10-07）：读写均经 routed history 的当前会话文件
+        # （history.<session_id>），换会话后下次读写自动跟随新文件。
         try:
-            if self._history_file.exists():
+            cur = self._routed_history.current_file
+            if cur.exists():
                 self._history = [
-                    line for line in self._history_file.read_text(encoding="utf-8").splitlines() if line.strip()
+                    line for line in cur.read_text(encoding="utf-8").splitlines() if line.strip()
                 ]
         except OSError:
             self._history = []
 
     def _save_history(self) -> None:
         try:
-            self._history_file.parent.mkdir(parents=True, exist_ok=True)
-            self._history_file.write_text("\n".join(self._history[-200:]), encoding="utf-8")
+            cur = self._routed_history.current_file
+            cur.parent.mkdir(parents=True, exist_ok=True)
+            cur.write_text("\n".join(self._history[-200:]), encoding="utf-8")
         except OSError:
             pass
 
 
-def create_session(completer: Any | None = None) -> PromptSessionInterface:
-    """入口选择（优先级从高到低，设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md §九）：
+def create_session(
+    completer: Any | None = None,
+    get_session_id: Callable[[], str | None] | None = None,
+) -> PromptSessionInterface:
+    """入口选择（优先级从高到低，设计文档 docs/cli/TUI_BOTTOM_INPUT_DESIGN.md §九）。
+
+    get_session_id（2026-10-07 会话级隔离）：返回当前会话 id 的 callable，
+    供输入历史按会话路由（history.<session_id>）；None 时回落单文件旧语义。
 
     1. LINGCLAUDE_TUI=0   → 强制 Fallback（CI/headless 关 TUI）
     2. LINGCLAUDE_TUI=2   → 强制 P2 全屏 TUI（TTY+PT 可用时；Q4 落地 2026-09-15）
@@ -1143,24 +1249,24 @@ def create_session(completer: Any | None = None) -> PromptSessionInterface:
     """
     tui_env = os.environ.get("LINGCLAUDE_TUI")
     if tui_env == "0":
-        return FallbackSession()
+        return FallbackSession(get_session_id=get_session_id)
     if tui_env not in ("1", "2") and os.environ.get("LINGCLAUDE_CLI_MODE") == "plain":
         # 未设置 TUI 开关时维持原有 plain 语义；=1/=2 时 plain 被覆盖
-        return FallbackSession()
+        return FallbackSession(get_session_id=get_session_id)
     if not sys.stdin.isatty():
-        return FallbackSession()
+        return FallbackSession(get_session_id=get_session_id)
     if not _HAS_PROMPT_TOOLKIT:
-        return FallbackSession()
+        return FallbackSession(get_session_id=get_session_id)
     if tui_env == "2":
         # P2 全屏 TUI（Q4 落地）：构造失败回退 P1 形态，再失败回退 Fallback。
         # 全屏模式由 LINGCLAUDE_TUI=2 显式开启 —— 默认路径不受影响（P1 形态）。
         try:
             from lingclaude.cli.full_tui import FullTuiSession
 
-            return FullTuiSession(completer=completer)
+            return FullTuiSession(completer=completer, get_session_id=get_session_id)
         except Exception:  # noqa: BLE001 — 全屏构造失败降级 P1，不崩
             pass
     try:
-        return PromptToolkitSession(completer=completer)
+        return PromptToolkitSession(completer=completer, get_session_id=get_session_id)
     except RuntimeError:
-        return FallbackSession()
+        return FallbackSession(get_session_id=get_session_id)

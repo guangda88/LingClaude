@@ -488,6 +488,12 @@ async def ask_stream(req: AskRequest, api_key: str = Security(verify_api_key)):
     from lingclaude.engine.coding import CodingRuntime
 
     engine.set_runtime(CodingRuntime(load_config(None)))
+    # 会话级隔离（2026-10-07）：持久会话由下方 load_session 回写 engine.session_id
+    # （runtime/审批/任务面板随之对齐真实会话 id）；一次性问答无会话可持久化，
+    # 显式落 "default" —— webUI /permission 回传 `req.session_id or "default"`
+    # 的审批决策与本请求 engine 命中同一 store（旧行为保持）。
+    if not getattr(req, "session_id", ""):
+        engine.session_id = "default"
     # B: 跨端任务续接（2026-10-02）——session_id 携带时恢复会话上下文，
     # 轮终持久化（带线程写锁 + fork 纪律）；缺省路径零变化（一次性问答）。
     # 404 语义 = 显式锚点不存在（客户端配错/会话过期），fail-fast。

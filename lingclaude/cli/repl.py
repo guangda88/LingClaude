@@ -1557,7 +1557,12 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
         _completer = SlashCompleter(engine)  # 注入 engine：参数级补全的动态源
     except ImportError:
         _completer = None
-    session: PromptSessionInterface = create_session(completer=_completer)
+    # 会话级隔离（2026-10-07）：输入历史按当前会话路由（history.<session_id>）；
+    # lambda 动态解析 engine.session_id —— /resume /clear 换会话后输入自动落新会话。
+    session: PromptSessionInterface = create_session(
+        completer=_completer,
+        get_session_id=lambda: str(getattr(engine, "session_id", "") or "") or None,
+    )
     ctx.session = session
 
     # P2 常驻全屏 TUI：输出源注入 + 会话级启动（stdout 代理接管，生成期

@@ -287,6 +287,11 @@ class QueryEngine(
 
     def set_runtime(self, runtime: Any) -> None:
         self._runtime = runtime
+        # 会话身份单源（2026-10-07）：runtime 的 session_id 委托本 engine；
+        # 绑定后 runtime/todo/审批与 engine 会话状态同一 id（resume 换 id 自动跟随）。
+        bind = getattr(runtime, "set_host_engine", None)
+        if callable(bind):
+            bind(self)
 
     def init_intel(self, output_dir: Path | None = None) -> None:
         self._intel_relay = IntelRelay(output_dir=output_dir or Path(".lingclaude/intel"))

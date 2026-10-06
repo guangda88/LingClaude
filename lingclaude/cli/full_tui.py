@@ -59,6 +59,7 @@ from lingclaude.cli.interface import (
     _patch_pt_modifier_enter,
     _strip_ansi_text,
 )
+from lingclaude.cli.interface import SessionRoutedHistory
 from lingclaude.engine.lineedit import add_history_line, ensure_readline
 
 # prompt_toolkit 为可选依赖 — 未安装时构造抛 RuntimeError（create_session 捕获回退）
@@ -493,13 +494,16 @@ class FullTuiSession:
         history_file: str = DEFAULT_HISTORY_FILE,
         completer: Any | None = None,
         output_source: Callable[[], list[str]] | None = None,
+        get_session_id: Callable[[], str | None] | None = None,
     ) -> None:
         if not _HAS_PROMPT_TOOLKIT:
             raise RuntimeError("prompt_toolkit 未安装，请使用 FallbackSession")
         history_path = Path(history_file).expanduser()
         try:
             history_path.parent.mkdir(parents=True, exist_ok=True)
-            self._history = FileHistory(str(history_path))
+            # 会话级隔离（2026-10-07）：经 SessionRoutedHistory 按当前会话路由到
+            # history.<session_id>；无会话源时回落 base 文件（旧语义）。
+            self._history = SessionRoutedHistory(str(history_path), get_session_id)
         except OSError:
             self._history = InMemoryHistory()
         self._completer = completer

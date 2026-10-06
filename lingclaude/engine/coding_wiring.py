@@ -245,8 +245,13 @@ def _initial_todo_store(ctx: CodingWiringContext) -> Any:
 
     data_dir = _resolve_data_dir(ctx)
     scope_db = _resolve_todo_project_scope()
-    session_id = getattr(ctx.runtime.config, "session_id", "default")
-    return TodoStore(data_dir / scope_db, session_id=session_id)
+    # 会话级隔离（2026-10-07）：session_id 传 lambda 动态解析 runtime.session_id
+    # （runtime 委托宿主 engine；/resume /clear 换会话后面板自动重绑新会话，
+    # 不再所有进程共用 "default" 一个桶）。
+    return TodoStore(
+        data_dir / scope_db,
+        session_id=lambda: str(getattr(ctx.runtime, "session_id", "") or "default"),
+    )
 
 
 def _initial_session_runtime(ctx: CodingWiringContext) -> Any:
