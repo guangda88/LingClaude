@@ -153,3 +153,15 @@
 {"type": "tool_auth_decision", "id": "c1b3282b-38d", "ts": "2026-10-02T20:33:37", "tier": "ask", "tool_name": "bash", "policy_id": "353237236222", "args_keys": ["command"]}
 {"type": "tool_auth_decision", "id": "15a86a9a-1c8", "ts": "2026-10-02T20:33:37", "tier": "ask", "tool_name": "bash", "policy_id": "353237236222", "args_keys": ["command"]}
 {"type": "tool_auth_decision", "id": "f96a2619-657", "ts": "2026-10-02T20:33:37", "tier": "ask", "tool_name": "bash", "policy_id": "353237236222", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "06d7188c-d48", "ts": "2026-10-02T23:42:52", "tier": "block", "tool_name": "bash", "policy_id": "241157292066", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "0bd722fa-a90", "ts": "2026-10-02T23:42:53", "tier": "ask", "tool_name": "bash", "policy_id": "837863614622", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "8ec36a1e-97e", "ts": "2026-10-02T23:42:56", "tier": "block", "tool_name": "bash", "policy_id": "705071823262", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "5952de97-a6d", "ts": "2026-10-02T23:47:01", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "e723e6e2-900", "ts": "2026-10-02T23:47:03", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "2a901e1e-90d", "ts": "2026-10-02T23:47:06", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "aeb63152-1e8", "ts": "2026-10-02T23:47:09", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "fbbc5cce-b8d", "ts": "2026-10-02T23:47:09", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "aec1ab52-2ed", "ts": "2026-10-02T23:47:11", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "94cd020d-34f", "ts": "2026-10-02T23:47:12", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "f312f6e8-ac4", "ts": "2026-10-02T23:47:12", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "d9d15a08-db6", "ts": "2026-10-02T23:47:12", "tier": "ask", "tool_name": "bash", "policy_id": "267157927436", "args_keys": ["command"]}

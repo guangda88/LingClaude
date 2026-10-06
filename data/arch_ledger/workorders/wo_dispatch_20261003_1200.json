@@ -1,0 +1,14 @@
+{
+  "id": "wo_dispatch_20261003_1200",
+  "ts": "2026-10-03T12:00:00+08:00",
+  "actor": "lingclaude",
+  "authority": "族长指令「等待push期间，派单修复」（本会话直接命令）",
+  "action": "cross_repo_workorder_dispatch",
+  "basis": "11:30 lc 逐项复测 12/12 与 lingan 自测表一致；P2-③ 裸名绕过经裁定书设计+族长批准",
+  "dispatch": [
+    {"repo": "lingan", "file": "docs/audit/workorder_20261003_lc_to_lingan_fix_queue.md", "items": ["P0-①", "P0-②", "P0-③", "P0-④(时序锁定P0-①后)", "P1-①", "P1-②", "P1-③", "P2-①", "P2-②", "P2-③(已批)"], "deadline_h": {"P0": 24, "P1": 48, "P2": 72}},
+    {"repo": "lingmessage", "file": "docs/workorders/wo_20261003_P1-04_failopen.md", "items": ["P1-④ fail-open→fail-closed"], "deadline_h": {"P1": 48}}
+  ],
+  "channel_note": "canonical总线库EROFS未解除(12:01探针复测只读)，走Q3追认文件通道；恢复后补投",
+  "dependency_lock": "P0-④接线严格排在P0-①全绿后(裁定书原文：顺序不可颠倒)"
+}
