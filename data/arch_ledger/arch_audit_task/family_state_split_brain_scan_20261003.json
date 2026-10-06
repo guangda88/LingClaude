@@ -1,0 +1,7 @@
+{
+  "severity": "P1",
+  "finding": "灵克全机扫描'路径未resolve多实例'同族病（lingbus 22实例之外的发现）：①HIGH 灵忆 lingmemory.db ×5——canonical=lingclaude/lingmemory/lingmemory.db（10-03活跃），但 lingclaude/lingclaude/data/（路径双拼）09-28 仍有写入=近期有记忆写进了侧库，数据丢失风险；②MED 散落 .lingclaude 会话目录 ×6——lingan/.lingclaude 10-03 仍活跃（app.py:404 已派单修复）；③MED crush.db ×31——每成员 .crush/ 双写 + 同目录双份（cwd 相对路径漂移）+ 08-29 17:55 同秒批量拷贝事件；④LOW messages.db ×5 死化石。根因全族同型：状态路径相对化+按cwd落盘。处置：灵忆收敛归 lc 仓可并入沙箱方案后派单；其余 owner 派单。",
+  "source": "h17_audit_20261003",
+  "state": "open",
+  "created": "2026-10-03T01:04:59+00:00"
+}

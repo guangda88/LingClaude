@@ -1,0 +1,31 @@
+{
+  "incident_id": "ghost_push_chains_20261003",
+  "date": "2026-10-03",
+  "severity": "medium",
+  "title": "推送指令文件无防重入设计 → 双幽灵门禁链 → round2 门禁负载假红",
+  "chain_of_events": [
+    "09:55 lc主会话写 /tmp/push_order_for_gateway_repl.md（推送指令，无认领锁/状态标记/幂等检查）",
+    "10:41 round1 origin 成功落地（aec53e4）——指令目标实际已被满足",
+    "11:32/11:34 另一REPL(2384393)两次读指令执行 push，各起一条全量pytest(-n8)门禁链，随后REPL死亡留PPID=1孤儿",
+    "11:06-11:54 round2 origin 门禁与双幽灵链并发（三套全量pytest抢8核）→ load 31、MemAvailable 最低10.6GB",
+    "round2 origin pytest 3红(t0_wiring×2 + long_session_stress×1) → origin_exit=1，疑似资源争抢假红",
+    "12:03-12:05 清理双幽灵链(PGID TERM)与挂起的github链(3870792)；负载回落 31→21"
+  ],
+  "root_causes": [
+    "跨进程任务投递文件无 O_EXCL 认领锁、无完成后状态标记、无TTL",
+    "执行方未先核验目标状态（round1 已推平 aec53e4，本无需再推）",
+    "指令未含'先 ls-remote 判断是否已落地'的前置幂等步骤"
+  ],
+  "impacts": [
+    "round2 origin 门禁假红（待单跑复判定确认）",
+    "8核机三套全量pytest并发约47分钟，全机负载31",
+    "github 推送仍未落地（round1 SSH断连 + round2 被杀）"
+  ],
+  "corrective_actions": [
+    "跨agent文件投递协议升级：认领锁(O_EXCL) + done标记 + TTL + 执行前状态核验",
+    "推送脚本前置 ls-remote 幂等检查（网络域执行方具备该能力）",
+    "全量门禁并发上限=1（资源门禁按 MemAvailable 放行不足以防CPU争抢型假红）"
+  ],
+  "author": "lingclaude(stealth/space-bunny-alpha)",
+  "authority": "自主留痕（自纠错纪律）"
+}
