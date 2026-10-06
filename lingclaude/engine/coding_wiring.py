@@ -217,12 +217,36 @@ def _resolve_data_dir(ctx: CodingWiringContext) -> Any:
     return data_dir
 
 
+def _resolve_todo_project_scope() -> str:
+    """todo 项目作用域键（2026-10-07 串台修复）。
+
+    背景（atomcode 2026-10-03「状态路径相对化」同族病）：todos.db 此前落
+    包仓库根 data/（全局单库），且 session_id 恒为 "default"——A 目录创建
+    的任务会出现在 B 目录的 lc 任务面板。
+
+    语义：LINGCLAUDE_DATA_DIR 显式设置时保持原语义（显式共享全局库）；
+    未设置时按进程 CWD 哈希分库——todos.<cwd_hash8>.db，同目录同库、
+    异目录隔离。哈希锚定 abs+resolve 路径（symlink 归一），同目录经不同
+    相对路径启动也命中同一库。
+    """
+    import hashlib
+    import os
+    from pathlib import Path
+
+    if os.environ.get("LINGCLAUDE_DATA_DIR"):
+        return "todos.db"
+    cwd = Path.cwd().resolve()
+    digest = hashlib.sha256(str(cwd).encode("utf-8")).hexdigest()[:8]
+    return f"todos.{digest}.db"
+
+
 def _initial_todo_store(ctx: CodingWiringContext) -> Any:
     from lingclaude.engine.todo import TodoStore
 
     data_dir = _resolve_data_dir(ctx)
+    scope_db = _resolve_todo_project_scope()
     session_id = getattr(ctx.runtime.config, "session_id", "default")
-    return TodoStore(data_dir / "todos.db", session_id=session_id)
+    return TodoStore(data_dir / scope_db, session_id=session_id)
 
 
 def _initial_session_runtime(ctx: CodingWiringContext) -> Any:
