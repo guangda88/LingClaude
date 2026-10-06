@@ -165,7 +165,22 @@ def _keyring_save(root_hex: str) -> bool:
         return False
 
 
-def _load_root_key() -> bytes:
+# 2026-10-06 启动优化：进程级缓存根密钥。TaskRouter 对每个 provider
+# 各 new 一个 Vault()，未缓存时每次 _load_root_key 都重走 keyring 后端
+# 探测链（importlib.metadata 扫全机 entry_points + D-Bus 握手），lc 冷
+# 启动被放大到 10s+（实测 keyring 探测单次 0.5~4s × 10 次）。进程内
+# 语义不变——env/keyring/文件三链查找顺序、失败异常类型全保持，只是
+# 同一进程内只解析一次。测试需改 env 时用 reset_root_key_cache()。
+_ROOT_KEY_CACHE: bytes | None = None
+
+
+def reset_root_key_cache() -> None:
+    """清进程级根密钥缓存（测试/密钥轮换用，生产路径不调用）。"""
+    global _ROOT_KEY_CACHE
+    _ROOT_KEY_CACHE = None
+
+
+def _load_root_key_uncached() -> bytes:
     """根密钥三链：env → keyring(可选) → 0600 文件。全空 → VaultLockedError。"""
     env_raw = os.environ.get(ENV_KEY_NAME, "")
     if env_raw.strip():
@@ -193,6 +208,14 @@ def _load_root_key() -> bytes:
         f"{default_key_file_path()}）。执行 `python -m lingclaude.model.vault init` "
         "生成根密钥，或 export LC_VAULT_KEY=<64-hex>。"
     )
+
+
+def _load_root_key() -> bytes:
+    """进程级缓存包装：同进程第二次起零 keyring/D-Bus/文件 I/O。"""
+    global _ROOT_KEY_CACHE
+    if _ROOT_KEY_CACHE is None:
+        _ROOT_KEY_CACHE = _load_root_key_uncached()
+    return _ROOT_KEY_CACHE
 
 
 def _atomic_write_0600(path: Path, text: str) -> None:

@@ -18,10 +18,19 @@ import pytest
 
 from lingclaude.model import pool_vault_loader as pvl
 from lingclaude.model.credential_pool import CredentialPool
-from lingclaude.model.vault import ENV_KEY_NAME, Vault
+from lingclaude.model.vault import ENV_KEY_NAME, Vault, reset_root_key_cache
 
 ROOT_KEY = "b" * 64  # 64-hex 合法测试键（非真实）
 POOL_SPEC = "glm:sk-test-1,sk-test-2;kimi:sk-k1"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_root_key_cache():
+    """2026-10-06 启动优化后：根密钥有进程级缓存，测试改 env/HOME 必须
+    每次重置，否则缓存陈旧读到上一个测试的密钥。"""
+    reset_root_key_cache()
+    yield
+    reset_root_key_cache()
 
 
 @pytest.fixture()

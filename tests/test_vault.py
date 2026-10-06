@@ -34,12 +34,14 @@ ROOT_KEY = "a" * 64  # 合法 64-hex（测试用，非真实密钥）
 @pytest.fixture()
 def vault_env(tmp_path, monkeypatch):
     """隔离环境：HOME 指向 tmp、无 LC_VAULT_KEY、独立 db/key 文件。"""
+    vault_mod.reset_root_key_cache()  # 2026-10-06 进程级缓存，测试间必须重置
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv(ENV_KEY_NAME, raising=False)
     monkeypatch.delenv("LC_VAULT_DB", raising=False)
     monkeypatch.delenv("LC_VAULT_KEY_FILE", raising=False)
     monkeypatch.setattr(vault_mod, "_keyring_load", lambda: "")  # 本机未装 keyring，显式置空防环境漂移
-    return tmp_path
+    yield tmp_path
+    vault_mod.reset_root_key_cache()
 
 
 # ── V1 核心 ──────────────────────────────────────────────────────────
@@ -87,6 +89,7 @@ class TestRootKeyChains:
         v.set("K", "with-env-key")
         # 拿文件 key 解不开 env key 加的密 → get 返回 None 而非串数据
         monkeypatch.delenv(ENV_KEY_NAME)
+        vault_mod.reset_root_key_cache()  # 换密钥=新解锁时刻（进程级缓存须显式重置）
         v2 = Vault(vault_env / "v.db")  # 新实例走文件链解锁
         assert v2.get("K") is None
 
@@ -152,6 +155,7 @@ class TestContractEdge:
         v = Vault(db)
         v.set("K", "old-key-data")
         monkeypatch.setenv(ENV_KEY_NAME, "f" * 64)  # 换根密钥
+        vault_mod.reset_root_key_cache()  # 进程级缓存须显式重置
         v2 = Vault(db)  # 新实例 = 新解锁时刻（同实例 _aes 缓存是进程内正确语义）
         assert v2.get("K") is None
 
@@ -201,6 +205,7 @@ class TestResolveWiring:
         """vault 未解锁（无 env/key 文件）→ 空串，既有行为零分叉。"""
         monkeypatch.delenv(ENV_KEY_NAME, raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        vault_mod.reset_root_key_cache()  # 进程级缓存须显式重置（防上个测试密钥残留）
         # HOME 已被 vault_env 指到 tmp → 默认 key 文件也不存在
         got = router_mod._resolve_api_key("deepseek", "")
         assert got == ""
@@ -223,6 +228,7 @@ class TestKeyringBackend:
         v = Vault(vault_env / "v.db")
         v.set("K", "under-keyring-key")
         monkeypatch.setattr(vault_mod, "_keyring_load", lambda: "")  # 模拟 keyring 清空
+        vault_mod.reset_root_key_cache()  # 进程级缓存须显式重置
         v2 = Vault(vault_env / "v.db")
         assert v2.get("K") is None  # 文件 key 解不开 keyring key 的密
 
