@@ -256,3 +256,57 @@ def test_all_20_seam_keys_match_ledger():
     # agent_lingxi 目录也在（既有批）→ 目录扫描覆盖全集，与账本一一对应
     assert org_keys == mine
     assert len(mine) == 29
+
+
+# ── J4 补强（2026-10-03）：工具级错误（isError=true）不得假活为 succeeded ──
+class _ToolErrorPlugin(McpAgentPluginBase):
+    """测试替身：注入假 _call_tool 返回，模拟 server 工具级失败。"""
+
+    def __init__(self, manifest_path: Path, store: StateStore, payload: str) -> None:
+        super().__init__(manifest_path, store)
+        self._payload = payload
+
+    def _call_tool(self, tool: str, arguments: dict) -> str:  # noqa: D102
+        return self._payload
+
+
+def _mk_tool_error_plugin(mid: str, tmp_path, payload: str) -> _ToolErrorPlugin:
+    mp = AG / _mid_dir(mid)[1] / "manifest.agent.json"
+    return _ToolErrorPlugin(mp, StateStore(backend="json", root=tmp_path), payload)
+
+
+def test_tool_level_error_recorded_failed(tmp_path):
+    """isError=true → state=failed（此前会记 succeeded，J4 假活漏洞）。"""
+    payload = json.dumps({
+        "content": [{"type": "text",
+                     "text": "Error calling tool 'open_thread': "
+                             "attempt to write a readonly database"}],
+        "isError": True,
+    }, ensure_ascii=False)
+    plugin = _mk_tool_error_plugin("lingmessage", tmp_path, payload)
+    result = plugin.run("open_thread", {})
+    assert result["state"] == "failed"
+    assert result["tool_error"] is True
+    assert "readonly database" in result["error"]
+    rec = plugin._store.load("agent_run", result["run_id"])
+    assert rec is not None and rec["state"] == "failed"
+    assert rec["tool_error"] is True
+    assert "readonly database" in rec["error"]
+
+
+def test_tool_success_still_succeeded(tmp_path):
+    """无 isError 的正常返回必须仍记 succeeded（防误伤）。"""
+    payload = json.dumps(
+        {"content": [{"type": "text", "text": "ok"}], "isError": False},
+        ensure_ascii=False)
+    plugin = _mk_tool_error_plugin("lingmessage", tmp_path, payload)
+    result = plugin.run("ping", {})
+    assert result["state"] == "succeeded"
+    assert "tool_error" not in result
+
+
+def test_tool_error_garbled_payload_falls_back(tmp_path):
+    """非 JSON 噪声返回 → 不误判为 tool_error（走原 succeeded 路径）。"""
+    plugin = _mk_tool_error_plugin("lingmessage", tmp_path, "noise-not-json")
+    result = plugin.run("ping", {})
+    assert result["state"] == "succeeded"

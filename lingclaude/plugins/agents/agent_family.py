@@ -59,11 +59,25 @@ class McpAgentPluginBase:
         return self._manifest["name"]
 
     def run(self, tool: str, arguments: dict | None = None, **kwargs) -> dict:
-        """执行一次成员 MCP 工具调用，全程 record 化（J4）。"""
+        """执行一次成员 MCP 工具调用，全程 record 化（J4）。
+
+        [2026-10-03] 工具级错误不再假活：JSON-RPC 传输成功 != 业务成功。
+        server 返回 isError=true 时记 failed（带 tool_error 标记），防
+        「落库失败仍报 succeeded」类假活（J4 承诺闭环；实况:
+        lingmessage.open_thread EROFS 只读库时传输层成功、工具层失败）。
+        """
         run_id = f"{self.name.split('/', 1)[1]}:{int(time.time())}"
         self._record(run_id, "running", {"tool": tool})
         try:
             result = self._call_tool(tool, arguments or {})
+            if _result_has_tool_error(result):
+                err_text = _extract_tool_error_text(result)
+                self._record(run_id, "failed", {
+                    "tool": tool, "tool_error": True,
+                    "error": err_text[:300]})
+                return {"run_id": run_id, "state": "failed",
+                        "tool_error": True, "error": err_text,
+                        "result": result}
             self._record(run_id, "succeeded", {"result": str(result)[:500]})
             return {"run_id": run_id, "state": "succeeded", "result": result}
         except subprocess.TimeoutExpired:
@@ -238,6 +252,33 @@ class McpAgentPluginBase:
             "probe_failures": self._probe_failures,
             "updated_at": time.time(),
         })
+
+
+def _result_has_tool_error(result: str) -> bool:
+    """识别 MCP 工具级错误（isError=true / 错误 content），传输成功也可能业务失败。"""
+    try:
+        data = json.loads(result) if isinstance(result, str) else result
+    except (ValueError, TypeError):
+        return False
+    if isinstance(data, dict) and data.get("isError") is True:
+        return True
+    return False
+
+
+def _extract_tool_error_text(result: str) -> str:
+    """提取工具错误的人类可读文本（content[].text），退化回原文。"""
+    try:
+        data = json.loads(result) if isinstance(result, str) else result
+    except (ValueError, TypeError):
+        return str(result)[:300]
+    if isinstance(data, dict):
+        content = data.get("content")
+        if isinstance(content, list):
+            texts = [c.get("text", "") for c in content if isinstance(c, dict)]
+            joined = " | ".join(t for t in texts if t)
+            if joined:
+                return joined
+    return str(result)[:300]
 
 
 def _extract_response(out: str, req_id: int) -> dict | None:
