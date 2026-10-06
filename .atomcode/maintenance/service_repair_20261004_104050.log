@@ -1,0 +1,35 @@
+== 灵族服务清理 mode=--execute ==
+--- [1.1] 灵犀 stdio 孤儿进程 (PPID=1 且存活>48h)
+  候选: PID=472524 PPID=1 存活=1242879s (日 9月 20 01:26:10 2026)
+  候选: PID=502555 PPID=1 存活=1241906s (日 9月 20 01:42:24 2026)
+  候选: PID=724155 PPID=1 存活=2025805s (四 9月 10 23:57:24 2026)
+  候选: PID=746460 PPID=1 存活=2025239s (五 9月 11 00:06:50 2026)
+  候选: PID=1084033 PPID=1 存活=933403s (三 9月 23 15:24:07 2026)
+  候选: PID=1132725 PPID=1 存活=1894905s (六 9月 12 12:19:04 2026)
+  候选: PID=1220612 PPID=1 存活=1893177s (六 9月 12 12:47:53 2026)
+  候选: PID=1224466 PPID=1 存活=1893055s (六 9月 12 12:49:55 2026)
+  候选: PID=1233854 PPID=1 存活=1892746s (六 9月 12 12:55:04 2026)
+  候选: PID=1235757 PPID=1 存活=1892685s (六 9月 12 12:56:05 2026)
+  保留: PID=2086995 PPID=2086526 存活=14883s (活链路/新进程，不动)
+  保留: PID=2379427 PPID=2379410 存活=4014s (活链路/新进程，不动)
+  候选: PID=3552701 PPID=1 存活=231606s (四 10月  1 18:20:44 2026)
+  已 TERM 11 个(残留强杀: 0)
+  现存 stdio 总数: 2
+--- [1.2] 测试 http.server (8772/8080，9月遗留)
+  候选: PID=1182885 :: bash -c python3 -m http.server 8080 --directory /var/www/html > /tmp/httpd_8080.
+  候选: PID=1182887 :: python3 -m http.server 8080 --directory /var/www/html
+  候选: PID=1200526 :: python3 -c  import http.server import os import threading import signal import s
+  候选: PID=2322 :: /usr/bin/python3 -m http.server 8772 --bind 0.0.0.0
+  已杀 4 个
+--- [4] /home/ai/linminopt (6月工作现场 9.1M) 归档
+  源条目=14 归档条目=15
+rm: 无法删除 './linminopt/data/training/phase4_reasoning_depth.jsonl': 只读文件系统
+rm: 无法删除 './linminopt/scripts/train_lingai_7b_reasoning_lora.py': 只读文件系统
+rm: 无法删除 './linminopt/scripts/deploy_to_hengyun.py': 只读文件系统
+rm: 无法删除 './linminopt/AGENTS.md': 只读文件系统
+rm: 无法删除 './linminopt/.crush/commands': 只读文件系统
+rm: 无法删除 './linminopt/.crush/.gitignore': 只读文件系统
+rm: 无法删除 './linminopt/.crush/init': 只读文件系统
+rm: 无法删除 './linminopt/.crush/logs/crush.log': 只读文件系统
+rm: 无法删除 './linminopt/.crush/crush.db': 只读文件系统
+== 完成 mode=--execute ==

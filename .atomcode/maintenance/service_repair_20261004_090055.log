@@ -1,0 +1,26 @@
+== 灵族服务清理 mode=dry-run ==
+--- [1.1] 灵犀 stdio 孤儿进程 (PPID=1 且存活>48h)
+  候选: PID=472524 PPID=1 存活=1236883s (日 9月 20 01:26:10 2026)
+  候选: PID=502555 PPID=1 存活=1235910s (日 9月 20 01:42:24 2026)
+  候选: PID=724155 PPID=1 存活=2019810s (四 9月 10 23:57:24 2026)
+  候选: PID=746460 PPID=1 存活=2019244s (五 9月 11 00:06:50 2026)
+  候选: PID=1084033 PPID=1 存活=927407s (三 9月 23 15:24:07 2026)
+  候选: PID=1132725 PPID=1 存活=1888910s (六 9月 12 12:19:04 2026)
+  候选: PID=1220612 PPID=1 存活=1887182s (六 9月 12 12:47:53 2026)
+  候选: PID=1224466 PPID=1 存活=1887059s (六 9月 12 12:49:55 2026)
+  候选: PID=1233854 PPID=1 存活=1886750s (六 9月 12 12:55:04 2026)
+  候选: PID=1235757 PPID=1 存活=1886690s (六 9月 12 12:56:05 2026)
+  保留: PID=1668624 PPID=1668611 存活=25090s (活链路/新进程，不动)
+  保留: PID=2086995 PPID=2086526 存活=8888s (活链路/新进程，不动)
+  候选: PID=3552701 PPID=1 存活=225610s (四 10月  1 18:20:44 2026)
+  [dry-run] 将 TERM: 472524 502555 724155 746460 1084033 1132725 1220612 1224466 1233854 1235757 3552701
+  现存 stdio 总数: 13
+--- [1.2] 测试 http.server (8772/8080，9月遗留)
+  候选: PID=1182885 :: bash -c python3 -m http.server 8080 --directory /var/www/html > /tmp/httpd_8080.
+  候选: PID=1182887 :: python3 -m http.server 8080 --directory /var/www/html
+  候选: PID=1200526 :: python3 -c  import http.server import os import threading import signal import s
+  候选: PID=2322 :: /usr/bin/python3 -m http.server 8772 --bind 0.0.0.0
+  [dry-run] 将杀: 1182885 1182887 1200526 2322
+--- [4] /home/ai/linminopt (6月工作现场 9.1M) 归档
+  [dry-run] 将 tar.zst → /home/ai/.atomcode/datalog_archive/linminopt_workdir_202606.tar.zst (条目≈14)，校验后删源
+== 完成 mode=dry-run ==
