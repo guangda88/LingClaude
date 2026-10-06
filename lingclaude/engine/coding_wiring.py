@@ -218,38 +218,49 @@ def _resolve_data_dir(ctx: CodingWiringContext) -> Any:
 
 
 def _resolve_todo_project_scope() -> str:
-    """todo 项目作用域键（2026-10-07 串台修复）。
+    """todo 项目作用域键（2026-10-07 串台修复，v2 改为目录名）。
 
-    背景（atomcode 2026-10-03「状态路径相对化」同族病）：todos.db 此前落
+    背景（atomcode 2026-10-03「状态路径相对化」同族病）：todos 此前落
     包仓库根 data/（全局单库），且 session_id 恒为 "default"——A 目录创建
     的任务会出现在 B 目录的 lc 任务面板。
 
-    语义：LINGCLAUDE_DATA_DIR 显式设置时保持原语义（显式共享全局库）；
-    未设置时按进程 CWD 哈希分库——todos.<cwd_hash8>.db，同目录同库、
-    异目录隔离。哈希锚定 abs+resolve 路径（symlink 归一），同目录经不同
-    相对路径启动也命中同一库。
+    语义（v2，oc 式「文件即会话」）：LINGCLAUDE_DATA_DIR 显式设置时
+    用 todos/（跨项目共享容器，会话文件仍按 session 分文件）；未设置时
+    todos.<cwd_hash8>/ ——同目录同容器、异目录隔离。哈希锚定 abs+resolve
+    路径（symlink 归一），同目录经不同相对路径启动也命中同一容器。
     """
     import hashlib
     import os
     from pathlib import Path
 
     if os.environ.get("LINGCLAUDE_DATA_DIR"):
-        return "todos.db"
+        return "todos"
     cwd = Path.cwd().resolve()
     digest = hashlib.sha256(str(cwd).encode("utf-8")).hexdigest()[:8]
-    return f"todos.{digest}.db"
+    return f"todos.{digest}"
 
 
 def _initial_todo_store(ctx: CodingWiringContext) -> Any:
-    from lingclaude.engine.todo import TodoStore
+    from lingclaude.engine.todo import migrate_legacy_sqlite_dbs, TodoStore
 
     data_dir = _resolve_data_dir(ctx)
-    scope_db = _resolve_todo_project_scope()
+    scope_dir = _resolve_todo_project_scope()
+    root = data_dir / scope_dir
+    root.mkdir(parents=True, exist_ok=True)
+    # 惰性迁移（2026-10-07 v2）：本目录旧 SQLite 库 → 会话文件，只处理
+    # 本目录作用域的库。env 共享模式只迁旧全局 todos.db（哈希库归属各自
+    # 项目，在共享容器按 sid 合并会跨项目串台，须由各自目录无 env 启动时
+    # 迁入自己的容器），其余项目的旧库等各自目录下次启动 lc 再迁。
+    if scope_dir == "todos":
+        _legacy = [data_dir / "todos.db"]
+    else:
+        _legacy = [data_dir / f"{scope_dir}.db"]
+    migrate_legacy_sqlite_dbs(root, _legacy)
     # 会话级隔离（2026-10-07）：session_id 传 lambda 动态解析 runtime.session_id
     # （runtime 委托宿主 engine；/resume /clear 换会话后面板自动重绑新会话，
     # 不再所有进程共用 "default" 一个桶）。
     return TodoStore(
-        data_dir / scope_db,
+        root,
         session_id=lambda: str(getattr(ctx.runtime, "session_id", "") or "default"),
     )
 

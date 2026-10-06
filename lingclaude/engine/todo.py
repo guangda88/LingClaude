@@ -1,13 +1,24 @@
-"""P0-1: Todo list tool — 对标 AtomCode todo tool / DSH tool-todo.
+"""会话级任务清单存储（oc 式「文件即会话」布局，2026-10-07 重构）。
 
 提供任务创建/查询/完成/列表能力，提升长任务可追踪性。
-会话内跨轮次持久化（SQLite），与 session 生命周期绑定。
+会话内跨轮次持久化（JSON），与 session 生命周期绑定。
+
+布局（偷师 opencode `storage/todo/<ses_id>.json`）：
+    单文件模式: <path>                      ← 一个文件 = 一个库，多 session 行内分桶
+                                          （兼容既有测试 / env 共享旧语义路径）
+    会话文件模式: <dir>/<session_id>.json    ← 一个文件 = 一个会话，会话结束文件即归档
+                                          （生产装配走此模式，见 coding_wiring）
+
+「文件即会话」的收益：单库多 session 行的堆积问题不复存在——旧会话的
+任务随会话文件冷置，写入时惰性 GC（保留最近 MAX_SESSION_FILES 个会话
+文件，mtime LRU），无需后台清理任务。
 """
 
 from __future__ import annotations
 
 import json
-import sqlite3
+import os
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
@@ -56,41 +67,49 @@ class TodoItem:
 
 
 # ---------------------------------------------------------------------------
-# Store (SQLite-backed, session-scoped)
+# Store (JSON-backed, session-scoped; one file per session in dir mode)
 # ---------------------------------------------------------------------------
+
+# 会话文件 GC 上限：目录内保留最近 N 个会话文件（mtime LRU）。
+MAX_SESSION_FILES = 50
+
+
+def _safe_sid(session_id: str) -> str:
+    """会话 id → 文件名安全串（防路径穿越/非法字符）。"""
+    bad = '/\\<>:"|?*\0'
+    out = "".join("_" if ch in bad or ord(ch) < 32 else ch for ch in session_id)
+    return (out or "default").strip(". ") or "default"
 
 
 class TodoStore:
-    """SQLite-backed persistent todo store, one DB per session_id."""
+    """JSON-backed persistent todo store.
 
-    _DDL = """
-    CREATE TABLE IF NOT EXISTS todos (
-        id          TEXT PRIMARY KEY,
-        session_id  TEXT NOT NULL,
-        content     TEXT NOT NULL,
-        status      TEXT NOT NULL DEFAULT 'pending',
-        priority    INTEGER NOT NULL DEFAULT 0,
-        tags        TEXT NOT NULL DEFAULT '[]',
-        parent_id   TEXT,
-        created_at  REAL NOT NULL,
-        updated_at  REAL NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_todos_session ON todos(session_id);
-    CREATE INDEX IF NOT EXISTS idx_todos_parent  ON todos(parent_id);
+    单文件模式（path 以 .db/.json 结尾）：一个文件内按 session_id 分桶，
+    行为与旧 SQLite 版一致（既有测试 / 显式 env 共享语义）。
+    会话文件模式（path 为目录）：<dir>/<session_id>.json 一个文件一个会话，
+    写后惰性 GC 保留最近 MAX_SESSION_FILES 个会话。
     """
 
     def __init__(self, db_path: str | Path, session_id: "str | Callable[[], str]"):
-        self.db_path = Path(db_path)
+        path = Path(db_path)
         # 会话级隔离（2026-10-07）：session_id 支持传 callable（如绑定 runtime
         # 的 lambda），property 每次访问动态解析 —— /resume、L2 压缩等换会话
         # 后，任务面板自动重绑到新会话，不再读旧 id 的存量行。
         self._session_id: "str | Callable[[], str]" = session_id
-        # 2026-09-17 Bug B 修复：工具执行器每轮可能在不同线程调用同一 store，
-        # 连接若缓存在实例属性上会跨线程复用，被 sqlite3 默认
-        # check_same_thread=True 拒绝（报错 "SQLite objects created in a thread
-        # can only be used in that same thread"）。改为 threading.local，
-        # 每线程各自持一条连接，天然线程安全且无锁开销。
-        self._local = threading.local()
+        if path.suffix in (".db", ".json"):
+            # 单文件模式：一个文件多 session 桶（旧语义/测试用）
+            self._file: Path | None = path
+            self._root: Path | None = None
+        else:
+            # 会话文件模式：目录 + <sid>.json（oc 式，生产装配）
+            self._file = None
+            self._root = path
+        # 2026-09-17 Bug B 修复（SQLite 时代遗留约束）：工具执行器每轮可能在
+        # 不同线程调用同一 store。JSON 原子写天然线程安全（tempfile+replace），
+        # 但读-改-写序列仍需互斥，保留实例级锁。
+        self._lock = threading.Lock()
+
+    # ---- 路径与会话解析 --------------------------------------------------
 
     @property
     def session_id(self) -> str:
@@ -102,75 +121,148 @@ class TodoStore:
     def session_id(self, value: "str | Callable[[], str]") -> None:
         self._session_id = value
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = getattr(self._local, "conn", None)
-        if conn is None:
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            # timeout=5: 多线程并发写同一库文件时等待锁而非立即 OperationalError
-            conn = sqlite3.connect(
-                str(self.db_path), autocommit=True, timeout=5.0
+    @property
+    def db_path(self) -> Path:
+        """当前会话的存储文件路径（会话文件模式下随 session_id 动态解析）。"""
+        if self._root is not None:
+            return self._root / f"{_safe_sid(self.session_id)}.json"
+        assert self._file is not None
+        return self._file
+
+    # ---- 读写 ------------------------------------------------------------
+
+    def _load_bucket(self) -> dict[str, list[dict[str, Any]]]:
+        """读当前会话文件 → {session_id: [item_dict]}；坏文件容错为空。"""
+        path = self.db_path
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return {}
+        except OSError as e:  # noqa: BLE001 — 读失败不阻断任务面板
+            import logging
+
+            logging.getLogger(__name__).warning("todo store 读失败 %s: %s", path, e)
+            return {}
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "todo store 文件损坏（JSON 解析失败，按空处理）: %s", path
             )
-            # 2026-09-17: 统一 Row 工厂（Bug A 修复，随 d626120 入库）——原连接
-            # 无 row_factory，_row_to_item 与 _release_in_progress 对 r["id"]
-            # 的字典式访问在默认元组行下会 TypeError。设 Row 后全库访问一致。
-            conn.row_factory = sqlite3.Row
-            conn.executescript(self._DDL)
-            self._local.conn = conn
-        return conn
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _save_bucket(self, bucket: dict[str, list[dict[str, Any]]]) -> None:
+        """原子写当前会话文件 + 会话文件模式下的惰性 GC。"""
+        path = self.db_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(
+            dir=str(path.parent), prefix=path.name, suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(bucket, f, ensure_ascii=False, separators=(",", ":"))
+            os.replace(tmp, path)
+        except OSError as e:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).warning("todo store 写失败 %s: %s", path, e)
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+        if self._root is not None:
+            self._gc_sessions(exclude=path)
+
+    def _gc_sessions(self, exclude: Path) -> None:
+        """惰性 GC：会话文件超过上限时按 mtime 淘汰最旧的（排除当前文件）。"""
+        try:
+            files = sorted(
+                (p for p in self._root.glob("*.json") if p != exclude),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return
+        for old in files[MAX_SESSION_FILES - 1:]:
+            try:
+                old.unlink(missing_ok=True)
+            except OSError:  # noqa: PERF103 — 单文件删除失败不阻断
+                continue
+
+    def _items(self) -> list[TodoItem]:
+        bucket = self._load_bucket()
+        rows = bucket.get(self.session_id, [])
+        items: list[TodoItem] = []
+        for r in rows:
+            try:
+                items.append(
+                    TodoItem(
+                        id=r["id"],
+                        content=r["content"],
+                        status=TodoStatus(r["status"]),
+                        priority=int(r.get("priority", 0)),
+                        tags=list(r.get("tags", [])),
+                        parent_id=r.get("parent_id"),
+                        created_at=float(r.get("created_at", 0.0)),
+                        updated_at=float(r.get("updated_at", 0.0)),
+                    )
+                )
+            except (KeyError, ValueError, TypeError):
+                continue  # 坏行跳过，不阻断面板
+        return items
+
+    def _write_items(self, items: list[TodoItem]) -> None:
+        bucket = self._load_bucket()
+        bucket[self.session_id] = [i.to_dict() for i in items]
+        self._save_bucket(bucket)
+
+    # ---- 公共 API（与旧 SQLite 版签名一致）--------------------------------
 
     def add(self, item: TodoItem) -> None:
-        conn = self._connect()
-        conn.execute(
-            """INSERT INTO todos
-               (id,session_id,content,status,priority,tags,parent_id,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (
-                item.id,
-                self.session_id,
-                item.content,
-                item.status.value,
-                item.priority,
-                json.dumps(item.tags),
-                item.parent_id,
-                item.created_at,
-                item.updated_at,
-            ),
-        )
+        with self._lock:
+            items = self._items()
+            items = [i for i in items if i.id != item.id]  # upsert 语义
+            items.append(item)
+            self._write_items(items)
 
     def get(self, id: str) -> TodoItem | None:
-        conn = self._connect()
-        row = conn.execute(
-            "SELECT * FROM todos WHERE id=? AND session_id=?",
-            (id, self.session_id),
-        ).fetchone()
-        return self._row_to_item(row) if row else None
+        with self._lock:
+            for i in self._items():
+                if i.id == id:
+                    return i
+            return None
 
     def list(
         self,
         status: TodoStatus | None = None,
         tags: list[str] | None = None,
     ) -> list[TodoItem]:
-        conn = self._connect()
-        query = "SELECT * FROM todos WHERE session_id=?"
-        params: list[Any] = [self.session_id]
-        if status:
-            query += " AND status=?"
-            params.append(status.value)
+        with self._lock:
+            items = self._items()
+        if status is not None:
+            items = [i for i in items if i.status == status]
         if tags:
-            for t in tags:
-                query += " AND tags LIKE ?"
-                params.append(f"%{t}%")
-        query += " ORDER BY priority DESC, created_at ASC"
-        rows = conn.execute(query, params).fetchall()
-        return [self._row_to_item(r) for r in rows]
+            items = [i for i in items if any(t in i.tags for t in tags)]
+        items.sort(key=lambda i: (-i.priority, i.created_at))
+        return items
 
     def update_status(self, id: str, status: TodoStatus) -> bool:
-        conn = self._connect()
-        updated = conn.execute(
-            "UPDATE todos SET status=?, updated_at=? WHERE id=? AND session_id=?",
-            (status.value, time.time(), id, self.session_id),
-        ).rowcount
-        return updated > 0
+        with self._lock:
+            items = self._items()
+            hit = False
+            now = time.time()
+            for i in items:
+                if i.id == id:
+                    i.status = status
+                    i.updated_at = now
+                    hit = True
+            if hit:
+                self._write_items(items)
+            return hit
 
     # ------------------------------------------------------------------
     # 状态纪律（2026-09-17，对标 AtomCode todowrite）：
@@ -180,45 +272,37 @@ class TodoStore:
     #  ③ 禁批量刷绿 —— complete() 一次只动一项，不提供 all_completed。
     # ------------------------------------------------------------------
 
-    def _release_in_progress(self, conn: sqlite3.Connection, exclude_id: str) -> list[str]:
+    def _release_in_progress(
+        self, items: list[TodoItem], exclude_id: str
+    ) -> list[str]:
         """把除 exclude_id 外的所有 in_progress 退回 pending，返回被退回的 id。"""
-        rows = conn.execute(
-            "SELECT id FROM todos WHERE session_id=? AND status=? AND id!=?",
-            (self.session_id, TodoStatus.IN_PROGRESS.value, exclude_id),
-        ).fetchall()
         now = time.time()
-        for r in rows:
-            row_id = r["id"] if isinstance(r, sqlite3.Row) else r[0]
-            conn.execute(
-                "UPDATE todos SET status=?, updated_at=? WHERE id=? AND session_id=?",
-                (TodoStatus.PENDING.value, now, row_id, self.session_id),
-            )
-        return [
-            r["id"] if isinstance(r, sqlite3.Row) else r[0] for r in rows
-        ]
+        released: list[str] = []
+        for i in items:
+            if i.id != exclude_id and i.status == TodoStatus.IN_PROGRESS:
+                i.status = TodoStatus.PENDING
+                i.updated_at = now
+                released.append(i.id)
+        return released
 
     def start_item(self, id: str) -> dict:
         """纪律化 start：置该项 in_progress，同时把其他 in_progress 退回 pending。
 
-        返回 {ok, id, released:[...]}，released 是被中断退回 pending 的项。
-        2026-09-17: 已完成/已取消项拒绝复活（atomcode B3）—— 误触会污染
-        进度统计；复活语义需要显式重建任务。
+        守卫（atomcode B3 回归）：missing → not_found；已完成/已取消项
+        不得复活 → already_finished。
         """
-        conn = self._connect()
-        target = conn.execute(
-            "SELECT id, status FROM todos WHERE id=? AND session_id=?",
-            (id, self.session_id),
-        ).fetchone()
-        if not target:
-            return {"ok": False, "id": id, "error": "not_found"}
-        if target["status"] in (TodoStatus.COMPLETED.value, TodoStatus.CANCELLED.value):
-            return {"ok": False, "id": id, "error": "already_finished",
-                    "status": target["status"]}
-        released = self._release_in_progress(conn, id)
-        conn.execute(
-            "UPDATE todos SET status=?, updated_at=? WHERE id=? AND session_id=?",
-            (TodoStatus.IN_PROGRESS.value, time.time(), id, self.session_id),
-        )
+        with self._lock:
+            items = self._items()
+            target = next((i for i in items if i.id == id), None)
+            if target is None:
+                return {"ok": False, "id": id, "error": "not_found"}
+            if target.status in (TodoStatus.COMPLETED, TodoStatus.CANCELLED):
+                return {"ok": False, "id": id, "error": "already_finished"}
+            released = self._release_in_progress(items, exclude_id=id)
+            now = time.time()
+            target.status = TodoStatus.IN_PROGRESS
+            target.updated_at = now
+            self._write_items(items)
         return {"ok": True, "id": id, "status": "in_progress", "released": released}
 
     def active_items(self) -> list[TodoItem]:
@@ -232,26 +316,86 @@ class TodoStore:
         ]
 
     def delete(self, id: str) -> bool:
-        conn = self._connect()
-        deleted = conn.execute(
-            "DELETE FROM todos WHERE id=? AND session_id=?", (id, self.session_id)
-        ).rowcount
-        return deleted > 0
+        with self._lock:
+            items = self._items()
+            kept = [i for i in items if i.id != id]
+            if len(kept) == len(items):
+                return False
+            self._write_items(kept)
+            return True
 
-    @staticmethod
-    def _row_to_item(row: sqlite3.Row) -> TodoItem:
-        # session_id 不入 TodoItem（它是 store 作用域，已隐式归属）——
-        # 原实现误传 session_id kwarg，TodoItem dataclass 无此字段。
-        return TodoItem(
-            id=row["id"],
-            content=row["content"],
-            status=TodoStatus(row["status"]),
-            priority=row["priority"],
-            tags=json.loads(row["tags"]),
-            parent_id=row["parent_id"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-        )
+
+# ---------------------------------------------------------------------------
+# Legacy SQLite migration（2026-10-07 v2：sqlite 单库 → oc 式会话文件）
+# ---------------------------------------------------------------------------
+
+
+def migrate_legacy_sqlite_dbs(root: Path, legacy_paths: list[Path]) -> int:
+    """把旧 SQLite 库（多 session 行）按 session_id 拆迁为会话文件。
+
+    每库处理：按 session_id 分组 → 各写 <root>/<safe_sid>.json（与既有
+    会话文件合并，只覆写该 sid 的桶）→ 全部成功后改名 *.migrated（保留
+    备份不删除）。任一步失败即中止该库（部分写入无害：下次迁移按桶合并）。
+    返回迁移的会话数。惰性触发：lc 在某目录下次启动时迁移该目录的哈希库，
+    其余项目的旧库等各自目录下次启动 lc 时再迁。
+    """
+    import logging
+    import sqlite3
+
+    migrated = 0
+    for legacy in legacy_paths:
+        if not legacy.exists():
+            continue
+        try:
+            conn = sqlite3.connect(str(legacy))
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM todos").fetchall()
+            conn.close()
+        except Exception as e:  # noqa: BLE001 — 迁移失败不阻断装配
+            logging.getLogger(__name__).warning(
+                "todo 旧库读取失败（跳过迁移）%s: %s", legacy, e
+            )
+            continue
+
+        by_sid: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            sid = _safe_sid(str(r["session_id"] or "default"))
+            by_sid.setdefault(sid, []).append(
+                {
+                    "id": r["id"],
+                    "content": r["content"],
+                    "status": r["status"],
+                    "priority": int(r["priority"] or 0),
+                    "tags": json.loads(r["tags"] or "[]"),
+                    "parent_id": r["parent_id"],
+                    "created_at": float(r["created_at"] or 0.0),
+                    "updated_at": float(r["updated_at"] or 0.0),
+                }
+            )
+        try:
+            for sid, items in by_sid.items():
+                if not items:
+                    continue
+                path = root / f"{sid}.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    bucket = json.loads(path.read_text(encoding="utf-8"))
+                    if not isinstance(bucket, dict):
+                        bucket = {}
+                except (OSError, json.JSONDecodeError):
+                    bucket = {}
+                bucket[sid] = items
+                path.write_text(
+                    json.dumps(bucket, ensure_ascii=False, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+                migrated += 1
+            legacy.rename(Path(str(legacy) + ".migrated"))
+        except OSError as e:  # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "todo 旧库迁移中断 %s: %s", legacy, e
+            )
+    return migrated
 
 
 # ---------------------------------------------------------------------------
