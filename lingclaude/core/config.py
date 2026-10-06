@@ -60,6 +60,10 @@ class TriggerConfig:
     frustration_threshold: float = 0.2
     tool_error_threshold: float = 0.3
     correction_threshold: int = 2
+    # 启动自优化目标：冷启动耗时超过此秒数即登记为自优化任务（追加
+    # data/selfopt/failure_backlog.jsonl）。3.0s 与「cc 类工具亚秒启动」对齐，
+    # 由 startup_watch 在 lc 主入口实测判定。设为 0 可停用该触发器。
+    startup_time_threshold_s: float = 3.0
 
 
 @dataclass(frozen=True)
@@ -191,6 +195,7 @@ class lingclaudeConfig:
                 frustration_threshold=trig_raw.get("frustration_threshold", 0.2),
                 tool_error_threshold=trig_raw.get("tool_error_threshold", 0.3),
                 correction_threshold=trig_raw.get("correction_threshold", 2),
+                startup_time_threshold_s=trig_raw.get("startup_time_threshold_s", 3.0),
             ),
             optimizer=OptimizerConfig(
                 goal=opt_raw.get("goal", "structure"),

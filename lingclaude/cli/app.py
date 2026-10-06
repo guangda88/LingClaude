@@ -318,6 +318,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
         version = _get_version()
         provider_status = _provider_status(engine)
         print_welcome(version, provider_status, f"{config.model.provider}/{config.model.model}", len(runtime.registry.list_tools()))
+    # 启动自优化哨兵（2026-10-07）：run 子命令初始化完成（此处已覆盖全部
+    # 初始化开销——config/QueryEngine/CodingRuntime/模型切换/会话恢复），即将
+    # 进入交互/执行/打印。立即判定并登记，覆盖后续 os._exit 硬退出路径
+    # （atexit 不会触发）。幂等：若 atexit 已先行登记则跳过。
+    try:
+        from lingclaude.self_optimizer import startup_watch
+        startup_watch._record()
+    except Exception:  # noqa: BLE001 —— 哨兵判定失败绝不影响本次运行
+        pass
     return 0
 
 
@@ -1161,6 +1170,15 @@ def _install_root_file_logging() -> None:
 
 
 def main() -> int:
+    # 启动自优化哨兵（2026-10-07）：进程最早期打点 + 装配 atexit 兜底。
+    # 轻量（零依赖零重活），fail-soft；run 子命令初始化完成后还会再判一次
+    # （覆盖 os._exit 硬退出路径——atexit 不会触发）。详见 self_optimizer/startup_watch.py。
+    try:
+        from lingclaude.self_optimizer import startup_watch
+        startup_watch.mark()
+        startup_watch.install()
+    except Exception:  # noqa: BLE001 —— 哨兵装配失败绝不影响启动
+        pass
     # 审计#5 修复:F12c 的 key 单点文件此前定义了但零调用 — 整条 key 兜底链
     # （task_router 注释明言「key 实际单点存放于 ~/.ling_keys.env」）建立在该
     # 文件已加载的假设上。在任何子命令分派前注入，不覆盖 shell 已 export 的值。
