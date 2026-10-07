@@ -1,0 +1,12 @@
+{"type": "tool_auth_decision", "id": "ce4ecb03-a02", "ts": "2026-10-07T23:41:24", "tier": "block", "tool_name": "bash", "policy_id": "353661458768", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "1efd84c1-8bf", "ts": "2026-10-07T23:41:25", "tier": "ask", "tool_name": "bash", "policy_id": "482944981377", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "04812787-119", "ts": "2026-10-07T23:41:28", "tier": "block", "tool_name": "bash", "policy_id": "696277035298", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "01bd8ec0-796", "ts": "2026-10-07T23:44:08", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "76ac2587-fcc", "ts": "2026-10-07T23:44:10", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "40d3c0ff-d62", "ts": "2026-10-07T23:44:15", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "423a85bc-f23", "ts": "2026-10-07T23:44:18", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "e1139b34-7ba", "ts": "2026-10-07T23:44:18", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "3559b371-3bb", "ts": "2026-10-07T23:44:20", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "31f5e641-c63", "ts": "2026-10-07T23:44:22", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "caa9b25a-3e5", "ts": "2026-10-07T23:44:22", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
+{"type": "tool_auth_decision", "id": "c21a5d05-8d4", "ts": "2026-10-07T23:44:22", "tier": "ask", "tool_name": "bash", "policy_id": "491156567968", "args_keys": ["command"]}
