@@ -145,6 +145,10 @@ class RolloutRecorder:
         with self._lock:
             if self._active is None:
                 self._dir.mkdir(parents=True, exist_ok=True)
+                # 2026-10-07 有界存储：开新流时惰性清理超龄旧流（防 oc 式膨胀，
+                # 实测 16 天堆 294M/9423 文件；消费方只读最新流，按龄删旧安全）
+                from lingclaude.core.retention import prune_rollouts_on_open
+                prune_rollouts_on_open(self._dir)
                 self._active = self._dir / f"rollout-{_ts_slug()}-{self.thread_id}.jsonl"
                 self._all_paths.append(self._active)
                 self._fh = None

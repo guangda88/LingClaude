@@ -114,6 +114,9 @@ class SessionPersister:
         result = engine.session_manager.save(session)
         if result.is_error:
             return result  # type: ignore[return-value]
+        # 2026-10-07 有界存储：存档落盘后按数量留尾（--continue 只消费最近存档）
+        from lingclaude.core.retention import prune_sessions_on_persist
+        prune_sessions_on_persist(engine.session_manager.save_dir)
         self._refresh_baseline(str(result.data))
         return Result.ok(str(result.data))
 

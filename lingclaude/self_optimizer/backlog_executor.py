@@ -254,6 +254,10 @@ class BacklogExecutor:
                     f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except OSError as e:
             logger.warning("backlog 回写失败: %s", e)
+        # 2026-10-07 有界存储：回写后收缩已消费僵尸行（实测 9333 行中 9331 行
+        # 是 executed/skipped 僵尸；pending/executing 恒保留）
+        from lingclaude.core.retention import prune_backlog_on_rewrite
+        prune_backlog_on_rewrite(self.backlog_path)
 
     # ------------------------------------------------------------------ #
     # 段 4：主入口
