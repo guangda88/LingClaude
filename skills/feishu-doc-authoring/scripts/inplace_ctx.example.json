@@ -1,0 +1,38 @@
+{
+ "A": {
+  "obj": "TKGpdx1b7orqFWxJxplcT83enSf",
+  "space": "7656452076758633426",
+  "title": "如果说七维读书法 Skill 是「机器执行的质检管线」，那么七维·读书助手 Partner 就是「陪你把书读完的人」——它不只是替你生成总结，而是按七维提问法逐维引导你思考，陪你完成从「读完」到「变成自己的认知与行动」的全过程。本说明书给出它的身份定位、分工边界、完整系统提示词与复用方法。",
+  "wiki": "Eu0dw9DPOiJmPjkQoqecrZRyn8e",
+  "old_count": 50,
+  "imgs": [
+   {
+    "bid": "ITQdd95OUogz0dxuCIvctkOjnAd",
+    "token": "H3QnbY1zioWmouxdz1ickMdonNe",
+    "w": 1076,
+    "h": 630
+   }
+  ]
+ },
+ "B": {
+  "obj": "TBLIdZgwBoc19hxIAqAcDwplnnf",
+  "space": "7656452076758633426",
+  "title": "七维总结读书法，是一套把「读完一本书/一节课」变成「可入库、可复盘、可检索知识资产」的固定方法。它把读书总结拆成七个固定维度，让每一份总结结构一致、质量可查、可被 AI 与知识图谱直接消费。本 Skill 在「一堂」AI 大航海实战中打磨，历经 1743 篇存量产物缺陷审计与跨模型实测验证。",
+  "wiki": "DCr5wzIfOi9EOOkECR9c4ekZnhb",
+  "old_count": 70,
+  "imgs": [
+   {
+    "bid": "UWOPd1DLJoWGNXx9tvpcE2l4nof",
+    "token": "UqSZbwhfUotmaUx1ewkcsocXnCe",
+    "w": 1192,
+    "h": 561
+   },
+   {
+    "bid": "EHKXdu31Qo5ee1xqhl1cWck1nJc",
+    "token": "UWXCbIpcdoIGnCxzHSScOjhknuf",
+    "w": 1308,
+    "h": 515
+   }
+  ]
+ }
+}
