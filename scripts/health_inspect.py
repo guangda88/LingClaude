@@ -40,6 +40,9 @@ LINGXI_MAX_PROCS = 20
 LINGXI_MAX_RSS_MB = 1200
 
 PORTS = {"8765": "proxy3", "9530": "lingmemory-mcp", "23458": "webui"}  # webui 默认 23458（2026-09-27 对齐，原巡检口径 13460 系历史误记）；13458 trae-proxy 与 webui 无关
+# HTTP 层探活端点（2026-10-08）：TCP 可达≠应用健康。8765 无 /health（404 误报复盘），
+# 其应用层健康端点是 /v1/models（200=正常）。其余端口维持纯 TCP 探测。
+PORT_HTTP_PROBES = {"8765": "/v1/models"}
 SNAPSHOT = Path("/var/tmp/lingbus_pending_lingclaude.json")
 
 PORT_PROBE_ROUNDS = 3
@@ -181,6 +184,15 @@ def inspect() -> tuple[list[str], list[str]]:
                 f"端口 {port}({name}) 可达 rtt min/med/max="
                 f"{r['min_ms']:.1f}/{r['med_ms']:.1f}/{r['max_ms']:.1f}ms"
             )
+            # HTTP 应用层校验：TCP 可达≠应用健康（8765 无 /health，用 /v1/models）
+            http_path = PORT_HTTP_PROBES.get(port)
+            if http_path:
+                code = sh(["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                           "--max-time", "5", f"http://127.0.0.1:{port}{http_path}"]).strip()
+                if code == "200":
+                    oks.append(f"端口 {port}({name}) HTTP {http_path} 200 应用层健康")
+                else:
+                    alerts.append(f"端口 {port}({name}) TCP 可达但 HTTP {http_path} 返回 {code or '无响应'} — 应用层异常")
         elif any(f":{port} " in ln or f":{port}\t" in ln for ln in listening):
             alerts.append(f"端口 {port}({name}) 监听但 connect 全失败(进程可能僵死)")
         else:
