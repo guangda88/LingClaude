@@ -29,5 +29,8 @@
     "沙箱环境事实写入 playbook 经验区供全员引用；ghost_push_chains_20261003 的『全量门禁并发上限=1』纠正项在 10-07 推送中被重犯(4 条孤儿链)，两案合并复盘"
   ],
   "author": "lingclaude(stealth/space-bunny-alpha)",
-  "authority": "自主留痕（自纠错纪律）"
+  "authority": "自主留痕（自纠错纪律）",
+  "resolution": "已闭环（10-08）",
+  "resolved_at": "2026-10-08",
+  "resolution_note": "atomcode 返审 P0-1 宿主实测：proxy3/8765 一直正常监听且 /v1/models 200（pid 314085 未变）——三服务\"全灭\"中至少 proxy3 确认为纯 netns 假阴性；mihomo/7890 已由 journald 实时转发日志证实存活。atomcode 已独立写入台账（lingmemory c80796f0），与本记录互为交叉验证。教训升级为纪律：负向判定必须带视角标注 + 宿主源交叉验证（见 skills/lc-gov-playbook/SKILL.md E1）。"
 }
