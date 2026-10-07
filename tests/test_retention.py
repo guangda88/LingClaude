@@ -96,6 +96,32 @@ class TestPruneByCount:
         assert prune_dir_by_count(tmp_path, 500) == 0
         assert len(list(tmp_path.glob("*.json"))) == 3
 
+    def test_negative_excess_guard_between_half_and_full_limit(self, tmp_path):
+        """失误回归锁（2026-10-07 生产事故）：目录 400 文件 vs 上限 500 时，
+        旧无守卫代码 files[:-100] 会静默删 300 个最旧文件。
+        3 文件场景测不进真窗口（files[:-497] 恒空），
+        必须用「上限一半~上限」规模才命中危险区间。"""
+        for i in range(400):
+            _make_file(tmp_path / f"f{i:03d}.json", mtime_days_ago=100 - i / 4)
+        deleted = prune_dir_by_count(tmp_path, 500)
+        assert deleted == 0  # 守卫在位：不足上限绝不误删
+        assert len(list(tmp_path.glob("*.json"))) == 400
+
+    def test_compact_anchors_terminal_ts_not_created_at(self, tmp_path):
+        """失误回归锁（2026-10-07 语义缺陷）：终态行回收窗口必须锚定
+        executed_at（终态转换时刻）而非 at（创建时刻）——
+        30 天前登记、1 分钟前才执行的行诊断价值是新鲜的，不删。"""
+        from datetime import datetime, timedelta, timezone
+
+        p = tmp_path / "backlog.jsonl"
+        old_created = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        fresh_executed = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        row = {"at": old_created, "executed_at": fresh_executed,
+               "status": "executed", "cluster_key": "k"}
+        p.write_text(json.dumps(row) + "\n", encoding="utf-8")
+        kept, dropped = compact_jsonl(p, keep_days=7)
+        assert (kept, dropped) == (1, 0)  # 锚定 executed_at → 新鲜，保留
+
     def test_recursive_spans_project_subdirs(self, tmp_path):
         # sessions/<项目>/<sid>.json 两级布局
         for proj in ("proj-a", "proj-b"):
