@@ -57,7 +57,16 @@ def register_all_tools(registry: Any, runtime: Any) -> None:
 
     T3：全部走 handler_name 插片 —— ToolDefinition 不直持 Callable，
     定义（schema）与实现（handler）解耦。绑定失败立即 raise（不静默）。
+
+    读侧闸门（20261008 事故防线）：空 SPECS 曾导致全部带参工具 schema 缺位、
+    参数在调用链被丢成 {}（16:55 空壳事故，4+ 会话开场即全灭）。
+    低于基线下限宁可拒绝启动，绝不带残缺工具面上线。
     """
+    if len(SPECS) < 30:
+        raise RuntimeError(
+            f"SPECS 仅 {len(SPECS)} 条（历史基线 32~37），疑似注册表被清空/损坏，"
+            "拒绝启动 —— 20261008 事故防线"
+        )
     for spec in SPECS:
         handler = getattr(runtime, spec.handler_attr, None)
         if handler is None or not callable(handler):
@@ -146,6 +155,17 @@ def main() -> int:
         )
     lines.append(")\n")
     lines.append(FOOTER)
+
+    # 写侧闸门（20261008 事故防线）：本脚本是 tool_registration.py 的唯一生成源，
+    # 提取数过低（历史基线 32~37）几乎必然是 SRC 损坏/解析失败——忠实写入空表
+    # 正是 2026-10-08 16:55 SPECS=() 空壳事故（净删 338 行，4+ 会话工具全灭）的成因。
+    # 宁可失败退出，绝不覆盖。
+    if len(specs) < 30:
+        sys.exit(
+            f"FATAL: 仅提取到 {len(specs)} 条 spec（历史基线 32~37），"
+            f"疑似 {SRC} 损坏或解析不完整，拒绝覆盖 {OUT}。"
+            "（20261008 事故防线；如确需重建请人工核对源文件后临时解除本闸）"
+        )
 
     OUT.write_text("\n".join(lines), encoding="utf-8")
     print(f"OK: 提取 {len(specs)} 条 → {OUT}")

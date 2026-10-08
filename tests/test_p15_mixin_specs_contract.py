@@ -70,3 +70,50 @@ def test_mixin_files_stay_thin() -> None:
         and len(py.read_text(encoding="utf-8").splitlines()) > 200
     ]
     assert not fat, f"插片文件超 200 行（应继续拆分）: {fat}"
+
+
+MIN_SPECS = 30  # 历史基线 32~37 的下限（2026-10-08 空表事故防线）
+
+
+def test_specs_not_wiped() -> None:
+    """契约4：SPECS 表不得低于历史基线下限（20261008 空表事故防线）。
+
+    2026-10-08 16:55 SPECS 被清空为 ()，带参工具 schema 全部缺位、
+    新会话工具全灭 2 小时+（详见 docs/audit/20261008_tool_registry_wipe_incident.md）。
+    运行时闸门在 register_all_tools（拒启动），本契约把同一底线锁进 CI：
+    空表/残表在任何测试环节立即暴露。
+    """
+    assert len(SPECS) >= MIN_SPECS, (
+        f"SPECS 仅 {len(SPECS)} 条 < {MIN_SPECS}（历史基线 32~37），"
+        "疑似注册表被清空 —— 20261008 事故防线触发"
+    )
+
+
+def test_register_all_tools_rejects_empty_specs() -> None:
+    """契约5：register_all_tools 读侧闸门 —— 空 SPECS 必须 raise，不得静默注册 0 工具。"""
+    import lingclaude.engine.tool_registration as mod
+
+    original = mod.SPECS
+    try:
+        mod.SPECS = ()
+        with pytest.raises(RuntimeError, match="20261008"):
+            mod.register_all_tools(registry=None, runtime=None)
+    finally:
+        mod.SPECS = original
+
+
+def test_extract_script_has_write_guard() -> None:
+    """契约6：提取脚本必须带写侧闸门 —— 提取数过低时拒绝覆盖 SPECS 表。
+
+    事故成因即脚本把空提取结果忠实写回（OUT.write_text 无守卫、非原子）。
+    本契约锁定守卫存在且位于写入点之前，防止脚本被"简化"回无闸形态。
+    """
+    script = SRC.parent / "scripts" / "extract_tool_specs.py"
+    text = script.read_text(encoding="utf-8")
+    assert "len(specs) < 30" in text, (
+        "extract_tool_specs.py 丢失写侧闸门（20261008 事故防线）"
+    )
+    assert "OUT.write_text" in text
+    assert text.index("len(specs) < 30") < text.index("OUT.write_text"), (
+        "写侧闸门必须位于 OUT.write_text 之前"
+    )
