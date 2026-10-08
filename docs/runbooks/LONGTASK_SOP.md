@@ -38,7 +38,8 @@
 
 | 触发 | 动作 |
 |---|---|
-| 每完成一个 todo | handover 增量更新（complete_task + 结论一行） |
+| 每完成一个 todo | handover 增量更新（complete_task + 结论一行）；**并追加一行到 `/tmp/<task>_state/audit/todo_log.jsonl`**（`{"todo_id":..., "done_at":ts}`），供 relay_audit 对账 |
+| 接力运行期 | 可选挂 `scripts/relay_audit.sh --session-state /tmp/<task>_state/audit --daemon`：轮询对比 todo_log 与 handover 增量，发现「todo 已完成但交接无记录」即灵信告警（todo 无原生 hook 的对账兜底；工具侧原生 hook 已提 R4 需求，thread d7ab589d） |
 | 每 ~20 轮 | checkpoint：后台作业状态核录 + 证据文件落盘确认 |
 | 出现**压缩摘要** | 说明远期上下文已折叠——立即重读关键文件，勿凭记忆断言 |
 | R8 轮次提示反复出现 | 把探索类工作拆给 sub_agent，主会话只做决策与组装 |

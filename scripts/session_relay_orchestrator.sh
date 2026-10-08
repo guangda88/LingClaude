@@ -73,8 +73,8 @@ build_prompt() { # $1=state_dir
   [[ -f "$hint_file" ]] || return 1
   local hint
   hint="$(cat "$hint_file")"
-  printf '接力任务(无人值守恢复)。请先读取 %s/handover.yaml 与 %s 了解全部现场。\nresume_hint: %s\n请从中断点继续, 遵守 LONGTASK_SOP(状态外置/预停协议/blocked_on_human 必停)。' \
-    "$1" "$1" "$hint"
+  printf '接力任务(无人值守恢复)。请先读取 %s/handover.yaml 与 %s 了解全部现场。\nresume_hint: %s\n请从中断点继续, 遵守 LONGTASK_SOP(状态外置/预停协议/blocked_on_human 必停)。\n终点协议(必做): 会话结束前, 将最终状态(仅 completed 或 blocked 二选一)写入 %s/RELAY_MARKER 文件(一行, 无其他内容)——编排器据此判定接力成败, 不写视为未完成并重试。' \
+    "$1" "$1" "$hint" "$1"
 }
 
 # 置位任务态目录标记(编排器视角的状态翻转)
@@ -115,9 +115,14 @@ relay_one() { # $1=task_id $2=state_dir $3=attempts
   fi
 
   if ! prompt=$(build_prompt "$state_dir"); then
-    log "$task_id 缺 RESUME_HINT.txt, 拒绝盲接力 → blocked"
+    log "$task_id 缺 RESUME_HINT.txt, 拒绝盲接力"
     STATUS="blocked"; ERR="missing RESUME_HINT.txt"
-    set_marker "$state_dir" "blocked"; alert_blocked "$task_id" "$state_dir" "$ERR"; return 1
+    if [[ $DRY_RUN -eq 1 ]]; then
+      log "[dry-run] 零副作用: 不翻标记、不发告警 (实跑将: set blocked + 灵信 alert)"
+    else
+      set_marker "$state_dir" "blocked"; alert_blocked "$task_id" "$state_dir" "$ERR"
+    fi
+    return 1
   fi
 
   [[ $DRY_RUN -eq 1 ]] && { log "[dry-run] 将执行: $LINGCLAUDE_BIN run --print <prompt: ${prompt:0:80}…>"; return 0; }
@@ -163,7 +168,8 @@ scan_once() {
     state_dir=$(jq -r '.state_dir' <<<"$entry")
     attempts=$(jq -r '.attempts' <<<"$entry")
     [[ -d "$state_dir" ]] || { STATUS="blocked"; ERR="state_dir missing"; ATTEMPTS=$MAX_ATTEMPTS; NEXT_TS=0
-      update_entry "$id"; alert_blocked "$id" "$state_dir" "$ERR"; continue; }
+      if [[ $DRY_RUN -eq 1 ]]; then log "[dry-run] $id state_dir 缺失, 零副作用跳过 (实跑将: 队列翻 blocked + alert)"
+      else update_entry "$id"; alert_blocked "$id" "$state_dir" "$ERR"; fi; continue; }
 
     ATTEMPTS=$((attempts+1)); NEXT_TS=0; ERR=""
     relay_one "$id" "$state_dir" "$attempts"
