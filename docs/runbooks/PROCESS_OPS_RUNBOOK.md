@@ -1,8 +1,9 @@
 # 进程操作铁律 Runbook
 
-> 来源：2026-10-07 browse_agg 会话复盘。当晚共发生：`pkill -f` 自杀式自匹配 2 次、
-> 双实例抢浏览器 profile 2 次（一次险些重演 SingletonLock 服务瘫痪）、误杀 systemd
-> 正统实例 1 次（依赖 Restart=always 兜底才没出事）。本文是防复发锁。
+> 来源：2026-10-07 browse_agg 会话复盘 + 2026-10-08 推送门禁事故复盘。前者发生：
+> `pkill -f` 自杀式自匹配 2 次、双实例抢浏览器 profile 2 次（一次险些重演
+> SingletonLock 服务瘫痪）、误杀 systemd 正统实例 1 次（靠 Restart=always 兜底）。
+> 后者发生：短 timeout 一轮轮掐死门禁长跑、孤儿 pytest worker 滚雪球（详见 P5/P6）。
 
 ## 铁律 P1：杀进程只准 `kill <精确PID>`，动进程前先查 PPID 归属
 
@@ -57,6 +58,41 @@ Playwright/Chrome 系应用有 **profile 单占锁**（SingletonLock）——双
 **空结果的三种成因要逐一排除：通道不通 / 时序未到 / 真的空。**
 自证方法：同命令跑一份已知应有结果的对照（如 `curl 127.0.0.1:22` 是否至少 refused）。
 
+## 铁律 P5：超时杀进程树，必须连子进程一起收割
+
+git push 链是 壳 → git → hook → pytest -n 8：外层被 timeout 掐死后，
+**worker 是 orphan 而不是死**——孤儿继续满载，形成「越推越慢」滚雪球
+（10-08 实测：被掐两轮后 16 个 pytest worker 并存互抢 CPU）。
+
+规程：
+
+1. 掐超时后**必须收割进程组**：`pgrep -g <进程组>` 或按可执行名 `pgrep -x pytest`
+   精确列出残留，逐 PID kill（勿用 `pkill -f pytest`，见 P2）
+2. **长跑任务的第一问**：这东西正常要跑多久？（先问规模：如 tests/ 有 5591 用例）
+   —— timeout 上限必须 ≥ 正常耗时，否则每次超时都在制造孤儿
+3. 排查「服务异常」前先 `pgrep -x pytest / lefthook` 查孤儿积压，孤儿乱序输出
+   会伪装成「多实例」「神秘占用」
+
+## 铁律 P6：区分「慢」与「死」，观察窗口必须大于被测对象真实耗时
+
+10-08 双重教训（与 SANDBOX_OBSERVATION_RUNBOOK 的假阴性教训同源）：
+
+1. **lefthook「25s 不退出」误诊为钩子挂死**——真相：5591 用例全量正常要 ~26-35min，
+   观察窗口短于真实耗时，把「慢」误诊为「死」，差点删掉好的门禁
+2. **dushu_graph_merge「日志 16h 不动」误诊为永远跑不完**——真相：print 重定向到文件
+   是全缓冲（~8KB 才落盘），日志静止≠进程静止
+
+判别规程（三证才判死）：
+
+```bash
+py-spy dump --pid <pid>     # 栈在动吗？卡在哪？（本地有 py-spy）
+ls --full-time <产物文件>   # 产物 mtime 在推进吗？
+cat /proc/<pid>/status | grep -E 'State|Threads'   # R 状态=在跑
+```
+
+- 慢任务确认在推进 → **等**，别掐；先估总时长再定 timeout
+- 日志缓冲假象：`python -u` / `PYTHONUNBUFFERED=1` 起服务可根治，判读前先想一层
+
 ## 快速自检清单
 
 ```
@@ -64,4 +100,6 @@ Playwright/Chrome 系应用有 **profile 单占锁**（SingletonLock）——双
 [ ] pkill/pgrep 模式做了自匹配防护（[x]技巧 或精确 PID）？
 [ ] 重启守护进程是否走 systemd？确认旧实例完全退场了吗？
 [ ] 判定死亡前，恢复期/通道问题排除了吗？
+[ ] timeout 上限 ≥ 被测对象正常耗时（先问规模）？掐完后收割过 worker？
+[ ] 判「挂死」前用过 py-spy/产物 mtime 三证？日志静止想过缓冲假象吗？
 ```

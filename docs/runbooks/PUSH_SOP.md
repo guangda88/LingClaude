@@ -77,3 +77,32 @@ git -c core.sshCommand="ssh -o StrictHostKeyChecking=accept-new" push github mas
 | 09-24 中午 | 孤儿 push 管道读端死亡，pytest 阻塞 write() 假死 2h+ | 铁律 3 |
 | 09-24 上午 | grep 找不到 worker → 误判全灭 → 手动击杀健康跑 | 铁律 4 |
 | 09-24 下午 | 陈旧跟踪引用 → 误判 github 积压 161 条 | 铁律 5 |
+| 10-07/10-08 | 推送轮番超时被误诊"lefthook 不退出 bug"；实为 full-pytest（5591 用例，实测 ~26-35min）被各通道 90~880s timeout 反复掐死，孤儿 worker 越积越多越推越慢 | §七 |
+
+## 七、门禁耗时真相与网关（2026-10-08 复盘，推翻 10-08 晨"钩子不退出"结论）
+
+**教训**：观察窗口短于被测对象真实耗时 → 把「慢」误诊为「死」。
+`.git/hooks/pre-push </dev/null` 25s 不退出的真相是 full-pytest 正在长跑
+（5591 tests × 8 workers，机器有 3 天+ 的 101% CPU 邻居进程时更慢），不是挂死。
+
+| 铁证 | 说明 |
+|------|------|
+| 快门三命令实测 0.007~0.088s 全部秒退 | 钩子链本体无任何挂死 |
+| 全量实测 07:39 起 26min+，正常出进度条 | 门禁在干活，不是死锁 |
+| 被掐轮次的 16 个 pytest worker 滞留互抢 CPU（各 37%） | "越推越慢"恶性循环的机制 |
+
+**结构性矛盾**：lefthook.yml 的前置闸注释 09-26 就写着"避免白跑 **30 分钟**
+full-pytest"，而 push_double_remote.sh 给 push 只留 `timeout 90`、
+git_push 工具默认 120s——设计上必然互相绞杀（对应铁律 2）。
+
+**修复（当日落地）**：full-pytest 改经 `scripts/pre_push_gate.sh` 网关，三性质：
+1. **总预算自收割**：默认 `GATE_TIMEOUT_BUDGET=2700s`（26min 基线 ×1.7），
+   SIGTERM→30s 后 SIGKILL，孤儿不再外溢到钩子链外；
+2. **flock 串行**（`.audit/full_pytest_gate.json.lock`）：多路 push/探针排队，
+   不再 8+8 worker 互杀；
+3. **HEAD 级结果复用**：绿色结果缓存于 `.audit/full_pytest_gate.json`（键=HEAD8），
+   同一 HEAD 二次推送（含第二个远端）秒过——"先跑门禁后推送"工作流因此成立。
+   `GATE_NO_CACHE=1` 强制重跑。
+配套：push_double_remote.sh 每远端 timeout 90→2700；push 前跑一次
+`GATE_NO_CACHE=1 bash scripts/pre_push_gate.sh`（后台、给足窗口）是
+高负载时段的推荐工作流。

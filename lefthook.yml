@@ -81,6 +81,10 @@ pre-push:
       priority: 18
     # 2026-09-30 --timeout=300 接线（债单①）：pytest-timeout 已装未接线，
     # 09-24 三次 push 全部死于单测试卡死拖垮整门。
+    # 2026-10-08: 改经 scripts/pre_push_gate.sh 网关——总预算自收割(默认2700s) +
+    # flock 串行防多路互杀 + HEAD 级绿色结果复用。测试语义与原命令完全一致。
+    # 背景见 PUSH_SOP §七：5591 tests 实测 ~26-35min，此前各通道 90~880s timeout
+    # 全部把它掐死并留孤儿 worker（表象"钩子不退出"实为门禁在正常长跑）。
     full-pytest:
-      run: python3 -m pytest tests/ --tb=line -q --timeout=300 -n $(nproc)
+      run: bash scripts/pre_push_gate.sh
       priority: 20

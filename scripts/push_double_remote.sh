@@ -70,7 +70,10 @@ fi
 # ── 双远程推送 ─────────────────────────────────────────────────────
 for r in "${REMOTES[@]}"; do
   echo "--- push → $r ---"
-  if timeout 90 git push "$r" "$BRANCH" 2>&1; then
+  # 2026-10-08: 90→2700。原 90s 必掐死 full-pytest 门禁（实测 5591 tests
+  # ~26-35min，见 PUSH_SOP §七）并留孤儿 worker 越推越慢。门禁经
+  # pre_push_gate.sh 网关后有总预算自收割 + 第二个远端命中缓存秒过。
+  if timeout 2700 git push "$r" "$BRANCH" 2>&1; then
     echo "✅ $r 推送成功"
   else
     echo "❌ $r 推送失败 (exit=$?)"

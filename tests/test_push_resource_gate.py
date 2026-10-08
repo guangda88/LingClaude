@@ -68,6 +68,10 @@ def test_lefthook_wired():
     pre = yml.index("pre-push-resource-precheck")
     gate = yml.index("priority: 18")
     full = yml.index("full-pytest:")
-    # full-pytest 的 run 行必须带 --timeout=300（注释里允许提前提及，故从键往后找）
-    timeout = yml.index("--timeout=300", full)
-    assert pre < gate < full < timeout, "顺序应为 资源门(18) → full-pytest(20, 带 timeout)"
+    # 2026-10-08 网关化: full-pytest 接 scripts/pre_push_gate.sh,
+    # 超时护栏(--timeout=300)与总预算(2700s)随命令移入网关脚本内部,
+    # 不再要求 lefthook run 行自带 timeout。两处都验证,防单边回退。
+    gw = (REPO / "scripts" / "pre_push_gate.sh").read_text(encoding="utf-8")
+    assert "--timeout=300" in gw, "网关内 pytest 必须带用例级超时护栏"
+    assert "2700" in gw, "网关必须有总预算自收割(默认 2700s)"
+    assert pre < gate < full, "顺序应为 资源门(18) → full-pytest(20 经网关)"
