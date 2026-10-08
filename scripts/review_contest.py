@@ -13,7 +13,8 @@
 
 环境变量:
   LINGCLAUDE_PROXY_URL   默认 http://127.0.0.1:8765/v1/chat/completions
-  PROXY_API_KEY          proxy3 key（~/.ling_keys.env 同源）
+  PROXY_API_KEY          proxy3 Bearer key（必填；proxy3 双重鉴权: X-Agent-Id + Bearer,
+                         本脚本自动带 X-Agent-Id=lingclaude, key 建议运行时注入防泄漏）
   REVIEW_CONTEST_TIMEOUT 单模型超时秒（默认 120）
   REVIEW_CONTEST_MAX     规模上限（默认 5; GODMOD3 式 12-60 判定过度设计, 放宽须显式 env）
 
@@ -39,16 +40,42 @@ _LABELS = ["A", "B", "C", "D", "E"]
 
 
 def _chat(model: str, messages: list[dict]) -> dict:
-    """调 proxy3 OpenAI 兼容端点; 失败返回 error 结构（单模型失败不中断竞赛）。"""
-    body = json.dumps({"model": model, "messages": messages, "stream": False}).encode()
+    """调 proxy3 OpenAI 兼容端点（SSE 流式）; 失败返回 error 结构（单模型失败不中断竞赛）。
+
+    流式原因（2026-10-08 首跑实测）: proxy3/上游对非流式请求有 ~30s 总时长墙,
+    设计题长思考必撞 502; SSE 持续有字节流动可绕开（实测 91.5s 完整收答）。
+    """
+    body = json.dumps({"model": model, "messages": messages, "stream": True}).encode()
     req = urllib.request.Request(
         PROXY_URL, data=body, method="POST",
-        headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {API_KEY}"} if API_KEY else {})},
+        headers={"Content-Type": "application/json", "X-Agent-Id": "lingclaude",
+                 **({"Authorization": f"Bearer {API_KEY}"} if API_KEY else {})},
     )
     try:
+        parts: list[str] = []
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return {"model": model, "answer": data["choices"][0]["message"]["content"], "error": None}
+            for raw in resp:
+                line = raw.decode("utf-8", "ignore").strip()
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                piece = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content")
+                if piece:
+                    parts.append(piece)
+        answer = "".join(parts)
+        # 剥思考前缀: MiniMax/Qwen 思考模型正文带 <think>...</think>, 不进评审视野
+        m = re.match(r"^\s*<think>.*?</think>\s*", answer, re.S)
+        if m:
+            answer = answer[m.end():]
+        if not answer:
+            return {"model": model, "answer": None, "error": "empty answer (思考被截断或上游空回)"}
+        return {"model": model, "answer": answer, "error": None}
     except Exception as exc:  # noqa: BLE001 — 单点失败降级为 error 槽位
         return {"model": model, "answer": None, "error": f"{type(exc).__name__}: {exc}"}
 
