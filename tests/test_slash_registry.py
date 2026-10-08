@@ -277,3 +277,42 @@ class TestClearSemantics:
         assert engine.turn_count == 0                # ⑥ 轮次归零
         assert not engine.has_checkpoint             # ⑦ 检查点清空
         assert engine.usage == UsageSummary()        # ⑧ usage 归零（query_engine.py:303）
+
+    def test_clear_rebases_budget_gate(self) -> None:
+        """/clear 同步清零预算闸（2026-10-08 用户语义对齐，契约第⑨项）。
+
+        背景：预算闸是 core/session_budget_gate.py 的进程级模块单例，
+        engine.reset() 复位不到——/new 后新会话继承旧会话全部消耗，被旧
+        账提前推入 WARN/PAUSE（防护网死锁：用户被踢后 /new 继续仍会被
+        立即踢出）。本测试钉住 /clear → gate.reset() 的接线，防未来
+        engine.reset() 再进化时 /clear 静默缩水（同 test 前例）。
+        """
+        from lingclaude.core import session_budget_gate as gate
+
+        gate.reset_gate_state()  # 隔离：确保从空 tracker 起
+
+        calls: list[str] = []
+
+        class _SpyEngine:
+            def reset(self) -> None:
+                calls.append("reset")
+
+        proc = self._make_processor(_SpyEngine())
+        # 伪造旧会话消耗（真实记录路径同款 API：session_budget_gate.record_*）
+        gate.record_tool_call(5)
+        gate.record_model_call(input_tokens=500, output_tokens=100)
+        before = gate.get_tracker().snapshot()
+        assert before.get("tool_calls", 0) >= 5 and before.get("input_tokens", 0) >= 500
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            proc._cmd_clear()
+
+        after = gate.get_tracker().snapshot()
+        assert after.get("tool_calls", 0) == 0, "工具计数必须清零"
+        assert after.get("input_tokens", 0) == 0, "input_tokens 必须清零"
+        assert after.get("model_calls", 0) == 0, "模型请求数必须清零"
+        # 闩锁同步重置（/budget reset 同一出口语义）
+        assert gate._relay_state["warn_stage"] == 0
+        assert gate._relay_state["handover_used"] is False
+        assert "预算/token 计数已同步清零" in buf.getvalue()

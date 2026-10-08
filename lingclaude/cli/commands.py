@@ -123,9 +123,26 @@ class SlashCommandProcessor(SlashCommandHistoryMixin, SlashCommandSessionMixin,
         new session」落空。现改调 engine.reset() 全量复位（先落盘再清，
         /continue 可找回），与 test_agent_loop.py:619 既有的 reset 契约
         同源。
+
+        2026-10-08 预算同步清零（用户语义对齐）：engine.reset() 复位 9 项
+        （见 query_engine.py reset）但预算闸是 session_budget_gate.py:34 的
+        进程级模块单例，与 engine 解耦——/new 后 model_calls/input_tokens/
+        工具计数继承旧会话，新会话被旧消耗提前推入 WARN/PAUSE。口径决策：
+        预算属「进程防护网」性质，直接清零（gate.reset() 换新 tracker +
+        R1/R2 闩锁同步重置，与 /budget reset 同一出口），不做账目结转——
+        PAUSE 后用户正常路径就是 reset 或 /new 继续，/new 不清零 = 用户被踢
+        出后立刻再触发 PAUSE 的死锁；防护网误放行的量级远小于死锁代价。
+        计费口径的结转由 D3 落盘的 session 维度真实 token 负责（非本防护网）。
+        fail-open：预算闸异常绝不阻断 /clear 主流程。
         """
         self.engine.reset()
-        print("[会话已清空]（原会话已存档，/continue 可恢复）")
+        try:
+            from lingclaude.core import session_budget_gate as _gate
+
+            _gate.reset()
+        except Exception:  # noqa: BLE001 — 防护网异常不阻断开新会话
+            pass
+        print("[会话已清空]（原会话已存档，/continue 可恢复；预算/token 计数已同步清零）")
 
     # ---- A(2026-09-26) 注册表适配层：三参 handler 折成统一 (self, arg) 形状 ----
 
