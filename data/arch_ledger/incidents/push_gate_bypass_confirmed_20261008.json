@@ -1,0 +1,34 @@
+{
+  "incident_id": "push_gate_bypass_confirmed_20261008",
+  "date": "2026-10-08",
+  "severity": "high",
+  "title": "推送门禁旁路实锤：39 个提交带 24 红上双远程，同基线 HEAD 实测复现 23 红（10-08 上午会话悬案 §五.1 正式核销）",
+  "chain_of_events": [
+    "10-07/10-08 之交: 全量门禁报 24 failed/5482 passed（名单存 /tmp/push_lc_final.log），但 39 个积压提交仍全部抵达 origin/github 双远程（至 328942f）",
+    "上午会话无法证实 24 红如何通过：门禁缓存 .audit/full_pytest_gate.json 不存在、近 12 提交无修复痕迹，悬案入交接文档 §五.1",
+    "10-08 11:00 本次会话经 pre_push_gate.sh 网关对 HEAD=5b5788e 跑全量（GATE_TIMEOUT_BUDGET=2700s，flock 串行，8 worker）",
+    "1915.36s 实测完毕: 23 failed/5482 passed/86 skipped → GATE: FAIL (exit=1) → github 推送被拦截（exit=141），bb1d34c/5b5788e 维持未推",
+    "名单差集: 上午24 = 本次23 + 2 个隔离性自愈项 - 1 个测试滞后新项（test_lefthook_wired）；22 个失败与上午名单精确交集"
+  ],
+  "root_causes": [
+    "主因（推断成立）: 39 提交推送当时门禁处于旁路/失效状态（未跑或被跳过未留痕），带红内容上远程——若门禁当时真跑过且绿，本次同基线附近实测不可能复现 23 红（该区间无修复痕迹）",
+    "结构性根因（并行会话网关 v1.0 已修）: 无界全量(5591 tests ~26-35min) × 各通道短超时(90~880s) × 多路并发三绞杀，门禁长期跑不完即被掐死，客观上制造旁路温床",
+    "旁路审计缺口: PUSH_SOP §三允许的旁路通道未在推送时留下可机读痕迹，事后无法区分『跑过且绿』与『根本没跑』"
+  ],
+  "impacts": [
+    "远程 master 含 22 个确定性测试债（self_optimizer 3/mcp_proxy 3/p02 2/task_router 3/t0_wiring 4 等），远程绿状态与本地实测不符",
+    "39 提交的内容质量未经全量验证即成为远程基线，下会话任何以此为基的开发都在未验地基上展开",
+    "『39 提交已安全上远程』的先前判断被本次实测推翻，交接文档悬案 §五.1 由『无法证实』升级为『旁路实锤』"
+  ],
+  "corrective_actions": [
+    "已做: 网关 v1.0 实战验证——真实红=真拦截（本次 github 被拒即证），flock 串行+2700s 自收割+HEAD 绿缓存，旁路温床已拆除",
+    "已做: 22 个稳定失败精确名单入台账（verify_log/gate_bypass_confirmed_20261008.jsonl），含上午三分类『8存量+14回归』的独立复现佐证",
+    "待做: 22 红逐项清偿（多数指向 ML/网络/沙箱依赖测试，归下会话排期）；test_lefthook_wired 期望滞后修正草稿已备（/tmp/fix_draft/test_push_resource_gate_fix.py）",
+    "待做: 旁路通道可机读留痕机制（旁路推送必须写 arch_ledger 记录，否则视为违规）——并入并行会话网关收口评审"
+  ],
+  "author": "lingclaude(stealth/space-bunny-alpha)",
+  "authority": "自主留痕（自纠错纪律：门禁防线实测+悬案核销）",
+  "resolution": "旁路事实认定完成；防线修复经实战验证；债务清偿移交下会话",
+  "resolved_at": "2026-10-08",
+  "resolution_note": "本次全量为 10-08 首次有完整日志存档的真实红门禁运行（网关日志 /tmp/push_lc_2commits_20261008.log 341 行 GATE: FAIL）。23≠24 的差异分析：p11_bash_timeout_kills_process_group 与 t0_no_policy_degrades 本次通过（上午标注的隔离性 2 项自愈）；test_lefthook_wired 新红系并行会话 lefthook.yml 网关改造使 --timeout=300 移入 pre_push_gate.sh，测试断言仍锚定旧接线——属测试期望滞后非产品回归，修正责任随网关归属会话收口"
+}
