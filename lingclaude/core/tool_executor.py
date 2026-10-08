@@ -58,6 +58,10 @@ class ToolExecutor:
     def _execute_tool(self, name: str, arguments_json: str) -> str:
         """执行工具，返回模型可见的 JSON 字符串（序列化边界）。"""
         tr = self._execute_tool_typed(name, arguments_json)
+        # 通用工具后置事件（审计型回调只留痕，不阻断不修改）。
+        hooks = getattr(self._engine, "_hooks", None)
+        if hooks is not None and hooks.has_hooks(HookType.POST_TOOL_USE):
+            hooks.trigger(HookContext(hook_type=HookType.POST_TOOL_USE, session_id=self._engine.session_id, tool_name=name, metadata={"tool_result": tr}))
         return json.dumps(tr.to_dict(), ensure_ascii=False, default=str)
 
     def _execute_tool_typed(self, name: str, arguments_json: str) -> ToolResult[Any]:
@@ -104,6 +108,14 @@ class ToolExecutor:
                 code=ToolErrorCode.INVALID_ARGS,
                 tool_name=name,
             )
+
+        # 通用工具前置事件（core 零领域感知；无注册时 has_hooks 短路零成本）。
+        # 阻断走 metadata["guard_block"] 通用键 → 结构化 GUARD_DENIED 返回。
+        hooks = getattr(self._engine, "_hooks", None)
+        if hooks is not None and hooks.has_hooks(HookType.PRE_TOOL_USE):
+            _pre = hooks.trigger(HookContext(hook_type=HookType.PRE_TOOL_USE, session_id=self._engine.session_id, tool_name=name, metadata={"tool_args": kwargs}))
+            if _pre.modified_context.metadata.get("guard_block"):
+                return ToolResult.err(_pre.modified_context.metadata.get("guard_message", "工具调用被守卫拦截"), code=ToolErrorCode.GUARD_DENIED, tool_name=name)
 
         if name == "read" and "path" in kwargs:
             # P0 主链统一 (2026-09-12, codex 审计 #1): read 快路径此前完全绕过

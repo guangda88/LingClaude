@@ -27,6 +27,11 @@ class HookType(str, Enum):
     ON_STOP = "on_stop"
     PRE_COMPACT = "pre_compact"
     POST_COMPACT = "post_compact"
+    # 2026-10-08: 工具执行双事件（H17 完成申报守卫接入面，core 只见通用键）。
+    # 前置：守卫可经 metadata["guard_block"] 阻断（→ GUARD_DENIED 结构化返回）；
+    # 后置：审计留痕，不阻断不修改。无注册时 has_hooks 短路零成本。
+    PRE_TOOL_USE = "pre_tool_use"
+    POST_TOOL_USE = "post_tool_use"
     # 方案C v4 扩容：会话恢复 + 插片热替换（atomcode 钩子存储语义分区对齐）
     SESSION_RESUME = "session_resume"   # 会话从快照恢复后触发（context.resumed=True）
     PRE_HOT_SWAP = "pre_hot_swap"       # plugin_lifecycle.hot_swap 切换前

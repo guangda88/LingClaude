@@ -12,9 +12,11 @@ from lingclaude.core.hooks import (
 class TestHookType:
     def test_all_values(self) -> None:
         # 方案C v4 扩容：+session_resume/pre_hot_swap/post_hot_swap（有意变更，快照同步）
+        # 2026-10-08 H17 接入：+pre_tool_use/post_tool_use（工具执行双事件，快照同步）
         expected = {
             "pre_task", "post_task", "on_error", "on_stop", "pre_compact", "post_compact",
             "session_resume", "pre_hot_swap", "post_hot_swap",
+            "pre_tool_use", "post_tool_use",
         }
         assert {h.value for h in HookType} == expected
 
