@@ -52,12 +52,19 @@ def reset_gate_state() -> None:
 
 
 def reset() -> None:
-    """用户出口：清零全部计数（换新 tracker，策略在 loader 不受影响）。"""
+    """用户出口：清零全部计数（换新 tracker，策略在 loader 不受影响）。
+
+    R1/R2 闩锁同步重置（panel_20261008_budget FINAL_synthesis §定案，codex 修正）：
+    /budget reset 的存在正是为了让第二次 PAUSE 可被交接——闩锁不重置则
+    第二轮退化为零交接裸挂起。用户滥用 reset 消耗的是自己的预算，非系统风险。
+    """
     global _tracker
     from lingclaude.core.session_budget import BudgetTracker
 
     with _lock:
         _tracker = BudgetTracker()
+        _relay_state["warn_stage"] = 0
+        _relay_state["handover_used"] = False
 
 
 def record_tool_call(count: int = 1) -> None:
@@ -87,6 +94,62 @@ def record_model_call(input_tokens: int, output_tokens: int, cached_tokens: int 
             t.record(BudgetDelta("output_tokens", max(0, int(output_tokens))))
     except Exception:  # noqa: BLE001
         logger.debug("budget record_model_call failed", exc_info=True)
+
+
+# R1/R2 接力状态（panel_20261008_budget FINAL_synthesis 定案）：
+#   warn_stage    = 已注入的预警档数（0/1/2，每档一次性，防同档重复注入）
+#   handover_used = 遗言轮是否已用（用后即焚；reset() 时随计数一起重置）
+# 均为进程内状态，与 tracker 同生命周期（跨重启不续算，诚实边界一致）。
+_relay_state = {"warn_stage": 0, "handover_used": False}
+
+# 预警档位（对 pause 阈值的比率；阈值样本量=1，待长任务 trace 复算后调优）
+_WARN_STAGE_RATIOS = (0.75, 0.90)
+
+_WARN_TEXTS = (
+    "[budget-warn, session-scoped] 预算检查点档（75%）：现在无条件将任务状态落盘"
+    "（todo 清单/handover），这是可对账的检查点动作，不是提醒。剩余窗口约够 2 个 turn。",
+    "[budget-warn, session-scoped] 预算交接档（90%）：立即收尾输出交接（不得继续任务、"
+    "不得新开探索），下一档为硬挂起且不可自动恢复，交接失败现场仅存 transcript。",
+)
+
+
+def warn_injection() -> Optional[str]:
+    """R1 模型可见预警（stage 单调推进，每档一次性，无新档返回 None）。
+
+    消费方：turn 入口（每语义轮至多一次调用，防 submission 层逐请求拼接的
+    上下文放大——codex Q1 裁定）。纯展示语义，不改变 pause 判定。
+    """
+    try:
+        ev = get_tracker().evaluate_current()
+        if not ev.enabled:
+            return None
+        # 主维度 = pause 比率最高者（对应 yaml input_tokens: warn 8M/pause 20M）
+        best = 0.0
+        for v in ev.verdicts:
+            if v.thresholds.pause > 0:
+                best = max(best, v.current / v.thresholds.pause)
+        injected = None
+        while _relay_state["warn_stage"] < len(_WARN_STAGE_RATIOS) and best >= _WARN_STAGE_RATIOS[_relay_state["warn_stage"]]:
+            injected = _WARN_TEXTS[_relay_state["warn_stage"]]
+            _relay_state["warn_stage"] += 1  # 跨档则只注入最高档文本（短句纪律）
+        return injected
+    except Exception:  # noqa: BLE001 — 预警绝不反噬回合（fail-open 同闸层）
+        logger.debug("budget warn_injection failed", exc_info=True)
+        return None
+
+
+def try_last_rites(has_relay_marker: bool, has_todos: bool) -> bool:
+    """R2 遗言轮资格判定（用后即焚；资格=有真实交接物 且 本进程未用过）。
+
+    返回 True 表示「本次放行交接」，调用方须立即执行独立小上下文交接请求
+    （不传 tools、免重试、≤200K input 上限），不得复用此判定做其他用途。
+    """
+    if _relay_state["handover_used"]:
+        return False
+    if not (has_relay_marker or has_todos):
+        return False  # 无交接物不给遗言轮（AC 防滥用约束①）
+    _relay_state["handover_used"] = True
+    return True
 
 
 def check_pause() -> Optional[str]:

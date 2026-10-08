@@ -6,6 +6,7 @@ QueryEngine 通过多继承接入本 mixin；方法内 self 即 QueryEngine 实�
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from lingclaude.core.hooks import HookType, HookContext
@@ -60,11 +61,28 @@ class SubmissionMixin:
         except Exception:  # noqa: BLE001 — gate 故障不阻断主流程
             _pause_report = None
         if _pause_report is not None:
+            # R2 遗言轮（panel_20261008_budget 定案）：PAUSE 前一次独立小上下文
+            # 交接请求（不推进任务/不写业务文件/预算豁免/免重试），失败静默降级。
+            _rites = self._attempt_last_rites()
+            if _rites is not None:
+                return self._make_turn_result(
+                    prompt, _rites,
+                    matched_commands, matched_tools, denied_tools,
+                    StopReason.BUDGET_PAUSED,
+                )
             return self._make_turn_result(
                 prompt, _pause_report,
                 matched_commands, matched_tools, denied_tools,
                 StopReason.BUDGET_PAUSED,
             )
+        # R1 模型可见预警（每语义轮至多一次；跨档只注入最高档，幂等闩锁在 gate 层）
+        try:
+            from lingclaude.core.session_budget_gate import warn_injection
+            _warn = warn_injection()
+            if _warn:
+                prompt = f"{prompt}\n\n{_warn}"
+        except Exception:  # noqa: BLE001 — 预警不反噬回合
+            pass
         if len(self._messages) // 2 >= self.config.max_turns:
             return self._make_turn_result(
                 prompt, f"已达最大轮次 ({self.config.max_turns})。",
@@ -221,6 +239,75 @@ class SubmissionMixin:
             stop_reason,
         )
 
+    def _attempt_last_rites(self) -> Optional[str]:
+        """R2 遗言轮：独立小上下文交接请求（panel_20261008_budget 定案形态）。
+
+        - 资格：gate.try_last_rites（有真实交接物 + 本进程未用过，用后即焚）
+        - 形态：直调 provider.complete，messages 仅 [交接指令, 现场摘要]，
+          不传 tools（写权限天然收敛为零工具执行面）——不走会话续接，
+          规避 22.7M 场景重放全上下文的致命失效（AC 关键修正）
+        - 产出：harness 机械落盘检查点（LONGTASK_SOP 格式）+ RELAY_MARKER
+          =waiting_relay + RESUME_HINT；模型只产交接文本
+        - 失败：静默降级不重试（AC 三层兜底），报告显式声明现场仅存 transcript
+        """
+        try:
+            from lingclaude.core.session_budget_gate import try_last_rites
+
+            has_pending = bool(getattr(self._task_manager, "pending", None)) or (
+                getattr(self._task_manager, "active", None) is not None
+            )
+            marker = os.environ.get("LINGCLAUDE_RELAY_MARKER", "")
+            if not try_last_rites(has_relay_marker=bool(marker), has_todos=has_pending):
+                return None
+
+            tail = "\n".join(str(m)[:200] for m in self._messages[-6:])
+            instruction = (
+                "你是交接助手。会话预算已达上限，主会话即将硬挂起。"
+                "请基于以下现场摘要，输出一段交接文本（≤400字）："
+                "①当前任务与进度 ②已外置状态文件路径 ③恢复会话需知的关键上下文。"
+                "禁止虚构路径与事实；只输出交接文本本身。\n\n[现场摘要]\n" + tail
+            )
+            handover_text = ""
+            if self._provider is not None:
+                # 独立小上下文：config=None（协议签名合法），不走会话全上下文
+                result = self._provider.complete(
+                    ({"role": "user", "content": instruction},),
+                    config=None, tools=None,
+                )
+                if getattr(result, "is_error", False):
+                    raise RuntimeError(getattr(result, "error", "provider error"))
+                handover_text = result.text or ""
+            else:
+                handover_text = f"[无provider，降级交接] 最近现场尾部：\n{tail}"
+
+            # 机械落盘（kill-safe：每步独立 try，产出尽可能多保一点）
+            base = os.environ.get(
+                "LINGCLAUDE_RELAY_STATE_DIR", "/tmp/lingclaude_last_rites"
+            )
+            os.makedirs(base, exist_ok=True)
+            try:
+                with open(os.path.join(base, "handover_lastrites.md"), "w", encoding="utf-8") as f:
+                    f.write(f"# 预算遗言轮交接 ({self.session_id})\n\n{handover_text}\n\n[现场尾部]\n{tail}\n")
+            except Exception:  # noqa: BLE001
+                pass
+            if marker and os.path.isdir(os.path.dirname(marker) or "."):
+                try:
+                    with open(marker, "w", encoding="utf-8") as f:
+                        f.write("waiting_relay\n")
+                except Exception:  # noqa: BLE001
+                    pass
+
+            return (
+                "[预算暂停] 已执行遗言轮：交接文本落盘 "
+                f"{base}/handover_lastrites.md（PAUSE 语义不变，恢复权在用户：/budget reset）"
+            )
+        except Exception as exc:  # noqa: BLE001 — 交接失败静默降级，PAUSE 照常
+            logger.debug("last rites failed: %s", exc, exc_info=True)
+            return (
+                "[预算暂停] 遗言轮交接失败（未落盘），现场仅存于会话 transcript，"
+                "可从 transcript 尾部捞取（恢复：/budget reset）。"
+            )
+
     def _make_turn_result(
         self,
         prompt: str,
@@ -269,6 +356,17 @@ class SubmissionMixin:
         except Exception:  # noqa: BLE001 — gate 故障不阻断主流程
             _pause_report = None
         if _pause_report is not None:
+            # R2 遗言轮（stream 路径，语义与 submit 同构）
+            _rites = self._attempt_last_rites()
+            if _rites is not None:
+                yield {"type": "message_delta", "text": _rites}
+                yield {
+                    "type": "message_stop",
+                    "usage": self._usage.to_dict(),
+                    "stop_reason": StopReason.BUDGET_PAUSED.value,
+                    "transcript_size": len(self._transcript),
+                }
+                return
             yield {"type": "message_delta", "text": _pause_report}
             yield {
                 "type": "message_stop",
