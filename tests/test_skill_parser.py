@@ -241,8 +241,10 @@ class TestIsReadOnlyTool:
 
     def test_base_and_skill_namespaces_covered(self) -> None:
         """两套命名体系的只读名都必须被覆盖（引擎名 + MCP 名）。"""
-        for tool in ("read_file", "list_directory", "web_search", "todo_write"):
+        for tool in ("read_file", "list_directory", "web_search"):
             assert is_read_only_tool(tool) is True
+        # G14 (2026-10-08): todo_write 移出只读名单（scope='write'，契约7锁互斥）
+        assert is_read_only_tool("todo_write") is False
         for tool in ("search_code", "git_status", "knowledge_search"):
             assert is_read_only_tool(tool) is True
 

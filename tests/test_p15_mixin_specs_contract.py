@@ -117,3 +117,25 @@ def test_extract_script_has_write_guard() -> None:
     assert text.index("len(specs) < 30") < text.index("OUT.write_text"), (
         "写侧闸门必须位于 OUT.write_text 之前"
     )
+
+
+def test_readonly_names_disjoint_from_write_scopes() -> None:
+    """契约7（G14, 2026-10-08）：permissions.READ_ONLY_TOOLS 与 SPECS 的
+    write/execute 集合互斥 —— 单源纪律锁定。
+
+    背景：todo_write 注册表 scope 已于 9/17 修为 write（全量删除+重插存储），
+    但 permissions.READ_ONLY_TOOLS 残留其名，导致同一工具在审批闸门
+    （check_action 按名单判只读自动放行）与 plan_mode/prior_verifier
+    （按 scope 判写域封禁/预检）两处事实相反。本契约令此类漂移永不复发：
+    任一工具在注册表声明写/执行域、却在审批名单冒充只读，立即红。
+    """
+    from lingclaude.core.permissions import READ_ONLY_TOOLS
+
+    leaks = sorted(
+        s.name
+        for s in SPECS
+        if s.security_scope in ("write", "execute") and s.name in READ_ONLY_TOOLS
+    )
+    assert not leaks, (
+        f"注册表 write/execute 工具混入 READ_ONLY_TOOLS（G14 类漂移）: {leaks}"
+    )

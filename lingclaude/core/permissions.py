@@ -15,9 +15,14 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "read", "grep", "glob", "ls", "find", "head", "tail",
     "cat", "view", "search", "list", "stat", "wc",
     # 2026-09-18 补齐新命名体系只读工具（精确匹配语义，缺名即灰区误伤）：
-    # read_file/list_directory/web_search 是工具注册表真实名；todo_write 为
-    # todo_tools.py 注册名（非 "todowrite"）；code_review/recall 为无副作用工具。
-    "read_file", "list_directory", "web_search", "todo_write",
+    # read_file/list_directory/web_search 是工具注册表真实名；
+    # code_review/recall 为无副作用工具。
+    # G14 (2026-10-08): todo_write 移出本名单 —— 注册表 security_scope='write'
+    # （tool_registration.py 注册项注释：todo_write 全量删除+重插任务存储，
+    # 9/17 已修 read→write），名单残留属单侧跟进遗漏，与 plan_mode/
+    # prior_verifier 按 scope 判定自相矛盾。单源纪律：本名单与 SPECS 的
+    # write/execute 集合互斥，由 test_p15_mixin_specs_contract 契约7锁定。
+    "read_file", "list_directory", "web_search",
     "code_review", "recall",
 })
 
