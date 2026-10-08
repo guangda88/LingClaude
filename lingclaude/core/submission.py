@@ -308,6 +308,54 @@ class SubmissionMixin:
                 "可从 transcript 尾部捞取（恢复：/budget reset）。"
             )
 
+    @staticmethod
+    def _collect_resume_guidance(session_id: str) -> tuple[str, str]:
+        """R3-B（panel_20261008_budget 定案）：恢复时收集接力引导物。
+
+        优先级与来源语义：
+        1. 遗言轮交接 ``$LINGCLAUDE_RELAY_STATE_DIR/handover_lastrites.md``
+           （submission._attempt_last_rites 落盘）——消费后重命名加
+           ``.consumed`` 后缀保证幂等（防重复注入）。
+        2. ``$LINGCLAUDE_RESUME_HINT``——**hint 内容本身**（非路径），
+           便于人工/编排器一行注入：
+           ``LINGCLAUDE_RESUME_HINT="从步骤3继续" lingclaude --recover``
+        3. 编排器默认落点 ``$LINGCLAUDE_RELAY_STATE_DIR/RESUME_HINT.txt``
+           （session_relay_orchestrator.sh 写入）——文件所有权归编排器，
+           只读不删，不改变编排器状态机。
+
+        Returns:
+            (guidance_text, source_desc)：无引导物时返回 ("", "")。
+        """
+        base = os.environ.get("LINGCLAUDE_RELAY_STATE_DIR", "/tmp/lingclaude_last_rites")
+
+        def _read(path: str) -> str:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            except OSError:
+                return ""
+
+        # 1. 遗言轮交接（消费归档保证幂等）
+        lastrites = os.path.join(base, "handover_lastrites.md")
+        text = _read(lastrites)
+        if text:
+            try:
+                os.rename(lastrites, lastrites + ".consumed")
+            except OSError:
+                pass  # 重命名失败仍注入一次，幂等性退化为最佳努力
+            return (text, "budget last-rites handover")
+
+        # 2. env 直接给 hint 内容（人工/编排器一行注入）
+        env_hint = os.environ.get("LINGCLAUDE_RESUME_HINT", "").strip()
+        if env_hint:
+            return (env_hint, "relay orchestrator resume hint (env)")
+
+        # 3. 编排器默认落点（只读，所有权归编排器）
+        text = _read(os.path.join(base, "RESUME_HINT.txt"))
+        if text:
+            return (text, "relay orchestrator resume hint")
+        return ("", "")
+
     def _make_turn_result(
         self,
         prompt: str,
@@ -576,6 +624,25 @@ class SubmissionMixin:
         if resume_note:
             messages.append(ModelMessage(role=MessageRole.USER, content=resume_note))
 
+        # R3-B（panel_20261008_budget 定案）: 恢复引导钩子——
+        # 若存在遗言轮交接/编排器 RESUME_HINT，作为 system note 注入，
+        # 让恢复会话第一轮就知道「前会话为什么断、从哪里继续」。
+        guidance_text, guidance_src = self._collect_resume_guidance(self.session_id)
+        if guidance_text:
+            messages.append(ModelMessage(
+                role=MessageRole.SYSTEM,
+                content=(
+                    f"[接力恢复引导 | 来源: {guidance_src}]\n"
+                    "以下是上一个会话（预算暂停/接力点）留下的交接信息，"
+                    "请以此为准继续任务：\n"
+                    f"{guidance_text}"
+                ),
+            ))
+            logger.info(
+                "resume_interrupted: injected resume guidance from %s (%d chars)",
+                guidance_src, len(guidance_text),
+            )
+
         # R5 阶段2: 副作用待确认清单（写/编辑/bash/rm/curl 等非只读工具）。
         # 在 messages 头部注入"待确认"提示,让模型下一轮询问用户
         # 而不是盲目重放（防 57109 类误杀后副作用被执行两次）。
@@ -621,7 +688,10 @@ class SubmissionMixin:
                 self._append_to_session_history(prompt, final_content)
                 self._learn_from_turn(prompt, final_content)
                 # result.data 透出 pending_effects 摘要,让 cli 层可在 /recover 输出中提示
-                final_content += f"\n\n[恢复摘要] 已处理 {len(pending_effects)} 个待确认副作用调用"
+                summary_extra = f"已处理 {len(pending_effects)} 个待确认副作用调用"
+                if guidance_src:
+                    summary_extra += f"；已注入接力引导（{guidance_src}）"
+                final_content += f"\n\n[恢复摘要] {summary_extra}"
                 return Result.ok(final_content)
 
             used_tools = True
