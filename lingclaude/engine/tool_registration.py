@@ -268,16 +268,21 @@ SPECS: tuple[ToolSpec, ...] = (
         # 用户经 /tasks 查看面板，进度在对话中由模型调用本工具推进。
         name='todo_write',
         description=(
-            'Replace the session task list with a plan of concrete, verifiable '
-            'sub-steps for multi-step work. Pass `todos` (list of {content, status}) '
-            'and `active_id` = the content of the single in_progress item (exactly '
-            'one; others must be pending). Call at task start and again as items '
-            'complete. Use for multi-step/ambiguous work, not simple one-off edits.'
+            'Task list: full plan OR incremental patch (two shapes). '
+            'PLAN: pass `todos` (list of {content, status}) + `active_id` = content '
+            'of the ONE in_progress item ("none" if none). Items keep their id when '
+            'content matches; missing items are removed. '
+            'PATCH: {"action":"add","content":"..."} inserts a new pending task in '
+            'O(1) (capture new instructions immediately as todos); '
+            '{"action":"update","id":"t3","status":"completed|in_progress|pending"} '
+            'advances one item. Rules: update status in real time (never batch); '
+            'if blocked, keep current item in_progress and add a follow-up todo '
+            'describing the blocker; mark completed ONLY after verification.'
         ),
         parameters={
             'todos': {
                 'type': 'array',
-                'description': 'Full task list (replaces previous). Each item: {"content": "one verifiable action", "status": "pending|in_progress|completed"}.',
+                'description': 'PLAN shape: full task list (replaces previous; matching content keeps its id). Each item: {"content": "one verifiable action", "status": "pending|in_progress|completed"}.',
                 'items': {
                     'type': 'object',
                     'properties': {
@@ -289,7 +294,25 @@ SPECS: tuple[ToolSpec, ...] = (
             },
             'active_id': {
                 'type': 'string',
-                'description': 'Content of the ONE in_progress item ("none" if all pending/completed). Exactly one unless "none".',
+                'description': 'Content of the ONE in_progress item ("none" if all pending/completed). Exactly one unless "none". PLAN shape only.',
+            },
+            'action': {
+                'type': 'string',
+                'description': 'PATCH shape: "add" (insert new pending task) or "update" (change one item status). Mutually exclusive with `todos`.',
+                'enum': ['add', 'update'],
+            },
+            'content': {
+                'type': 'string',
+                'description': 'PATCH add: task content (one verifiable action).',
+            },
+            'id': {
+                'type': 'string',
+                'description': 'PATCH update: todo id from the authoritative list returned by this tool (e.g. "t3").',
+            },
+            'status': {
+                'type': 'string',
+                'description': 'PATCH update: new status.',
+                'enum': ['pending', 'in_progress', 'completed'],
             },
         },
         handler_attr='_todo_write_handler',
@@ -319,7 +342,10 @@ SPECS: tuple[ToolSpec, ...] = (
         description='Task management: create/list/complete/cancel/start/delete a todo item',
         parameters={'command': {'type': 'string', 'description': 'Sub-command: create|list|complete|cancel|start|get|delete'}, 'id': {'type': 'string', 'description': 'Todo ID (for complete/cancel/start/get/delete)'}, 'content': {'type': 'string', 'description': 'Task content (for create)'}, 'priority': {'type': 'integer', 'description': 'Priority 0-9, higher=more urgent (for create)'}, 'tags': {'type': 'array', 'items': {'type': 'string'}, 'description': 'Tags (for create)'}, 'status': {'type': 'string', 'description': 'Filter by status: pending|in_progress|completed|cancelled (for list)'}},
         handler_attr='_todo_handler',
-        security_scope='read',
+        # 2026-10-08 G14 收口: read→write —— create/start/complete/delete 全是
+        # 状态写入路径，与 todo_write 同理（全删+重插=write 的同一定性逻辑）。
+        # 契约7 互斥校验同步成立（不在 READ_ONLY_TOOLS 名单）。
+        security_scope='write',
         concurrency_safe=False,
     ),
     ToolSpec(

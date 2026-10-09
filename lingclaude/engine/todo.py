@@ -52,9 +52,14 @@ class TodoItem:
     priority: int = 0  # higher = more urgent
     tags: list[str] = field(default_factory=list)
     parent_id: str | None = None  # for sub-tasks
+    # 写者来源（2026-10-08 R3 落地，OC 审计「明确写者模型」借鉴2）：
+    #   "model"=模型工具写入（默认）| "user"=用户 /tasks add 插入。
+    # todo_write 全量替换时非 model 来源项受保护（merge 语义），
+    # 消灭「生成期间用户插入项被随机清掉」的时序不确定性。
+    source: str = "model"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "id": self.id,
             "content": self.content,
             "status": self.status.value,
@@ -64,6 +69,9 @@ class TodoItem:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
+        if self.source != "model":  # 省缺省值，存量数据零迁移
+            d["source"] = self.source
+        return d
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +217,7 @@ class TodoStore:
                         parent_id=r.get("parent_id"),
                         created_at=float(r.get("created_at", 0.0)),
                         updated_at=float(r.get("updated_at", 0.0)),
+                        source=str(r.get("source", "model")),
                     )
                 )
             except (KeyError, ValueError, TypeError):
@@ -263,6 +272,57 @@ class TodoStore:
             if hit:
                 self._write_items(items)
             return hit
+
+    # ------------------------------------------------------------------
+    # R3 原子替换（2026-10-08，OC 审计借鉴1 P0）：
+    # 旧路径「先逐项 delete 再逐项 add」每步单独拿锁+重写文件，中途异常
+    # 留撕裂态、外部插入按删除时序随机丢失。replace_all / merge_replace
+    # 一次拿锁、一次读改写、一次落盘 —— 对齐 OC 单事务语义。
+    # ------------------------------------------------------------------
+
+    def replace_all(self, items: list[TodoItem]) -> None:
+        """全量替换当前会话清单（原子：单锁单次落盘，无撕裂窗口）。"""
+        with self._lock:
+            self._write_items(list(items))
+
+    def merge_replace(
+        self,
+        items: list[TodoItem],
+        protect_sources: tuple[str, ...] = ("user",),
+    ) -> list[TodoItem]:
+        """全量替换 + 受保护来源项保留（merge 语义，OC 借鉴2 方案b）。
+
+        模型 todo_write 未列出的 source ∈ protect_sources 的旧项原样保留
+        （追加到新清单尾部），消灭「生成期间用户插入被随机清掉」的时序
+        不确定性。返回落盘后的完整清单（含被保留项）。
+        """
+        with self._lock:
+            old = self._items()
+            kept = [i for i in old if i.source in protect_sources]
+            new_ids = {i.id for i in items}
+            merged = list(items) + [k for k in kept if k.id not in new_ids]
+            self._write_items(merged)
+            return merged
+
+    # ------------------------------------------------------------------
+    # R4 稳定 id（2026-10-08，OC 借鉴3 / cc 借鉴2）：单调自增序号。
+    # uuid4 每次全量覆写重造 → 跨轮 /tasks start <id>、active_id 引用断裂。
+    # 序号 id 从存量 id 解析 max+1（兼容旧 uuid 混存），跨会话不回收。
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def parse_seq(id: str) -> int | None:
+        """'t12' → 12；非序号形态（旧 uuid8 等）→ None。"""
+        return int(id[1:]) if id.startswith("t") and id[1:].isdigit() else None
+
+    def alloc_seq_id(self, n: int = 1) -> list[str]:
+        """分配 n 个单调递增序号 id（如 t12,t13），跨实例唯一由文件锁保证。"""
+        with self._lock:
+            seqs = [
+                s for s in (self.parse_seq(i.id) for i in self._items()) if s is not None
+            ]
+            start = (max(seqs) if seqs else 0) + 1
+            return [f"t{start + k}" for k in range(n)]
 
     # ------------------------------------------------------------------
     # 状态纪律（2026-09-17，对标 AtomCode todowrite）：
@@ -323,6 +383,123 @@ class TodoStore:
                 return False
             self._write_items(kept)
             return True
+
+
+# ---------------------------------------------------------------------------
+# todo_write PLAN 形态 reducer（2026-10-08 R4，AC 借鉴4「不变量下沉」）：
+# 校验与基线构建是纯函数 —— handler 层只做分发，不变量在此层无条件强制，
+# 模型绕不过（AC §1.3: 恰好一个 in_progress、非法清单整条拒绝）。
+# ---------------------------------------------------------------------------
+
+TODO_WRITE_STATUSES = ("pending", "in_progress", "completed")
+
+
+def validate_plan(
+    todos: list[dict[str, Any]],
+    active_id: str | None,
+) -> tuple[list[dict[str, str]], str | None, str | None]:
+    """校验+归一 PLAN 形态。返回 (归一清单, active_id 原文|None, 错误|None)。
+
+    错误非 None 时整条拒绝，调用方不得触碰存储（基线保护，AC parse_todos
+    语义：非法 list 永不清掉之前的合法基线）。
+    """
+    norm: list[dict[str, str]] = []
+    seen: set[str] = set()
+    in_prog: list[str] = []
+    for idx, t in enumerate(todos):
+        if not isinstance(t, dict):
+            return [], None, f"todos[{idx}] 不是对象（需 {{content, status}}）"
+        content = str(t.get("content") or "").strip()
+        if not content:
+            return [], None, f"todos[{idx}].content 为空（非法清单整条拒绝）"
+        status = str(t.get("status") or "pending").strip().lower()
+        if status not in TODO_WRITE_STATUSES:
+            return [], None, (
+                f"todos[{idx}].status={status!r} 非法"
+                f"（允许 {', '.join(TODO_WRITE_STATUSES)}；整条拒绝）"
+            )
+        key = content.lower()
+        if key in seen:
+            return [], None, f"重复 content: {content!r}（整条拒绝）"
+        seen.add(key)
+        if status == "in_progress":
+            in_prog.append(content)
+        norm.append({"content": content, "status": status})
+
+    given = bool((active_id or "").strip()) and (active_id or "").strip().lower() != "none"
+    if given:
+        exact = (active_id or "").strip()
+        hits = [t for t in norm if t["content"] == exact]
+        if not hits:
+            return [], None, f"active_id={exact!r} 未命中任何清单项（整条拒绝）"
+        if hits[0]["status"] == "completed":
+            return [], None, f"active_id={exact!r} 指向 completed 项（整条拒绝）"
+        for t in norm:  # 命中项置 in_progress，其余 in_progress 退回 pending（纪律①）
+            if t["content"] == exact:
+                t["status"] = "in_progress"
+            elif t["status"] == "in_progress":
+                t["status"] = "pending"
+        return norm, exact, None
+    if len(in_prog) > 1:
+        return [], None, (
+            f"恰好一个 in_progress，收到 {len(in_prog)} 个: {in_prog}"
+            "（整条拒绝）；无进行中请传 active_id='none'"
+        )
+    return norm, None, None
+
+
+def build_plan_items(
+    norm: list[dict[str, str]],
+    old_items: list[TodoItem],
+    fresh_ids: list[str],
+    now: float,
+) -> list[TodoItem]:
+    """由归一清单构建新基线：归一 content 匹配旧项则复用其 id/元数据（稳定 id，
+    OC 借鉴3），只给新增项发新序号；user 来源项被继承时保留 source。"""
+    by_content = {i.content.lower(): i for i in old_items}
+    fresh = iter(fresh_ids)
+    out: list[TodoItem] = []
+    for t in norm:
+        old = by_content.get(t["content"].lower())
+        if old is not None:
+            out.append(
+                TodoItem(
+                    id=old.id,
+                    content=old.content if old.source != "model" else t["content"],
+                    status=TodoStatus(t["status"]),
+                    priority=old.priority,
+                    tags=old.tags,
+                    parent_id=old.parent_id,
+                    source=old.source,
+                    created_at=old.created_at,
+                    updated_at=now,
+                )
+            )
+        else:
+            out.append(
+                TodoItem(
+                    id=next(fresh),
+                    content=t["content"],
+                    status=TodoStatus(t["status"]),
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+    return out
+
+
+def plan_echo(store: TodoStore, message: str) -> dict[str, Any]:
+    """权威回灌（OC toModelOutput）：返回完整 {id,content,status} 清单。"""
+    items = store.list()
+    return {
+        "ok": True,
+        "count": len(items),
+        "todos": [
+            {"id": i.id, "content": i.content, "status": i.status.value}
+            for i in items
+        ],
+        "message": message,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -413,8 +590,15 @@ def make_handlers(store: TodoStore) -> dict:
         priority: int = 0,
         tags: list[str] | None = None,
         parent_id: str | None = None,
+        source: str = "agent",
     ) -> dict:
-        """Create a new todo item."""
+        """Create a new todo item.
+
+        R4b（20261008 裁决）：source 随构造原子打标（锁前置），消灭
+        「create 返回后锁外补标」的 TOCTOU 窗口。调用方语义：
+          · CLI /tasks add（真用户）→ source="user"
+          · MCP todo create（模型侧）→ 默认 "agent"，分发层白名单不透传
+        """
         now = time.time()
         item = TodoItem(
             id=str(uuid.uuid4())[:8],
@@ -425,6 +609,7 @@ def make_handlers(store: TodoStore) -> dict:
             priority=priority,
             tags=tags or [],
             parent_id=parent_id,
+            source=source,
         )
         store.add(item)
         return {"ok": True, "todo": item.to_dict()}

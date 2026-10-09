@@ -59,9 +59,11 @@ class SlashCommandTasksMixin:
         用法：
           /tasks              活跃面板（in_progress 高亮 + pending，按优先级）
           /tasks all         全量（含 completed/cancelled）
-          /tasks add <文本>  新增 pending 项
+          /tasks add <文本>  新增 pending 项（打 user 来源标，模型覆写时受保护）
           /tasks start <id>  置 in_progress（其他 in_progress 自动退回 pending）
           /tasks done <id>   完成一项（禁批量——逐项核销，面板永远真实）
+          /tasks use <id>    同 start 的用户抢占语义（2026-10-08 R3：用户改
+                            「当前执行项」即表达改优先级意图，写者模型明确化）
         数据源：engine._runtime._todo_store（TodoStore，session 级 SQLite 持久化，
         跨 /continue 恢复仍在）。无 runtime（单轮/降级模式）时明确提示不静默。
         """
@@ -90,12 +92,17 @@ class SlashCommandTasksMixin:
             if not val:
                 print("[任务] 用法: /tasks add <文本>")
                 return
-            res = handlers.get("create", lambda *a, **k: None)(val)
-            tid = res.get("todo", {}).get("id", "?") if isinstance(res, dict) else "?"
-            print(f"[任务] 已新增 #{tid[:8]}: {val}（pending）")
+            res = handlers.get("create", lambda *a, **k: None)(
+                val, source="user"
+            )
+            tid = (
+                res.get("todo", {}).get("id", "?")
+                if isinstance(res, dict) else "?"
+            )
+            print(f"[任务] 已新增 #{tid[:8]}: {val}（pending, user）")
             self._print_task_panel(store.active_items())
             return
-        if verb in ("start", "done"):
+        if verb in ("start", "done", "use"):
             if not val:
                 print(f"[任务] 用法: /tasks {verb} <id>")
                 return
@@ -105,6 +112,8 @@ class SlashCommandTasksMixin:
                 print(f"[任务] 无法定位 '{val}'（{len(matches)} 个匹配）")
                 return
             tid = matches[0].id
+            if verb == "use":
+                verb = "start"  # use = 用户抢占「当前执行项」（OC 写者模型明确化）
             if verb == "start":
                 res = handlers.get("start")(tid)
                 if res.get("ok"):
@@ -127,7 +136,7 @@ class SlashCommandTasksMixin:
                 print(f"[任务] #{arg[:8]} 置 in_progress")
                 self._print_task_panel(store.active_items())
             else:
-                print(f"[任务] 未知操作 '{arg}'；用法: /tasks [add|start|done|all] [参数]")
+                print(f"[任务] 未知操作 '{arg}'；用法: /tasks [add|start|done|use|all] [参数]")
 
     @staticmethod
     def _print_task_panel(items) -> None:
@@ -154,6 +163,8 @@ class SlashCommandTasksMixin:
         for i in items:
             mark = icon.get(i.status, "·")
             line = f"  {mark} #{i.id[:8]}  {i.content}"
+            if getattr(i, "source", "model") == "user":
+                line += "  [user]"
             if i.status == TodoStatus.IN_PROGRESS:
                 line += "  ← 当前执行"
             print(line)
