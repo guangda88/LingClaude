@@ -5,5 +5,7 @@
   "status": "zero-prod-consumption (CLI-only entry)",
   "why_legitimate": "新增灰区超时看门狗(治 827 条 pending 永夜),当前唯一入口 python -m CLI+测试;生产接线(daemon tick 定时扫描)为后续工单",
   "due": "2026-10-10",
-  "evidence": "orphan_gate 拦截记录 + tests/test_pending_watchdog.py 14 passed"
+  "evidence": "orphan_gate 拦截记录 + tests/test_pending_watchdog.py 14 passed",
+  "state": "resolved",
+  "resolved_at": "2026-10-09T00:18:51+00:00"
 }

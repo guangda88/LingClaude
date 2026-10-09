@@ -1,0 +1,8 @@
+{
+  "guard": "M1",
+  "file": "core/retention.py",
+  "reason": "子串误报与不可改写引用盘点(R4b清理轮)：①str:repl=os.replace标准库名子串误报；②session/sessions=物理路径约定(sessions/<项目>/<sid>.json布局)与rollout存档描述，改词将使文档引用与文件系统不符；③execute/executor=backlog数据契约status字面量('executed'/'executed_at'，改动破坏存量数据兼容)+下游接线点模块名描述；④会话=中文docstring描述词。本文件为有界存储原语(按龄/按数/收缩)，零领域概念代码依赖，先例同core/seam.py(定义地整文件豁免)。复审口径：上游status字面量若改名或文档重构后应收窄/撤销本豁免",
+  "granted": "2026-10-09",
+  "state": "active",
+  "review_due": "2026-11-08"
+}

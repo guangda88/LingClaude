@@ -1,0 +1,7 @@
+{
+  "severity": "P1",
+  "finding": "到期未清债务: input-freeze-fallback-read-uncovered (location=lingclaude/cli/repl.py:393 _read_input 裸 input() 降级路径；尸检宿主 pid 1387113（2026-09-24 00:24 前后输入冻结，用户手动重启） due=2026-10-08); push-gate-host-resource-precheck (location=lefthook.yml pre-push.full-pytest + push 流程（docs/runbooks/PUSH_SOP.md 承接） due=2026-10-08)",
+  "source": "self_audit_trigger",
+  "state": "open",
+  "created": "2026-10-08T17:32:39+00:00"
+}

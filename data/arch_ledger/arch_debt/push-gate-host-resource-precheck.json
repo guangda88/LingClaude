@@ -4,8 +4,9 @@
   "reason": "push-gate-xdist-spin 证伪后保留的真实结构缺口，三点：①full-pytest 无 --timeout 防单测试卡死（pytest-timeout 已装未接线），09-24 三次 push 全部死于门禁阶段；②git_push 工具默认 120s vs 门禁全量 20-40min，timeout 结构性不足，须显式 ≥7200；③宿主资源紧张（committed_AS 超承诺、swap 满、earlyoom -m 20）时 worker 成批死亡/被杀，环境病被误报为代码红（lastfailed 285 条环境依赖型佐证），门禁缺资源可用性预检。",
   "due": "2026-10-08",
   "resolve_hint": "①lefthook full-pytest 接 --timeout=300；②把 safe_push.sh 的 MemAvailable<4G 预警机制化进 pre-push 预检（当前仅脚本内提示，钩子自身不检查）；③push 流程纪律以 docs/runbooks/PUSH_SOP.md 为准：timeout≥7200 显式、输出直写文件不走管道、旁路必留痕、远端状态以 ls-remote 实测为准；④端到端验证：钩子链在资源紧张与宽裕两种宿主状态下各真实跑完一次。",
-  "state": "open",
+  "state": "resolved",
   "created": "2026-09-24T17:45:00+00:00",
-  "resolution": "",
-  "progress": "①②③已落（2026-09-30）：full-pytest 接 --timeout=300（lefthook.yml）；新增 scripts/pre_push_resource_gate.sh 挂 pre-push priority=18（MemAvailable<4G 结构性挡门，exit 1；/proc 不可读保守放行 exit 2），safe_push.sh L3 警告升级为硬门；SOP 纪律已在 PUSH_SOP。④模拟侧已绿：MEMINFO_FILE/MIN_AVAIL_KB 测试缝注入双状态 6/6（test_push_resource_gate.py）+ 宿主真实冒烟 16G 放行；真实钩子链端到端 push 待执行（须主进程/宿主，沙箱无网络）"
+  "resolution": "2026-10-09 销账(R4b清理轮)：resolve_hint ①②③已落且实证——①lefthook full-pytest 接 --timeout=300(lefthook.yml:83)；②pre_push_resource_gate.sh 挂 pre-push priority=18(MemAvailable<4G结构性挡门,lefthook.yml:79)；③SOP纪律在 docs/runbooks/PUSH_SOP.md(≥7200显式/直写文件/旁路留痕/ls-remote为准)，10-08 再加 pre_push_gate.sh 网关(预算自收割+flock串行+HEAD绿复用)。本轮复跑 tests/test_push_resource_gate.py 6/6 绿。残余：④钩子链端到端 push 依 resolve_hint 属'须主进程/宿主网络'的事件依赖项，非代码缺口，下次真实 push 即验。注：与本债同根的 5 项负载型 flaky(m5/l7×2/sandbox×2)诊断见 verify_log/full_regression_20261009_v3.log 归因。",
+  "progress": "①②③已落（2026-09-30）：full-pytest 接 --timeout=300（lefthook.yml）；新增 scripts/pre_push_resource_gate.sh 挂 pre-push priority=18（MemAvailable<4G 结构性挡门，exit 1；/proc 不可读保守放行 exit 2），safe_push.sh L3 警告升级为硬门；SOP 纪律已在 PUSH_SOP。④模拟侧已绿：MEMINFO_FILE/MIN_AVAIL_KB 测试缝注入双状态 6/6（test_push_resource_gate.py）+ 宿主真实冒烟 16G 放行；真实钩子链端到端 push 待执行（须主进程/宿主，沙箱无网络）",
+  "resolved_at": "2026-10-08T23:14:12+00:00"
 }

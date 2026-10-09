@@ -1,0 +1,821 @@
+[
+ {
+  "description": "Replace function/method body at AST level. Decision rules: (1) Prefer this over edit when replacing a whole function/method body — no text matching needed. (2) new_body must NOT include the \"def\" line, use indent of the body only (method bodies indented). (3) For methods pass class_name; use occurrence>1 only after list_functions confirms multiple candidates.",
+  "handler_direct": false,
+  "handler_name": "ast_replace",
+  "handler_resolved": "_ast_replace_handler",
+  "is_concurrency_safe": false,
+  "name": "ast_replace",
+  "parameters": {
+   "class_name": {
+    "description": "Class name (for methods)",
+    "type": "string"
+   },
+   "file_path": {
+    "description": "Python file path",
+    "type": "string"
+   },
+   "function_name": {
+    "description": "Function or method name",
+    "type": "string"
+   },
+   "new_body": {
+    "description": "New function body (without def line)",
+    "type": "string"
+   },
+   "occurrence": {
+    "description": "Which occurrence (default 1)",
+    "type": "integer"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Execute bash commands (native subprocess)",
+  "handler_direct": false,
+  "handler_name": "bash",
+  "handler_resolved": "_bash_handler",
+  "is_concurrency_safe": false,
+  "name": "bash",
+  "parameters": {
+   "command": {
+    "type": "string"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Execute bash commands via lingxi MCP server (secure, monitored)",
+  "handler_direct": false,
+  "handler_name": "bash_lingxi",
+  "handler_resolved": "_bash_lingxi_handler",
+  "is_concurrency_safe": false,
+  "name": "bash_lingxi",
+  "parameters": {
+   "command": {
+    "type": "string"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Cancel a pending/running background job by job_id",
+  "handler_direct": false,
+  "handler_name": "cancel_job",
+  "handler_resolved": "_cancel_job_handler",
+  "is_concurrency_safe": false,
+  "name": "cancel_job",
+  "parameters": {
+   "job_id": {
+    "description": "Job ID to cancel",
+    "type": "string"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Edit file by replacing text (with backup/rollback)",
+  "handler_direct": false,
+  "handler_name": "edit",
+  "handler_resolved": "_edit_handler",
+  "is_concurrency_safe": false,
+  "name": "edit",
+  "parameters": {
+   "new_text": {
+    "type": "string"
+   },
+   "old_text": {
+    "type": "string"
+   },
+   "path": {
+    "type": "string"
+   },
+   "replace_all": {
+    "type": "boolean"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Create a new file with content",
+  "handler_direct": false,
+  "handler_name": "file_create",
+  "handler_resolved": "_file_create_handler",
+  "is_concurrency_safe": false,
+  "name": "file_create",
+  "parameters": {
+   "content": {
+    "type": "string"
+   },
+   "path": {
+    "type": "string"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Delete a range of lines from a file",
+  "handler_direct": false,
+  "handler_name": "file_delete_lines",
+  "handler_resolved": "_file_delete_lines_handler",
+  "is_concurrency_safe": false,
+  "name": "file_delete_lines",
+  "parameters": {
+   "end_line": {
+    "type": "integer"
+   },
+   "path": {
+    "type": "string"
+   },
+   "start_line": {
+    "type": "integer"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Insert text at a specific line number",
+  "handler_direct": false,
+  "handler_name": "file_insert",
+  "handler_resolved": "_file_insert_handler",
+  "is_concurrency_safe": false,
+  "name": "file_insert",
+  "parameters": {
+   "line": {
+    "type": "integer"
+   },
+   "path": {
+    "type": "string"
+   },
+   "text": {
+    "type": "string"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Undo last edit by restoring backup",
+  "handler_direct": false,
+  "handler_name": "file_undo",
+  "handler_resolved": "_file_undo_handler",
+  "is_concurrency_safe": false,
+  "name": "file_undo",
+  "parameters": {
+   "path": {
+    "type": "string"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Show line-level authorship for a file",
+  "handler_direct": false,
+  "handler_name": "git_blame",
+  "handler_resolved": "_git_blame_handler",
+  "is_concurrency_safe": false,
+  "name": "git_blame",
+  "parameters": {
+   "cwd": {
+    "description": "Repository root",
+    "type": "string"
+   },
+   "end_line": {
+    "description": "End line (optional)",
+    "type": "integer"
+   },
+   "file_path": {
+    "description": "File to blame",
+    "type": "string"
+   },
+   "start_line": {
+    "description": "Start line (optional)",
+    "type": "integer"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Show staged or unstaged changes",
+  "handler_direct": false,
+  "handler_name": "git_diff",
+  "handler_resolved": "_git_diff_handler",
+  "is_concurrency_safe": false,
+  "name": "git_diff",
+  "parameters": {
+   "path": {
+    "description": "Repository path",
+    "type": "string"
+   },
+   "staged": {
+    "description": "Show staged changes (--staged)",
+    "type": "boolean"
+   },
+   "stat": {
+    "description": "Show diffstat summary",
+    "type": "boolean"
+   },
+   "target": {
+    "description": "Specific file or directory to diff",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Show commit history",
+  "handler_direct": false,
+  "handler_name": "git_log",
+  "handler_resolved": "_git_log_handler",
+  "is_concurrency_safe": false,
+  "name": "git_log",
+  "parameters": {
+   "count": {
+    "description": "Number of commits (default 10)",
+    "type": "integer"
+   },
+   "follow": {
+    "description": "Follow file renames for a specific file",
+    "type": "string"
+   },
+   "path": {
+    "description": "Repository path",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Push commits to a remote (parameterized, remote/branch allowlist, no shell interpolation)",
+  "handler_direct": false,
+  "handler_name": "git_push",
+  "handler_resolved": "_git_push_handler",
+  "is_concurrency_safe": false,
+  "name": "git_push",
+  "parameters": {
+   "branch": {
+    "description": "Branch/refspec (allowlist chars only)",
+    "type": "string"
+   },
+   "force": {
+    "description": "Force push (default false)",
+    "type": "boolean"
+   },
+   "path": {
+    "description": "Repository path (default: .)",
+    "type": "string"
+   },
+   "remote": {
+    "description": "Remote name (allowlist: origin/github/upstream)",
+    "type": "string"
+   },
+   "timeout": {
+    "description": "Timeout seconds (default 120)",
+    "type": "integer"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Preflight check before push: remotes, unpushed commits, dirty state, gate blocking",
+  "handler_direct": false,
+  "handler_name": "git_push_preflight",
+  "handler_resolved": "_git_push_preflight_handler",
+  "is_concurrency_safe": false,
+  "name": "git_push_preflight",
+  "parameters": {
+   "path": {
+    "description": "Repository path (default: .)",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Show working tree status (short/porcelain format)",
+  "handler_direct": false,
+  "handler_name": "git_status",
+  "handler_resolved": "_git_status_handler",
+  "is_concurrency_safe": false,
+  "name": "git_status",
+  "parameters": {
+   "path": {
+    "description": "Repository path (default: .)",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Find files by pattern",
+  "handler_direct": false,
+  "handler_name": "glob",
+  "handler_resolved": "_glob_handler",
+  "is_concurrency_safe": true,
+  "name": "glob",
+  "parameters": {
+   "path": {
+    "description": "Root directory (default: cwd)",
+    "type": "string"
+   },
+   "pattern": {
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Search file contents with regex (defaults to all file types)",
+  "handler_direct": false,
+  "handler_name": "grep",
+  "handler_resolved": "_grep_handler",
+  "is_concurrency_safe": true,
+  "name": "grep",
+  "parameters": {
+   "after": {
+    "description": "Context lines after match (grep -A)",
+    "type": "integer"
+   },
+   "before": {
+    "description": "Context lines before match (grep -B)",
+    "type": "integer"
+   },
+   "case_sensitive": {
+    "type": "boolean"
+   },
+   "include": {
+    "description": "File glob filter (default: * = all files)",
+    "type": "string"
+   },
+   "literal": {
+    "type": "boolean"
+   },
+   "path": {
+    "description": "Search root directory (default: cwd)",
+    "type": "string"
+   },
+   "pattern": {
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Scan Python project and build symbol table (classes, functions, imports)",
+  "handler_direct": false,
+  "handler_name": "index_project",
+  "handler_resolved": "_index_project_handler",
+  "is_concurrency_safe": false,
+  "name": "index_project",
+  "parameters": {
+   "max_files": {
+    "description": "Max files to scan (default 200)",
+    "type": "integer"
+   },
+   "path": {
+    "description": "Project root directory",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Interrupt/abort a running sub-agent by agent_id",
+  "handler_direct": false,
+  "handler_name": "interrupt_agent",
+  "handler_resolved": "_interrupt_agent_handler",
+  "is_concurrency_safe": false,
+  "name": "interrupt_agent",
+  "parameters": {
+   "agent_id": {
+    "description": "Agent ID to interrupt",
+    "type": "string"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Get status of a background job by job_id",
+  "handler_direct": false,
+  "handler_name": "job_status",
+  "handler_resolved": "_job_status_handler",
+  "is_concurrency_safe": false,
+  "name": "job_status",
+  "parameters": {
+   "job_id": {
+    "description": "Job ID to query",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "List all running sub-agents and their status",
+  "handler_direct": false,
+  "handler_name": "list_agents",
+  "handler_resolved": "_list_agents_handler",
+  "is_concurrency_safe": false,
+  "name": "list_agents",
+  "parameters": {},
+  "security_scope": "read"
+ },
+ {
+  "description": "List all functions and methods in a Python file with line ranges",
+  "handler_direct": false,
+  "handler_name": "list_functions",
+  "handler_resolved": "_list_functions_handler",
+  "is_concurrency_safe": false,
+  "name": "list_functions",
+  "parameters": {
+   "file_path": {
+    "description": "Python file path",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "List all background jobs and their status",
+  "handler_direct": false,
+  "handler_name": "list_jobs",
+  "handler_resolved": "_list_jobs_handler",
+  "is_concurrency_safe": false,
+  "name": "list_jobs",
+  "parameters": {},
+  "security_scope": "read"
+ },
+ {
+  "description": "LSP code navigation & structure: goto_def / find_refs / hover / goto_impl / outline / search / diagnostics",
+  "handler_direct": false,
+  "handler_name": "lsp",
+  "handler_resolved": "_lsp_handler",
+  "is_concurrency_safe": false,
+  "name": "lsp",
+  "parameters": {
+   "character": {
+    "description": "0-based character offset (goto_*/hover only)",
+    "type": "integer"
+   },
+   "command": {
+    "description": "lsp command: goto_def|find_refs|hover|goto_impl|outline|search|diagnostics",
+    "type": "string"
+   },
+   "file_path": {
+    "description": "Absolute file path (goto_*/hover/outline/diagnostics; optional for search to infer language)",
+    "type": "string"
+   },
+   "line": {
+    "description": "0-based line number (goto_*/hover only)",
+    "type": "integer"
+   },
+   "query": {
+    "description": "Symbol name to search across workspace (search command only)",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Toggle plan mode: think without tool execution to plan complex tasks",
+  "handler_direct": false,
+  "handler_name": "plan_mode",
+  "handler_resolved": "_plan_mode_handler",
+  "is_concurrency_safe": false,
+  "name": "plan_mode",
+  "parameters": {
+   "action": {
+    "description": "'enter' or 'exit'",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Read file contents with line numbers, offset/limit support. Repeated read of an unchanged file returns a short reference (content omitted); pass force_refresh=1 or offset/limit to get content again.",
+  "handler_direct": false,
+  "handler_name": "read",
+  "handler_resolved": "_read_handler",
+  "is_concurrency_safe": true,
+  "name": "read",
+  "parameters": {
+   "force_refresh": {
+    "description": "Bypass re-read short-circuit and return full content",
+    "type": "boolean"
+   },
+   "limit": {
+    "type": "integer"
+   },
+   "line_numbers": {
+    "type": "boolean"
+   },
+   "offset": {
+    "type": "integer"
+   },
+   "path": {
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Request user input during agent loop (single/multiple/text modes)",
+  "handler_direct": false,
+  "handler_name": "request_user_input",
+  "handler_resolved": "_request_user_input_handler",
+  "is_concurrency_safe": false,
+  "name": "request_user_input",
+  "parameters": {
+   "header": {
+    "description": "Optional header label",
+    "type": "string"
+   },
+   "mode": {
+    "description": "Input mode: single (one answer) | multiple (comma-separated) | text (free-form)",
+    "type": "string"
+   },
+   "options": {
+    "description": "Choice options for single/multiple mode",
+    "items": {
+     "properties": {
+      "description": {
+       "type": "string"
+      },
+      "label": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "label"
+     ],
+     "type": "object"
+    },
+    "type": "array"
+   },
+   "question": {
+    "description": "The question to ask the user",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Run a bash command in the background, returns a job_id immediately",
+  "handler_direct": false,
+  "handler_name": "run_in_background",
+  "handler_resolved": "_run_in_background_handler",
+  "is_concurrency_safe": false,
+  "name": "run_in_background",
+  "parameters": {
+   "command": {
+    "description": "Bash command to run in background",
+    "type": "string"
+   },
+   "timeout": {
+    "description": "Timeout in seconds (default 300)",
+    "type": "integer"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Read the full SKILL.md content of a ling-family skill by name (lazy load; use skill_search first to find names).",
+  "handler_direct": false,
+  "handler_name": "skill_read",
+  "handler_resolved": "_skill_read_handler",
+  "is_concurrency_safe": true,
+  "name": "skill_read",
+  "parameters": {
+   "name": {
+    "description": "Exact skill name as returned by skill_search",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Search ling-family skills by keyword (75+ skills across 9 members). Returns name/member/description/path for each hit.",
+  "handler_direct": false,
+  "handler_name": "skill_search",
+  "handler_resolved": "_skill_search_handler",
+  "is_concurrency_safe": true,
+  "name": "skill_search",
+  "parameters": {
+   "keyword": {
+    "description": "Keyword to match in skill name or description (empty = list first 10)",
+    "type": "string"
+   },
+   "limit": {
+    "description": "Max hits to return (default 10)",
+    "type": "integer"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Record audio and transcribe to text",
+  "handler_direct": false,
+  "handler_name": "stt",
+  "handler_resolved": "_stt_handler",
+  "is_concurrency_safe": false,
+  "name": "stt",
+  "parameters": {
+   "backend": {
+    "description": "STT backend: whisper or sherpa_onnx",
+    "type": "string"
+   },
+   "duration": {
+    "description": "Recording duration in seconds",
+    "type": "integer"
+   },
+   "file": {
+    "description": "Audio file path to transcribe (optional)",
+    "type": "string"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Spawn a sub-agent to autonomously research or analyze a task using read-only tools",
+  "handler_direct": false,
+  "handler_name": "sub_agent",
+  "handler_resolved": "_sub_agent_handler",
+  "is_concurrency_safe": false,
+  "name": "sub_agent",
+  "parameters": {
+   "context": {
+    "description": "Additional context (optional)",
+    "type": "string"
+   },
+   "max_rounds": {
+    "description": "Max agentic rounds (default 5)",
+    "type": "integer"
+   },
+   "provider": {
+    "description": "Backend provider: 'inprocess' (default) or 'acp'",
+    "type": "string"
+   },
+   "task": {
+    "description": "Task description for the sub-agent",
+    "type": "string"
+   }
+  },
+  "security_scope": "execute"
+ },
+ {
+  "description": "Task management: create/list/complete/cancel/start/delete a todo item",
+  "handler_direct": false,
+  "handler_name": "todo",
+  "handler_resolved": "_todo_handler",
+  "is_concurrency_safe": false,
+  "name": "todo",
+  "parameters": {
+   "command": {
+    "description": "Sub-command: create|list|complete|cancel|start|get|delete",
+    "type": "string"
+   },
+   "content": {
+    "description": "Task content (for create)",
+    "type": "string"
+   },
+   "id": {
+    "description": "Todo ID (for complete/cancel/start/get/delete)",
+    "type": "string"
+   },
+   "priority": {
+    "description": "Priority 0-9, higher=more urgent (for create)",
+    "type": "integer"
+   },
+   "status": {
+    "description": "Filter by status: pending|in_progress|completed|cancelled (for list)",
+    "type": "string"
+   },
+   "tags": {
+    "description": "Tags (for create)",
+    "items": {
+     "type": "string"
+    },
+    "type": "array"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Task list: full plan OR incremental patch (two shapes). PLAN: pass `todos` (list of {content, status}) + `active_id` = content of the ONE in_progress item (\"none\" if none). Items keep their id when content matches; missing items are removed. PATCH: {\"action\":\"add\",\"content\":\"...\"} inserts a new pending task in O(1) (capture new instructions immediately as todos); {\"action\":\"update\",\"id\":\"t3\",\"status\":\"completed|in_progress|pending\"} advances one item. Rules: update status in real time (never batch); if blocked, keep current item in_progress and add a follow-up todo describing the blocker; mark completed ONLY after verification.",
+  "handler_direct": false,
+  "handler_name": "todo_write",
+  "handler_resolved": "_todo_write_handler",
+  "is_concurrency_safe": false,
+  "name": "todo_write",
+  "parameters": {
+   "action": {
+    "description": "PATCH shape: \"add\" (insert new pending task) or \"update\" (change one item status). Mutually exclusive with `todos`.",
+    "enum": [
+     "add",
+     "update"
+    ],
+    "type": "string"
+   },
+   "active_id": {
+    "description": "Content of the ONE in_progress item (\"none\" if all pending/completed). Exactly one unless \"none\". PLAN shape only.",
+    "type": "string"
+   },
+   "content": {
+    "description": "PATCH add: task content (one verifiable action).",
+    "type": "string"
+   },
+   "id": {
+    "description": "PATCH update: todo id from the authoritative list returned by this tool (e.g. \"t3\").",
+    "type": "string"
+   },
+   "status": {
+    "description": "PATCH update: new status.",
+    "enum": [
+     "pending",
+     "in_progress",
+     "completed"
+    ],
+    "type": "string"
+   },
+   "todos": {
+    "description": "PLAN shape: full task list (replaces previous; matching content keeps its id). Each item: {\"content\": \"one verifiable action\", \"status\": \"pending|in_progress|completed\"}.",
+    "items": {
+     "properties": {
+      "content": {
+       "description": "Concrete task, e.g. \"add retry to fetch_user\"",
+       "type": "string"
+      },
+      "status": {
+       "enum": [
+        "pending",
+        "in_progress",
+        "completed"
+       ],
+       "type": "string"
+      }
+     },
+     "required": [
+      "content",
+      "status"
+     ],
+     "type": "object"
+    },
+    "type": "array"
+   }
+  },
+  "security_scope": "write"
+ },
+ {
+  "description": "Fetch content from a URL and extract text",
+  "handler_direct": false,
+  "handler_name": "web_fetch",
+  "handler_resolved": "_web_fetch_handler",
+  "is_concurrency_safe": false,
+  "name": "web_fetch",
+  "parameters": {
+   "timeout": {
+    "description": "Timeout in seconds (default 30)",
+    "type": "integer"
+   },
+   "url": {
+    "description": "URL to fetch",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Search the web for information",
+  "handler_direct": false,
+  "handler_name": "web_search",
+  "handler_resolved": "_web_search_handler",
+  "is_concurrency_safe": false,
+  "name": "web_search",
+  "parameters": {
+   "max_results": {
+    "description": "Max results to return (default 5)",
+    "type": "integer"
+   },
+   "query": {
+    "description": "Search query",
+    "type": "string"
+   }
+  },
+  "security_scope": "read"
+ },
+ {
+  "description": "Write file contents",
+  "handler_direct": false,
+  "handler_name": "write",
+  "handler_resolved": "_write_handler",
+  "is_concurrency_safe": false,
+  "name": "write",
+  "parameters": {
+   "content": {
+    "type": "string"
+   },
+   "path": {
+    "type": "string"
+   }
+  },
+  "security_scope": "write"
+ }
+]
