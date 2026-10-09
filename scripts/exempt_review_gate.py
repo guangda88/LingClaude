@@ -28,11 +28,15 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 MARKER_DIR = Path("/tmp/lingclaude_exempt_review")
 ACK_FILE = ".audit/push_block_ack.json"
 RANGE_CAP = 500  # 单次 push 逐提交检查上限，防病态大 push 拖死钩子
+STDIN_TIMEOUT = 5.0  # stdin 读超时（秒）。lefthook 在 PTY 上下文挂起本闸时
+# （交互终端发起 push，master 端永不关闭→read() 永等 EOF，2026-10-09 实测
+# 挂起 9+ 分钟），超时后按空范围放行——无范围时 pre-push 其余闸兜底。
 
 
 def _root() -> Path:
@@ -51,6 +55,54 @@ def _git(*args: str) -> list[str]:
 
 def _zero(sha: str) -> bool:
     return set(sha) == {"0"}
+
+
+def read_stdin_lines(timeout: float) -> list[str]:
+    """stdin 读取（带超时）。管道/文件 → EOF 即回；PTY 型 stdin 永等 EOF，
+    超时后返回已到达的行（一行都无 → 空 = 空范围放行）。
+
+    语义与既有「无范围——其他闸兜底」一致：pre-push 链里 full-pytest、
+    resource-precheck 不依赖本闸的 stdin，超时放行不会绕过任何检查。
+    优先 select；select 不可用（Windows 等）退化 deadline+守护线程。
+    """
+    import select
+    import threading
+
+    if hasattr(select, "select"):
+        lines: list[str] = []
+        buf = b""
+        deadline = time.monotonic() + timeout
+        fd = sys.stdin.fileno()
+        while True:
+            remain = deadline - time.monotonic()
+            if remain <= 0:
+                break
+            ready, _, _ = select.select([fd], [], [], remain)
+            if not ready:
+                break  # 超时：返回已收到的行（可能为空）
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break  # EOF：正常收尾
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                lines.append(line.decode("utf-8", "replace"))
+        if buf:  # EOF/超时时把无换行尾巴收掉
+            lines.append(buf.decode("utf-8", "replace"))
+        return lines
+    # --- 退化路径：select 不可用时的守护线程读 ---
+    result: list[str] = []
+
+    def _drain() -> None:
+        try:
+            result.extend(sys.stdin.read().splitlines())
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_drain, daemon=True)
+    t.start()
+    t.join(timeout)
+    return result
 
 
 def push_range(local_ref: str, local_sha: str,
@@ -194,7 +246,7 @@ def main() -> int:
         return cmd_ack(args.shas, args.reason)
     if args.cmd == "status":
         return cmd_status()
-    return cmd_gate(sys.stdin.read().splitlines())
+    return cmd_gate(read_stdin_lines(STDIN_TIMEOUT))
 
 
 if __name__ == "__main__":

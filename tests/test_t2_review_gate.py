@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -88,3 +91,79 @@ def test_status_reports_unacked(tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "ddd4444" in out and "未消化" in out
     assert rc == 1  # 有未消化 → status 非零（可接 cron 巡检）
+
+
+# --- read_stdin_lines：PTY 挂起回归（2026-10-09 交互终端 push 卡死 9+ 分钟） ---
+
+def _feed_pipe(data: bytes | None, keep_open: bool) -> tuple[int, int]:
+    r, w = os.pipe()
+    if data is not None:
+        os.write(w, data)
+    if not keep_open:
+        os.close(w)  # EOF
+    return r, w
+
+
+def test_read_stdin_eof_pipe_returns_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    """管道正常 EOF：函数直呼，解析出行列表。"""
+    r, w = _feed_pipe(b"refs/heads/m 111 refs/heads/m 222\n", keep_open=False)
+    fh = os.fdopen(r, "rb", closefd=True)
+    monkeypatch.setattr(gate.sys, "stdin", fh)
+    try:
+        lines = gate.read_stdin_lines(5.0)
+    finally:
+        fh.close()
+    assert lines == ["refs/heads/m 111 refs/heads/m 222"]
+
+
+def test_read_stdin_timeout_no_eof_hangs_regression() -> None:
+    """EOF 永不到达（PTY 同构）：超时后返回已到达的行，而非无限阻塞。"""
+    env = dict(os.environ, LINGCLAUDE_GATE_ROOT=str(ROOT))
+    r, w = _feed_pipe(b"refs/heads/m abc refs/heads/m def\n", keep_open=True)
+    t0 = time.monotonic()
+    p = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "exempt_review_gate.py")],
+        stdin=r, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    os.close(r)
+    out = p.stdout.read()
+    elapsed = time.monotonic() - t0
+    os.close(w)
+    p.wait()
+    assert p.returncode == 0
+    assert 4.5 <= elapsed < 15  # 修复前：无限挂起；修复后 ≈ STDIN_TIMEOUT(5s)
+    assert out == b""  # 范围内提交无豁免证据 → 静默放行
+
+
+def test_read_stdin_timeout_no_data_regression() -> None:
+    """无数据且 EOF 永不到达：同样按时返回（等价空范围放行）。"""
+    env = dict(os.environ, LINGCLAUDE_GATE_ROOT=str(ROOT))
+    r, w = _feed_pipe(None, keep_open=True)
+    t0 = time.monotonic()
+    p = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "exempt_review_gate.py")],
+        stdin=r, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    os.close(r)
+    out = p.stdout.read()
+    elapsed = time.monotonic() - t0
+    os.close(w)
+    p.wait()
+    assert p.returncode == 0
+    assert 4.5 <= elapsed < 15
+
+
+def test_read_stdin_normal_pipe_fast() -> None:
+    """管道正常 EOF（子进程级）：快速返回，不受 5s 超时拖累。"""
+    env = dict(os.environ, LINGCLAUDE_GATE_ROOT=str(ROOT))
+    r, w = _feed_pipe(
+        b"refs/heads/m abc refs/heads/m 0000000000000000000000000000000000000000\n",
+        keep_open=False)
+    t0 = time.monotonic()
+    p = subprocess.Popen(
+        [sys.executable, str(ROOT / "scripts" / "exempt_review_gate.py")],
+        stdin=r, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    os.close(r)
+    out = p.stdout.read()
+    elapsed = time.monotonic() - t0
+    p.wait()
+    assert p.returncode == 0
+    assert elapsed < 5  # 分支删除（remote_sha 全零）→ 静默放行，不耗时
