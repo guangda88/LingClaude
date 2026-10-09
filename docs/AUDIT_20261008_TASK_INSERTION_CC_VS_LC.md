@@ -643,9 +643,23 @@ cat scripts/relay_queue.json                                     # → []
 > **R4d D5 裁决执行（2026-10-09 同日闭环）**：裁决采纳方案 1（划界共存+清死码+MCP 卡片），四项附加条件 ①②④ 全过、③ 定向回归先行（受影响 8 套件 102 passed EXIT=0）+ 全量回归后台执行中。执行面：删除 task_aggregation.py/task_scheduler.py/test_task_scheduler.py/task_aggregation_demo.py；scheduler.py TaskPriority 本地化（中文值域不变兼容存量 schedules.json）+ tool_executor 只写不读埋点移除；wiring manifest 59→58（代码+yaml+注释计数同步，hotupdate 回退机制实测双 58）；G2 两卡片 todo_list/todo_update 落地（action Literal enum 防卡片漂移、source 恒 external 不入 protect 档、session_id 发起方各自面板），stdio E2E 2/2 PASS；task_manager.py B 域请求队列划界注释锚定（active≠in_progress）；wipe_case 台账 D5 resolved（去重复核通过）；裁决材料归档 docs/research/panel_D5_task_domains_g2_decision_20261009.md（§五执行记录）。过程记录：本块写入前发现「cut -c 截断多字节汉字→输出流非法续字节」误报文件坏字节的假象（文件本体 UTF-8 合法），已用 python 逐行解码法排除。
 >
 > **R4d-补：条件③中断与恢复（2026-10-09 11:15）**：全量回归两次 EXIT=137（SIGKILL）死于同一用例附近（tests/agents/test_work_claim.py::test_release_by_other_denied），单测复跑该文件通过——定性为宿主内存峰值撞点（/tmp/memory_watchdog.log 持续告警 committed_AS≈260%，肇事进程非本仓 python）。已改为分片模式重启：8 片×45 文件、片间独立落盘 /tmp/sharded_regression_20261009/（任一片被杀不丢其余片），job aee3669b3425，预计 ~70 分钟，完成后本块更新终值。**分片进行中归因（11:40 快照）**：shard_00 4F——3×failure_cluster_analyzer 经干净 HEAD worktree 0.29s 复现同红=稳定存量红、1×test_shutdown_kills_running_child 单跑+全文件皆绿=并发 flaky（v3 PASSED 在案）；shard_01 791P/**0F**（已过 agents 两次137死点区）；shard_02 1F=test_gray_zone::test_deny_action_not_escalated（v3 同名 FAILED，存量）。**累计 5F：0 项新引入。**
+> **R4d-PUSH：pre-push full-pytest 拦截归因与旁路留痕（2026-10-09 20:0x）**：宿主侧 push（HEAD=24eac03，范围 597e9ce..24eac03 共 6 commit）被 full-pytest 硬闸拦截（20F/5508P/26:49）。机械对比：20F ⊆ 今日分片 21F 归因集（零差集）——①9 项 v3 同名存量红（failure_cluster×3/t0×3/p02×2/render_facade/gray_zone）②4 项 lingyi 未提交 sandbox_policy.yaml WIP 连带（yaml_present/lingan_own_cwd/bash_extra_writable 断言 default_writable_dirs==['/home/ai'] 直接命中其 directory_rules；p11 残留 sleep 为并发 flaky 变体）③3 项 task_router/mcp_proxy 环境依赖红（与 v3 shard_03/07 同名）。**待推 6 commit 内容零新增红。**过程申报更正一处：前轮「存量红走棘轮不拦」说法不实——pre_push_gate.sh 为硬闸（pytest rc≠0 即 exit 1，无棘轮机制），分片 21F 当时是我方离线归因，闸门语义本就为「全绿才放行」。**处置：按 PUSH_SOP §三 旁路留痕**——前置双闸实证（pre-push-security 0.04s ✔️ / exempt-review-gate 5.08s ✔️ 即 24eac03 修复实战生效）+ 本归因块 + origin/master..master 内容判定零新增红，建议宿主执行（三开关均真实存在）：
+`LINGCLAUDE_SKIP_REVIEW_GATE=1 git push origin master`（exempt 旁路显式留痕）+
+`GATE_TIMEOUT_BUDGET=2700` 与 pre-commit 快子集照常。full-pytest 无法用环境变量跳过
+（脚本无此开关，不得虚设）——**推荐顺序**：先修工作区（`git stash push -- lingclaude/core/policies/sandbox_policy.yaml`）
+→ 重推（gate 只验工作区，yaml 移除后 4 项 WIP 连带红消失，剩余 16 项为已归因存量红仍会拦，
+则按 SOP §三 chmod 旁路窗口完成，窗口后立即恢复钩子可执行位并回填台账）。
+上轮替代建议 GATE_NO_CACHE 复跑已收回（只会重演同 20F）。
 > **R4d-终：分片全量回归终值（2026-10-09 12:13，9 片 61 分钟全部完成）**：21F / 5504P / **0 error**（v3 的 26 error 因 rollouts 清理根除，shard_01 穿过 agents 两次-137 死点区 791P/0F=分片策略生效）。21F 三桶归因，**0 项新引入**：① 13 项 v3 同名存量红（failure_cluster×3、t0_wiring×3、task_router×3、mcp_proxy×2+shard_03 面计 3、gray_zone、p02×2、render_facade）；② 4 项 sandbox/security 红全部归因工作区 lingyi 未提交 sandbox_policy.yaml WIP——yaml_present 断言（default_writable_dirs==['/home/ai']）直接命中其 directory_rules diff、lingan_own_cwd 同款断言 solo 复红、bash_extra_writable v3 已红、p11 solo 绿=flaky；③ 2 项并发 flaky（shutdown_kills、p11，solo 均绿）。**D5 附加条件③正式闭环，四条件全过。**日志 /tmp/sharded_regression_20261009/（summary.txt 各片 rc 与终值）。
 
 *本文档由灵克产出，只读审计，未修改任何被审计文件。cc 侧结论基于 v2.1.293 二进制反抽取；
 cc 升级后需重新核对（尤其 §2.2/§2.5 的行号与函数混淆名）。*
 
 > **R4c 近债清偿与申报纠偏（2026-10-09）**：①自查发现上轮（R4b 同日第二段会话）三项申报不实——D3「台账 resolved」/「P15 契约测试 5 用例全绿」/「报修单 artifact」均无落盘实证，另有「test_debts_not_expired.py 硬编码字典」机制描述失实（真实守卫=tests/test_iron_law_guards.py:179 读 StateStore arch_debt，wipe_case 不在其数据源）。②本轮实证真做：D3 按 jsonl append-only 追加 resolved 行（去重复核通过）+ 报修单真实落盘 docs/research/report_lingmessage_card_drift_20261009.md（四处卡片漂移活体取证）；exemption-journal-gap 官方 resolve + 10-02 八笔链外翻档回溯行入链（post_fact，evidence=git d81c0d2）。③守卫 9 passed。教训：任何「已验证全绿」申报必须以当轮可复查的落盘工件为准，无工件=未完成。
+
+
+### R4d-PUSH 终态（2026-10-09 20:4x 补）
+- 双远程落地实证：origin(gitea)+github 均 `597e9ce..24eac03`（用户宿主终端执行，ls-remote 回显+本地 rev-parse 双证）；
+- push-gate 债④「端到端验证」宽裕态半边闭环：三闸真实数据入台账 resolution（security 0.04s / review-gate 5.08s 修复生效 / resource-precheck MemAvailable=14131MB 放行 / full-pytest 真跑 1610s）；紧张态半边维持事件依赖（模拟 6/6+09-24 三次真实失败历史佐证）；
+- 旁路执行（SOP§三 chmod -x）已按留痕三件套入档：前提双绿实证+零差集归因（本文件上文）+范围仅本次。
+- 教训沉淀两条：①申报前必读源码（「棘轮」错觉——gate 是硬闸，任何红 exit 1）；②给用户的命令必须先验证开关真实存在（GATE_SKIP_FULL 不存在，自查删除）。
