@@ -1,6 +1,6 @@
 # WIRING_MANIFEST 数据化（灵元 1.0：装配是 data，不是代码）
-# 生成自 lingclaude/core/wiring.py WIRING_MANIFEST（57 项，逐字对齐）
-# phase: state(26 永不下放插片) | collaborator(29 插片候选) | parameterized(2 构造注入)
+# 生成自 lingclaude/core/wiring.py WIRING_MANIFEST（58 项，逐字对齐；2026-10-09 D5: −_aggregator，59→58）
+# phase: state(26 永不下放插片) | collaborator(28 插片候选) | parameterized(2 构造注入)
 # factory 为工厂函数名，解析见 wiring.py _FACTORY_REGISTRY；空表示 lambda/内置构造
 # 改装配结构：优先改此文件；新增工厂函数才动代码
 
@@ -146,10 +146,6 @@ manifest:
     factory: _make_cache
     phase: collaborator
     note: "上下文缓存 100/24h"
-  - attr: _aggregator
-    factory: _make_aggregator
-    phase: collaborator
-    note: "任务聚合 max_group=5"
   - attr: _monitor
     factory: _make_monitor
     phase: collaborator

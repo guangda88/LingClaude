@@ -7,7 +7,6 @@ from typing import Any
 from lingclaude.core.model_types import ModelConfig
 from lingclaude.core.hooks import HookContext, HookType
 from lingclaude.core.context_compression import compress_messages, CompressionConfig, CompressionLevel
-from lingclaude.core.task_aggregation import TaskPriority
 from lingclaude.core.behavior import detect_intent
 from lingclaude.core.layered_memory import Experience, EmotionIntensity
 from lingclaude.core.types import (
@@ -453,7 +452,9 @@ class ToolExecutor:
         )
 
         if router and router.enabled and (router.code_model or router.chat_model):
-            decision = self._engine._router.route(prompt)
+            # D5 裁决(2026-10-09): 原此处 route() + _aggregator.add_task 埋点已拆——
+            # 聚合器只写不读（query_engine 零消费），route 决策仅服务该埋点，
+            # 实际模型选择不受影响（target_model 由上方 task_router/下方 tiers 决定）。
             intent = detect_intent(prompt)
             is_code = intent in (Intent.CODE_QUESTION, Intent.BUG_REPORT, Intent.OPTIMIZATION_REQUEST)
             legacy_model = router.code_model if is_code else router.chat_model
@@ -462,12 +463,6 @@ class ToolExecutor:
                     target_model = legacy_model
                     target_api_key = cfg.api_key
                     target_base_url = cfg.base_url
-
-            self._engine._aggregator.add_task(
-                query=prompt,
-                task_type=str(decision.task_type.value),
-                priority=TaskPriority.MEDIUM,
-            )
 
         bm = self._engine._behavior
         if bm.total_turns > 3:

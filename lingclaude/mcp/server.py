@@ -1,4 +1,4 @@
-"""灵克 MCP Server — 将26个核心能力封装为MCP工具。
+"""灵克 MCP Server — 将28个核心能力封装为MCP工具。
 
 工具清单（灵系命名）:
   核心编码(14): edit_code(灵编), search_code(灵查), read_file(灵读),
@@ -11,13 +11,14 @@
                get_advice(灵谏), check_triggers(灵检)
   知识与会话(4): knowledge_search(灵忆), session_list(灵簿),
                stt(灵听), check_and_optimize(灵自审)
+  任务面板(2):  todo_list(灵账), todo_update(灵账写)  ← D5 裁决 G2（2026-10-09）
 """
 
 from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -508,6 +509,127 @@ def tool_check_and_optimize(
     runtime = CodingRuntime()
     context = _optimization_context(target, total_files, total_lines, test_pass_rate, avg_response_time)
     return runtime.check_and_optimize(context, target=target, goal=goal)
+
+
+# ── 任务面板（G2，D5 裁决 2026-10-09：A 域工作项清单对外暴露，2个工具） ──
+
+
+def _todo_store_for(session_id: str):
+    """为 MCP 卡片构造 TodoStore（A 域）。
+
+    root 复用 coding_wiring 的容器规则（LINGCLAUDE_DATA_DIR 显式时 todos/
+    共享容器；否则 todos.<cwd_hash8> 项目作用域），外部 agent 与灵克本体会
+    命中同一面板容器；session_id 由调用方显式指定（D5 裁决②：发起方各自
+    面板——外部 agent 必须传自己的 session 标识，缺省 default 桶）。
+    """
+    import os
+    import hashlib
+    from pathlib import Path
+
+    from ..engine.todo import TodoStore
+
+    env_data = os.environ.get("LINGCLAUDE_DATA_DIR")
+    if env_data:
+        data_dir = Path(env_data)
+    else:
+        data_dir = Path(__file__).resolve().parents[2] / "data"
+    scope = "todos" if env_data else f"todos.{hashlib.sha256(str(Path.cwd().resolve()).encode()).hexdigest()[:8]}"
+    root = data_dir / scope
+    root.mkdir(parents=True, exist_ok=True)
+    return TodoStore(root, session_id=session_id or "default")
+
+
+@get_mcp().tool(
+    name="todo_list",
+    description="任务面板读取（灵账）— 读取灵克 A 域工作项清单（TodoStore）",
+)
+def tool_todo_list(
+    session_id: str = "",
+    status: str = "",
+    limit: int = 100,
+) -> list[dict]:
+    """读取灵克当前会话的工作项清单（只读，D5 裁决 G2）。
+
+    Args:
+        session_id: 目标会话面板标识。传你自己的 agent 会话标识（发起方
+            各自面板）；留空读 default 桶。
+        status: 可选过滤 pending/in_progress/completed/cancelled。
+        limit: 返回上限（默认 100）。
+
+    Returns:
+        工作项字典列表（id/content/status/priority/tags/source/created_at/updated_at）。
+    """
+    from ..engine.todo import TodoStatus
+
+    store = _todo_store_for(session_id)
+    st = TodoStatus(status) if status else None
+    items = store.list(status=st)
+    return [i.to_dict() for i in items[: max(0, limit)]]
+
+
+@get_mcp().tool(
+    name="todo_update",
+    description="任务面板受控写（灵账写）— 推进/登记灵克 A 域工作项（source=external）",
+)
+def tool_todo_update(
+    action: Literal["add", "update_status"],
+    session_id: str = "",
+    content: str = "",
+    todo_id: str = "",
+    status: str = "",
+    priority: int = 0,
+    tags: str = "",
+) -> dict:
+    """受控写入灵克工作项清单（D5 裁决 G2：source 恒为 external）。
+
+    外部 agent 的写入以 external 身份入账——不属于 user 保护档
+    （R4b 复裁：user 锚定真用户意图），全量覆写时按普通 agent 项处理。
+
+    Args:
+        action: add（登记新项）/ update_status（按 todo_id 推进状态）。
+        session_id: 目标会话面板标识（同 todo_list）。
+        content: action=add 时的内容（必填）。
+        todo_id: action=update_status 时的目标项 id（必填）。
+        status: action=update_status 时的新状态（必填，四态枚举）。
+        priority: 优先级整数（默认 0，越大越优先）。
+        tags: 空格分隔的标签串（可选）。
+
+    Returns:
+        操作结果（含落盘后的完整清单）。
+    """
+    import time as _time
+
+    from ..engine.todo import TodoItem, TodoStatus
+
+    store = _todo_store_for(session_id)
+
+    if action == "add":
+        if not content:
+            return {"ok": False, "error": "action=add 需要 content"}
+        item = TodoItem(
+            id=store.alloc_seq_id(1)[0],
+            content=content,
+            status=TodoStatus.PENDING,
+            created_at=_time.time(),
+            updated_at=_time.time(),
+            priority=priority,
+            tags=tags.split() if tags else [],
+            source="external",  # D5 裁决②：MCP 卡片通道恒为 external，不入 user 保护档
+        )
+        store.add(item)
+    elif action == "update_status":
+        if not todo_id or not status:
+            return {"ok": False, "error": "action=update_status 需要 todo_id 与 status"}
+        try:
+            st = TodoStatus(status)
+        except ValueError:
+            return {"ok": False, "error": f"status 必须是四态枚举之一，收到 {status!r}"}
+        if not store.update_status(todo_id, st):
+            return {"ok": False, "error": f"todo_id {todo_id!r} 不存在（session_id={session_id or 'default'}）"}
+    else:
+        return {"ok": False, "error": f"未知 action: {action!r}（可选 add/update_status）"}
+
+    return {"ok": True, "items": [i.to_dict() for i in store.list()]}
 
 
 def main():

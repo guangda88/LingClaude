@@ -47,10 +47,24 @@ def sample_project(tmp_path):
 class TestMCPToolRegistration:
     """测试MCP工具注册。"""
 
-    def test_all_26_tools_registered(self, mcp_server):
+    def test_all_tools_registered(self, mcp_server):
         tools = mcp_server._tool_manager.list_tools()
         names = {t.name for t in tools}
-        assert len(names) == 26
+        # 2026-10-09 D5 裁决 G2: +todo_list +todo_update（26→28）
+        assert len(names) == 28
+
+    def test_g2_task_panel_tools(self, mcp_server):
+        """G2 卡片契约：名字在册 + todo_update 卡片声明受控参数面（防 D2 家族空 schema 复发）。"""
+        tools = mcp_server._tool_manager.list_tools()
+        by_name = {t.name: t for t in tools}
+        assert {"todo_list", "todo_update"} <= set(by_name)
+        upd_schema = by_name["todo_update"].parameters
+        props = set(upd_schema.get("properties", {}))
+        assert {"action", "session_id", "content", "todo_id", "status"} <= props, props
+        assert upd_schema.get("properties", {}).get("action", {}).get("enum") == [
+            "add",
+            "update_status",
+        ]
 
     def test_core_coding_tools(self, mcp_server):
         tools = mcp_server._tool_manager.list_tools()

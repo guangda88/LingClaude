@@ -337,8 +337,9 @@ J4_MEDIA_OWNERS = {"core/state_store.py"}
 J4_STATE_MODULES = [
     # 2026-09-20 P3-7：core/handover.py 已迁 lingmemory/handover.py，出列
     # 2026-09-26：core/memory_engine.py 已回收（零消费，recycled-memory-engine-20260926），出列
+    # 2026-10-09：core/task_aggregation.py 已随 D5 死码拆除（裁决方案 1），出列
     "core/layered_memory.py",
-    "core/session.py", "core/task_aggregation.py", "core/governance_verifier.py",
+    "core/session.py", "core/governance_verifier.py",
     "core/topic_stack.py", "core/reasoning_chain.py", "core/governance.py",
     "core/meta_cognition.py", "core/query_engine.py",
     "core/cognitive_rhythm.py", "core/skill_parser.py", "core/context_cache.py",
@@ -842,7 +843,7 @@ G15_WRITE_COUNT_CAPS = {
     "self_optimizer/advisor.py": 1,      # :197 优化报告 md
     "self_optimizer/audit_watch.py": 1,  # :38 值守状态 json
     "self_optimizer/backlog_executor.py": 1,  # :252 backlog 执行状态 json（断点④白名单回写）
-    "self_optimizer/daemon.py": 4,       # :130 state json / :837 patch json / :842 config yaml / :951 policy yaml
+    "self_optimizer/daemon.py": 5,       # :130 state json / :909 patch json / :914 config yaml / :1023 policy yaml / :1318 pending_watchdog state（0d274e8 生产接线，2026-10-09 补登记，台账滞后红修正）
 }
 
 

@@ -1,4 +1,9 @@
-"""TaskManager — 任务上下文挂起/恢复，防止需求淹没。
+"""TaskManager — 请求队列（B 域）：任务上下文挂起/恢复，防止需求淹没。
+
+D5 划界定案（2026-10-09，裁决采纳方案 1）：本类是「请求队列」语义，
+非工作项清单——active/pending/completed 指的是灵克处理中的请求上下文，
+与 TodoStore（A 域，模型工作项清单，in_progress 语义）互斥不统属。
+外部 agent 操作工作项清单请走 MCP 卡片 todo_list/todo_update。
 
 设计原则（灵元1.0）：
 - 出：用户每个需求都被完成或显式放弃，不因新需求进来而丢失
@@ -77,7 +82,10 @@ class TaskSnapshot:
 
 
 class TaskManager:
-    """协作式任务栈 — 单线程内管理灵元的任务上下文。
+    """请求队列（B 域，D5 划界定案 2026-10-09）— 单线程内管理灵元的请求上下文栈。
+
+    词汇表（D5 定案）：本类 active = 正在处理的请求；TodoStore 的
+    in_progress = 正在执行的工作项。两域不同词汇，禁止混用。
 
     栈结构（LIFO）：
     - active: 当前灵元正在处理的任务

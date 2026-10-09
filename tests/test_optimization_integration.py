@@ -7,7 +7,6 @@ from pathlib import Path
 from lingclaude.core.query_engine import QueryEngine
 from lingclaude.model.intelligent_router import IntelligentRouter
 from lingclaude.core.context_cache import ContextCache
-from lingclaude.core.task_aggregation import TaskAggregator, TaskPriority
 from lingclaude.core.token_monitor import TokenMonitor
 
 
@@ -20,7 +19,6 @@ class TestOptimizationIntegration:
 
         assert hasattr(engine, "_router"), "Router not initialized"
         assert hasattr(engine, "_cache"), "Cache not initialized"
-        assert hasattr(engine, "_aggregator"), "Aggregator not initialized"
         assert hasattr(engine, "_monitor"), "Monitor not initialized"
 
     def test_optimization_components_are_correct_types(self):
@@ -29,7 +27,6 @@ class TestOptimizationIntegration:
 
         assert isinstance(engine._router, IntelligentRouter)
         assert isinstance(engine._cache, ContextCache)
-        assert isinstance(engine._aggregator, TaskAggregator)
         assert isinstance(engine._monitor, TokenMonitor)
 
     def test_router_selects_models_correctly(self):
@@ -72,29 +69,6 @@ class TestOptimizationIntegration:
         # Cleanup
         test_file.unlink()
 
-    def test_aggregator_can_add_and_group_tasks(self):
-        """Verify aggregator can add tasks and group them."""
-        engine = QueryEngine()
-
-        # Add tasks
-        task_id1 = engine._aggregator.add_task(
-            query="写一个函数",
-            task_type="code_generation",
-            priority=TaskPriority.MEDIUM,
-        )
-        assert task_id1 is not None, "Task ID should not be None"
-
-        task_id2 = engine._aggregator.add_task(
-            query="写另一个函数",
-            task_type="code_generation",
-            priority=TaskPriority.MEDIUM,
-        )
-        assert task_id2 is not None, "Task ID should not be None"
-
-        # Group tasks
-        groups = engine._aggregator.aggregate_tasks()
-        assert len(groups) > 0, "Should create at least one group"
-
     def test_monitor_can_record_token_usage(self):
         """Verify monitor can record token usage."""
         # P2.c seam 实战：注入隔离 monitor（独立 SQLite），消除全量并发
@@ -131,24 +105,7 @@ class TestOptimizationIntegration:
         decision = engine._router.route("写一个排序函数")
         assert decision.model.value == "GLM-4.7", "Should use GLM-4.7 for simple task"
 
-        # 2. Aggregator records multiple related tasks (needed for grouping)
-        task_id1 = engine._aggregator.add_task(
-            query="写一个排序函数",
-            task_type=str(decision.task_type.value),
-            priority=TaskPriority.MEDIUM,
-            context={"files": ["/tmp/utils.py"]},
-        )
-        assert task_id1 is not None, "Task 1 should be recorded"
-
-        task_id2 = engine._aggregator.add_task(
-            query="写一个搜索函数",
-            task_type=str(decision.task_type.value),
-            priority=TaskPriority.MEDIUM,
-            context={"files": ["/tmp/utils.py"]},
-        )
-        assert task_id2 is not None, "Task 2 should be recorded"
-
-        # 3. Monitor tracks usage
+        # 2. Monitor tracks usage（D5 2026-10-09：原第2步 aggregator 记录段随死码拆除）
         engine._monitor.record_usage(
             model=str(decision.model.value),
             task_type=str(decision.task_type.value),
@@ -161,9 +118,6 @@ class TestOptimizationIntegration:
         stats_after = engine._monitor.get_daily_stats()
         assert stats_after.total_tokens == stats_before.total_tokens + 1500, "Monitor should track usage"
 
-        # Verify aggregator grouped tasks (now with 2 related tasks)
-        groups = engine._aggregator.aggregate_tasks()
-        assert len(groups) > 0, "Aggregator should group tasks"
 
 
 class TestOptimizationConfiguration:
@@ -181,11 +135,6 @@ class TestOptimizationConfiguration:
         assert cache.cache_size == 50, "Cache size should be 50"
         assert cache.ttl_hours == 12, "TTL should be 12 hours"
 
-    def test_aggregator_can_be_configured(self):
-        """Verify aggregator can be configured with custom settings."""
-        aggregator = TaskAggregator(max_group_size=3)
-        assert aggregator.max_group_size == 3, "Max group size should be 3"
-
     def test_monitor_creates_database(self):
         """Verify monitor creates database on initialization."""
         monitor = TokenMonitor()  # noqa: F841
@@ -193,93 +142,6 @@ class TestOptimizationConfiguration:
         db_path = Path.home() / ".lingclaude" / "token_monitor.db"
         assert db_path.exists(), "Database should be created"
 
-    def test_aggregator_state_store_facts(self, tmp_path):
-        """J4 归原语：任务/组事实主通道走 StateStore（record_type=task/task_group），
-        SQLite 降级为导出视图（列表/统计查询介质）。"""
-        from lingclaude.core.state_store import StateStore
-
-        store = StateStore(root=tmp_path / "state")
-        db = tmp_path / "agg.db"
-        aggregator = TaskAggregator(
-            db_path=db,
-            max_group_size=3,
-            state_store=store,
-        )
-
-        # 添加任务 → StateStore 应有 task 事实
-        tid = aggregator.add_task(query="任务A", task_type="code", priority=TaskPriority.MEDIUM)
-        task_fact = store.load("task", tid)
-        assert task_fact is not None, "任务事实应写入 StateStore"
-        assert task_fact["query"] == "任务A"
-        assert task_fact["status"] == "pending"
-
-        # 相关任务分组 → StateStore 应有 task_group 事实
-        tid2 = aggregator.add_task(query="任务A2", task_type="code", priority=TaskPriority.MEDIUM)
-        groups = aggregator.aggregate_tasks()
-        assert len(groups) == 1, "相关任务应聚合成一个组"
-        gid = groups[0].id
-        group_fact = store.load("task_group", gid)
-        assert group_fact is not None, "组事实应写入 StateStore"
-        assert set(group_fact["task_ids"]) == {tid, tid2}
-
-        # 标记完成 → StateStore 状态事实更新
-        aggregator.mark_group_completed(gid)
-        group_fact = store.load("task_group", gid)
-        assert group_fact["status"] == "completed", "组状态应更新为 completed"
-        task_fact = store.load("task", tid)
-        assert task_fact["status"] == "completed", "任务状态应更新为 completed"
-
-        # DB 导出视图仍可读（列表/统计查询介质）
-        stats = aggregator.get_stats()
-        assert stats.total_tasks == 2, "DB 导出视图统计应反映任务数"
-        assert stats.total_groups == 1
-        retrieved = aggregator.get_task_group(gid)
-        assert retrieved is not None and retrieved.status.value == "completed"
-
-
 class TestOptimizationDataflow:
     """Test data flow between optimization components."""
 
-    def test_router_to_aggregator_dataflow(self):
-        """Verify routing decision flows to aggregator."""
-        engine = QueryEngine()
-
-        decision = engine._router.route("分析代码复杂度")
-        task_id = engine._aggregator.add_task(
-            query="分析代码复杂度",
-            task_type=str(decision.task_type.value),
-            priority=TaskPriority.MEDIUM,
-        )
-
-        assert task_id is not None, "Task should be recorded with routing info"
-
-    def test_aggregator_to_monitor_dataflow(self):
-        """Verify aggregated task usage is monitored."""
-        # P2.c seam 实战：同上，隔离 db 消除并发竞态
-        engine = QueryEngine(wiring_overrides={
-            "_monitor": TokenMonitor(db_path=Path(tempfile.mkdtemp()) / "monitor.db"),
-        })
-
-        # Add multiple tasks
-        for i in range(3):
-            engine._aggregator.add_task(
-                query=f"任务 {i}",
-                task_type="code_generation",
-                priority=TaskPriority.MEDIUM,
-            )
-
-        # Group and simulate batch processing
-        groups = engine._aggregator.aggregate_tasks()
-        if groups:
-            # Simulate batch processing and record usage
-            engine._monitor.record_usage(
-                model="GLM_4_7",
-                task_type="batch_code_generation",
-                total_tokens=5000,
-                input_tokens=3000,
-                output_tokens=2000,
-            )
-
-        # Verify batch usage was tracked
-        stats_after = engine._monitor.get_daily_stats()
-        assert stats_after.total_tokens == 5000, "Batch usage should be tracked"

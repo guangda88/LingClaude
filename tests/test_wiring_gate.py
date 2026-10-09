@@ -177,7 +177,6 @@ class TestNoDeadModules:
         "models.py",
         "metrics.py",
         "role_separation.py",
-        "task_scheduler.py",
         "governance.py",
         "governance_integration.py",
         "governance_verifier.py",
@@ -282,9 +281,9 @@ class TestNoDeadModules:
         # 兼容别名（为旧引用保留的 API 兼容层，非死代码）：
         # - message_builder.BASE_PROMPT = system_prompt_builder._BASE_PROMPT 的兼容别名
         #   （模块内 _SYSTEM_BASE_PROMPT 是真实消费；BASE_PROMPT 供旧代码引用）
-        # - task_aggregation.AggregationTaskPriority = TaskPriority 的兼容别名
-        #   （真实类型 TaskPriority 有消费，AggregationTaskPriority 供旧代码引用）
-        "BASE_PROMPT", "AggregationTaskPriority",
+        # - （2026-10-09 D5）task_aggregation 已随死码拆除，AggregationTaskPriority
+        #   豁免条目同步移除；BASE_PROMPT 维持（message_builder 别名仍在）。
+        "BASE_PROMPT",
         # 2026-10-02: execution_domain 是内部查询面模块——四函数只被 resolve_domain
         # 内部调用（resolve_domain 调用 net_rules_configured/resolve_net_allowlist）；
         # ExecutionDomain 数据类只由 resolve_domain 构造；net_allowed 供 provider_pool
@@ -300,6 +299,13 @@ class TestNoDeadModules:
         # 是 pytest monkeypatch 的注入目标（test_file_undo_pipeline 用例），非生产导入消费；
         # 登记豁免。
         "MAX_SNAPSHOT_BYTES", "MAX_TOTAL_BYTES",
+        # 2026-10-09: retention.py 的 _env_int 阈值常量——ROLLOUT_MAX_AGE_DAYS/
+        # ROLLOUT_KEEP_MIN/BACKLOG_KEEP_DAYS/SESSIONS_MAX_FILES 是 monkeypatch
+        # 注入目标（test_retention.py:217-246），生产消费走各接线点函数内的
+        # 模块全局引用，无 ImportFrom 引用 → 同 file_history 常量豁免同款盲区
+        # （R4b 清理轮，v3 全量回归存量红桶第 27 项）。
+        "ROLLOUT_MAX_AGE_DAYS", "ROLLOUT_KEEP_MIN", "BACKLOG_KEEP_DAYS",
+        "SESSIONS_MAX_FILES",
     }
 
     def test_core_classes_are_imported_somewhere(self) -> None:

@@ -1,6 +1,6 @@
 """QueryEngine 装配 manifest — 灵元 1.0 P2.a 地基（V3 §四/§五）。
 
-把 QueryEngine.__init__ 里 55 项硬接线赋值收敛为一张声明式 manifest，
+把 QueryEngine.__init__ 里 58 项硬接线赋值收敛为一张声明式 manifest，
 由 assemble() 统一装配。协作者互不依赖、顺序无关，只引用装配上下文三样：
 engine / session_manager / provider。
 
@@ -246,14 +246,6 @@ def _make_cache(ctx: WiringContext) -> Any:
     return ContextCache(cache_size=100, ttl_hours=24, memory_sink=sink)
 
 
-def _make_aggregator(ctx: WiringContext) -> Any:
-    from lingclaude.core.task_aggregation import TaskAggregator
-
-    # J4 归原语：注入共享 state_store（与 engine.state_store 同实例，避免双后端实例写竞争）
-    state_store = getattr(ctx.engine, "state_store", None)
-    return TaskAggregator(max_group_size=5, state_store=state_store)
-
-
 def _make_monitor(ctx: WiringContext) -> Any:
     from lingclaude.core.session_token_sink import SessionTokenSink
     from lingclaude.core.token_monitor import TokenMonitor
@@ -363,7 +355,7 @@ def _make_state_store(ctx: WiringContext) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# WIRING_MANIFEST — 与 QueryEngine.__init__ 逐字对齐（55 项）
+# WIRING_MANIFEST — 与 QueryEngine.__init__ 逐字对齐（58 项；2026-10-09 D5: −_aggregator）
 # 顺序仅作文档可读性；装配语义与顺序无关（契约测试乱序验证）。
 # ---------------------------------------------------------------------------
 WIRING_MANIFEST: tuple[WiringSpec, ...] = (
@@ -402,7 +394,7 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     WiringSpec("_current_model_name", lambda ctx: "", phase="state", note="运行时当前生效模型名（F12f 降级后同步，供 toolbar 实时解析）"),
     WiringSpec("_mv1_violations", lambda ctx: [], phase="state", note="D8 MV1 违规记录(灵信 L-b seq 归因)"),
     WiringSpec("_usage", lambda ctx: _make_usage(), phase="state", note="UsageSummary 累积"),
-    # -- collaborator：类实例协作者（29 项，插片候选）--
+    # -- collaborator：类实例协作者（28 项，插片候选）--
     WiringSpec("_behavior", _make_behavior, note="行为指标"),
     WiringSpec("_intel_collector", _make_intel_collector, note="情报收集"),
     WiringSpec("_session_persister", _make_session_persister, note="会话持久化委托"),
@@ -411,7 +403,6 @@ WIRING_MANIFEST: tuple[WiringSpec, ...] = (
     WiringSpec("_task_router", _make_task_router, note="任务路由"),
     WiringSpec("_tool_router", _make_tool_router, note="工具路由(create_default_router)"),
     WiringSpec("_cache", _make_cache, note="上下文缓存 100/24h"),
-    WiringSpec("_aggregator", _make_aggregator, note="任务聚合 max_group=5"),
     WiringSpec("_monitor", _make_monitor, note="token 监控"),
     WiringSpec("_prior_verifier", _make_prior_verifier, note="先验校验"),
     WiringSpec("_meta_cognition", _make_meta_cognition, note="元认知"),
@@ -462,7 +453,6 @@ _FACTORY_REGISTRY.update(
             _make_task_router,
             _make_tool_router,
             _make_cache,
-            _make_aggregator,
             _make_monitor,
             _make_prior_verifier,
             _make_meta_cognition,

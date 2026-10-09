@@ -3,7 +3,7 @@
 修复死接线第 4 案：task_scheduler.py（批量调度器）已存在但无定时调度功能。
 
 设计：
-- TaskScheduler（已有）作为后端：批量任务管理 + token 配额
+- （历史）TaskScheduler 曾计划作后端：实际从未接线，2026-10-09 D5 裁决拆除
 - ScheduleManager（新建）：cron 表达式注册 + 定时触发 + LingBus 唤醒
 - 接线点：cli/app.py `/schedule` 命令 + LingBus 消息消费
 
@@ -26,7 +26,16 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable
 
-from lingclaude.core.task_scheduler import Task, TaskPriority, TaskScheduler
+class TaskPriority(str, Enum):
+    """任务优先级（D5 裁决 2026-10-09：原 task_scheduler.SchedulerTaskPriority
+    随死码拆除本地化——值域中文保持不变，兼容存量 schedules.json 持久化数据）。
+    """
+    LOW = "低"
+    MEDIUM = "中"
+    HIGH = "高"
+    URGENT = "紧急"
+
+
 from lingclaude.core.wakeup_channel import (
     LingBusWakeupChannel,
     LocalFileWakeupChannel,
@@ -66,16 +75,12 @@ class ScheduleManager:
     - 注册定时任务（cron 表达式）
     - 定时触发（后台线程轮询）
     - 到期发 LingBus 消息唤醒
-    - 与 TaskScheduler 集成（批量调度）
+    - （历史）与 TaskScheduler 集成的规划未落地，已随 D5 清理移除
     """
 
-    def __init__(self, task_scheduler: TaskScheduler | None = None):
-        """初始化
-
-        Args:
-            task_scheduler: 批量调度器（可选，默认新建）
-        """
-        self._scheduler = task_scheduler or TaskScheduler()
+    def __init__(self) -> None:
+        """初始化（D5 裁决 2026-10-09：移除 TaskScheduler 注入参数——
+        原字段赋值后全文件零调用，属死接线遗留，随死码一并清除。）"""
         self._tasks: dict[str, ScheduledTask] = {}
         self._running = False
         self._thread: threading.Thread | None = None

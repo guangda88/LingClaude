@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """token_monitor 演示 CLI（零引用演示代码，自 token_monitor.py 剥离，2026-09-15）。
 
-与 scripts/task_aggregation_demo.py 同构：核心模块只留真职责，演示脚本独立可运行。
+（历史）与 task_aggregation_demo.py 同构——该脚本已随 D5 死码拆除（2026-10-09），本脚本独立可运行。
 """
 from __future__ import annotations
 
