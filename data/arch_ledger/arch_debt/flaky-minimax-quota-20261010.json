@@ -1,0 +1,10 @@
+{
+  "kind": "hardcoded_direct",
+  "location": "tests/test_task_router.py::TestTaskRouter::test_hard_quota_minimax_cools_until_reset",
+  "reason": "定时炸弹型 flaky:夹具硬编码重置时刻2026-10-06,日历越过即过期→解析器回退1min兜底→断言落空。本轮修复:重置时刻改now+8d动态生成,被测路径(解析未来重置时刻)不变",
+  "due": "2026-10-10",
+  "resolve_hint": "",
+  "state": "resolved",
+  "created": "2026-10-10T01:57:50+00:00",
+  "resolved_at": "2026-10-10T01:58:07+00:00"
+}

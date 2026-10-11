@@ -124,3 +124,14 @@ data/arch_ledger/arch_audit_state/
 !data/arch_ledger/**/*.jsonl
 data/arch_ledger/arch_audit_state/
 tmp/
+
+# 2026-10-11 (d 项裁决): 数据镜像不入库——91MB M0 时间轴数据目录,
+# 双镜像已 md5 校验(docs/handover/20261009_changshou_m0_data_pipeline_handover.md),
+# 仓库内只留代码与文档, 数据走镜像分发
+znqg_timeline_ext_20261009/
+# 2026-10-11 (d 项裁决): 工具缓存目录不入库
+.codeartsdoer/
+# 2026-10-11 (d 项裁决): relay 编排器运行时状态文件——编排器(daemon)会周期性
+# 重写队列, 裹进提交只会制造跳动噪音; 状态纯外置, 格式定义见
+# scripts/session_relay_orchestrator.sh 头注释
+scripts/relay_queue.json
