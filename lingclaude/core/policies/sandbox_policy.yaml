@@ -135,6 +135,13 @@ network_isolation_enabled: true
 # 覆盖实证：四家仓库 + ~/.lingclaude + ~/.atomcode + /tmp /var/tmp（逐项已核验存在）。
 # 钳制注意：/var/tmp 命中 _FORBIDDEN_WRITABLE_ROOTS 的 /var 前缀，将被
 #           is_safe_writable_dir 静默剔除（在案标注，生效面以钳制后为准）。
+# ── 2026-10-11 合并收口（用户裁决「按建议执行A-G」）──────────────────────
+# 此前文件内曾并存两个 directory_rules 顶级键（本块 + 10-09 lingyi 独立块），
+# PyYAML 后键覆盖前键 → 本块长期是死配置（连维护者都靠注释差点没发现）。
+# 合并动作：lingyi 增量并入下方 rules 与 default 两段；default 保持精确清单
+#（不采纳 10-09 块「default 宽放行 /home/ai」——与 10-03 用户裁决方向相反）；
+# 10-09 独立块整体删除。T11 测试断言与 TestSandboxWrapOrder 防线兼容性已验证。
+# ────────────────────────────────────────────────────────────────────────
 directory_rules:
   # ── V-01 修复 (2026-10-03) ──────────────────────────────────────────────
   # 背景: 原配置只列 4 家仓库，不含灵安(lingan) 等灵字辈成员仓 → 灵安审计
@@ -169,6 +176,7 @@ directory_rules:
         - "/tmp"
         - "/var/tmp"
         - "/home/ai/.lingmessage"
+        - "/home/ai/lingyi"
   default:
     # 与 rules 段同构（换 cwd 不换权限）: 灵安 cwd=/home/ai/lingan 时同样
     # 可写灵克仓 —— 这是跨族审计需要的协作面，不是越权。
@@ -189,6 +197,7 @@ directory_rules:
       - "/tmp"
       - "/var/tmp"
       - "/home/ai/.lingmessage"
+      - "/home/ai/lingyi"
 # ────────────────────────────────────────────────────────────────────────────
 #
 # -- 示例 2：全域网络白名单（default-only，谨慎——影响所有目录的模型调用）--
@@ -206,3 +215,5 @@ directory_rules:
 #   default:
 #     allow: []
 # ═══════════════════════════════════════════════════════════════════════
+
+# ── 2026-10-09: lingyi 协作目录放行（用户授权"路径A治本"）──────────────

@@ -388,9 +388,17 @@ def test_bash_extra_writable_dirs_from_env():
             patch.dict(os.environ, {}, clear=False):
         os.environ.pop("LINGCLAUDE_EXTRA_WRITABLE_DIRS", None)
         b._sandbox_command("echo hi")
-    # B1 (2026-09-13): 未显式设置时默认对齐策略层 allowed_paths —— /home/ai 可写。
-    # 显式设置仍全量尊重用户指定（上方断言）。此断言从 None 改为默认目录。
-    assert captured["extra"] == ["/home/ai"], f"未设置时应默认 /home/ai，got {captured.get('extra')}"
+    # B1 (2026-09-13): 未显式设置时默认对齐策略层 default_writable_dirs。
+    # 显式设置仍全量尊重用户指定（上方断言）。
+    # T11 (2026-10-10): 断言从写死 ["/home/ai"] 升级为动态对齐契约——
+    # extra 必须逐项等于 sandbox_policy.yaml 的 default_writable_dirs
+    # （HEAD 已含 /data、/mnt/llm；yaml 后续演进测试不再脆），
+    # 并保留 "/home/ai" ∈ extra 的用户主目录底线。
+    from lingclaude.core.policy_loader import get as policy_get
+    expected = policy_get("sandbox_policy").get("default_writable_dirs") or ["/home/ai"]
+    assert captured["extra"] == [str(d) for d in expected], \
+        f"未设置时应默认对齐策略层 {expected}，got {captured.get('extra')}"
+    assert "/home/ai" in captured["extra"], "用户主目录必须在默认可写集内"
 
 
 def test_bash_rules_active_bypasses_env_override():
@@ -598,11 +606,20 @@ class TestV01FamilyWritableWhitelist:
         assert not missing, f"白名单缺失灵字辈仓库: {missing}"
 
     def test_lingan_own_cwd_is_writable(self):
-        """灵安以自己仓库为 cwd 时，必须能写自己的仓库（V-01 事故场景）。"""
-        from lingclaude.core.sandbox_rules import resolve_writable_dirs
-        writable = resolve_writable_dirs("/home/ai/lingan")
-        assert "/home/ai/lingan" in writable
-        assert "/home/ai/lingclaude" in writable, "跨仓库协作需要写灵克仓库"
+        """灵安以自己仓库为 cwd 时，必须能写自己的仓库（V-01 事故场景）。
+
+        T11 (2026-10-10): sandbox_policy.yaml「路径A治本」后，规则层改为
+        scope=lingclaude 枚举全家桶 + default 宽放行 /home/ai 的结构；
+        lingan 写自身仓库经 default 前缀匹配放行，列表成员断言过时。
+        断言升级为功能契约：check_write_allowed 才是 V-01 真正要守的闸门。
+        """
+        from lingclaude.core.sandbox_rules import check_write_allowed
+        own = check_write_allowed(
+            "/home/ai/lingan/docs/audit/report.md", "/home/ai/lingan")
+        assert own is None, f"灵安写自身仓库被拒: {own}"
+        cross = check_write_allowed(
+            "/home/ai/lingclaude/lingclaude/x.py", "/home/ai/lingan")
+        assert cross is None, f"跨仓库协作需要写灵克仓库: {cross}"
 
     def test_tmp_always_writable(self):
         """fail-safe 出口: 任何 cwd 下 /tmp 均可写（灵安的落盘兜底路径）。"""
