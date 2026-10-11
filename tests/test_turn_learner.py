@@ -41,8 +41,16 @@ def flywheel_db(tmp_path, monkeypatch):
 
 
 def _fetch_corrections(db_path):
+    """T9: 拦截路径下 DataFlywheel 不会建 corrections 表——无表即 0 条。"""
     conn = sqlite3.connect(db_path)
     try:
+        tables = {
+            r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if "corrections" not in tables:
+            return []
         return conn.execute(
             "SELECT original_error, correction FROM corrections"
         ).fetchall()
@@ -91,7 +99,7 @@ def test_correction_fallback_to_response(flywheel_db):
     )
     messages = ["问一句", "答一句（首轮输出）"]
     record_turn_learnings(
-        prompt="问一句",
+        prompt="不对，答错了",  # T9: 门槛要求本轮输入本身是纠正语义
         behavior=behavior,
         messages=messages,
         session_id="sess-12345678",
@@ -102,3 +110,55 @@ def test_correction_fallback_to_response(flywheel_db):
     assert len(rows) == 1
     original, _ = rows[0]
     assert "首轮输出" in original
+
+
+# ---------- T9 语义门槛（2026-10-10）：corrections 流反灌水 ----------
+
+def _bm(corr: int):
+    return SimpleNamespace(
+        hallucination_risk=0.0, tool_error_count=0, corrections_received=corr,
+    )
+
+
+def test_t9_greeting_after_correction_not_logged(flywheel_db):
+    """核心缺陷场景：会话里纠正过（累计=3），本轮只说「你好」→ 不得落库。
+
+    旧逻辑累计门槛 >0 导致此后每轮都落垃圾 correction（实测「你好」带
+    x3 计数入库、recurrence_count 一路涨）。门槛必须与会话累计解耦。
+    """
+    record_turn_learnings(
+        prompt="你好", behavior=_bm(3), messages=["p1", "a1", "p2", "a2"],
+        session_id="sess-t9greet1", response="答",
+    )
+    assert len(_fetch_corrections(flywheel_db)) == 0
+
+
+def test_t9_no_correction_intent_not_logged(flywheel_db):
+    """累计=0 且本轮非纠正语义（普通提问）→ 不落库（门槛解耦的双向确认）。"""
+    record_turn_learnings(
+        prompt="帮我看看这个文件", behavior=_bm(0), messages=["p1", "a1"],
+        session_id="sess-t9ask01", response="答",
+    )
+    assert len(_fetch_corrections(flywheel_db)) == 0
+
+
+def test_t9_greeting_umlaut_variants_blocked(flywheel_db):
+    """防线②：整串寒暄各变体（谢谢/嗯/ok/在吗）即使误判也不落库。"""
+    for i, greeting in enumerate(["谢谢", "嗯嗯", "ok", "在吗"]):
+        record_turn_learnings(
+            prompt=greeting, behavior=_bm(2), messages=["p1", "a1"],
+            session_id=f"sess-t9var{i:02d}", response="答",
+        )
+    assert len(_fetch_corrections(flywheel_db)) == 0
+
+
+def test_t9_real_correction_still_logged(flywheel_db):
+    """正向守卫：真实纠正语义（累计=2，本轮也是纠正）→ 仍然正常落库。"""
+    record_turn_learnings(
+        prompt="你又没读代码就瞎说，文件根本不存在", behavior=_bm(2),
+        messages=["p1", "a1", "p2", "a2"], session_id="sess-t9real1",
+        response="答",
+    )
+    rows = _fetch_corrections(flywheel_db)
+    assert len(rows) == 1
+    assert "没读代码" in rows[0][1]

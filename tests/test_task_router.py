@@ -132,13 +132,19 @@ class TestTaskRouter(unittest.TestCase):
         """2026-09-28: MiniMax 月度配额 429 —— 识别为硬配额且熔断到 reset at
         时刻（英文句式），不再是 3 次退避空烧 + 2h 兜底转回撞墙。"""
         import time as _t
+        from datetime import datetime, timedelta, timezone
 
         path = self._make_config()
         router = TaskRouter(config_path=path)
+        # 重置时刻动态生成（now+8天，+0800 时区与真实报文格式一致）：
+        # 2026-10-10 教训——原夹具硬编码 "2026-10-06" 已随真实日历过期，
+        # 解析器见过期时刻回退 1min 兜底致用例变红（定时炸弹型 flaky）。
+        # 被测路径是「解析未来重置时刻」，时刻本身取未来即与日期解耦。
+        reset_at = datetime.now(timezone(timedelta(hours=8))) + timedelta(days=8)
         minimax_err = json.dumps({"error": {
             "code": "AccountQuotaExceeded",
             "message": ("You have exceeded the monthly usage quota. "
-                        "It will reset at 2026-10-06 23:59:59 +0800 CST."),
+                        f"It will reset at {reset_at.strftime('%Y-%m-%d %H:%M:%S %z')} CST."),
             "type": "TooManyRequests",
         }})
         # 夹具无 minimax provider——用 cheap 作载体，测的是 record_error
@@ -148,7 +154,7 @@ class TestTaskRouter(unittest.TestCase):
         self.assertIsNotNone(slot)
         self.assertFalse(slot.is_available, "硬配额后必须熔断")
         remaining = slot.cooldown_until - _t.monotonic()
-        # 到 2026-10-06 约 8 天：远大于 2h 兜底（7200s），小于 9 天
+        # 夹具重置时刻 = now+8天：远大于 2h 兜底（7200s），小于 9 天
         self.assertGreater(remaining, 7200.0 * 2, "应解析到重置时刻而非 2h 兜底")
         self.assertLess(remaining, 9 * 86400.0)
         path.unlink()
@@ -225,6 +231,62 @@ class TestTaskRouter(unittest.TestCase):
         self.assertTrue(len(set(models)) >= 1)
         path.unlink()
 
+
+    # ---- 弱点⑤ MVP 补缺（2026-10-10）：parse_selector / resolve_selector / provider_diagnostics ----
+
+    def test_parse_selector_all_formats(self):
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        # model@provider（@ 取最后一个，model 可含 @）
+        self.assertEqual(router.parse_selector("glm-5.2@zhipu@glm"), ("glm", "glm-5.2@zhipu"))
+        # provider/model（/ 取第一个）
+        self.assertEqual(router.parse_selector("glm/glm-5.1"), ("glm", "glm-5.1"))
+        # 裸名 / 空串 / None
+        self.assertEqual(router.parse_selector("glm-5.1"), ("", "glm-5.1"))
+        self.assertEqual(router.parse_selector(""), ("", ""))
+        self.assertEqual(router.parse_selector(None), ("", ""))
+        path.unlink()
+
+    def test_resolve_selector_success_and_unknown_provider(self):
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        # 显式 provider 命中
+        name, pinfo, err = router.resolve_selector("glm-5.1@glm")
+        self.assertIsNone(err)
+        self.assertEqual(name, "glm")
+        self.assertEqual(pinfo.default_model, "glm-5.1")
+        # provider 不存在 -> 报错
+        name, pinfo, err = router.resolve_selector("whatever@nosuch")
+        self.assertIsNone(name)
+        self.assertIsNotNone(err)
+        path.unlink()
+
+    def test_resolve_selector_bare_name_hit_and_miss(self):
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        # 裸名唯一命中
+        name, pinfo, err = router.resolve_selector("glm-5.1")
+        self.assertIsNone(err)
+        self.assertEqual(name, "glm")
+        # 裸名未命中 -> (None, None, None) 调用方降级
+        name, pinfo, err = router.resolve_selector("no-such-model")
+        self.assertIsNone(name)
+        self.assertIsNone(pinfo)
+        self.assertIsNone(err)
+        path.unlink()
+
+    def test_provider_diagnostics_fields(self):
+        path = self._make_config()
+        router = TaskRouter(config_path=path)
+        rows = router.provider_diagnostics()
+        self.assertEqual(len(rows), 2)
+        by_name = {r["provider"]: r for r in rows}
+        glm = by_name["glm"]
+        # SAMPLE_CONFIG 用 localhost:8900 —— 本地语义：算 local，不因缺 key 报缺失
+        self.assertTrue(glm["has_key"])
+        self.assertTrue(glm["is_local"])
+        self.assertFalse(glm["key_missing"])
+        path.unlink()
 
 if __name__ == "__main__":
     unittest.main()
@@ -453,6 +515,4 @@ class TestF12EnvKeyFallback(unittest.TestCase):
         self.assertEqual(cfg.base_url, "https://cheap.example/v1")
         path.unlink()
 
-
-if __name__ == "__main__":
-    unittest.main()
+    # ---- 弱点⑤ MVP 补缺（2026-10-10）：parse_selector / resolve_selector / provider_diagnostics ----

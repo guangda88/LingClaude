@@ -274,6 +274,13 @@ _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "model": "zai-chat",
         "models": ["zai-chat"],
     },
+    "codearts": {
+        "type": "openai",
+        "base_url": "http://127.0.0.1:4110/v1",
+        "model": "deepseek-v4.1-flash",
+        "models": ["deepseek-v4.1-flash", "glm-5.3-flash",
+                   "deepseek-v4-flash-0731", "deepseek-v4-pro-0813"],
+    },
 }
 
 

@@ -9,10 +9,42 @@ logged as warnings to never break the main turn flow.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 from datetime import datetime as _dt
 
 logger = logging.getLogger(__name__)
+
+# T9 语义门槛（2026-10-10）：寒暄/整串无信息输入永不配称 correction。
+# 防线②：即便 detect_intent 未来误判，「你好」「谢谢」这类整串寒暄也拦下。
+# 注意：真实纠正可以很短（「不对」「错了」），故不做长度一刀切。
+_GREETING_ONLY_RE = re.compile(
+    r"^\s*(?:你好|您好|hello|hi|嗨|在吗|早上好|下午好|晚上好|"
+    r"谢谢|感谢|辛苦|再见|拜拜|好的?|嗯+|哦+|ok(?:ay)?)"
+    r"[\s!！。~～]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_realtime_correction(prompt: str) -> bool:
+    """T9：本轮输入必须本身是纠正语义，才允许落 corrections 流。
+
+    修复实测缺陷（2026-10-10）：旧逻辑用 bm.corrections_received > 0（会话
+    累计计数）做门槛 → 会话里一旦出现过一次纠正，此后每轮（包括「你好」
+    寒暄）都落一条垃圾 correction，经注入层污染后续会话上下文。
+    门槛改回「本轮输入本身是纠正」，与会话累计计数解耦；计数器本身
+    （用于注入层 >=2 告警）语义不变。
+    """
+    try:
+        from lingclaude.core.behavior import Intent, detect_intent
+
+        if detect_intent(prompt) != Intent.CORRECTION:
+            return False
+    except Exception:  # noqa: BLE001 — 检测器故障时退化为不落库（宁缺勿滥）
+        return False
+    if _GREETING_ONLY_RE.match(prompt):
+        return False
+    return True
 
 
 def record_turn_learnings(
@@ -82,7 +114,11 @@ def record_turn_learnings(
             kb.add_rule(rule)
             kb.close()
 
-        if bm.corrections_received > 0:
+        if bm.corrections_received > 0 and _is_realtime_correction(prompt):
+            # T9 语义门槛（2026-10-10）：双保险——本轮输入必须本身是纠正
+            # 语义（门槛与会话累计计数解耦），且整串寒暄硬拦（防线②）。
+            # 否则「你好」会被带上历史纠正计数 xN 落库成垃圾 correction，
+            # 经注入层「近期纠正实录」污染后续会话。
             # F3-2: corrections 流落库——「记错」之后必须留「改对」的账，
             # 供 F0 指标（规则有效率）与未来证据挂钩消费；历史 corrections 恒 0
             # 的缺口在此闭合（log_correction 此前全仓零调用）。

@@ -57,6 +57,10 @@ _KNOWN_WINDOWS: dict[str, int] = {
     "deepseek-v3": 128_000,
     "deepseek-chat": 128_000,
     "deepseek-reasoner": 128_000,
+    # CodeArts 码道免费模型（cookie+cftk 驱动，本地桥 :4110）
+    "deepseek-v4.1-flash": 1_000_000,
+    "deepseek-v4-flash-0731": 1_048_576,
+    "deepseek-v4-pro-0813": 1_000_000,
     # Qwen
     "qwen3.5-35b-a3b": 128_000,
     "qwen3-235b-a22b": 128_000,

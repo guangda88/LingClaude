@@ -452,21 +452,35 @@ class DataFlywheel:
             c.execute("SELECT file_path, COUNT(*) FROM error_log GROUP BY file_path ORDER BY COUNT(*) DESC LIMIT 10")
             top_error_files = {r[0]: r[1] for r in c.fetchall()}
 
-            c.execute("SELECT COUNT(DISTINCT error_message) FROM error_log")
-            unique_errors = c.fetchone()[0]
+            # T10 口径修正（2026-10-10）：复发率 =「同一天内重复出现的错误」。
+            # 旧口径全库 DISTINCT —— 跨天/跨会话的模板碰撞（如 hard_fact:commit
+            # 41 次跨 8 天）全被误算为「复发」，注入层长期显示虚高 52%；
+            # 同日口径实测 ~31%，才反映「改了又犯」的真实速率。
+            c.execute(
+                "SELECT COUNT(*) FROM ("
+                "  SELECT substr(occurred_at, 1, 10) AS d, error_message"
+                "  FROM error_log GROUP BY d, error_message)"
+            )
+            unique_errors_same_day = c.fetchone()[0]
 
             correction_rate = (total_corrections / total_errors) if total_errors > 0 else 0.0
-            recurrence_rate = ((total_errors - unique_errors) / total_errors) if total_errors > 0 else 0.0
+            recurrence_rate = (
+                (total_errors - unique_errors_same_day) / total_errors
+                if total_errors > 0 else 0.0
+            )
 
             # 口径分层 (2026-09-26)：AI 复发率只统计真正的 AI 犯错。
             # AI 类 = hallucination_*；环境/防线/打断类(非 AI 责任)全部剔除。
+            # T10: AI 类同样改同日去重口径（与上方全库口径一致）。
             c.execute(
                 "SELECT COUNT(*) FROM error_log WHERE pattern_type LIKE 'hallucination%'"
             )
             ai_error_total = c.fetchone()[0]
             c.execute(
-                "SELECT COUNT(DISTINCT error_message) FROM error_log "
-                "WHERE pattern_type LIKE 'hallucination%'"
+                "SELECT COUNT(*) FROM ("
+                "  SELECT substr(occurred_at, 1, 10) AS d, error_message"
+                "  FROM error_log WHERE pattern_type LIKE 'hallucination%'"
+                "  GROUP BY d, error_message)"
             )
             ai_error_unique = c.fetchone()[0]
             ai_recurrence_rate = (

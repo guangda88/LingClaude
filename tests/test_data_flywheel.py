@@ -279,3 +279,33 @@ class TestErrorRateScopeFix:
         assert s.ai_error_total == 3
         assert s.ai_error_unique == 2           # 真实 message 区分了 X 和 Y
         assert abs(s.ai_recurrence_rate - (1 / 3)) < 5e-3
+
+
+class TestT10SameDayRecurrenceScope:
+    """T10 口径锁定 (2026-10-10)：复发率 = 同日重复。
+    旧全库 DISTINCT 把跨天模板碰撞（hard_fact:commit 41 次跨 8 天）
+    全算复发 → 注入层长期虚显 52%；同日口径实测 31%。"""
+
+    def _log_at(self, fw, msg, occurred_at, session_id):
+        fw.log_error(ErrorPattern(
+            pattern_type="hallucination:hard_fact", file_path="x.py",
+            error_message=msg, tool_name="bash", context="",
+            session_id=session_id, occurred_at=occurred_at))
+
+    def test_cross_day_template_collision_not_recurrence(self, flywheel):
+        """同 message 跨 3 天各 1 次 → 复发率 0%（旧口径误报 67%）。"""
+        for i, day in enumerate(["2026-10-01", "2026-10-02", "2026-10-03"]):
+            self._log_at(flywheel, "hard_fact: commit",
+                         f"{day}T10:00:00", f"day{i}")
+        s = flywheel.get_stats()
+        assert s.ai_error_total == 3
+        assert s.ai_recurrence_rate == 0.0
+
+    def test_same_day_repeat_still_counts(self, flywheel):
+        """同日同 message 重复 → 仍计复发（真「改了又犯」）：(3-1)/3。"""
+        for i in range(3):
+            self._log_at(flywheel, "hard_fact: commit",
+                         "2026-10-10T10:00:00", f"s{i}")
+        s = flywheel.get_stats()
+        assert s.ai_error_total == 3
+        assert abs(s.ai_recurrence_rate - 2 / 3) < 5e-3
