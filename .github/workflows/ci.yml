@@ -72,6 +72,26 @@ jobs:
       - name: pytest tests/unit
         run: python -m pytest tests/unit -q -p no:cacheprovider
 
+  coverage:
+    name: 覆盖率门槛 ≥70% (SDT-lc-004 升格)
+    runs-on: ubuntu-latest
+    # 2026-10-10: 覆盖率从「有空时」升格为 CI 必过门禁。范围=三个核心
+    # 模块（路由/上下文窗口/数据飞轮），基线 data/coverage/baseline_20261010.md
+    # （75%/86%/79%）。hermetic 已本机验证（无网络依赖）。
+    # 本地等价命令: python3 scripts/ci_coverage_gate.py
+    # 阈值/模块变动须同步: 本 job、scripts/ci_coverage_gate.py、AGENTS.md SDT-lc-004 行。
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Coverage gate (fail-under 70)
+        run: python3 scripts/ci_coverage_gate.py
+
   selftest:
     name: 插件自测门禁 (E7 质量门)
     runs-on: ubuntu-latest
