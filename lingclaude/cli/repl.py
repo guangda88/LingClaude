@@ -1316,6 +1316,24 @@ def _run_stream_turn(
         persist_result = engine._session_persister.persist_session()
         if persist_result.is_error and get_output_format() == "plain":
             print(f"[警告] 会话逐轮落盘失败: {persist_result.error}")
+        # /handover v2 自动换班（2026-10-11 用户设计「无人值守巨型任务」）：
+        # 预算 pause 比率 ≥85% → 自动进程内换班（落盘交接文档+clear+注入续作）。
+        # 挂在逐轮持久化之后 = 每轮恰好检查一次；异常全吞（自愈不反噬主循环）。
+        try:
+            from lingclaude.core import session_budget_gate as _sbg
+
+            _ev = _sbg.get_tracker().evaluate_current()
+            if _ev.enabled:
+                _ratio = 0.0
+                for _v in _ev.verdicts:
+                    if _v.thresholds.pause > 0:
+                        _ratio = max(_ratio, _v.current / _v.thresholds.pause)
+                if _ratio >= 0.85:
+                    from lingclaude.cli.slash_plugins import handover as _ho
+
+                    _ho._auto_handover_if_needed(ctx)
+        except Exception:  # noqa: BLE001 — 自动换班失败不影响当前轮收尾
+            pass
     # 2026-09-21: turn 摘要行（借鉴 atomcode 的 "✓ Wrapped · 10 轮 · 9 工具 · 2m59s · 13.98K tokens · 99% cached"）
     try:
         if not interrupted and response_content:
@@ -1812,6 +1830,15 @@ def _interactive_loop(engine: "QueryEngine", first_prompt: str | None) -> int:
         result = engine._session_persister.persist_session()
         if result.is_ok:
             print(f"[会话已保存] {result.data}")
+
+    # R9-2: 正常退出清除 kill 信标（黑匣子语义——文件还在=可疑死亡）。
+    # 放 persist 之后：清除前最后写一份含收尾态的快照无意义，直接删。
+    _kb = getattr(engine, "_kill_beacon", None)
+    if _kb is not None:
+        try:
+            _kb.stop(clean=True)
+        except Exception:  # noqa: BLE001 — 清理失败不阻塞退出
+            pass
 
     stats = engine.get_stats()
     # F12e:先恢复终端状态,再打统计 — 统计输出落在干净的行首。

@@ -299,6 +299,23 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     _maybe_recover_on_startup(engine, args)
 
+    # R9-2 kill-safe 信标（2026-10-10）: 交互会话启动即挂周期交接快照 +
+    # SIGTERM/SIGHUP 快刷 + 前任异常死亡继承提示。headless 单轮不挂
+    # （进程几秒即退，无交接语义；conftest 设 LINGCLAUDE_KILL_BEACON=0 旁路）。
+    _kill_beacon = None
+    if args.interactive and os.environ.get("LINGCLAUDE_KILL_BEACON", "") != "0":
+        try:
+            from lingclaude.engine.kill_beacon import detect_dead_predecessor, format_predecessor_hint, install_kill_beacon
+
+            _kill_beacon = install_kill_beacon(engine, project_path=os.getcwd())
+            if _kill_beacon is None and not getattr(engine, "session_id", None):
+                pass  # engine 无会话身份（异常态），beacon 内部已拒
+            pred = detect_dead_predecessor(os.getcwd(), exclude_pid=os.getpid())
+            if pred and get_output_format() == "plain":
+                print(format_predecessor_hint(pred))
+        except Exception:  # noqa: BLE001 — 信标装配失败绝不阻塞会话启动
+            _kill_beacon = None
+
     if args.prompt:
         if args.interactive:
             # 2026-09-24 退出挂死修复: REPL 收尾（保存/统计/TTY）已在
