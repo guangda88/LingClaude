@@ -171,9 +171,28 @@ _SIGNAL_RESTORE_SEQ = (
     b"\x1b[0m"            # SGR 全复位
 )
 
+# R9-2 快刷绑定（2026-10-11）：_install_signal_restore 装配时预解析好的
+# kill_beacon.flush_active_beacon（模块级缓存，handler 内零 import——
+# import 持锁非 async-signal-safe）。None = 预解析失败，handler 退回原行为。
+_beacon_flush: Callable[[], None] | None = None
+
 
 def _signal_restore_handler(signum: int, frame: Any) -> None:
-    """SIGTERM/SIGHUP handler：仅 signal-safe 写复位序列，再恢复默认终止。"""
+    """SIGTERM/SIGHUP handler：先快刷 kill 信标，再写复位序列并恢复默认终止。
+
+    R9-2（2026-10-11）：本 handler 装于 TUI start()，晚于 app.py 启动侧
+    install_kill_beacon 挂的 SIGTERM/SIGHUP 链——不在此接快刷，等于把信标
+    的信号 handler 覆盖掉，TUI 形态下「≤10s 前快照」退化为「≤10s 周期写」
+    （SIGKILL 前最后 ≤10s 状态丢失窗口扩大到整个周期）。flush_active_beacon
+    内部仅 ftruncate/pwrite（async-signal-safe，预开 fd）；信标未装配 /
+    TUI 不在本进程（编排器子壳）时为无副作用空转。全程 try/except 吞错：
+    终端复位与退出码语义优先级最高，快刷失败不拦路。
+    """
+    try:
+        if _beacon_flush is not None:
+            _beacon_flush()
+    except Exception:  # noqa: BLE001 — handler 内绝不抛
+        pass
     try:
         os.write(1, _SIGNAL_RESTORE_SEQ)
     except Exception:  # noqa: BLE001 — 终端已关（SIGHUP 常态）：放弃即走
@@ -186,7 +205,26 @@ def _signal_restore_handler(signum: int, frame: Any) -> None:
 
 
 def _install_signal_restore() -> None:
-    """装 SIGTERM/SIGHUP 复位 handler（幂等；非主线程静默放弃）。"""
+    """装 SIGTERM/SIGHUP 复位 handler（幂等；非主线程静默放弃）。
+
+    装配时预解析 kill_beacon 的进程级快刷入口（R9-2 接线点）：handler
+    收到信号的瞬间不再做任何 import/属性查找。本进程若有活跃信标
+    （engine._kill_beacon），预解析其 signal_flush；否则退回模块级
+    flush_active_beacon（无信标=空转）。解析失败仅降级不阻断终端复位。
+    """
+    global _beacon_flush
+    if _beacon_flush is None:
+        try:
+            from lingclaude.engine import kill_beacon as _kb_mod
+
+            flush = getattr(_kb_mod, "flush_active_beacon", None)
+            if callable(flush):
+                _beacon_flush = flush
+            active = getattr(_kb_mod, "_ACTIVE_BEACON", None)
+            if active is not None and callable(getattr(active, "signal_flush", None)):
+                _beacon_flush = active.signal_flush  # 直绑本进程信标，少一层间接
+        except Exception:  # noqa: BLE001 — 预解析失败=退回纯终端复位
+            _beacon_flush = None
     for sig in (signal.SIGTERM, signal.SIGHUP):
         try:
             signal.signal(sig, _signal_restore_handler)

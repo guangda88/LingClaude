@@ -249,12 +249,46 @@ def format_predecessor_hint(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# ── 进程级快刷入口（full_tui 信号 handler 接线用，R9-2 2026-10-11）──────
+
+# 本进程唯一活跃信标（install_kill_beacon 注册；多会话场景后装者覆盖——
+# 与「一个进程一个交互会话」的既有约束一致）。
+_ACTIVE_BEACON: "KillBeacon | None" = None
+
+
+def flush_active_beacon() -> None:
+    """把本进程活跃信标的最新 payload 快刷落盘（进程级单例入口）。
+
+    背景：TUI 的 _signal_restore_handler 装配晚于 install_kill_beacon
+    挂的 SIGTERM/SIGHUP 链，会覆盖后者——快刷必须由 TUI handler 自己
+    调用。本函数供其在 handler 内调用，语义：
+    - 无活跃信标（headless / TUI 子壳 / 编排器调用 full_tui 模块）
+      → 空转，无副作用（TUI 全局 handler 可能在任意进程触发）；
+    - 有活跃信标但未 prepare → 尝试自愈（fd 缺失时写入会静默失败，
+      不如在这里补开；两步均为 OSErrors 吞错）；
+    - 正常路径 = beacon.signal_flush()，仅 ftruncate+pwrite，
+      async-signal-safe。
+    """
+    b = _ACTIVE_BEACON
+    if b is None:
+        return
+    try:
+        if b._sig_fd is None:
+            b.prepare_signal_flush()
+        b.signal_flush()
+    except Exception:  # noqa: BLE001 — handler 语境绝不抛
+        pass
+
+
 # ── 装配入口（app.py 交互分支调用）──────────────────────────────────────
 
 def install_kill_beacon(engine: Any, project_path: str = "") -> KillBeacon | None:
-    """启动信标 + 装信号快刷 + 打印继承提示。返回 beacon 供调用方 stop()。
+    """启动信标 + 装信号快刷。返回 beacon 供调用方 stop()。
 
     返回 None = 旁路（env 关闭 / engine 不合规）。
+    继承提示（detect_dead_predecessor + format_predecessor_hint）由
+    app.py 启动侧自行扫描打印——本函数不再重复扫描（2026-10-11 收口，
+    消除「算了 hint 不用」的死代码）。
     """
     if os.environ.get(ENV_DISABLE, "") in ("1", "true", "True"):
         return None
@@ -299,5 +333,9 @@ def install_kill_beacon(engine: Any, project_path: str = "") -> KillBeacon | Non
     except (ValueError, OSError):  # 非主线程等
         pass
 
-    hint = detect_dead_predecessor(project_path or os.getcwd())
+    # 进程级单例注册：TUI 的 _signal_restore_handler 经模块级
+    # flush_active_beacon() 找到本进程唯一活跃信标做信号快刷
+    #（覆盖安装问题的反向接线，R9-2 2026-10-11）。
+    global _ACTIVE_BEACON
+    _ACTIVE_BEACON = beacon
     return beacon

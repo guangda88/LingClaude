@@ -131,6 +131,8 @@ def _isolate_tool_vocab(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 os.environ["LINGCLAUDE_BUS_LISTENER"] = "0"
 # N8 free-RAM 守卫门: 测试进程旁路(守卫拒收启动的语义不适用于 pytest; 需测守卫本身的用例自管 env)
 os.environ["LINGCLAUDE_FREE_RAM_GUARD"] = "0"
+# R9-2 kill 信标：测试进程非交互，信标无意义且会污染 ~/.lingclaude/beacons/
+os.environ.setdefault("LINGCLAUDE_KILL_BEACON", "0")
 
 
 # 2026-09-06 rm -rf 事故加固：autouse 检测测试对项目 .lingclaude/ 的写污染。

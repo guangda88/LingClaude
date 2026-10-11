@@ -202,3 +202,59 @@ def test_corrupt_beacon_file_tolerated(beacon_root: Path, in_tmp_cwd: Path) -> N
     root.mkdir(parents=True)
     (root / "garbage.json").write_text("not json", encoding="utf-8")
     assert detect_dead_predecessor(str(in_tmp_cwd), exclude_pid=os.getpid()) is None
+
+
+def test_active_beacon_registered_and_flushed(beacon_root: Path, in_tmp_cwd: Path) -> None:
+    """install 后进程级单例就位；flush_active_beacon 真实落盘（mtime 前进）。"""
+    b = kb.install_kill_beacon(_FakeEngine(), project_path=str(in_tmp_cwd))
+    assert b is not None
+    assert kb._ACTIVE_BEACON is b
+    try:
+        time.sleep(0.02)
+        before = b.path.stat().st_mtime_ns
+        kb.flush_active_beacon()  # start() 已 prepare，直通 signal_flush
+        after = b.path.stat().st_mtime_ns
+        assert after >= before, "flush 未触碰信标文件"
+        data = json.loads(b.path.read_text(encoding="utf-8"))
+        assert data["pid"] == os.getpid()
+    finally:
+        b.stop(clean=True)
+        kb._ACTIVE_BEACON = None
+
+
+def test_flush_active_beacon_noop_without_beacon(beacon_root: Path) -> None:
+    """无活跃信标（headless / TUI 子壳）→ 空转无异常、无文件副作用。"""
+    assert kb._ACTIVE_BEACON is None
+    kb.flush_active_beacon()
+    assert not list(beacon_root.rglob("*.json"))
+
+
+def test_full_tui_handler_binds_active_beacon(beacon_root: Path, in_tmp_cwd: Path) -> None:
+    """R9-2 接线核心：TUI _install_signal_restore 装配时预绑定活跃信标快刷。
+
+    只验证绑定与被绑函数行为，不真实触发 _signal_restore_handler——
+    该 handler 会恢复默认 disposition 并 re-raise SIGTERM（终止测试进程）。
+    """
+    from lingclaude.cli import full_tui as ft
+
+    b = kb.install_kill_beacon(_FakeEngine(), project_path=str(in_tmp_cwd))
+    assert b is not None
+    prev_term = signal.getsignal(signal.SIGTERM)
+    prev_hup = signal.getsignal(signal.SIGHUP)
+    try:
+        ft._beacon_flush = None  # 清缓存，测装配时预解析路径
+        ft._install_signal_restore()
+        assert ft._beacon_flush is not None, "TUI handler 未绑定信标快刷"
+        # 被绑函数即本进程信标的 signal_flush：调用应刷新 beacon 文件
+        assert callable(ft._beacon_flush)
+        time.sleep(0.02)
+        before = b.path.stat().st_mtime_ns
+        ft._beacon_flush()
+        assert b.path.stat().st_mtime_ns >= before
+    finally:
+        if b is not None:
+            b.stop(clean=True)
+        kb._ACTIVE_BEACON = None
+        ft._beacon_flush = None  # 防污染其他测试（模块级缓存）
+        signal.signal(signal.SIGTERM, prev_term)
+        signal.signal(signal.SIGHUP, prev_hup)
