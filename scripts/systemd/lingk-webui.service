@@ -1,0 +1,24 @@
+# W1 (2026-10-10): 灵克 WebUI Server — webui-server Rust daemon, 端口 23458
+# 此前四服务(8765/9530/23458/4110)中唯一无 systemd 托管的: 手动启动态, 重启即失
+# 装配: bash scripts/install_lingk_systemd.sh (幂等, 自动安装+enable lingk.target)
+# 安全: loopback-only(main.rs 生产默认绑 127.0.0.1), 鉴权=auth.rs cookie(cookie_name_is_port_scoped)
+[Unit]
+Description=lingclaude webui-server (atomcode GUI daemon on 23458, loopback-only)
+After=network.target
+
+[Service]
+Type=simple
+# 启动参数: argv[1]=端口(main.rs:204, 缺省 23458); 二进制由 cargo build --release 产出
+ExecStart=/home/ai/lingclaude/webui-server/target/release/lingclaude-webui 23458
+WorkingDirectory=/home/ai/lingclaude
+Restart=on-failure
+RestartSec=5
+# 审计日志(main.rs:207 默认项目 .lingclaude/webui-audit.jsonl), 显式固定到 logs/ 便于巡检
+Environment=LINGCLAUDE_WEBUI_AUDIT_LOG=/home/ai/lingclaude/logs/webui-audit.jsonl
+# 引擎鉴权透传: main.rs:241 直读 LINGCLAUDE_API_KEYS(与 api.py:60 同名同源, 共享同一密钥集)
+# api.py 启用鉴权时, 建环境文件 %h/.lingclaude/webui.env (内容: LINGCLAUDE_API_KEYS=key1,key2)
+# 并取消下行注释:
+#EnvironmentFile=%h/.lingclaude/webui.env
+
+[Install]
+WantedBy=lingk.target

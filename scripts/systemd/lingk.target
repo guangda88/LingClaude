@@ -1,0 +1,13 @@
+# W1 (2026-10-10): 灵克四服务聚合 target — 一键 enable 四常驻服务
+# 装配: bash scripts/install_lingk_systemd.sh
+# 用法: systemctl --user enable --now lingk.target  (等价拉起 proxy3+灵忆+webui+码道桥)
+# 口径: 服务清单单一事实源 = scripts/health_inspect.py:42 (四端口)
+# 注: lingflow-proxy3 / lingmemory-mcp / codearts-bridge 三 unit 已存在于宿主
+#     ~/.config/systemd/user/ (非本仓维护), 此处 Wants= 引用不覆盖不冲突;
+#     仅 lingk-webui.service 是本仓新增(23458 此前无托管)。
+[Unit]
+Description=lingk four-service aggregate (proxy3 8765 / lingmemory 9530 / webui 23458 / codearts-bridge 4110)
+Wants=lingflow-proxy3.service lingmemory-mcp.service lingk-webui.service codearts-bridge.service
+
+[Install]
+WantedBy=default.target

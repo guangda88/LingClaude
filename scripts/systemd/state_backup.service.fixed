@@ -1,0 +1,12 @@
+[Unit]
+Description=ling state backup - four state files periodic (INC-20260905-RMRF P0)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /home/ai/lingclaude/scripts/state_backup.py
+Nice=19
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

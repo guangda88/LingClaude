@@ -1,0 +1,23 @@
+# R9-1: 灵克接力编排器 user 级 systemd 托管单元
+# 装配: bash scripts/install_relay_systemd.sh （自动安装本文件并启用）
+# AC(docs/R9_UNATTENDED_RELAY_PLAN.md): 重启后 active；kill -9 后 10s 内自动拉起
+[Unit]
+Description=lingclaude relay orchestrator (R9 unattended relay daemon)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# tee 桥: stdout→文件(编排器 log() 全量留档) + journald 双写
+# pipefail 必须: 否则脚本被杀后管道退出码取自 tee(0), on-failure 不会重启(AC 失效)
+ExecStart=/bin/bash -c 'set -o pipefail; exec /home/ai/lingclaude/scripts/session_relay_orchestrator.sh --daemon 2>&1 | tee -a /home/ai/lingclaude/logs/relay_orchestrator.log'
+Restart=on-failure
+RestartSec=10
+# 停止语义: 主进程 TERM, 30s 后强杀整组(含进行中接力会话——队列状态外置, 重启后续跑, 无状态丢失)
+KillMode=mixed
+TimeoutStopSec=30
+Environment=RELAY_QUEUE_FILE=/home/ai/lingclaude/scripts/relay_queue.json
+Environment=RELAY_POLL_INTERVAL=120
+
+[Install]
+WantedBy=default.target
