@@ -1,4 +1,3 @@
-# 工具授权四档策略（灵元 R2 P0：守卫升级为策略对象）
 # 2026-10-01：外部 Agent 联审结论（cc/codex/crush/opencode 四家独立提出）
 # 核心原则：裁决点钉在可观测、可记账的单次工具调用上，安全从软约束变硬约束
 #
@@ -55,11 +54,11 @@ tiers:
   ask:
     description: "外部发送/网络操作，执行前询问用户意图"
     tools:
-      - "bash"
+      - "bash"                 # 默认 ask；command_patterns 命中时覆盖
       - "bash_lingxi"          # 已列 read-only，但 bash 可构造恶意命令
       - "execute_command"
       - "run_bash"
-      - "subprocess"           # 潜在危险
+      - "subprocess"           # 潜在危险 Python 调用
       - "submit_feedback"
       - "submit_search_feedback"
 
@@ -71,7 +70,7 @@ tiers:
       - "rm"
       - "drop_table"
       - "truncate"
-      - "systemctl"
+      - "systemctl"            # 默认 block；command_patterns 命中时覆盖
       - "kill_process"
       - "os.system"            # 潜在危险 Python 调用
 
@@ -108,6 +107,82 @@ credential_leak_guard:
     - "(?i)deepseek[_-]?api[_-]?key[\"']?\\s*[=:]"
     - "(?i)kimi[_-]?api[_-]?key[\"']?\\s*[=:]"
     - "(?i)volc[_-]?(coding|engine)?[_-]?api[_-]?key[\"']?\\s*[=:]"
+
+# ── 命令模式档位（针对 bash/execute_command/run_bash 等可构造任意命令的工具）
+# 2026-10-11：有限度放权——只读 systemctl/journalctl 等运维查询自动放行，
+# 服务启停、模型拉起等可逆写操作需预审，sudo/跨网络/高危破坏仍拦截。
+# 匹配顺序：block → ask → pre_approve → auto（先命中严规则）；
+# 命令模式未命中时回退到上方 tiers 工具名矩阵。
+command_patterns:
+  # 高危直接 block
+  block:
+    - "^systemctl\\s+--system\\b"
+    - "^systemctl\\s+(poweroff|reboot|halt|suspend|hibernate)\\b"
+    - "^rm\\s+-rf\\s+/($|\\s)"
+    - "^rm\\s+-rf\\s+/home/ai/\\.[^/]+"
+    - "^mkfs\\."
+    - "^dd\\s+"
+    - ":\\(\\)\\{ :|:& \\};:"
+
+  # 仍需要询问（systemctl/kill 用否定前瞻，避免覆盖 auto/pre_approve 的更具体规则）
+  ask:
+    - "^systemctl\\s+(?!(--user|--system)\\b)"
+    - "^sudo\\b"
+    - "^su\\b"
+    - "^mount\\b(?!\\s+-o\\s+remount,)"
+    - "^umount\\b"
+    - "^curl\\b.*\\b(http|https)://"
+    - "^wget\\b"
+    - "^ssh\\b"
+    - "^scp\\b"
+    - "^nc\\b"
+    - "^nmap\\b"
+    - "^iptables\\b"
+    - "^ufw\\b"
+    - "^killall\\b"
+    - "^pkill\\b(?!\\s+-f\\s+llama-server)"
+    - "^kill\\s+(?!-TERM\\s+\\d+)"
+    - "^rm\\s+-rf\\b"
+    - "^chmod\\s+.*777"
+    - "^chown\\s+-R\\b"
+
+  # 可逆写操作，需预审
+  pre_approve:
+    - "^systemctl\\s+--user\\s+(start|stop|restart|reload|enable|disable|reenable)\\b"
+    - "^systemctl\\s+--user\\s+daemon-reload\\b"
+    - "^systemctl\\s+--user\\s+reset-failed\\b"
+    - "^mount\\s+-o\\s+remount,"
+    - "^kill\\s+-TERM\\s+\\d+"
+    - "^pkill\\s+-f\\s+llama-server$"
+    - "^llama-server\\s+.*--port\\s+\\d+"
+    - "^git\\s+push\\b"
+    - "^git\\s+reset\\b"
+    - "^git\\s+clean\\b"
+
+  # 只读 / 低风险，自动放行
+  auto:
+    - "^systemctl\\s+--user\\s+(status|list-units|is-active|is-enabled|show)\\b"
+    - "^journalctl\\s+--user\\s+-u\\s+.+\\s+-n\\s+\\d+\\s+--no-pager$"
+    - "^ps(\\s+aux|\\s+-ef|\\s+ax)?$"
+    - "^ss\\s+-tlnp$"
+    - "^ls(\\s+|$)"
+    - "^git\\s+(status|log|diff|blame|show|branch)\\b"
+    - "^grep\\b"
+    - "^cat\\b"
+    - "^head\\b"
+    - "^tail\\b"
+    - "^echo\\b"
+    - "^pwd$"
+    - "^whoami$"
+    - "^hostname$"
+    - "^date$"
+    - "^which\\b"
+    - "^type\\b"
+    - "^df\\s+-h$"
+    - "^free\\s+-h$"
+    - "^uptime$"
+    - "^uname\\b"
+    - "^id$"
 
 # ── 审计开关───────────────────────────────────────────────────
 audit_enabled: true

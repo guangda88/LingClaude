@@ -101,5 +101,6 @@ def test_sandbox_policy_yaml_present():
     data = pl.load("sandbox_policy")
     assert "network_allowed_commands" in data
     assert "default_writable_dirs" in data
-    assert data["default_writable_dirs"] == ["/home/ai"]
+    # 2026-10-04 EROFS 修复（见 yaml 注释）已增 /data /mnt/llm；断言同步
+    assert data["default_writable_dirs"] == ["/home/ai", "/data", "/mnt/llm"]
     assert data["network_isolation_enabled"] is True

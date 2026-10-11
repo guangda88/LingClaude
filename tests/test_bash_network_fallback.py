@@ -255,7 +255,8 @@ class TestNetworkClassify(unittest.TestCase):
         self.assertEqual(network_classify("curl https://example.com"), "ask")
         self.assertEqual(network_classify("wget http://x.com/f.sh"), "ask")
         self.assertEqual(network_classify("ssh user@host"), "ask")
-        self.assertEqual(network_classify("ping 8.8.8.8"), "ask")
+        # 2026-10-11 A+C 方案（用户批准）：ping 加入只读诊断网络白名单 → allow
+        self.assertEqual(network_classify("ping 8.8.8.8"), "allow")
         self.assertEqual(network_classify("docker pull ubuntu"), "ask")
         self.assertEqual(network_classify("pip install requests"), "ask")
 

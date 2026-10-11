@@ -99,6 +99,79 @@ def _match_tool(tool_patterns: list[str], tool_name: str) -> bool:
     return False
 
 
+# 受 command_patterns 约束的工具集合（可构造任意 shell 命令）
+_COMMAND_PATTERN_TOOLS = {"bash", "Bash", "execute_command", "run_bash"}
+
+
+def _extract_command(tool_args: dict[str, Any]) -> str | None:
+    """从 bash 类工具参数中提取待执行的 shell 命令文本。"""
+    if not isinstance(tool_args, dict):
+        return None
+    # 常见参数名：command / commands / script / code / input
+    for key in ("command", "commands", "script", "code", "input"):
+        val = tool_args.get(key)
+        if isinstance(val, str):
+            return val.strip()
+    return None
+
+
+def _match_command(patterns: list[str], command: str) -> bool:
+    """用 re.search 判断命令是否命中 patterns 之一（前缀/正则均可）。"""
+    if not command:
+        return False
+    for pat in patterns:
+        try:
+            if re.search(pat, command):
+                return True
+        except re.error:
+            # 非正则则按字面量前缀匹配
+            if command.startswith(pat):
+                return True
+    return False
+
+
+def _evaluate_command_patterns(policy: dict[str, Any], tool_name: str,
+                               tool_args: dict[str, Any]) -> Decision | None:
+    """针对可构造任意命令的工具，按 command_patterns 做细粒度裁决。
+
+    返回 None = 未命中任何命令模式，应回退 tiers 工具名矩阵。
+    匹配顺序：block → ask → pre_approve → auto（先严后宽）。
+    """
+    if tool_name not in _COMMAND_PATTERN_TOOLS:
+        return None
+    command = _extract_command(tool_args)
+    if command is None:
+        return None
+
+    cp = policy.get("command_patterns", {})
+    tier_order = [
+        ("block", Tier.BLOCK, "命中命令级 block 模式"),
+        ("ask", Tier.ASK, "命中命令级 ask 模式"),
+        ("pre_approve", Tier.PRE_APPROVE, "命中命令级 pre_approve 模式"),
+        ("auto", Tier.AUTO, "命中命令级 auto 模式"),
+    ]
+    policy_id = _build_policy_id(policy)
+    audit_enabled = policy.get("audit_enabled", True)
+
+    for tier_key, tier_enum, reason in tier_order:
+        patterns = cp.get(tier_key, [])
+        if not patterns:
+            continue
+        if _match_command(patterns, command):
+            written = False
+            if audit_enabled:
+                _write_audit(tier_enum, tool_name, tool_args, policy_id)
+                written = True
+            return Decision(
+                tier=tier_enum,
+                tool_name=tool_name,
+                policy_id=policy_id,
+                reason=reason,
+                audit_written=written,
+            )
+    return None
+
+
 def _check_credential_leak(tool_name: str, tool_args: dict[str, Any]) -> Decision | None:
     """凭证泄漏守卫（P1a）：工具参数命中正则立即 block，写台账。
 
@@ -304,6 +377,13 @@ def check_tool_call(tool_name: str, tool_args: dict[str, Any] | None = None) -> 
         policy = _get_policy()
         tiers = policy.get("tiers", {})
         policy_id = _build_policy_id(policy)
+
+        # ── 2026-10-11：命令模式细粒度授权（有限度放权）
+        #    对 bash/execute_command 等可构造任意命令的工具，先按 command 内容
+        #    匹配细规则；未命中再回退 tiers 工具名矩阵。
+        command_decision = _evaluate_command_patterns(policy, tool_name, tool_args)
+        if command_decision is not None:
+            return command_decision
 
         # 按档位优先级查（A → P → Q → X）
         tier_order = [("auto", Tier.AUTO), ("pre_approve", Tier.PRE_APPROVE),

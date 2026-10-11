@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -411,6 +412,10 @@ class BashExecutor:
         # allow → 放行网络；ask → 拒绝并提示需审批；deny → 隔离网络
         from lingclaude.engine.bash_network import network_classify
         net_state = network_classify(command)
+        # C2（2026-10-11）：会话级放行命令同时授予网络面（ask → allow）；
+        # deny 档不变。命令黑名单层的只读/凭据检查仍先行，见 _check_blocked。
+        if net_state == "ask" and self._session_allow_hit(command):
+            net_state = "allow"
         if net_state == "ask":
             # ask 档：当前简化为「拒绝并提示需审批」
             # 后续接入四级审批系统（lingclaude/core/policies）
@@ -558,13 +563,43 @@ class BashExecutor:
         if not tokens:
             return False
         head = Path(tokens[0]).name.lower()
-        if head == "systemctl" and len(tokens) > 1 and tokens[1] in (
-            "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
-        ):
-            return True
+        if head == "systemctl" and len(tokens) > 1:
+            # 跳过选项 token（--user/--system/-q 等）再认子命令：
+            # `systemctl --user status` 此前落不进豁免（tokens[1]=--user）
+            # → 被黑名单误拦（2026-10-11 有限度放权实测根因）。
+            sub = next((t for t in tokens[1:] if not t.startswith("-")), None)
+            if sub in (
+                "status", "is-active", "is-enabled", "is-failed", "list-units", "show",
+            ):
+                return True
         if head == "mount" and len(tokens) == 1:
             return True
         return False
+
+    @staticmethod
+    def _is_user_scope_systemctl_write(tokens: list[str]) -> bool:
+        """systemctl --user 作用域写操作 —— 豁免拦截（2026-10-11 有限度放权）。
+
+        放行给上层 tool_auth command_patterns 分档（pre_approve：服务启停等可逆
+        写操作需用户批准）。fail-closed 边界：
+        - 非 --user（系统级写操作）→ 不豁免，仍拦（test_systemctl_start_blocked 契约）
+        - 危险 verb（poweroff/reboot/isolate/mask/edit 等）→ 不豁免，即使 --user
+        - sudo 提权 → 由 _BLOCKED_DANGER_ANYWHERE 在此之前拦截
+        """
+        if not tokens or "--user" not in tokens:
+            return False
+        head = Path(tokens[0]).name.lower()
+        if head != "systemctl":
+            return False
+        # 第一个非选项 token = 子命令/verb
+        sub = next((t for t in tokens[1:] if not t.startswith("-")), None)
+        if sub is None:
+            return False
+        # 危险 verb 不豁免（--user 下 isolate/mask/edit 仍可破坏用户级服务树）
+        return sub not in (
+            "poweroff", "reboot", "halt", "suspend", "hibernate",
+            "isolate", "mask", "unmask", "set-default", "edit", "link", "preset",
+        )
 
     @staticmethod
     def _split_chain(command: str) -> list[str]:
@@ -681,6 +716,48 @@ class BashExecutor:
                 return name
         return None
 
+    def _session_allow_hit(self, command: str) -> bool:
+        """C2 会话级临时放行判定（2026-10-11 A+C 方案，用户批准）。
+
+        数据源 ~/.lingclaude/.session_allow.json：
+        {"owner_pid": <lc 主进程 PID>, "session_id": "...",
+         "allowed_commands": ["ssh", "mount /dev/sdb1 /mnt/data"]}
+
+        - fail-closed：文件缺失/JSON 损坏/字段缺失 → False（不放行）
+        - 退出即失效：owner_pid 必须等于当前进程 PID；lc 退出后重启
+          PID 变化，旧文件自动作废，无需手动清理
+        - 匹配语义：规范化小写后「全等」或「条目 + 空格」前缀命中
+        - 豁免范围（_check_blocked 内）：扩展黑名单规则 + 命令名位置
+          拦截；**不豁免** 凭据模式 / 禁提 API host / curl·wget 只读形态
+          （三者在本判定之前已检）/ _ALWAYS_BLOCKED 核心破坏性规则
+        - 网络面：命中命令在 _sandbox_command 中 ask 档提升为 allow
+        - 审计：命中即 warning 记日志
+        """
+        allow_file = Path.home() / ".lingclaude" / ".session_allow.json"
+        try:
+            data = json.loads(allow_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not isinstance(data, dict):
+            return False
+        if data.get("owner_pid") != os.getpid():
+            return False  # 进程已退出/重启 → 授权作废
+        entries = data.get("allowed_commands")
+        if not isinstance(entries, list):
+            return False
+        norm_cmd = self._normalize_command(command.strip()).lower()
+        if not norm_cmd:
+            return False
+        for ent in entries:
+            if not isinstance(ent, str):
+                continue
+            e = ent.strip().lower()
+            if e and (norm_cmd == e or norm_cmd.startswith(e + " ")):
+                logging.getLogger(__name__).warning(
+                    "session_allow 放行: %s (entry=%r)", command[:80], ent)
+                return True
+        return False
+
     def _check_blocked(self, command: str) -> str | None:
         cmd_stripped = command.strip()
         cmd_normalized = self._normalize_command(cmd_stripped)
@@ -713,7 +790,14 @@ class BashExecutor:
             if net_cmd:
                 return f"网络命令 '{net_cmd}' 被禁止（非只读探测形态；只读探测请用 -I/--head/-s -o /dev/null/--spider）"
 
-        for blocked in self.blocked_commands:
+        # C2（2026-10-11 A+C 方案，用户批准）：会话级临时放行判定。
+        # 命中 → 豁免「扩展黑名单 + 命令名位置拦截」；凭据模式 / 禁提
+        # API host / curl·wget 只读形态（上方已检）与 _ALWAYS_BLOCKED
+        # 核心破坏性规则（rm -rf 关键目录、fork bomb、提权词等）不豁免。
+        _session_hit = self._session_allow_hit(cmd_stripped)
+        _rules = _ALWAYS_BLOCKED if _session_hit else self.blocked_commands
+
+        for blocked in _rules:
             bl = blocked.lower()
             if self._rule_matches(cmd_lower, bl):
                 return f"匹配黑名单规则 '{blocked}'"
@@ -721,7 +805,7 @@ class BashExecutor:
         sub_commands = self._split_chain(cmd_stripped)
         for sub in sub_commands:
             sub_norm = self._normalize_command(sub)
-            for blocked in self.blocked_commands:
+            for blocked in _rules:
                 bl = blocked.lower()
                 if self._rule_matches(sub_norm.lower(), bl):
                     return f"匹配黑名单规则 '{blocked}'（命令链中检测到）"
@@ -732,17 +816,22 @@ class BashExecutor:
             # LEADING 集合只拦「命令名位置」（子命令首 token），不连坐参数：
             # 专为 at 这类常见英文短词设计，grep "at" / stat 不误伤。
             lead_name = Path(tokens[0].split("=")[-1]).name
-            if lead_name.lower() in _BLOCKED_LEADING_COMMANDS:
+            if lead_name.lower() in _BLOCKED_LEADING_COMMANDS and not _session_hit:
                 return f"基础命令 '{lead_name}' 被禁止（命令名位置拦截）"
             # 命令名位置拦截（2026-09-13 细颗粒度）：子命令首 token 检查
             # _BLOCKED_BASE_COMMANDS 与 _BLOCKED_CMD_NAME_ONLY。
             # 注意：首 token 可能是 `sudo cmd` 中的 cmd（sudo 由 DANGER_ANYWHERE
             # 在参数位置兜底），也可能是 env/timeout 包装后的真实命令——统一
             # 取第一个「非透明包装」token 检查（见 _normalize_command 剥离前缀）。
-            if lead_name.lower() in _BLOCKED_BASE_COMMANDS or lead_name.lower() in _BLOCKED_CMD_NAME_ONLY:
+            if (lead_name.lower() in _BLOCKED_BASE_COMMANDS or lead_name.lower() in _BLOCKED_CMD_NAME_ONLY) and not _session_hit:
                 # P2-①（灵安审计）：只读诊断形态豁免 — systemctl status/is-active 等 + mount 无参
                 if self._is_readonly_diag_command(tokens):
                     pass  # 只读，放行
+                # 2026-10-11 有限度放权：systemctl --user 写操作豁免（交上层
+                # tool_auth command_patterns 分档 pre_approve）；非 --user 系统级
+                # 写操作与危险 verb 仍 fail-closed 拦截。
+                elif self._is_user_scope_systemctl_write(tokens):
+                    pass  # --user 可逆写操作，交 tool_auth 档位
                 else:
                     return f"基础命令 '{lead_name}' 被禁止"
             # EXP-S2 '?'-混淆防御（命令名位置）：shell 里 "s?do" 会被 glob
@@ -750,7 +839,8 @@ class BashExecutor:
             # 规则与 token 等长、非 '?' 字符全等 → 拦截。
             # token 级比较不会误伤（"stat" len4 ≠ "su" len2）。
             # P2-①：只读诊断形态豁免同样适用于 '?' 混淆检查
-            _is_readonly_diag = self._is_readonly_diag_command(tokens)
+            # 2026-10-11：--user 写操作豁免同样适用（混淆变体展开后仍是同一命令）
+            _is_readonly_diag = self._is_readonly_diag_command(tokens) or self._is_user_scope_systemctl_write(tokens) or _session_hit
             _name_blocks = _BLOCKED_BASE_COMMANDS | _BLOCKED_CMD_NAME_ONLY | _BLOCKED_DANGER_ANYWHERE
             for bl in _name_blocks:
                 if not bl or " " in bl or any(c in bl for c in "*?"):
@@ -770,8 +860,9 @@ class BashExecutor:
         base_cmd = cmd_stripped.split()[0] if cmd_stripped.split() else ""
         base_cmd_name = Path(base_cmd).name
         # P2-①（灵安审计）：只读诊断形态豁免同样适用于循环外的基础命令检查
-        _is_readonly_diag_base = self._is_readonly_diag_command(cmd_stripped.split())
-        if base_cmd_name.lower() in _BLOCKED_BASE_COMMANDS and not _is_readonly_diag_base:
+        # 2026-10-11：--user 写操作豁免同样适用
+        _is_readonly_diag_base = self._is_readonly_diag_command(cmd_stripped.split()) or self._is_user_scope_systemctl_write(cmd_stripped.split()) or _session_hit
+        if base_cmd_name.lower() in _BLOCKED_BASE_COMMANDS and not _is_readonly_diag_base and not _session_hit:
             return f"基础命令 '{base_cmd_name}' 被禁止"
 
         if self.allowed_commands is not None:

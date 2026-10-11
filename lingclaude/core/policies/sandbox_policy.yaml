@@ -16,6 +16,18 @@ network_allowed_commands:
   - "curl -sI"
   - "curl -s -o /dev/null"
   - "wget --spider"
+  # 只读网络诊断（2026-10-11 A+C 方案，用户批准放行）：
+  # ping/dig/nslookup/host/traceroute 无写盘面、无远程执行面，
+  # 仅连通性/DNS 诊断；curl -I/--head 只取响应头（写盘形态仍由
+  # _check_blocked 的 _is_readonly_network_probe 拦截，双层 fail-closed）
+  - "ping"
+  - "dig"
+  - "nslookup"
+  - "host"
+  - "traceroute"
+  - "curl -I"
+  - "curl --head"
+  - "curl -sI --head"
   # AI 插片（2026-09-21）：claude/atomcode/crush/codex/opencode 需要出网调用各自 API 端点。
   # 经主代理提请、用户批准后加入。命令行注入风险由沙箱其余层兜底（非 root、内存 rlimit）。
   - "atomcode"
