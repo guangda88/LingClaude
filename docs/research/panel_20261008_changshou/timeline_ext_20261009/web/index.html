@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能气功多元知识图谱 · M0</title>
+<style>
+:root{--bg:#f7f5f0;--panel:#fff;--ink:#2b2a26;--sub:#8a8577;--line:#e4dfd3;--accent:#4a78c2;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--ink);}
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:14px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+header h1{font-size:18px;font-weight:600;}
+header .stat{font-size:12px;color:var(--sub);}
+#search{flex:1;min-width:220px;max-width:420px;padding:7px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;outline:none;background:var(--bg);}
+#search:focus{border-color:var(--accent);}
+nav{display:flex;gap:4px;}
+nav button{border:none;background:none;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:14px;color:var(--sub);}
+nav button.on{background:var(--accent);color:#fff;}
+main{max-width:1100px;margin:0 auto;padding:20px 24px 60px;}
+.srcline{font-size:12px;color:var(--sub);margin-bottom:14px;}
+/* 时间轴 */
+.decade{margin-bottom:10px;}
+.decade>h2{font-size:15px;cursor:pointer;padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;display:flex;justify-content:space-between;align-items:center;}
+.decade>h2 .cnt{font-size:12px;color:var(--sub);font-weight:400;}
+.decade ul{list-style:none;margin:6px 0 0 0;display:none;}
+.decade.open ul{display:block;}
+.decade li{background:var(--panel);border:1px solid var(--line);border-top:none;padding:10px 14px;font-size:14px;line-height:1.7;cursor:pointer;}
+.decade li:hover{background:#fbf9f4;}
+.decade li:first-child{border-radius:0 0 10px 10px;}
+.decade li b{color:var(--accent);font-weight:600;margin-right:8px;}
+.tag{display:inline-block;font-size:11px;color:var(--sub);border:1px solid var(--line);border-radius:6px;padding:0 6px;margin-left:8px;vertical-align:1px;}
+/* 检索结果 */
+#results{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:14px;display:none;}
+#results .item{padding:10px 14px;border-bottom:1px solid var(--line);cursor:pointer;font-size:14px;display:flex;gap:10px;align-items:baseline;}
+#results .item:last-child{border-bottom:none;}
+#results .item:hover{background:#fbf9f4;}
+.k{font-size:11px;color:#fff;border-radius:5px;padding:1px 6px;flex-shrink:0;}
+/* 图谱 */
+#graphWrap{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;}
+#egoSvg{width:100%;height:520px;display:block;}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--sub);padding:8px 6px 2px;flex-wrap:wrap;}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px;}
+#curNode{font-size:14px;padding:6px;}
+#nodeDetail{background:#fbf9f4;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-top:10px;font-size:13px;line-height:1.8;display:none;}
+/* 证词 */
+.empty{background:var(--panel);border:1px dashed var(--line);border-radius:10px;padding:40px;text-align:center;color:var(--sub);font-size:14px;line-height:2;}
+.empty code{background:var(--bg);padding:2px 8px;border-radius:6px;font-size:13px;color:var(--ink);}
+.msgcard{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:10px;font-size:14px;line-height:1.8;}
+.msgcard .rel{font-size:11px;border-radius:6px;padding:1px 8px;margin-right:8px;color:#fff;}
+.msgcard .eid{color:var(--accent);cursor:pointer;}
+</style>
+</head>
+<body>
+<header>
+  <h1>智能气功多元知识图谱</h1>
+  <span class="stat" id="stats"></span>
+  <input id="search" placeholder="检索：人物 / 机构 / 地点 / 事件关键词…">
+  <nav>
+    <button data-v="timeline" class="on">时间轴</button>
+    <button data-v="graph">图谱</button>
+    <button data-v="chat">证词</button>
+    <button data-v="lit">文献</button>
+  </nav>
+</header>
+<main>
+  <div id="results"></div>
+  <div id="view-timeline"></div>
+  <div id="view-graph" style="display:none">
+    <div id="curNode">点击左侧检索结果或下方节点探索</div>
+    <div id="graphWrap">
+      <svg id="egoSvg" viewBox="0 0 1000 520"></svg>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div id="nodeDetail"></div>
+  </div>
+  <div id="view-chat" style="display:none"></div>
+  <div id="view-lit" style="display:none"></div>
+</main>
+<script src="data.js"></script>
+<script>
+const D = window.ZNQG_DATA;
+const $ = s => document.querySelector(s);
+const esc = s => (s||"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ---------- 邻接表 ---------- */
+const adj = {};
+D.edges.forEach(([s,t,rel]) => {
+  (adj[s]=adj[s]||[]).push([t,rel]);
+  (adj[t]=adj[t]||[]).push([s,rel]);
+});
+const nodeById = {}; D.nodes.forEach(n => nodeById[n.id]=n);
+
+/* ---------- 顶栏 ---------- */
+$("#stats").textContent = `${D.meta.nodes} 节点 · ${D.meta.edges} 边 · 时间轴 ${D.meta.tl_count} 条` +
+  (D.meta.chat ? ` · 聊天证词 ${D.meta.chat}` : "") +
+    (D.meta.lit_docs ? ` · 文献 ${D.meta.lit_docs} 篇 / 证词 ${D.meta.lit_test}` : "");
+
+/* ---------- 视图切换 ---------- */
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");
+  ["timeline","graph","chat","lit"].forEach(v => $("#view-"+v).style.display = (v===b.dataset.v)?"":"none");
+  if (b.dataset.v==="graph" && !egoCur) ego("P:庞明");
+});
+
+/* ---------- 时间轴 ---------- */
+function renderTimeline(filter){
+  const byDec = {};
+  D.timeline.forEach((e,i) => {
+    if (filter && !(e.t+e.d).includes(filter)) return;
+    const y = (e.d.match(/(\d{4})/)||[])[1];
+    if (!y) return;
+    const dec = y.slice(0,3)+"0年代";
+    (byDec[dec]=byDec[dec]||[]).push({...e, i});
+  });
+  const root = $("#view-timeline");
+  if (!Object.keys(byDec).length){ root.innerHTML = `<div class="empty">无匹配条目</div>`; return; }
+  root.innerHTML = Object.entries(byDec).map(([dec,items]) => `
+    <div class="decade open" data-dec="${dec}">
+      <h2>${dec}<span class="cnt">${items.length} 条</span></h2>
+      <ul>${items.map(e=>`<li data-i="${e.i}" data-eid="${tlEid(e)}"><b>${esc(e.d)}</b>${esc(e.t)}${e.s?`<span class="tag">源:${esc(e.s)}</span>`:""}</li>`).join("")}</ul>
+    </div>`).join("");
+  root.querySelectorAll(".decade>h2").forEach(h => h.onclick = () => h.parentElement.classList.toggle("open"));
+  root.querySelectorAll("li[data-eid]").forEach(li => li.onclick = () => {
+    if (li.dataset.eid && nodeById[li.dataset.eid]) { ego(li.dataset.eid); showView("graph"); }
+  });
+}
+function tlEid(e){ /* 时间轴条目按 文本前12字 对齐事件节点文本 */
+  const key = e.t.slice(0,12);
+  const hit = D.nodes.find(n => (n.t==="event"||n.t==="bio") && (n.text||"").slice(0,12)===key);
+  return hit ? hit.id : "";
+}
+function showView(v){ document.querySelector(`nav button[data-v="${v}"]`).click(); }
+
+/* ---------- 检索 ---------- */
+const NT_ZH = {event:"事件",person:"人物",org:"机构",place:"地点",class:"班级",bio:"生平",work:"著作",
+               lit_article:"文献",lit_testimony:"文献证词",testimony:"聊天证词"};
+const NT_COLOR = D.colors;
+$("#search").addEventListener("input", e => {
+  const q = e.target.value.trim();
+  if (q.length < 1){ $("#results").style.display="none"; renderTimeline(""); return; }
+  renderTimeline(q);
+  const hits = [];
+  const seen = new Set();
+  D.nodes.forEach(n => {
+    const hay = (n.n||"") + (n.text||"").slice(0,60);
+    if (hay.includes(q) && !seen.has(n.id) && hits.length < 12){
+      seen.add(n.id);
+      hits.push(`<div class="item" data-id="${n.id}"><span class="k" style="background:${NT_COLOR[n.t]||"#999"}">${NT_ZH[n.t]||n.t}</span><span>${esc(n.n)}</span><span style="color:var(--sub);font-size:12px">${n.date?esc(n.date):""} · 度${(adj[n.id]||[]).length}</span></div>`);
+    }
+  });
+  $("#results").innerHTML = hits.length ? hits.join("") : "";
+  $("#results").style.display = hits.length ? "block" : "none";
+  $("#results").querySelectorAll(".item").forEach(it => it.onclick = () => {
+    ego(it.dataset.id); showView("graph"); $("#results").style.display="none";
+  });
+});
+
+/* ---------- 图谱 ego 视图 ---------- */
+let egoCur = null;
+function ego(id){
+  const c = nodeById[id]; if (!c) return;
+  egoCur = id;
+  $("#curNode").innerHTML = `当前：<b style="color:${NT_COLOR[c.t]}">${esc(c.n)}</b> <span style="color:var(--sub);font-size:12px">${NT_ZH[c.t]||c.t} ${c.date||""} · 邻居 ${(adj[id]||[]).length}</span>`;
+  const ns = (adj[id]||[]).slice(0,40);
+  const W=1000, H=520, cx=W/2, cy=H/2, R=Math.min(W,H)*0.38;
+  let svg = "";
+  ns.forEach(([nid,rel],i) => {
+    const a = (i/Math.max(ns.length,1))*Math.PI*2 - Math.PI/2;
+    const x = cx + R*Math.cos(a), y = cy + R*Math.sin(a)*0.85;
+    const n2 = nodeById[nid]; if(!n2) return;
+    svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#d8d2c2" stroke-width="1.2"/>`;
+    svg += nodeSvg(x, y, n2, 7);
+  });
+  svg += nodeSvg(cx, cy, c, 13);
+  $("#egoSvg").innerHTML = svg;
+  $("#egoSvg").querySelectorAll("g[data-id]").forEach(g => g.onclick = () => ego(g.dataset.id));
+  /* 详情 */
+  const evs = (adj[id]||[]).filter(([,r])=>r.startsWith("involves")||r.includes("event"));
+  const det = [`<b>${esc(c.n)}</b>${c.date?`（${esc(c.date)}）`:""}`];
+  if (c.text) det.push(`<div style="margin-top:6px;color:#555">${esc(c.text)}</div>`);
+  const mrels = {};
+  (adj[id]||[]).forEach(([nid,rel]) => { (mrels[rel]=mrels[rel]||[]).push(nid); });
+  det.push(`<div style="margin-top:8px">` + Object.entries(mrels).map(([r,ids]) =>
+    `<div><span class="tag">${esc(r)} ×${ids.length}</span> ${ids.slice(0,8).map(nid=>{
+      const nn=nodeById[nid]; return nn?`<span style="cursor:pointer;color:var(--accent)" onclick='ego("${nid}")'>${esc(nn.n)}</span>`:"";
+    }).join(" · ")}</div>`).join("") + `</div>`);
+  $("#nodeDetail").style.display="block";
+  $("#nodeDetail").innerHTML = det.join("");
+}
+function nodeSvg(x,y,n,r){
+  return `<g data-id="${n.id}" style="cursor:pointer">
+    <circle cx="${x}" cy="${y}" r="${r}" fill="${NT_COLOR[n.t]||"#999"}" stroke="#fff" stroke-width="2">
+      <title>${esc(n.n)}</title></circle>
+    <text x="${x}" y="${y+r+13}" text-anchor="middle" font-size="11" fill="#555">${esc((n.n||"").slice(0,10))}</text></g>`;
+}
+/* 图例 */
+$("#legend").innerHTML = Object.entries(NT_ZH).map(([t,z]) =>
+  `<span><i style="background:${NT_COLOR[t]}"></i>${z}</span>`).join("");
+
+/* ---------- 证词视图 ---------- */
+function renderChat(){
+  const root = $("#view-chat");
+  if (!D.chat || !D.chat.msgs || !D.chat.msgs.length){
+    root.innerHTML = `<div class="empty">证词层暂无数据（inbox 为空）<br>
+      将聊天导出放入 <code>chat_corpus_20261009/inbox/</code> 后运行：<br>
+      <code>python3 m0f_chat_corpus_pipeline.py && python3 m0g_chat_kg_pipeline.py && python3 m0h_web_export.py</code><br>
+      刷新本页即可看到功友证词与主图的印证 / 存异关系。</div>`;
+    return;
+  }
+  const REL_ZH = {corroborates:["印证","#3a9188"], challenges:["存异","#c25b4a"], mentions:["提及","#8a8577"]};
+  root.innerHTML = D.chat.msgs.map(m => {
+    const rel = m.best_rel || "mentions";
+    const [zh, color] = REL_ZH[rel] || REL_ZH.mentions;
+    return `<div class="msgcard"><span class="rel" style="background:${color}">${zh}</span>
+      ${m.best_eid?`<span class="eid" onclick='ego("${m.best_eid}");showView("graph")'>${m.best_eid}</span>`:""}
+      <div style="margin-top:6px">${esc(m.text||m.t||"")}</div>
+      <div style="margin-top:4px;font-size:12px;color:var(--sub)">${esc(m.src_file||"")}</div></div>`;
+  }).join("");
+}
+
+/* ---------- 文献视图 ---------- */
+function renderLit(){
+  const root = $("#view-lit");
+  if (!D.lit || !D.lit.docs || !D.lit.docs.length){
+    root.innerHTML = `<div class="empty">文献层未导出。重跑 <code>python3 m0h_web_export.py</code>（需先有 kg_文献证词_v1.json）。</div>`;
+    return;
+  }
+  const GEN = {qa:"答疑", essay:"心得", report:"报道", memoir:"回忆", notice:"通知", article:"文章",
+               journal:"", textbook:"教材", monograph:"专著", other:"其他"};
+  const REL_ZH = {corroborates:["印证","#3a9188"], challenges:["存异","#c25b4a"]};
+  const years = [...new Set(D.lit.docs.map(d=>d.y).filter(Boolean))].sort();
+  root.innerHTML = `
+    <div style="margin-bottom:10px">
+      <select id="litY" style="background:var(--bg2);color:var(--fg);border:1px solid var(--line);padding:4px 8px;border-radius:6px">
+        <option value="">全部年份</option>${years.map(y=>`<option>${y}</option>`).join("")}</select>
+      <select id="litG" style="background:var(--bg2);color:var(--fg);border:1px solid var(--line);padding:4px 8px;border-radius:6px;margin-left:6px">
+        <option value="">全部文体</option>
+        ${["qa","essay","report","memoir","notice","article"].map(g=>`<option value="${g}">${GEN[g]}</option>`).join("")}</select>
+      <span id="litCount" style="margin-left:10px;color:var(--sub);font-size:13px"></span>
+    </div>
+    <div id="litList" class="msgcard" style="padding:0"></div>
+    <h3 style="margin:18px 0 8px">与主图印证 / 存异的证词句 <span style="font-size:12px;color:var(--sub)">(存异=口传异说, 人工复核金矿)</span></h3>
+    <div id="litTest"></div>`;
+  const list = $("#litList"), tes = $("#litTest");
+  function draw(){
+    const y = $("#litY").value, g = $("#litG").value;
+    const docs = D.lit.docs.filter(d => (!y || d.y==+y) && (!g || d.g===g));
+    $("#litCount").textContent = `${docs.length} / ${D.lit.docs.length} 篇`;
+    list.innerHTML = docs.slice(0,200).map(d =>
+      `<div style="padding:7px 12px;border-bottom:1px solid var(--line);cursor:pointer" onclick='ego("${d.id}");showView("graph")'>
+        <b>${esc(d.ti)}</b>
+        <span style="color:var(--sub);font-size:12px;margin-left:8px">${d.y||""}${d.iss?"·"+d.iss+"期":""}${d.au?" · "+esc(d.au):""} · ${GEN[d.g]||d.g}</span>
+      </div>`).join("") + (docs.length>200?`<div style="padding:8px;color:var(--sub);text-align:center">…仅显示前 200 篇, 请用筛选</div>`:"");
+  }
+  $("#litY").onchange = draw; $("#litG").onchange = draw; draw();
+  const order = {challenges:0, corroborates:1};
+  const ts = D.lit.testimonies.slice().sort((a,b)=>(order[a.k]??9)-(order[b.k]??9));
+  tes.innerHTML = ts.slice(0,300).map(t => {
+    const [zh,color] = REL_ZH[t.k] || ["证词","#8a8577"];
+    return `<div class="msgcard"><span class="rel" style="background:${color}">${zh}</span>
+      ${t.e?`<span class="eid" onclick='ego("${t.e}");showView("graph")'>${t.e}</span>`:""}
+      <div style="margin-top:6px">${esc(t.tx)}</div>
+      <div style="margin-top:4px;font-size:12px;color:var(--sub)">${esc(t.doc)}</div></div>`;
+  }).join("") + (ts.length>300?`<div class="empty">…仅显示前 300 条</div>`:"");
+}
+
+/* ---------- 启动 ---------- */
+renderTimeline("");
+renderChat();
+renderLit();
+</script>
+</body>
+</html>

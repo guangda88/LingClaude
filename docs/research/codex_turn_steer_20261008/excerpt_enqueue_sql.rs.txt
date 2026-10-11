@@ -1,0 +1,32 @@
+# SOURCE: codex-rs/state/src/runtime/queued_items.rs  LINES: 70-100  (snapshot 2026-10-08)
+            .fetch_all(self.pool.as_ref())
+            .await?;
+        rows.into_iter()
+            .map(|(thread_id, revision)| Ok((ThreadId::try_from(thread_id)?, revision)))
+            .collect()
+    }
+
+    pub async fn enqueue(
+        &self,
+        thread_id: ThreadId,
+        payload_json: &str,
+    ) -> anyhow::Result<QueuedUserSubmissionRecord> {
+        let now_ms = datetime_to_epoch_millis(Utc::now());
+        let row = sqlx::query(
+            "INSERT INTO queued_items (
+                id, thread_id, payload_json, queue_order,
+                created_at_ms, updated_at_ms
+             )
+             SELECT ?, ?, ?,
+                    COALESCE((SELECT MAX(queue_order) FROM queued_items WHERE thread_id = ?), -1) + 1,
+                    ?, ?
+             WHERE (SELECT COUNT(*) FROM queued_items WHERE thread_id = ?) < ?
+             RETURNING id, thread_id, payload_json",
+        )
+        .bind(Uuid::now_v7().to_string())
+        .bind(thread_id.to_string())
+        .bind(payload_json)
+        .bind(thread_id.to_string())
+        .bind(now_ms)
+        .bind(now_ms)
+        .bind(thread_id.to_string())

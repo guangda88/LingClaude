@@ -1,0 +1,37 @@
+# SOURCE: codex-rs/core/src/session/input_queue.rs  LINES: 255-290  (snapshot 2026-10-08)
+            .await
+            .accept_mailbox_delivery_for_current_turn();
+    }
+
+    pub(super) async fn extend_pending_input_and_accept_mailbox_delivery_for_turn_state(
+        &self,
+        turn_state: &Mutex<TurnState>,
+        input: Vec<TurnInput>,
+    ) {
+        {
+            let mut turn_state = turn_state.lock().await;
+            turn_state.pending_input.items.extend(input);
+            turn_state.accept_mailbox_delivery_for_current_turn();
+        }
+        self.activity_tx.send_replace(InputQueueActivity::Steer);
+    }
+
+    pub(crate) async fn extend_pending_input_for_turn_state(
+        &self,
+        turn_state: &Mutex<TurnState>,
+        input: Vec<TurnInput>,
+    ) {
+        turn_state.lock().await.pending_input.items.extend(input);
+    }
+
+    pub(crate) async fn take_pending_input_for_turn_state(
+        &self,
+        turn_state: &Mutex<TurnState>,
+    ) -> Vec<TurnInput> {
+        turn_state.lock().await.pending_input.items.split_off(0)
+    }
+
+    #[expect(
+        clippy::await_holding_invalid_type,
+        reason = "active turn checks and turn state updates must remain atomic"
+    )]

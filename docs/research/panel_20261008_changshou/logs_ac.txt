@@ -1,0 +1,2 @@
+[claude-code:unrecognized_model] {"model":"MiniMax-M3.1-Flash-preview[1m]","query_source":"sdk"}
+API Error: Unable to connect to API (ESERVFAIL)

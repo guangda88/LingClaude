@@ -1,0 +1,77 @@
+# SOURCE: codex-rs/core/src/session/turn_input.rs  LINES: 300-375  (snapshot 2026-10-08)
+        }
+    };
+    let settings = PreparedTurnInputSettings::prepare(session, thread_settings, start).await?;
+    match session
+        .steer_input(
+            &mut input,
+            additional_context.clone(),
+            /*expected_turn_id*/ None,
+            settings.required_active_final_output_json_schema(),
+            responsesapi_client_metadata.clone(),
+        )
+        .await
+    {
+        Ok(turn_id) => {
+            settings.apply_steered(session, submission_id).await?;
+            Ok(TurnInputSubmission::Steered { turn_id })
+        }
+        Err(NotSubmittedReason::NoActiveTurn) => {
+            // MAv1 sends explicit input to spawned agents as part of an existing
+            // parent's work. Client RPCs are gated separately by the host.
+            let is_delegated_input = settings.start_options.parent_turn_id.is_some()
+                && matches!(
+                    session
+                        .state
+                        .lock()
+                        .await
+                        .session_configuration
+                        .session_source,
+                    SessionSource::SubAgent(SubAgentSource::ThreadSpawn { .. })
+                );
+            let _admission = if is_delegated_input {
+                None
+            } else {
+                let Some(admission) = session.services.extensions.admit_turn_start() else {
+                    return Ok(TurnInputSubmission::NotSubmitted {
+                        reason: NotSubmittedReason::ServerDraining,
+                    });
+                };
+                Some(admission)
+            };
+            let Some(turn_context) = settings
+                .apply_started(session, submission_id.clone(), TurnStartKind::User)
+                .await?
+            else {
+                unreachable!("explicit user input can enter Plan mode");
+            };
+            if let Some(responsesapi_client_metadata) = responsesapi_client_metadata {
+                turn_context
+                    .turn_metadata_state
+                    .set_responsesapi_client_metadata(responsesapi_client_metadata);
+            }
+            session
+                .maybe_emit_model_warnings_for_turn(turn_context.as_ref())
+                .await;
+            if let SubmittedTurnInput::UserInput { content, .. } = &input {
+                turn_context.session_telemetry.user_prompt(content);
+            }
+            let mut task_input = merge_additional_context_input(session, additional_context).await;
+            if has_explicit_input {
+                task_input.push(pending_turn_input(session, input, &turn_context.sub_id).await);
+            }
+            session
+                .spawn_task(turn_context, task_input, RegularTask::new())
+                .await;
+            Ok(TurnInputSubmission::Started {
+                turn_id: submission_id,
+            })
+        }
+        Err(reason) => Ok(TurnInputSubmission::NotSubmitted { reason }),
+    }
+}
+
+#[expect(
+    clippy::await_holding_invalid_type,
+    reason = "the previous turn check and idle reservation must be atomic"
+)]

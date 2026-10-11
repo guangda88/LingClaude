@@ -1,0 +1,17 @@
+# SOURCE: codex-rs/protocol/src/turn_input.rs  LINES: 130-145  (snapshot 2026-10-08)
+
+/// How Core should route submitted turn input.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TurnInputMode {
+    /// Start a regular turn when idle, otherwise steer the active regular turn.
+    StartOrSteer,
+    /// Start only when the thread is idle.
+    StartIfIdle,
+    /// Start an internal continuation when idle.
+    /// Reject if another task has started since the expected previous turn.
+    ContinueIfIdle { expected_previous_turn_id: String },
+    /// Steer only if this exact turn is active.
+    Steer { expected_turn_id: String },
+}
+
+/// Requested cyber treatment for a ChatGPT-authenticated Codex turn.
