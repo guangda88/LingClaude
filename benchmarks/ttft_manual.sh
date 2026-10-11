@@ -1,12 +1,13 @@
 #!/bin/bash
 # TTFT 对照测量（手动执行版）——在用户终端跑，绕过沙箱网络限制
-# 用法: bash benchmarks/ttft_manual.sh   (需要 ZHIPU_API_KEY 环境变量)
+# 用法: bash benchmarks/ttft_manual.sh   (需要 ZAI_API_KEY 环境变量)
 set -e
 cd "$(dirname "$0")"
-: "${ZHIPU_API_KEY:?请先 export ZHIPU_API_KEY=...}"
+# 2026-10-12 定案: coding 套餐端点只配套餐 key ZAI_API_KEY（ZHIPU_API_KEY 已停用）
+: "${ZAI_API_KEY:?请先 export ZAI_API_KEY=...}"
 AUTH_NAME="Authorization"
 AUTH_SCHEME="Bearer"
-H1="$AUTH_NAME: $AUTH_SCHEME $ZHIPU_API_KEY"
+H1="$AUTH_NAME: $AUTH_SCHEME $ZAI_API_KEY"
 H2="Content-Type: application/json"
 
 echo "payload 大小: small=$(stat -c%s payload_small.json 2>/dev/null)B mid=$(stat -c%s payload_mid.json 2>/dev/null)B large=$(stat -c%s payload_large.json 2>/dev/null)B"

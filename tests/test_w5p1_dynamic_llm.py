@@ -98,7 +98,7 @@ class TestCallLlmDirect:
             return _FakeResp({"choices": [{"message": {"content": "pong"}}]})
 
         monkeypatch.setenv("LINGCLAUDE_BYPASS_MODEL", "test-model-x")
-        monkeypatch.setenv("ZHIPU_API_KEY", "test-key-123")
+        monkeypatch.setenv("ZAI_API_KEY", "test-key-123")
         monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
         from lingclaude.api import _call_llm_direct
@@ -114,6 +114,7 @@ class TestCallLlmDirect:
     def test_skips_entries_without_key(self, monkeypatch):
         """key_env 指向的 env 全空 → 返回空串, 不抛。"""
         monkeypatch.delenv("LINGCLAUDE_BYPASS_MODEL", raising=False)
+        monkeypatch.delenv("ZAI_API_KEY", raising=False)
         monkeypatch.delenv("ZHIPU_API_KEY", raising=False)
         monkeypatch.delenv("GLM_CODING_PLAN_KEY", raising=False)
         monkeypatch.delenv("GLM_API_KEY", raising=False)

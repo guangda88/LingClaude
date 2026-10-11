@@ -88,17 +88,17 @@ def _get_env_key(provider: str) -> str:
         return (
             os.environ.get("OPENAI_API_KEY", "")
             or os.environ.get("DEEPSEEK_API_KEY", "")
-            or os.environ.get("ZHIPU_API_KEY", "")
+            or os.environ.get("ZAI_API_KEY", "")
             or _key_store_get("OPENAI_API_KEY")
             or _key_store_get("DEEPSEEK_API_KEY")
-            or _key_store_get("ZHIPU_API_KEY")
+            or _key_store_get("ZAI_API_KEY")
         )
     if provider == "anthropic":
         return (
             os.environ.get("ANTHROPIC_API_KEY", "")
-            or os.environ.get("ZHIPU_API_KEY", "")
+            or os.environ.get("ZAI_API_KEY", "")
             or _key_store_get("ANTHROPIC_API_KEY")
-            or _key_store_get("ZHIPU_API_KEY")
+            or _key_store_get("ZAI_API_KEY")
         )
     # 2026-09-28: minimax 套餐 key 兜底（与 task_router._PROVIDER_ENV_KEY_MAP 同源）。
     # 正常路径下 task_router.find_provider_by_model 已从 _pinfo.api_key 注入，

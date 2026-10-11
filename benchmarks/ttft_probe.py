@@ -6,7 +6,9 @@ import time
 import urllib.request
 
 BASE = "https://open.bigmodel.cn/api/coding/paas/v4"
-KEY = os.environ.get("ZHIPU_API_KEY", "")
+# 2026-10-12 定案: coding 套餐端点只配套餐 key ZAI_API_KEY；
+# ZHIPU_API_KEY（按量付费）已停用，按量端点同步退役，两者不再互串。
+KEY = os.environ.get("ZAI_API_KEY", "")
 MODEL = "glm-5.3-flash"
 
 

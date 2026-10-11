@@ -152,7 +152,7 @@ def _register_builtins() -> None:
     # glm: 复用 OpenAIProvider 类 + 智谱 Coding 套餐端点（与 task_router
     # _KNOWN_PROVIDER_DEFAULTS["glm"] 同源，2026-09-15 实测套餐 key 走
     # /api/paas/v4 报 1211 模型不存在，须走 /api/coding/paas/v4）。
-    # key 单点存 ~/.ling_keys.env 的 ZHIPU_API_KEY（factory 回退链会接管）。
+    # key 单点存 ~/.ling_keys.env 的 ZAI_API_KEY（glm 套餐 key，factory 回退链会接管）。
     try:
         from lingclaude.model.openai_provider import OpenAIProvider as _GlmOpenAIProvider
 

@@ -87,8 +87,11 @@ def _call_llm(system_prompt: str, user_msg: str) -> str:
 #   2) LINGCLAUDE_BYPASS_MODEL/BYPASS_BASE_URL/BYPASS_API_KEY_ENV 可整体覆盖;
 #   3) 保留原静态表为末级兜底 (config 读取失败时降级, 不抛异常)。
 _STATIC_LLM_FALLBACK = [
-    {"key_env": "GLM_CODING_PLAN_KEY", "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions", "model": "glm-4.7"},
-    {"key_env": "GLM_API_KEY", "url": "https://open.bigmodel.cn/api/paas/v4/chat/completions", "model": "glm-4.7"},
+    # 2026-10-12 定案（用户）: ZHIPU_API_KEY（按量付费）停用，按量端点 paas/v4 同步退役。
+    # 静态末级兜底改用套餐链 ZAI_API_KEY + coding/paas/v4 套餐端点（名实相符）；
+    # 模型保留原 glm-4.7（该端点实测 200 可用）。
+    {"key_env": "ZAI_API_KEY", "url": "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", "model": "glm-4.7"},
+    {"key_env": "ZAI_API_KEY", "url": "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions", "model": "glm-4.7"},
     {"key_env": "DEEPSEEK_API_KEY", "url": "https://api.deepseek.com/v1/chat/completions", "model": "deepseek-chat"},
 ]
 
@@ -103,7 +106,7 @@ def _resolve_llm_chain() -> list[dict[str, str]]:
     m = os.environ.get("LINGCLAUDE_BYPASS_MODEL", "")
     if m:
         return [{
-            "key_env": os.environ.get("LINGCLAUDE_BYPASS_API_KEY_ENV", "ZHIPU_API_KEY"),
+            "key_env": os.environ.get("LINGCLAUDE_BYPASS_API_KEY_ENV", "ZAI_API_KEY"),
             "url": os.environ.get("LINGCLAUDE_BYPASS_BASE_URL",
                                   "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
             "model": m,
@@ -118,7 +121,7 @@ def _resolve_llm_chain() -> list[dict[str, str]]:
                 url += "/chat/completions"
             return [{
                 # _resolve_api_key 与 .env 解析同源, 复用其结果; key_env 仅作日志标识
-                "key_env": "ZHIPU_API_KEY(config)",
+                "key_env": "ZAI_API_KEY(config)",
                 "url": url,
                 "model": mc.model,
                 "_key": key,

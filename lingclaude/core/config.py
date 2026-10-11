@@ -259,18 +259,18 @@ def _resolve_api_key(raw_key: str) -> str:
     ~/.ling_keys.env 不可写，项目 .env 是唯一可写密钥存储点。
     """
     if raw_key:
-        # 支持 ${VAR} 引用形式（config.yaml 里写 api_key: ${ZHIPU_API_KEY}）
+        # 支持 ${VAR} 引用形式（config.yaml 里写 api_key: ${ZAI_API_KEY}）
         if raw_key.startswith("${") and raw_key.endswith("}"):
             return os.environ.get(raw_key[2:-1], "")
         return raw_key
-    for name in ("ZHIPU_API_KEY", "GLM_API_KEY", "OPENAI_API_KEY"):
+    for name in ("ZAI_API_KEY", "GLM_API_KEY", "OPENAI_API_KEY"):
         val = os.environ.get(name) or ""
         if val:
             return val
     if _ENV_FILE.exists():
         for line in _ENV_FILE.read_text(encoding="utf-8").splitlines():
             line = line.strip()
-            if line.startswith("ZHIPU_API_KEY") and "=" in line:
+            if line.startswith("ZAI_API_KEY") and "=" in line:
                 return line.split("=", 1)[1].strip()
     return ""
 

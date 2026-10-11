@@ -10,8 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lingmemory.api import LingMemoryAPI
 
-KEY = os.environ.get("ZHIPU_API_KEY", "")
-URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+# 2026-10-12 定案（用户）: ZHIPU_API_KEY（按量付费）停用，按量端点 paas/v4 同步退役。
+# 改用套餐链 ZAI_API_KEY + coding/paas/v4 套餐端点（glm-4-flash 在该端点实测 200 可用）。
+KEY = os.environ.get("ZAI_API_KEY", "")
+URL = "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
 MODEL = "glm-4-flash"
 
 
