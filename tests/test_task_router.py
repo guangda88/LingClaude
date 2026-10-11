@@ -219,7 +219,7 @@ class TestTaskRouter(unittest.TestCase):
         # 实时加载函数 _load_task_type_to_route() 是单一事实来源。
         mapping = _load_task_type_to_route()
         self.assertEqual(mapping[TaskType.CODE_GENERATION], "coding")
-        self.assertEqual(mapping[TaskType.ANALYSIS], "chinese_reasoning")
+        self.assertEqual(mapping[TaskType.ANALYSIS], "coding")
         self.assertEqual(mapping[TaskType.SEARCH], "fast_response")
 
     def test_round_robin_rotation(self):
@@ -313,7 +313,7 @@ class TestF12EnvKeyFallback(unittest.TestCase):
                     },
                 },
                 "task_routes": {
-                    "chinese_reasoning": {"description": "中文推理",
+                    "coding": {"description": "编程/分析（2026-10-12 合并链）",
                         "models": [{"provider": "nvidia", "model": "z-ai/glm-5.1"}]},
                     "fast_response": {"description": "快速",
                         "models": [{"provider": "localstub", "model": "stub"}]},
@@ -447,6 +447,9 @@ class TestF12EnvKeyFallback(unittest.TestCase):
     def test_pfb1_fallback_last_resort_returns_default(self):
         """全灭（default 冷却+其余无 key）→ P-FB2 走 openrouter/free 而非死磕冷却中的 default，
         符合'套餐全灭时免费兜底'语义（至少试一次由 free 承接，不再强撞冷却节点）。"""
+        import os
+        from unittest.mock import patch
+
         path = self._fb_config({
             "cheap": {"type": "openai", "api_key": "ck", "base_url": "https://cheap.example/v1",
                       "model": "cheap-m", "models": ["cheap-m"],
@@ -455,9 +458,15 @@ class TestF12EnvKeyFallback(unittest.TestCase):
                     "model": "glm-5.1", "models": ["glm-5.1"],
                     "rate_limit": {"rpm": 10, "burst": 3}},
         })
-        router = TaskRouter(config_path=path)
-        router.record_error("cheap", "HTTP 410: Gone")  # 硬错误→立即熔断
-        cfg = router._fallback(max_tokens=1024, temperature=0.7)
+        # env 隔离 (2026-10-11): 宿主 shell 的 cloud key (ZAI_API_KEY/...) 会经
+        # _resolve_api_key env 兜底激活 config 里 api_key="" 的 provider, 破坏
+        # 「全灭」前提（门宿主环境 F12 红根因）。patch.dict 快照退出自动恢复。
+        with patch.dict(os.environ):
+            for k in [k for k in os.environ if k.endswith(("_API_KEY", "_TOKEN"))]:
+                os.environ.pop(k, None)
+            router = TaskRouter(config_path=path)
+            router.record_error("cheap", "HTTP 410: Gone")  # 硬错误→立即熔断
+            cfg = router._fallback(max_tokens=1024, temperature=0.7)
         self.assertEqual(cfg.model, "free", "套餐全灭时走 openrouter/free 而非死磕冷却节点")
         self.assertEqual(cfg.base_url, "https://openrouter.ai/api/v1")
         path.unlink()
@@ -484,6 +493,9 @@ class TestF12EnvKeyFallback(unittest.TestCase):
     def test_pfb2_fallback_prefers_openrouter_free_when_all_cloud_keys_missing(self):
         """套餐全灭（所有 api_key 缺失）时，_fallback 应优先返回 openrouter/free，
         而非走 default_provider glm（其 key 可能缺失或冷却）。"""
+        import os
+        from unittest.mock import patch
+
         path = self._fb_config({
             "glm": {"type": "openai", "api_key": "", "base_url": "https://glm.example/v1",
                     "model": "glm-flash", "models": ["glm-flash"],
@@ -492,8 +504,12 @@ class TestF12EnvKeyFallback(unittest.TestCase):
                            "model": "free", "models": ["free"],
                            "rate_limit": {"rpm": 100, "burst": 10}},
         })
-        router = TaskRouter(config_path=path)
-        cfg = router._fallback(max_tokens=4096, temperature=0.7)
+        # env 隔离同 pfb1: 宿主 cloud key 渗透会激活 glm 空 key 条目（2026-10-11）。
+        with patch.dict(os.environ):
+            for k in [k for k in os.environ if k.endswith(("_API_KEY", "_TOKEN"))]:
+                os.environ.pop(k, None)
+            router = TaskRouter(config_path=path)
+            cfg = router._fallback(max_tokens=4096, temperature=0.7)
         self.assertEqual(cfg.model, "free")
         self.assertEqual(cfg.base_url, "https://openrouter.ai/api/v1")
         path.unlink()

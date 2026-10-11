@@ -7,13 +7,21 @@ from lingclaude.model.llm_proxy.config import ProxyConfig
 
 logger = logging.getLogger(__name__)
 
+# 2026-10-12（用户指令）: chinese_reasoning / thinking / long_context 三路由键已并入
+# coding（lingcode config routing.task_routes + policies/task_routing.yaml 同步），
+# 关键词表随之合并——否则三组关键词会因 route 键不存在而被 classify() 跳过。
 _KEYWORD_MAP: dict[str, list[str]] = {
-    "coding": ["code", "debug", "refactor", "function", "class", "implement", "编程", "代码", "调试"],
-    "chinese_reasoning": ["分析", "推理", "为什么", "原因", "总结", "对比"],
+    "coding": [
+        "code", "debug", "refactor", "function", "class", "implement", "编程", "代码", "调试",
+        # 原 chinese_reasoning
+        "分析", "推理", "为什么", "原因", "总结", "对比",
+        # 原 thinking
+        "think", "reason", "step by step", "chain of thought", "思考",
+        # 原 long_context
+        "document", "analyze this text", "summarize the", "文档", "长文本",
+    ],
     "english_general": ["explain", "describe", "what is", "how does", "compare"],
     "fast_response": ["hi", "hello", "thanks", "ok", "你好", "谢谢"],
-    "thinking": ["think", "reason", "step by step", "chain of thought", "思考", "推理"],
-    "long_context": ["document", "analyze this text", "summarize the", "文档", "长文本"],
     "vision": ["image", "picture", "screenshot", "图片", "截图", "图"],
     "embedding": ["embed", "vector", "向量", "语义"],
     "safety": ["safety", "moderate", "审核", "安全"],

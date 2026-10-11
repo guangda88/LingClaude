@@ -7,6 +7,7 @@ routed provider. Falls back to default provider ("cheap") if no route matches.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -43,10 +44,12 @@ _FLASH_MODEL_RE = re.compile(
 )
 # 决策路由 key：这些 route 的首位候选承担主要产出，幻觉代价最高。
 # 注：2026-10-01 用户实测确认 glm-5.3-flash / deepseek-flash 在 coding 任务上
-# 与 MiniMax-M2.7 质量相当，移除 coding 让 flash gate 不再施在编程路由——
-# 其他高风险路由（chinese_reasoning / thinking / long_context / english_general）保留。
+# 与 MiniMax-M2.7 质量相当，移除 coding 让 flash gate 不再施在编程路由。
+# 2026-10-12（用户指令）: chinese_reasoning / thinking / long_context 三键与 coding
+# 链完全一致 → 合并为单键 coding（故 coding 继续不受门禁约束，glm-5.3-flash
+# 按配置序首位正常当选）；仅 english_general 仍受门禁保护。
 _DECISION_ROUTE_KEYS = frozenset({
-    "chinese_reasoning", "english_general", "thinking", "long_context",
+    "english_general",
 })
 
 # P2-2 (灵元): task_type → route 映射外置 policies/task_routing.yaml，走 PolicyLoader 热更。
@@ -63,8 +66,8 @@ def _load_task_type_to_route() -> dict[TaskType, str]:
         TaskType.CODE_REFACTORING: "coding",
         TaskType.DEBUGGING: "coding",
         TaskType.TESTING: "coding",
-        TaskType.ANALYSIS: "chinese_reasoning",
-        TaskType.OPTIMIZATION: "chinese_reasoning",
+        TaskType.ANALYSIS: "coding",
+        TaskType.OPTIMIZATION: "coding",
         TaskType.DOCUMENTATION: "english_general",
         TaskType.SEARCH: "fast_response",
         TaskType.OTHER: "fast_response",
@@ -157,14 +160,17 @@ _PROVIDER_ENV_KEY_MAP: dict[str, str] = {
     "kimi": "KIMI_API_KEY",
     "mimo": "XIAOMI_TOKEN_PLAN_API_KEY",
     "zai": "ZAI_API_KEY",
-    "glm": "ZHIPU_API_KEY",
+    # 2026-10-12 定案（用户）: glm 套餐链 = ZAI_API_KEY（coding 套餐端点）。
+    # ZHIPU_API_KEY（按量付费）已停用，按量端点 paas/v4 同步退役；
+    # 原按量链消费者（lingmemory distill / external_query 静态兜底）已全部迁至套餐链。
+    "glm": "ZAI_API_KEY",
     "dashscope": "DASHSCOPE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "proxy3": "LINGCLAUDE_PROXY3_API_KEY",
 }
 
 # F12k:知名 provider 默认值表 — 当 config 里 provider 是字符串简写
-# （如 "glm": "${GLM_API_KEY}"）或字段不全的 dict 时，自动补全为
+# （如 "glm": "${ZAI_API_KEY}"）或字段不全的 dict 时，自动补全为
 # 标准 provider 定义，避免因缺 base_url/model 被跳过。
 # 与 _PROVIDER_ENV_KEY_MAP 同源维护。
 _KNOWN_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
@@ -538,12 +544,16 @@ class TaskRouter:
         route_key = mapping.get(task_type, "fast_response")
         route = self._task_routes.get(route_key)
 
+        chosen: ModelConfig | None = None
+        path = "fallback"
         if route and route.models:
-            resolved = self._pick_from_route(route_key, route, max_tokens, temperature)
-            if resolved:
-                return resolved, route_key
-
-        return self._fallback(max_tokens, temperature), route_key
+            chosen = self._pick_from_route(route_key, route, max_tokens, temperature)
+            if chosen is not None:
+                path = "route"
+        if chosen is None:
+            chosen = self._fallback(max_tokens, temperature)
+        self._log_selected(chosen, route_key, path, task_type)
+        return chosen, route_key
 
     def _pick_from_route(self, route_key: str, route: _TaskRoute, max_tokens: int, temperature: float) -> ModelConfig | None:
         models = route.models
@@ -649,6 +659,52 @@ class TaskRouter:
             )
 
         return None
+
+    @staticmethod
+    def _key_fingerprint(api_key: str) -> str:
+        """key 指纹（sha256 前 8 位）——只供日志关联排查，明文永不落日志。"""
+        if not api_key:
+            return "-"
+        return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:8]
+
+    def _log_selected(
+        self,
+        cfg: ModelConfig,
+        route_key: str,
+        path: str,
+        task_type: Any,
+    ) -> None:
+        """P-OBS (2026-10-11): 每轮路由落点可观测。
+
+背景（变慢排查实录）：host_root.log 只有「路由剔除 / 熔断」这类**排除性**
+        记录，没有「本轮实走哪个 provider/model」——"排除了谁" ≠ "选了谁"，
+        排查变慢时只能靠推断。这里在 resolve() 出口统一补一条 INFO。
+
+        字段语义：
+          provider  — 按 (api_key, base_url) 反查清单名；反查不到记 "?"
+                      （典型：P-FB2 openrouter/free 兜底，其 key 为空）
+          path      — route（清单选通）| fallback（清单全灭兜底）
+          key_fp    — sha256 前 8 位，用于比对"进程持有的 key 是否已轮换"
+
+        频率：每次 resolve() 一条，INFO 级；日志级别高于 INFO 时自动跳过。
+        """
+        if not logger.isEnabledFor(logging.INFO):
+            return
+        try:
+            provider = self.get_provider_name(cfg.api_key, cfg.base_url) or "?"
+            logger.info(
+                "路由落点: provider=%s model=%s route=%s path=%s task=%s "
+                "base_url=%s key_fp=%s",
+                provider,
+                cfg.model or "-",
+                route_key,
+                path,
+                getattr(task_type, "value", task_type),
+                cfg.base_url or "-",
+                self._key_fingerprint(cfg.api_key),
+            )
+        except Exception:  # noqa: BLE001 — 观测日志永不影响路由主链
+            pass
 
     def _fallback(self, max_tokens: int, temperature: float) -> ModelConfig:
         """route 全灭时的兜底（P-FB1, 2026-10-03 修复"盲兜"）。

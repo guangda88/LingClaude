@@ -26,8 +26,14 @@ standard:
 
 # ── 强档: 高幻觉代价位（决策位/复杂推理）升级目标 ──
 strong:
-  - {provider: volcengine, model: Kimi-K3}
-  - {provider: glm, model: glm-5.3}
+  # 2026-10-11 用户指令: volcengine/Kimi-K3（ark 按量计费）太浪费 → 换 kimi 套餐 k3-256k（套餐内用量）。
+  # ⚠ 未验证（沙箱无网）: task_router.py:238 有 2026-09-16 实测注释「K3-256K 会 401 "set model id as `k3`"」，
+  #   而 lingcode/config.json:141 运行时清单已登记小写 k3-256k —— 两证据矛盾，需宿主探活定案。
+  #   若 401 复现: 探活 hard_4xx 剔除 1800s → degrade_to_default=true 回落原路由（fail-soft 不硬崩）。
+  - {provider: kimi, model: k3-256k}
+  # glm-5.3（非flash）已移出候选：智谱最贵模型，不进任何自动路由（含 tool_executor 强档升级）；
+  # 仍可 /model glm-5.3@glm 显式钉住（parse_selector 支持，实测解析通过）
+  # - {provider: glm, model: glm-5.3}
 
 # 解析行为参数（供 model_tiers.py 消费）
 resolve:

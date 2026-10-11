@@ -28,7 +28,7 @@ def test_mapping_matches_builtin_defaults():
     mapping = _load_task_type_to_route()
     assert mapping[TaskType.CODE_GENERATION] == "coding"
     assert mapping[TaskType.DEBUGGING] == "coding"
-    assert mapping[TaskType.ANALYSIS] == "chinese_reasoning"
+    assert mapping[TaskType.ANALYSIS] == "coding"
     assert mapping[TaskType.DOCUMENTATION] == "english_general"
     assert mapping[TaskType.SEARCH] == "fast_response"
     assert mapping[TaskType.OTHER] == "fast_response"

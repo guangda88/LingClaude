@@ -8,14 +8,16 @@
 # task_type → route key
 # 注：route key 对应的具体 providers/models 仍在 lingcode/config.json 的
 # routing.task_routes 定义（运行时会话配置，含敏感信息，不进策略仓库）。
+# 2026-10-12（用户指令）: chinese_reasoning / long_context / thinking 三键链与 coding 完全一致,
+# 已合并为单键 coding（lingcode config routing.task_routes 同步删除三键）。
 task_type_to_route:
   code_generation: coding
   code_analysis: coding
   code_refactoring: coding
   debugging: coding
   testing: coding
-  analysis: chinese_reasoning
-  optimization: chinese_reasoning
+  analysis: coding
+  optimization: coding
   documentation: english_general
   search: fast_response
   other: fast_response
