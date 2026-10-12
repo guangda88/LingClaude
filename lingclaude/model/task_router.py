@@ -1,6 +1,6 @@
 """Task Router — Multi-provider task routing based on config.json
 
-Reads routing.providers and routing.task_routes from /home/ai/lingcode/config.json.
+Reads routing.providers and routing.task_routes from /home/ai/.lingclaude/config/lingcode-config.json.
 Maps IntelligentRouter.TaskType to task_routes keys, iterates ordered model lists,
 returns a complete ModelConfig with correct api_key, base_url, and model for the
 routed provider. Falls back to default provider ("cheap") if no route matches.
@@ -28,7 +28,7 @@ from lingclaude.model.provider_probe import ProviderProbe, ProbeResult, probe_di
 logger = logging.getLogger(__name__)
 
 # LINGCODE_CONFIG 环境变量可覆盖 — 跨仓配置路径不再绑死本机布局 (2026-09-11 审计修复)
-CONFIG_PATH = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/lingcode/config.json"))
+CONFIG_PATH = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/.lingclaude/config/lingcode-config.json"))
 
 # P1-4 (2026-09-19, 幻觉调研第二批): flash 级模型禁入决策位 —— 治 H1/H2 共识：
 # flash/mini/lite 级小模型幻觉率显著高于旗舰级，而决策位（路由清单首位）的
@@ -330,7 +330,19 @@ def _resolve_api_key(provider_name: str, config_key: str) -> str:
     ~/.lingclaude/vault.db）。查找顺序 env 先、vault 后——env 存在=
     显式覆盖（向后兼容+测试环境友好），vault 是新部署默认静态存放点。
     vault 锁着/条目缺失/解密失败 → 空串，既有行为零分叉。
+
+    2026-10-12: 入口接 keys 文件热同步（keys_env.sync_if_changed，mtime 节流）
+    ——key 轮换写入 ~/.ling_keys.env 后，长驻进程下一次取 key 即读到新值，
+    不再依赖进程 env 启动快照（修「昨天新轮换的 KEY 没有读到」）。
     """
+    # 热同步只刷新「keys_env 注入过」的 env 值，用户/测试显式值不碰；
+    # 任何故障不阻断取 key 路径。
+    try:
+        from lingclaude.model import keys_env
+
+        keys_env.sync_if_changed()
+    except Exception:  # noqa: BLE001 — 热同步故障不阻断路由装配
+        pass
     if config_key:
         if config_key.startswith("${") and config_key.endswith("}"):
             expanded = os.environ.get(config_key[2:-1], "")

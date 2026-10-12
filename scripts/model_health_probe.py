@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lingclaude.model.health_ranking import build_report, hallucination_rates  # noqa: E402
 from lingclaude.model.provider_probe import ProviderProbe  # noqa: E402
 
-DEFAULT_CONFIG = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/lingcode/config.json"))
+DEFAULT_CONFIG = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/.lingclaude/config/lingcode-config.json"))
 DEFAULT_OUT = Path("data/hallucination_survey_20260919/model_health_report.json")
 
 

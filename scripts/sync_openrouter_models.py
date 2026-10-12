@@ -6,7 +6,7 @@ import os
 import urllib.request
 from pathlib import Path
 
-CONFIG_PATH = Path("/home/ai/lingcode/config.json")
+CONFIG_PATH = Path("/home/ai/.lingclaude/config/lingcode-config.json")
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 def fetch_openrouter_models() -> list[str]:

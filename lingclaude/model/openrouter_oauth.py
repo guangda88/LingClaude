@@ -15,14 +15,14 @@ OAuth 契约（openrouter.ai/docs/oauth，2026-09-21 web_fetch 验证）：
 
 落盘策略：
 - key 存 ~/.lingclaude/credentials/openrouter_key.json（0600）——本仓自有
-  凭据域，不写 lingcode/config.json（跨项目文件只读不写，模型列表除外，
+  凭据域，不写 lingcode-config.json（跨项目文件只读不写，模型列表除外，
   那是隔壁 sync 脚本已确立的惯例：routing.providers.openrouter.models）；
 - 授权完成即刻 os.environ 注入 OPENROUTER_API_KEY（TaskRouter 的
   _resolve_api_key env 兜底链当下即生效，无需重启）；
 - 下次进程启动由 cmd 入口检查凭据文件并惰性注入。
 
 免费模型发现：GET /api/v1/models（公开端点免 key）→ id 以 ":free" 结尾
-者为免费模型 → 合并写 lingcode/config.json 的 openrouter.models
+者为免费模型 → 合并写 lingcode-config.json 的 openrouter.models
 （保留既有非免费条目，去重排序）。
 
 停层声明（铁律 2 细则 5）：
@@ -60,7 +60,7 @@ _CREDENTIALS_DIR = Path.home() / ".lingclaude" / "credentials"
 _KEY_FILE = _CREDENTIALS_DIR / "openrouter_key.json"
 
 # lingcode config.json 的模型清单写回点（隔壁 sync 脚本同款惯例）
-_LINGCODE_CONFIG = Path("/home/ai/lingcode/config.json")
+_LINGCODE_CONFIG = Path("/home/ai/.lingclaude/config/lingcode-config.json")
 
 _CALLBACK_TIMEOUT_S = 300.0  # 授权回调等待上限 5 分钟
 
@@ -202,7 +202,7 @@ def fetch_free_models(timeout: float = 15.0) -> list[str] | None:
 
 
 def merge_free_models_into_lingcode(free_ids: list[str]) -> dict[str, int]:
-    """把免费模型并入 lingcode/config.json 的 openrouter.models。
+    """把免费模型并入 lingcode-config.json 的 openrouter.models。
 
     保留既有非免费条目；返回 {"added": 新增数, "total": 合并后总数}。
     lingcode config 不存在/无 openrouter provider 时跳过写回（返回 0/0）。

@@ -78,7 +78,7 @@ def _worktree_enabled() -> bool:
 # 配额耗尽换模型（2026-09-18）：每 agent 声明 model/provider 的 CLI 拼接形态
 # （数据驱动，J1 薄壳只透传不判业务）。默认不强制指定 → 各 agent 走自身默认；
 # 调用方可经 agent_invoke(model=, provider=) 显式指向 lc 套餐模型清单
-# （/home/ai/lingcode/config.json 的 providers，glm/minimax/volcengine/kimi/agnes 等），
+# （/home/ai/.lingclaude/config/lingcode-config.json 的 providers，glm/minimax/volcengine/kimi/agnes 等），
 # 绕开单家按量配额墙。各家 CLI 形态见 manifest agents[*].quota_argv：
 #   cc       --model <m>            （provider 走 key/套餐内，CLI 无独立 provider 旗）
 #   codex    -m <m>                 （provider 走 -c model_providers/profile，透传 model 为主）
@@ -352,7 +352,7 @@ def agent_invoke(agent: str, prompt: str, mode: str = "default",
     cwd:   子进程工作目录（默认 lc 仓）
     model/provider: 可选，配额耗尽时换模型/换计费通道（数据驱动拼接，J1 只透传不判业务）。
         默认空 → cc 走 DEFAULT_MODEL（M3），其余 agent 走自身默认。指向 lc 套餐模型
-        （/home/ai/lingcode/config.json providers：glm/minimax/volcengine/kimi/agnes）
+        （/home/ai/.lingclaude/config/lingcode-config.json providers：glm/minimax/volcengine/kimi/agnes）
         可绕开单家按量配额墙。ac 双旗（--provider/--model），crush/opencode 用
         "provider/model" 串传进 model，cc/codex 只透传 model（provider 走 key/套餐）。
     profile: 可选（codex 专用），经 `-p <profile>` 切换整套套餐
