@@ -218,3 +218,13 @@ def _protect_project_lingclaude(request: pytest.FixtureRequest) -> None:
             + (" ..." if len(polluted) > 8 else ""),
             pytrace=False,
         )
+
+
+# 2026-10-12 keys_env 测试隔离闸:keys_env.load 默认「文件值覆盖注入」(生产修
+# 「key 轮换后长驻进程读旧 KEY」),但存量测试依赖旧行为——patch.dict(os.environ,
+# {...}) 的假 key 必须赢过 ~/.ling_keys.env 真实值,否则 test_task_router.py:461
+# 「宿主 cloud key 经兜底激活 provider」事故复发。全局冻结旧行为;
+# test_keys_live.py 自行 monkeypatch.delenv 本开关以测新语义。
+@pytest.fixture(autouse=True)
+def _keys_env_prefer_env(monkeypatch):
+    monkeypatch.setenv("LINGCLAUDE_KEYS_PREFER_ENV", "1")

@@ -104,28 +104,15 @@ import socketserver
 def _load_keys_env() -> None:
     """F12c:加载 ~/.ling_keys.env — proxy3 同源的 key 单点存放处。
 
-    只在变量未设时注入,不覆盖用户 shell 已 export 的值。
+    2026-10-12 语义修正:改为文件值覆盖注入(lingclaude.model.keys_env.load,
+    「文件=单点真源」)。原「只在变量未设时注入」会让 shell rc/父进程继承的旧 KEY
+    快照永远挡住轮换后的新 KEY(实锤:10-11 轮换 VOLC/MINIMAX 新值已进文件,
+    长驻进程仍读旧值 → 探活持续 401)。旧行为经 LINGCLAUDE_KEYS_PREFER_ENV=1 保留;
+    取值识别/热同步语义见 keys_env 模块文档。
     """
-    path = Path.home() / ".ling_keys.env"
-    if not path.exists():
-        return
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export "):]
-        name, sep, value = line.partition("=")
-        if not sep:
-            continue
-        name = name.strip()
-        value = value.strip().strip('"').strip("'")
-        if name and value and name not in os.environ:
-            os.environ[name] = value
+    from lingclaude.model import keys_env
+
+    keys_env.load()
 
 
 def _close_runtime(runtime: "CodingRuntime") -> None:
