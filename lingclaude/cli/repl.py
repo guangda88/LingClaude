@@ -1154,11 +1154,20 @@ def _run_stream_turn(
                     _pinned = engine.get_pinned_model_name()
                     if _pinned:
                         status.set_model(str(_pinned))
+                        status.set_runtime_model(str(_pinned))
                         status.set_pinned(True)
                     else:
-                        _rc = getattr(engine._provider, "_config", None) if engine._provider else None
-                        if _rc and getattr(_rc, "model", ""):
-                            status.set_model(str(_rc.model))
+                        # 2026-10-12: 优先 _current_model_name（每轮路由实走名，
+                        # tool_executor._resolve_model_config 同步）——旧实现只读
+                        # provider._config.model 启动静态名，路由落点是 mimo/k3
+                        # 时 toolbar 仍显示 glm-5.3-flash。回落链同 _toolbar_snapshot。
+                        _cur = str(getattr(engine, "_current_model_name", "") or "")
+                        if not _cur:
+                            _rc = getattr(engine._provider, "_config", None) if engine._provider else None
+                            _cur = str(getattr(_rc, "model", "") or "")
+                        if _cur:
+                            status.set_model(_cur)
+                            status.set_runtime_model(_cur)
                         status.set_pinned(False)
                     status.clear_degraded("model")
                 except Exception:  # noqa: BLE001 — 名字刷新失败不阻塞轮循环

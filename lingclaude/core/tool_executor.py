@@ -432,6 +432,12 @@ class ToolExecutor:
                 temperature=pinned_cfg.temperature,
                 system_prompt=pinned_cfg.system_prompt,
             )
+            # P-fix (2026-10-12): 同步 _current_model_name —— toolbar 与上下文
+            # 窗口都以「运行时当前生效模型名」为权威，此前只有 F12f 降级路径
+            # （loop_body）写它，每轮路由实走名从不落此属性 → 未 pin 时 toolbar
+            # 恒回落 provider._config.model 启动静态名（config.yaml 的
+            # glm-5.3-flash），与实际路由落点（如 mimo-v2.6-pro）脱节。
+            self._engine._current_model_name = str(config.model or "")  # noqa: SLF001
             return config, "pinned"
 
         if self._engine._model_config is None:
@@ -507,4 +513,7 @@ class ToolExecutor:
             temperature=target_temp,
             system_prompt="",
         )
+        # P-fix (2026-10-12): 同步每轮路由实走名（含 strong 档升级/legacy 覆写
+        # 之后的最终 target_model），toolbar 由此显示真实落点而非启动静态名。
+        self._engine._current_model_name = str(config.model or "")  # noqa: SLF001
         return config, route_key
