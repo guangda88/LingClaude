@@ -11,12 +11,20 @@ from lingclaude.lacp.cross_repo_seam import ensure_import_path as _seam_import
 
 _seam_import("lingminopt")
 
-from lingminopt import (
-    MinimalOptimizer,
-    SearchSpace,
-    ExperimentConfig,
-)
-from lingminopt.core.models import OptimizationResult as LMOptResult
+# lingminopt 未安装时降级（S1 多机无状态部署 2026-10-14）：
+# CLI 导入链不许炸；goal=behavior 本地穷举不受影响，其余 goal 在 optimize() 内明确报失败。
+try:
+    from lingminopt import (
+        MinimalOptimizer,
+        SearchSpace,
+        ExperimentConfig,
+    )
+    from lingminopt.core.models import OptimizationResult as LMOptResult
+except ImportError:
+    MinimalOptimizer = None
+    SearchSpace = None
+    ExperimentConfig = None
+    LMOptResult = None
 import itertools
 import time as _t
 
@@ -40,7 +48,9 @@ class OptimizationResult:
     history: tuple[dict[str, Any], ...] = ()
 
 
-def _build_search_space(goal: str) -> SearchSpace:
+def _build_search_space(goal: str):
+    if SearchSpace is None:  # lingminopt 未安装降级（S1 多机部署）
+        return None
     space = SearchSpace()
 
     if goal == "structure":

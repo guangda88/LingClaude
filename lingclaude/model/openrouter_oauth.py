@@ -60,7 +60,9 @@ _CREDENTIALS_DIR = Path.home() / ".lingclaude" / "credentials"
 _KEY_FILE = _CREDENTIALS_DIR / "openrouter_key.json"
 
 # lingcode config.json 的模型清单写回点（隔壁 sync 脚本同款惯例）
-_LINGCODE_CONFIG = Path("/home/ai/.lingclaude/config/lingcode-config.json")
+# LINGCODE_CONFIG 环境变量可覆盖 — 与 task_router.py:31 / llm_proxy/config.py:12 同款逃生门 (S1 多机部署 2026-10-14)
+_LINGCODE_CONFIG = Path(os.environ.get(
+    "LINGCODE_CONFIG", "/home/ai/.lingclaude/config/lingcode-config.json"))
 
 _CALLBACK_TIMEOUT_S = 300.0  # 授权回调等待上限 5 分钟
 
