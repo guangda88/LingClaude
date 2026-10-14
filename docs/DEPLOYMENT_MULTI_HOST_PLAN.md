@@ -38,9 +38,12 @@ ai01/NAS/PC-RIZC(WSL2)
 git clone /tmp/lc.bundle ~/lingclaude
 
 # ⚠ ai01 无出网路径（2026-10-14 kern.log 实证其 FORWARD 被拦）：依赖必须离线 wheels
-#   宿主: pip download -d /tmp/wheels .   （在 lingclaude 仓根，按 pyproject 拉全量依赖）
+#   宿主(x86_64→ai01 同架构): pip download -d /tmp/wheels .   （在 lingclaude 仓根）
 #   scp -r /tmp/wheels ai01@192.168.2.2:~/
 #   ai01: pip install --user -e . --no-index --find-links ~/wheels
+# ⚠ NAS(arm64) 不可复用上面 x86_64 的 wheel，S5 时单独打包：
+#   pip download -d /tmp/wheels-arm64 . --platform manylinux2014_aarch64 \
+#     --only-binary=:all: --python-version <NAS实际Py版本>   # 先上 NAS 探版本
 
 # config（远程机自己的 ~/.lingclaude/config/lingcode-config.json）
 #   routing.providers.proxy3 原样继承默认：base_url=http://127.0.0.1:8765/v1
@@ -51,9 +54,13 @@ LINGCLAUDE_PROXY3_API_KEY=<宿主侧签发>       # Bearer
 LINGCLAUDE_PROXY3_AGENT_ID=lingclaude-ai01   # 每机唯一，proxy3 侧审计可分
 
 # 隧道常驻（每机一个 user unit / autossh）
-ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 ai@192.168.2.1
-# ⚠ 宿主前置：UFW 现在拦 enp6s0 入站 22（kern.log 实证 ai01 的包被 UFW BLOCK）
-#   需放行（建议限源）：sudo ufw allow from 192.168.2.0/24 to any port 22 proto tcp
+# 正向（ai01 发起）: ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 ai@192.168.2.1
+#   ⚠ 需宿主 UFW 放行 enp6s0 入站 22（kern.log 实证 ai01 的包被 BLOCK）：
+#     sudo ufw allow from 192.168.2.0/24 to any port 22 proto tcp，且向 ai01 分发密钥
+# 反向（本机发起，试点默认）: ssh -f -N -R 127.0.0.1:8765:127.0.0.1:8765 ai01@192.168.2.2
+#   免 UFW 改动、免 ai01 侧凭据；代价=枢纽侧要为每机维持一条 ssh（autossh 于本机）
+# ⚠ WSL2（PC-RIZC/S4）: user unit 需先启用 systemd —— /etc/wsl.conf 加 [boot] systemd=true
+#   后 wsl --shutdown 重启；否则改用 Windows 计划任务拉起 autossh
 ```
 
 **proxy3 侧鉴权定案**（2026-10-14 读源码实证，待验证点①②已闭合）：
@@ -84,8 +91,9 @@ ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 ai@192.168.2.1
 2. **free-pool 配额竞争**：三机并发打同一免费池，S3 试点期观察 proxy3 侧 429/限频。
 3. **隧道断线行为**：隧道挂时 proxy3 路由熔断 → _fallback 链（task_router.py:724）
    套餐全灭走 openrouter/free 直连兜底；远程机要不要留一个 openrouter key 作备用待定。
-4. **昨日网络表疑云**：用户贴的接口表（enp2s0=192.168.2.2）疑为 ai01 的表而非本机
-   （本机 kern.log 实证 enp6s0）——若属实则 10.113.22.208=ai01 的 ZeroTier IP，与本计划无冲突。
+4. **网络表疑云已结**（2026-10-14 kern.log 双向实证）：ai01=192.168.2.2（静态，/etc/hosts:6 一直
+   正确）、本机 enp6s0=192.168.2.1；用户早期贴的「enp2s0=192.168.2.2」系误报。
+   10.113.22.208（ZeroTier）保留作备用入口，与本计划无冲突。
 
 ## 5. v1 → v2 变更记录
 
@@ -93,3 +101,17 @@ ssh -N -L 127.0.0.1:8765:127.0.0.1:8765 ai@192.168.2.1
 - ❌ 删：LING_FAMILY_ROOT 收敛（lacp 不随行部署，18 文件硬编码不挡路）
 - ✅ 留：openrouter_oauth.py:63 的 LINGCODE_CONFIG（唯一必改行）
 - ✅ 新增：SSH 隧道模型枢纽架构（本节 0）
+- 📌 v2.1（2026-10-14 审计）：arm64 wheels 独立打包、WSL2 systemd 前置、反向隧道备选、
+  疑云④结案、packages/free-pool 正交性补录（见 §6）
+
+## 6. 正交事实：packages/free-pool 独立网关包（v2.1 补录）
+
+`packages/free-pool/`（10-12 落盘，v2 未覆盖）：把 free-pool 从 proxy3 抽出的独立网关实现
+（gateway_main.py + docker-compose.yml + v0.1.x tarball），PLAN 推荐路线=独立仓库+PyPI
+（`free-pool serve/sync`），冒烟同用 127.0.0.1:8765 —— 与本侧 header 注入条件天然兼容。
+
+**定位：它是「池本身的分发载体」，与本计划的「编码工具部署方式」正交，不改基线。**
+理由：① ai01 无出网，只能隧道——基线必须迁就约束最强的机器；② 独立包按 PLAN §5 剔除了
+admin key 与审计耦合，各机自建=放弃枢纽统一鉴权/审计/限频；③ routes.json 与桥接配置从
+1 份变 N 份，违背复用与少维护目标。
+启用条件：未来某机需**完全脱离枢纽**独立工作时，这是现成路径（届时枢纽只服务其余机器）。
