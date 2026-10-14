@@ -20,28 +20,28 @@ REVERSE=0
 
 step() { echo; echo "== [$(date +%H:%M:%S)] $1"; }
 
-step "0/6 前置自检: 本机→ai01 免密 ssh"
+step "0/7 前置自检: 本机→ai01 免密 ssh"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$AI01_HOST" 'true' 2>/dev/null; then
   echo "✗ $AI01_HOST 不可达或未免密。先完成: ssh-copy-id $AI01_HOST"; exit 1
 fi
 echo "✓ ssh 可达"
 
-step "1/6 重打 git bundle（含最新提交）"
+step "1/7 重打 git bundle（含最新提交）"
 git -C "$REPO" bundle create "$BUNDLE" master
 git -C "$REPO" bundle verify "$BUNDLE" >/dev/null && echo "✓ bundle ok: $(du -h "$BUNDLE" | cut -f1)"
 
-step "2/6 打离线 wheels（x86_64，ai01 同架构）"
+step "2/7 打离线 wheels（x86_64，ai01 同架构）"
 rm -rf "$WHEELS"
 ( cd "$REPO" && pip download -q -d "$WHEELS" . )
 echo "✓ wheels: $(ls "$WHEELS" | wc -l) 个包"
 
-step "3/6 传输到 ai01"
+step "3/7 传输到 ai01"
 ssh "$AI01_HOST" 'mkdir -p ~/lc_setup'
 scp -q "$BUNDLE" "$AI01_HOST":~/lc_setup/
 scp -qr "$WHEELS" "$AI01_HOST":~/lc_setup/
 echo "✓ 已传 bundle + wheels"
 
-step "4/6 ai01: clone + 离线安装"
+step "4/7 ai01: clone + 离线安装"
 ssh "$AI01_HOST" '
   set -e
   rm -rf ~/lingclaude
@@ -51,7 +51,7 @@ ssh "$AI01_HOST" '
   ~/.local/bin/lingclaude --help >/dev/null 2>&1 && echo "✓ 安装完成, CLI 可执行"
 '
 
-step "5/6 建隧道（8765 → 本机 proxy3）"
+step "5/7 建隧道（8765 → 本机 proxy3）"
 if [[ $REVERSE == 1 ]]; then
   # 本机发起反向隧道: ai01 的 127.0.0.1:8765 映射回本机 loopback:8765
   pkill -f "ssh -f -N -R 127.0.0.1:8765" 2>/dev/null || true
@@ -68,7 +68,16 @@ ssh "$AI01_HOST" 'timeout 2 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/8765" 
   && echo "✓ ai01 视角 localhost:8765 可达" \
   || echo "✗ 隧道未通，冒烟必失败——先解决隧道" '
 
-step "6/6 冒烟: 路由落点应为 proxy3(free/*)"
+step "6/7 顺路: ai01 CPU 特性报告（新机建档，只依赖 ssh）"
+CPU_REPORT="/tmp/ai01_cpu_report_$(date +%Y%m%d_%H%M%S).txt"
+scp -q "$REPO/scripts/ops/ai01_cpu_probe.sh" "$AI01_HOST":/tmp/ \
+  && ssh "$AI01_HOST" 'bash /tmp/ai01_cpu_probe.sh' > "$CPU_REPORT" 2>&1 \
+  && echo "✓ 报告已存 $CPU_REPORT（内容随输出贴回即可解读）" \
+  || echo "⚠ CPU 报告采集失败（不影响部署试点，可单独重跑）"
+echo "--- CPU 报告尾部预览 ---"
+tail -n 12 "$CPU_REPORT" 2>/dev/null || true
+
+step "7/7 冒烟: 路由落点应为 proxy3(free/*)"
 if [[ -z "${API_KEY:-}" ]]; then
   echo "⚠ 未提供 API_KEY——带鉴权头的完整冒烟跳过，仅验证安装与隧道"
 fi
