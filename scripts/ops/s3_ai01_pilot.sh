@@ -34,7 +34,7 @@ git -C "$REPO" bundle verify "$BUNDLE" >/dev/null && echo "✓ bundle ok: $(du -
 
 step "2/7 打离线 wheels（x86_64，ai01 同架构；含 setuptools/wheel 供 -e 构建隔离离线取用）"
 rm -rf "$WHEELS"
-( cd "$REPO" && pip download -q -d "$WHEELS" . setuptools wheel )
+( cd "$REPO" && pip download -q -d "$WHEELS" . setuptools wheel pip )
 echo "✓ wheels: $(ls "$WHEELS" | wc -l) 个包"
 
 step "3/7 传输到 ai01"
@@ -46,14 +46,24 @@ echo "✓ 已传 bundle + wheels"
 step "4/7 ai01: clone + 离线安装"
 ssh "$AI01_HOST" '
   set -e
-  rm -rf ~/lingclaude
+  rm -rf ~/lingclaude ~/lc_venv
   git clone -q ~/lc_setup/lc.bundle ~/lingclaude
-  cd ~/lingclaude
-  if ! pip install -q --user -e . --no-index --find-links ~/lc_setup/wheels 2>/tmp/lc_pip_err.log; then
-    echo "✗ pip install 失败，关键错误:"; grep -m3 -iE "error|no matching|abiflag|incompatible" /tmp/lc_pip_err.log || tail -5 /tmp/lc_pip_err.log
+  # ai01 可能无 pip 命令(Ubuntu 24.04 系+PEP 668)：
+  # ① venv --without-pip 创建(不依赖 ensurepip)
+  # ② pip wheel 解开成目录后运行——必须用干净环境的 pip！
+  #   (沙箱实证: 系统 pip 对 venv 目标安装时, already-satisfied 会交叉匹配
+  #    系统 dist-packages, 导致 pyyaml/attrs/cryptography 等被静默跳过)
+  python3 -m venv --without-pip ~/lc_venv || { echo "✗ venv 创建失败(需 sudo apt install python3-venv?)"; exit 1; }
+  mkdir -p ~/lc_piprun
+  python3 -m zipfile -e ~/lc_setup/wheels/pip-*.whl ~/lc_piprun/
+  if ! ~/lc_venv/bin/python ~/lc_piprun/pip install -q \
+      --no-index --find-links ~/lc_setup/wheels -e ~/lingclaude 2>/tmp/lc_pip_err.log; then
+    echo "✗ 离线安装失败，关键错误:"; grep -m3 -iE "error|no matching|abiflag|incompatible" /tmp/lc_pip_err.log || tail -5 /tmp/lc_pip_err.log
     exit 1
   fi
-  ~/.local/bin/lingclaude --help >/dev/null 2>&1 && echo "✓ 安装完成, CLI 可执行"
+  # 依赖抽查: 防 already-satisfied 类静默缺失
+  ~/lc_venv/bin/python -c "import yaml, aiohttp, mcp.types" 2>/dev/null || { echo "✗ 依赖抽查失败(疑似缺包), 详见:"; tail -5 /tmp/lc_pip_err.log; exit 1; }
+  ~/lc_venv/bin/lingclaude --help >/dev/null 2>&1 && echo "✓ 安装完成, CLI 可执行 (venv: ~/lc_venv)"
 '
 
 step "5/7 建隧道（8765 → 本机 proxy3）"
@@ -90,7 +100,7 @@ ssh "$AI01_HOST" "
   export LINGCLAUDE_PROXY3_AGENT_ID=lingclaude-ai01
   [[ -n \"${API_KEY:-}\" ]] && export LINGCLAUDE_PROXY3_API_KEY='$API_KEY'
   cd ~/lingclaude
-  timeout 120 ~/.local/bin/lingclaude run 'reply with exactly: OK' -v 2>&1 | tail -15
+  timeout 120 ~/lc_venv/bin/lingclaude run 'reply with exactly: OK' -v 2>&1 | tail -15
 "
 echo
 echo "== 完成。判定: -v 输出若显示路由落点=proxy3(free/*) 即试点成功；"
