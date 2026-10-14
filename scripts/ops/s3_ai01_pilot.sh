@@ -20,19 +20,21 @@ REVERSE=0
 
 step() { echo; echo "== [$(date +%H:%M:%S)] $1"; }
 
-step "0/7 前置自检: 本机→ai01 免密 ssh"
-if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$AI01_HOST" 'true' 2>/dev/null; then
+step "0/7 前置自检: 本机→ai01 免密 ssh + Python 版本对照"
+if ! AI01_PY=$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$AI01_HOST" 'python3 --version' 2>&1); then
   echo "✗ $AI01_HOST 不可达或未免密。先完成: ssh-copy-id $AI01_HOST"; exit 1
 fi
-echo "✓ ssh 可达"
+HOST_PY=$(python3 --version 2>&1)
+echo "✓ ssh 可达 | ai01: $AI01_PY | 宿主: $HOST_PY"
+[[ "$AI01_PY" == "$HOST_PY" ]] || echo "⚠ 两机 Python 版本不一致——二进制 wheel 可能 ABI 不匹配；若 4/7 失败需按 ai01 版本重打 wheels"
 
 step "1/7 重打 git bundle（含最新提交）"
 git -C "$REPO" bundle create "$BUNDLE" master
 git -C "$REPO" bundle verify "$BUNDLE" >/dev/null && echo "✓ bundle ok: $(du -h "$BUNDLE" | cut -f1)"
 
-step "2/7 打离线 wheels（x86_64，ai01 同架构）"
+step "2/7 打离线 wheels（x86_64，ai01 同架构；含 setuptools/wheel 供 -e 构建隔离离线取用）"
 rm -rf "$WHEELS"
-( cd "$REPO" && pip download -q -d "$WHEELS" . )
+( cd "$REPO" && pip download -q -d "$WHEELS" . setuptools wheel )
 echo "✓ wheels: $(ls "$WHEELS" | wc -l) 个包"
 
 step "3/7 传输到 ai01"
@@ -47,7 +49,10 @@ ssh "$AI01_HOST" '
   rm -rf ~/lingclaude
   git clone -q ~/lc_setup/lc.bundle ~/lingclaude
   cd ~/lingclaude
-  pip install -q --user -e . --no-index --find-links ~/lc_setup/wheels
+  if ! pip install -q --user -e . --no-index --find-links ~/lc_setup/wheels 2>/tmp/lc_pip_err.log; then
+    echo "✗ pip install 失败，关键错误:"; grep -m3 -iE "error|no matching|abiflag|incompatible" /tmp/lc_pip_err.log || tail -5 /tmp/lc_pip_err.log
+    exit 1
+  fi
   ~/.local/bin/lingclaude --help >/dev/null 2>&1 && echo "✓ 安装完成, CLI 可执行"
 '
 
