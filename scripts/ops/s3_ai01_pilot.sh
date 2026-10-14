@@ -96,9 +96,11 @@ step "7/7 冒烟: 路由落点应为 proxy3(free/*)"
 if [[ -z "${API_KEY:-}" ]]; then
   echo "⚠ 未提供 API_KEY——带鉴权头的完整冒烟跳过，仅验证安装与隧道"
 fi
+KEY_LINE=":"
+[[ -n "${API_KEY:-}" ]] && KEY_LINE="export LINGCLAUDE_PROXY3_API_KEY='$API_KEY'"
 ssh "$AI01_HOST" "
   export LINGCLAUDE_PROXY3_AGENT_ID=lingclaude-ai01
-  [[ -n \"${API_KEY:-}\" ]] && export LINGCLAUDE_PROXY3_API_KEY='$API_KEY'
+  $KEY_LINE
   cd ~/lingclaude
   timeout 120 ~/lc_venv/bin/lingclaude run 'reply with exactly: OK' -v 2>&1 | tail -15
 "
