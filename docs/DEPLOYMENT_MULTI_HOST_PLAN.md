@@ -71,6 +71,14 @@ LINGCLAUDE_PROXY3_AGENT_ID=lingclaude-ai01   # 每机唯一，proxy3 侧审计�
 - free-pool opt-in 门（`free_pool.py:418-422`）：缺 `x-free-pool-optin: true` → 403
   `free_pool_optin_required`；本侧由 `openai_provider.py:97` 自动注入（含敏感内容守卫）
 
+**待验证点③闭合（2026-10-14 读 task_router.py 实证）——隧道断开/未签 key 时的行为**：
+- F12b（task_router.py:738）：本地 base 无 key 不跳过 → 远程机**不签 key 也会先打 proxy3**
+  （401 为预期表现，不阻塞试点）
+- route 全灭 → `_fallback`（:721）：① 套餐链全跳过（远程机无套餐 key）→ ② openrouter.ai
+  直连 —— ai01 无出网，会**挂到 TCP 超时才报错（慢失败，不误路由）**
+- 可选缓解：远程机用 `LINGCODE_CONFIG` 指向一份只含 proxy3 的最小 config，fallback 落回
+  proxy3 本身 → connection refused **立即报错（快失败）**；非试点必选项
+
 不装：lingmessage / lacp / lingxi（兄弟仓库全部不依赖——需 S1 冒烟验证降级路径）。
 无总线监听、无常驻服务、无状态同步；session 留各机本地，允许分叉。
 
