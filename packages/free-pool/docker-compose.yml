@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  free-pool:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      - FREE_POOL_ROUTES=/app/routes.json
+      - FREE_POOL_HOST=0.0.0.0
+      - FREE_POOL_PORT=8765
+    volumes:
+      - ./routes.json:/app/routes.json

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "free-pool"
+version = "0.1.0"
+description = "Reusable free model pool with OpenAI-compatible gateway"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = []
+
+[project.scripts]
+free-pool-serve = "free_pool:main"
+free-pool-sync = "sync_free_models:main"

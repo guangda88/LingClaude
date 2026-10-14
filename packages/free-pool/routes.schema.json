@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "required": ["provider", "tier", "base_url"],
+    "properties": {
+      "provider": {"type": "string"},
+      "tier": {"type": "string"},
+      "base_url": {"type": "string"},
+      "api_key_env": {"type": "string"},
+      "default_off": {"type": "boolean"},
+      "rpm": {"type": "integer"},
+      "max_concurrent": {"type": "integer"},
+      "daily_token_budget": {"type": "integer"},
+      "budget_total": {"type": "integer"},
+      "budget_left": {"type": "integer"},
+      "context_window": {"type": "integer"},
+      "capabilities": {"type": "object"},
+      "upstream_model": {"type": "string"},
+      "_note": {"type": "string"},
+      "_sync_source": {"type": "string"}
+    }
+  }
+}
