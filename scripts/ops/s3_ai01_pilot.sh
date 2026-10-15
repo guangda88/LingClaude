@@ -102,9 +102,13 @@ echo "✓ 主链路 config.yaml 已覆写(openai→127.0.0.1:8765/free/auto, api
 step "5/7 建隧道（8765 → 本机 proxy3）"
 if [[ $REVERSE == 1 ]]; then
   # 本机发起反向隧道: ai01 的 127.0.0.1:8765 映射回本机 loopback:8765
+  # 第3跑教训: 旧隧道未死时新 -R bind 静默失败(无 ExitOnForwardFailure),而
+  # /dev/tcp 探测只测 TCP accept(sshd 先 accept 再开转发通道,通道死照样 0)。
   pkill -f "ssh -f -N -R 127.0.0.1:8765" 2>/dev/null || true
-  ssh -f -N -R 127.0.0.1:8765:127.0.0.1:8765 "$AI01_HOST"
-  echo "✓ 反向隧道已建（宿主侧维持；常驻建议 autossh）"
+  sleep 1   # 等旧 bind 在 ai01 侧释放
+  ssh -o ExitOnForwardFailure=yes -f -N -R 127.0.0.1:8765:127.0.0.1:8765 "$AI01_HOST" \
+    || { echo "✗ 隧道建立失败(ExitOnForwardFailure 触发,大概率 ai01 侧 8765 bind 被旧会话占用)"; exit 1; }
+  echo "✓ 反向隧道已建（含 ExitOnForwardFailure 保障）"
 else
   ssh "$AI01_HOST" '
     pkill -f "ssh -N -L 127.0.0.1:8765" 2>/dev/null || true
@@ -112,9 +116,26 @@ else
       && echo "✓ 正向隧道已建（ai01 侧发起）"
   ' || echo "⚠ 正向失败: 宿主 UFW 未放行 enp6s0:22 或 ai01 缺凭据 → 改用 --reverse"
 fi
-ssh "$AI01_HOST" 'timeout 2 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/8765" 2>/dev/null \
-  && echo "✓ ai01 视角 localhost:8765 可达" \
-  || echo "✗ 隧道未通，冒烟必失败——先解决隧道" '
+# 第3跑教训: /dev/tcp 只测 TCP accept(sshd 先 accept 再开转发通道,通道死照样 0)
+# → 必须真实 HTTP 请求穿过隧道打到 proxy3,以响应码为证。
+SSH_PROBE='python3 -c "
+import http.client
+try:
+    c=http.client.HTTPConnection(\"127.0.0.1\",8765,timeout=4)
+    c.request(\"POST\",\"/v1/chat/completions\",\"{}\",{\"Content-Type\":\"application/json\"})
+    r=c.getresponse(); r.read()
+    print(\"HTTP\",r.status)
+except OSError as e:
+    print(\"CONN_FAIL\",e)
+"'
+PROBE_OUT=$(ssh "$AI01_HOST" "$SSH_PROBE" 2>/dev/null)
+case "$PROBE_OUT" in
+  HTTP\ 4*) echo "✓ 隧道数据面真通（proxy3 应答 HTTP $(echo "$PROBE_OUT"|grep -o '[0-9]*')，4xx=预期，无 key 就该这样）" ;;
+  HTTP\ 2*) echo "✓ 隧道通且 proxy3 放行（少见，可能 NO_AUTH 模式）" ;;
+  HTTP\ 5*) echo "⚠ 隧道通、proxy3 内部错（$PROBE_OUT）——查 journal" ;;
+  CONN_FAIL*|\"\"|'') echo "✗ ai01→8765 连接失败（$PROBE_OUT）：隧道数据面断，冒烟必失败" ;;
+  *) echo "⚠ 未知响应: $PROBE_OUT" ;;
+esac
 
 step "6/7 顺路: ai01 CPU 特性报告（新机建档，只依赖 ssh）"
 CPU_REPORT="/tmp/ai01_cpu_report_$(date +%Y%m%d_%H%M%S).txt"
@@ -127,18 +148,32 @@ tail -n 12 "$CPU_REPORT" 2>/dev/null || true
 
 step "7/7 冒烟: 路由落点应为 proxy3(free/*)"
 if [[ -z "${API_KEY:-}" ]]; then
-  echo "⚠ 未提供 API_KEY——带鉴权头的完整冒烟跳过，仅验证安装与隧道"
+  echo "⚠ 未提供 API_KEY——预期 401/报错=链路通的最后一级；2xx=完全成功"
 fi
 KEY_LINE=":"
 [[ -n "${API_KEY:-}" ]] && KEY_LINE="export LINGCLAUDE_PROXY3_API_KEY='$API_KEY'"
+# 第3跑教训: tail -15 会被会话统计块(14行)占满,把 [错误] 行整个吞掉 → 三跑都零诊断
+SMOKE_LOG=/tmp/ai01_smoke_$(date +%H%M%S).log
 ssh "$AI01_HOST" "
   export LINGCLAUDE_PROXY3_AGENT_ID=lingclaude-ai01
   $KEY_LINE
   cd ~/lingclaude
-  timeout 120 ~/lc_venv/bin/lingclaude run 'reply with exactly: OK' -v 2>&1 | tail -15
+  timeout 120 ~/lc_venv/bin/lingclaude run 'reply with exactly: OK' -v 2>&1 | tee '$SMOKE_LOG' >/dev/null
+  echo '--- 冒烟输出全量 ---'
+  cat '$SMOKE_LOG'
 "
 echo
-echo "== 完成。判定: -v 输出若显示路由落点=proxy3(free/*) 即试点成功；"
-echo "   失败时按序排查: 隧道(步骤5) → key/X-Agent-Id(401?) → opt-in(403?) → 上游(429/5xx)"
+echo "--- 铁证判定(proxy3 journal 冒烟窗口) ---"
+J_FROM=$(date '+%Y-%m-%d %H:%M:%S' -d '-4 minutes')
+FOUND=$(journalctl -u lingflow-proxy3.service --since "$J_FROM" --no-pager 2>/dev/null \
+        | grep -E "POST /v1/chat/completions" | tail -3)
+if [[ -n "$FOUND" ]]; then
+  echo "✅ 铁证成立: ai01 的请求已抵达 proxy3:"
+  echo "$FOUND"
+  echo "   → S3 全链路通。401=只差签 key(api_keys.json name=lingclaude-ai01)；2xx=全通"
+else
+  echo "❌ 铁证不成立: 冒烟窗口 journal 无任何 POST——请求没到 proxy3"
+  echo "   → 结合上方冒烟全量日志中的 [错误] 行定位(配置层/隧道层/CLI层)"
+fi
 
 # 可选清理: ssh "$AI01_HOST" 'rm -rf ~/lc_setup'
