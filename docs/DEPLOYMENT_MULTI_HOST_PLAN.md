@@ -46,7 +46,15 @@ git clone /tmp/lc.bundle ~/lingclaude
 #     --only-binary=:all: --python-version <NAS实际Py版本>   # 先上 NAS 探版本
 
 # config（远程机自己的 ~/.lingclaude/config/lingcode-config.json）
-#   routing.providers.proxy3 原样继承默认：base_url=http://127.0.0.1:8765/v1
+#   ⚠ 2026-10-15 冒烟实证修正：proxy3 路由【不会】自动生效——
+#   代码默认 ModelProviderConfig = openai/gpt-4o（core/config.py:84-85）；
+#   proxy3 仅存在于 lingcode-config 的 routing.providers 表（task_router.py:188）。
+#   ai01 上若无 config：引擎默认 provider=openai，且 CWD 的 config.yaml
+#   （git 跟踪文件，provider=glm/api_key=${ZAI_API_KEY}）会先被捡到 →
+#   ai01 无 ZAI_API_KEY → provider 构造失败 → engine._provider=None →
+#   零 LLM 调用（轮次0/0token，proxy3 journal 无该机请求，实证吻合）。
+#   ⇒ 远程机必须摆一份只含 proxy3 的最小 lingcode-config.json（见 S3 步骤 4.5）：
+#   routing.providers.proxy3: base_url=http://127.0.0.1:8765/v1（F12b 本地无 key 放行）
 #   coding/strong 路由指向 proxy3（free/auto），模型清单 5 个 free/* 全量继承
 
 # keys（env 逃生门，不硬编码）

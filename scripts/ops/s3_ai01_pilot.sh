@@ -66,6 +66,29 @@ ssh "$AI01_HOST" '
   ~/lc_venv/bin/lingclaude --help >/dev/null 2>&1 && echo "✓ 安装完成, CLI 可执行 (venv: ~/lc_venv)"
 '
 
+step "4.5/7 摆最小 lingcode-config（冒烟实证: 无此文件引擎默认 openai/gpt-4o, 或捡 CWD 的 glm config.yaml → provider 构造失败 → 零调用）"
+ssh "$AI01_HOST" 'mkdir -p ~/.lingclaude/config && cat > ~/.lingclaude/config/lingcode-config.json <<EOF
+{
+  "routing": {
+    "default_target": "proxy3",
+    "providers": {
+      "proxy3": {
+        "type": "openai",
+        "base_url": "http://127.0.0.1:8765/v1",
+        "model": "free/auto",
+        "models": ["free/auto", "free/code", "free/long", "free/vision", "free/fast"]
+      }
+    },
+    "task_routes": {
+      "code": {"provider": "proxy3"}, "chat": {"provider": "proxy3"},
+      "fast_response": {"provider": "proxy3"}, "reasoning": {"provider": "proxy3"},
+      "long_context": {"provider": "proxy3"}, "vision": {"provider": "proxy3"}
+    }
+  }
+}
+EOF'
+echo "✓ 最小 config 已摆（proxy3 单路由; key 无也能过 F12b 本地放行, 401 才是预期）"
+
 step "5/7 建隧道（8765 → 本机 proxy3）"
 if [[ $REVERSE == 1 ]]; then
   # 本机发起反向隧道: ai01 的 127.0.0.1:8765 映射回本机 loopback:8765
