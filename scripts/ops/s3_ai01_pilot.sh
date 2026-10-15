@@ -66,8 +66,18 @@ ssh "$AI01_HOST" '
   ~/lc_venv/bin/lingclaude --help >/dev/null 2>&1 && echo "✓ 安装完成, CLI 可执行 (venv: ~/lc_venv)"
 '
 
-step "4.5/7 摆最小 lingcode-config（冒烟实证: 无此文件引擎默认 openai/gpt-4o, 或捡 CWD 的 glm config.yaml → provider 构造失败 → 零调用）"
-ssh "$AI01_HOST" 'mkdir -p ~/.lingclaude/config && cat > ~/.lingclaude/config/lingcode-config.json <<EOF
+step "4.5/7 双层配置: 覆写CWD config.yaml(主对话provider层!上轮只摆lingcode-config.json=TaskRouter层,修错层) + 保留TaskRouter路由"
+ssh "$AI01_HOST" 'cat > ~/lingclaude/config.yaml <<'"'"'YAMLEOF'"'"'
+# S3 试点覆写: 无状态 proxy3 单路由（还原: git checkout -- config.yaml）
+# 主链路 provider 读 CWD config.yaml（core/config.py:19 CWD 优先），非 lingcode-config.json
+model:
+  provider: openai
+  model: free/auto
+  base_url: http://127.0.0.1:8765/v1
+  api_key: ${LINGCLAUDE_PROXY3_API_KEY}
+  max_tokens: 4096
+YAMLEOF
+mkdir -p ~/.lingclaude/config && cat > ~/.lingclaude/config/lingcode-config.json <<EOF
 {
   "routing": {
     "default_target": "proxy3",
@@ -87,7 +97,7 @@ ssh "$AI01_HOST" 'mkdir -p ~/.lingclaude/config && cat > ~/.lingclaude/config/li
   }
 }
 EOF'
-echo "✓ 最小 config 已摆（proxy3 单路由; key 无也能过 F12b 本地放行, 401 才是预期）"
+echo "✓ 主链路 config.yaml 已覆写(openai→127.0.0.1:8765/free/auto, api_key=\${VAR}插值) + TaskRouter 路由已摆"
 
 step "5/7 建隧道（8765 → 本机 proxy3）"
 if [[ $REVERSE == 1 ]]; then

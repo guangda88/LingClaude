@@ -45,17 +45,17 @@ git clone /tmp/lc.bundle ~/lingclaude
 #   pip download -d /tmp/wheels-arm64 . --platform manylinux2014_aarch64 \
 #     --only-binary=:all: --python-version <NAS实际Py版本>   # 先上 NAS 探版本
 
-# config（远程机自己的 ~/.lingclaude/config/lingcode-config.json）
-#   ⚠ 2026-10-15 冒烟实证修正：proxy3 路由【不会】自动生效——
-#   代码默认 ModelProviderConfig = openai/gpt-4o（core/config.py:84-85）；
-#   proxy3 仅存在于 lingcode-config 的 routing.providers 表（task_router.py:188）。
-#   ai01 上若无 config：引擎默认 provider=openai，且 CWD 的 config.yaml
-#   （git 跟踪文件，provider=glm/api_key=${ZAI_API_KEY}）会先被捡到 →
-#   ai01 无 ZAI_API_KEY → provider 构造失败 → engine._provider=None →
-#   零 LLM 调用（轮次0/0token，proxy3 journal 无该机请求，实证吻合）。
-#   ⇒ 远程机必须摆一份只含 proxy3 的最小 lingcode-config.json（见 S3 步骤 4.5）：
-#   routing.providers.proxy3: base_url=http://127.0.0.1:8765/v1（F12b 本地无 key 放行）
-#   coding/strong 路由指向 proxy3（free/auto），模型清单 5 个 free/* 全量继承
+# config（⚠ 2026-10-15 二次冒烟实证：必须双层，缺一即轮次0）
+#   第1层(主对话provider) = CWD config.yaml 覆写——core/config.py:19-23 搜索顺序
+#   CWD 优先，git 跟踪的 glm config.yaml 会被先捡到（provider=glm/${ZAI_API_KEY}→构造失败）；
+#   代码默认 openai/gpt-4o（config.py:84）也非 proxy3。⇒ 远程机必须覆写 ~/lingclaude/config.yaml：
+#     model: {provider: openai, model: free/auto, base_url: http://127.0.0.1:8765/v1,
+#             api_key: ${LINGCLAUDE_PROXY3_API_KEY}}   # ${VAR} 插值 config.py:263 实测支持
+#   第2层(TaskRouter子调用) = ~/.lingclaude/config/lingcode-config.json（routing.providers.proxy3
+#   + task_routes 全指向 proxy3）——管 tool_executor 等子调用路由（见 S3 步骤 4.5 模板）。
+#   鉴权链注意：cfg.api_key 为空时 factory.py:87-95 才走 env/key_store 兜底；本机有 vault
+#   credential_pool 条目会注入池 key（pool_vault_loader.py:11-12），ai01 全新 HOME 无 vault
+#   → 空 key + F12b 本地放行（127.0.0.1）→ 401(带 X-Agent-Id) = 未签 key 的预期表现
 
 # keys（env 逃生门，不硬编码）
 LINGCLAUDE_PROXY3_API_KEY=<宿主侧签发>       # Bearer
