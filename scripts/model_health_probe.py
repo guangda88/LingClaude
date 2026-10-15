@@ -32,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from lingclaude.model import keys_env  # noqa: E402
 from lingclaude.model.health_ranking import build_report, hallucination_rates  # noqa: E402
 from lingclaude.model.provider_probe import ProviderProbe  # noqa: E402
 
@@ -62,12 +63,15 @@ def load_routes(config_path: Path) -> tuple[dict[str, dict], dict[str, list[dict
             "base_url": pdef.get("base_url", ""),
             "api_key": pdef.get("api_key", ""),
         }
-    # api_key 解析与 TaskRouter 同源（env var 引用 ${VAR} / 已知 provider 映射）
+    # api_key / base_url 解析与 TaskRouter 同源（env var 引用 ${VAR} /
+    # 已知 provider 映射 / 简写类型补全，避免字符串简写或无显式
+    # base_url 的 provider 被误判 empty base_url 跳过）
     router = TaskRouter(config_path=config_path)
     for name in providers:
         pinfo = router._providers.get(name)
         if pinfo is not None:
             providers[name]["api_key"] = pinfo.api_key
+            providers[name]["base_url"] = pinfo.base_url
     routes: dict[str, list[dict]] = {}
     for key, tr in routing.get("task_routes", {}).items():
         if isinstance(tr, dict):
@@ -106,6 +110,13 @@ def main() -> int:
     ap.add_argument("--strict", action="store_true",
                     help="CI gate：存在 hard_4xx 死节点仍在清单时 exit 1")
     args = ap.parse_args()
+
+    # 自取 key：bash 沙箱/cron 等无 shell env 场景下 os.environ 无凭据，
+    # 全部 provider 会被 F12b「无 key 不探」跳过 → 假阴性报告。
+    # keys_env.load() 从 ~/.ling_keys.env 注入（PREFER_ENV=1 时不覆盖已有值）。
+    injected = keys_env.load()
+    if injected:
+        print(f"已从 ~/.ling_keys.env 注入 {injected} 个凭据", file=sys.stderr)
 
     providers, routes = load_routes(args.config)
     if not providers:
