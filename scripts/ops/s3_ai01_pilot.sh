@@ -170,10 +170,10 @@ ssh "$AI01_HOST" "
 echo
 echo "--- 铁证判定(proxy3 journal 冒烟窗口) ---"
 J_FROM=$(date '+%Y-%m-%d %H:%M:%S' -d '-4 minutes')
-FOUND=$(journalctl -u lingflow-proxy3.service --since "$J_FROM" --no-pager 2>/dev/null \
+FOUND=$(journalctl --user -u lingflow-proxy3.service --since "$J_FROM" --no-pager 2>/dev/null \
         | grep -E "POST /v1/chat/completions" | tail -3)
 if [[ -n "$FOUND" ]]; then
-  echo "✅ 铁证成立: ai01 的请求已抵达 proxy3:"
+  echo "✅ 铁证成立: ai01 的请求已抵达 proxy3 (user journal; 缺Bearer的401是静默的,只有这里能看见):"
   echo "$FOUND"
   echo "   → S3 全链路通。401=只差签 key(api_keys.json name=lingclaude-ai01)；2xx=全通"
 else
