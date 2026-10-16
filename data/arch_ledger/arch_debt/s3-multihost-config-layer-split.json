@@ -1,0 +1,9 @@
+{
+  "kind": "arch_project",
+  "location": "core/config.py:19(CWD config.yaml优先) vs lingclaude/model/task_router.py:31(lingcode-config.json)",
+  "reason": "主对话provider读CWD config.yaml，路由层读~/.lingclaude/config/lingcode-config.json——两套机制两套搜索路径无统一解析入口。S3实证：摆错层=零调用(轮2)，两层都要摆才通(轮4)。多机部署时任何一层漏摆即静默失败",
+  "due": "2026-11-15",
+  "resolve_hint": "统一配置解析入口：单一config源+明确的分层语义(主provider/路由共用或显式声明的override)，或至少在config.yaml里支持路由段。验收：单文件即可完整配置一台新机，S3脚本4.5可简化为一处",
+  "state": "open",
+  "created": "2026-10-16T14:17:58+00:00"
+}

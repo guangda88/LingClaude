@@ -1,0 +1,9 @@
+{
+  "kind": "infrastructure_defect",
+  "location": "lingclaude/model/task_router.py _fallback (openrouter.ai 链尾) + 引擎降级链",
+  "reason": "无出网主机(ai01实证无出网)当route全灭时fallback到openrouter.ai→TCP超时=慢失败(数分钟)。用户体感'卡住'且无明确错误。S3期间亲测此链",
+  "due": "2026-12-15",
+  "resolve_hint": "①无出网环境检测(探测默认网关可达性)后快速失败并给明确提示；②或fallback链每跳设短超时(如3s)而非默认；③文档在部署清单列明'无出网机需LINGCODE_CONFIG最小配置防fallback'。验收：无出网机路由失败<5s且错误信息指向根因",
+  "state": "open",
+  "created": "2026-10-16T14:17:59+00:00"
+}

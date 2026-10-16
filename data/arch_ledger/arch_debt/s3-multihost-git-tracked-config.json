@@ -1,0 +1,9 @@
+{
+  "kind": "hardcoded_direct",
+  "location": "config.yaml (git跟踪，含glm provider+占位)",
+  "reason": "git跟踪的config.yaml被bundle/clone带到远程机，在CWD搜索序中第一优先命中。S3实证轮2：ai01 clone后捡到宿主的glm配置→无ZAI key→provider构造失败→零调用。仓库里不该有会被误当成运行配置的示例文件",
+  "due": "2026-11-15",
+  "resolve_hint": "config.yaml改名为config.yaml.example(不跟踪)或以.gitignore排除；或config加载增加'这是一个模板'的显式标记机制。验收：clone到全新机器不摆任何东西时，不会捡到宿主的provider配置",
+  "state": "open",
+  "created": "2026-10-16T14:17:58+00:00"
+}

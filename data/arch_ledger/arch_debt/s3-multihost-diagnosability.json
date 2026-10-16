@@ -1,0 +1,9 @@
+{
+  "kind": "infrastructure_defect",
+  "location": "涵盖: lingflow-proxy3 service(user级,日志进user journal) + auth_apikey.py:38(401静默不记日志) + CLI错误格式化 + 部署脚本tail截断",
+  "reason": "S3排障五轮的核心痛点=看不到原因：①日志分布在user journal/system journal/文件日志三层且判定源易错(我查错两次)②401拒绝静默返回无痕(缺Bearer时auth_apikey.py静默)③部署脚本tail -15被统计块占满吞掉真实错误④proxy3 stdout去向不明(fd readlink为空)",
+  "due": "2026-11-30",
+  "resolve_hint": "①统一日志出口(syslog/journal单一源)+文档化runbook②401等拒绝路径可选debug留痕(带agent_id+原因)③部署脚本改全量tee不截断④proxy3 stdout重定向到已知路径。验收：新机部署失败时一条命令能定位到根因层(隧道/key/上游)",
+  "state": "open",
+  "created": "2026-10-16T14:17:59+00:00"
+}
