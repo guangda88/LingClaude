@@ -28,7 +28,14 @@ from lingclaude.model.provider_probe import ProviderProbe, ProbeResult, probe_di
 logger = logging.getLogger(__name__)
 
 # LINGCODE_CONFIG 环境变量可覆盖 — 跨仓配置路径不再绑死本机布局 (2026-09-11 审计修复)
-CONFIG_PATH = Path(os.environ.get("LINGCODE_CONFIG", "/home/ai/.lingclaude/config/lingcode-config.json"))
+# 2026-10-16 二次修复: 回退值由硬编码 /home/ai/... 改 Path.home() 相对——
+# 硬编码在跨机部署(ai01 用户=ai01)下必 miss → TaskRouter 空配置 → resolve 走
+# fallback(openrouter 无 key) → F12d 拦「OpenAI API key 未设置」(S3 四跑零POST真根因)。
+# Path.home() 展开对宿主(/home/ai)与原值逐字节相同,行为零变化。
+CONFIG_PATH = Path(os.environ.get(
+    "LINGCODE_CONFIG",
+    str(Path.home() / ".lingclaude" / "config" / "lingcode-config.json"),
+))
 
 # P1-4 (2026-09-19, 幻觉调研第二批): flash 级模型禁入决策位 —— 治 H1/H2 共识：
 # flash/mini/lite 级小模型幻觉率显著高于旗舰级，而决策位（路由清单首位）的

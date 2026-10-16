@@ -96,8 +96,12 @@ mkdir -p ~/.lingclaude/config && cat > ~/.lingclaude/config/lingcode-config.json
     }
   }
 }
-EOF'
-echo "✓ 主链路 config.yaml 已覆写(openai→127.0.0.1:8765/free/auto, api_key=\${VAR}插值) + TaskRouter 路由已摆"
+EOF
+# 第4跑根因: task_router.py:31 曾硬编码 /home/ai/...(宿主绝对路径), ai01 上
+# TaskRouter 读不到此文件(空配置→fallback openrouter 无key→F12d拦截→零POST)。
+# 产品已改 Path.home() 相对; 此处显式 env 双保险(对旧版代码也生效)。
+echo "export LINGCODE_CONFIG=\$HOME/.lingclaude/config/lingcode-config.json" >> ~/.bashrc'
+echo "✓ 主链路 config.yaml 已覆写(openai→127.0.0.1:8765/free/auto, api_key=\${VAR}插值) + TaskRouter 路由已摆(经 Path.home()+LINGCODE_CONFIG 双保险,ai01 真正读得到)"
 
 step "5/7 建隧道（8765 → 本机 proxy3）"
 if [[ $REVERSE == 1 ]]; then
@@ -156,6 +160,7 @@ KEY_LINE=":"
 SMOKE_LOG=/tmp/ai01_smoke_$(date +%H%M%S).log
 ssh "$AI01_HOST" "
   export LINGCLAUDE_PROXY3_AGENT_ID=lingclaude-ai01
+  export LINGCODE_CONFIG=\$HOME/.lingclaude/config/lingcode-config.json
   $KEY_LINE
   cd ~/lingclaude
   timeout 120 ~/lc_venv/bin/lingclaude run 'reply with exactly: OK' -v 2>&1 | tee '$SMOKE_LOG' >/dev/null
