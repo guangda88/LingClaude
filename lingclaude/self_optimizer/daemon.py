@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import fcntl  # P1-卫 (2026-10-17): flock 状态文件锁
+import contextlib
+import hashlib
 import json
 import logging
+import os
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -25,6 +30,93 @@ from lingclaude.self_optimizer.experiments import (
 # 任何自动路径不得放宽对自身变更速率的限制）。
 MAX_ACCEPTED_PER_24H = 3  #: 24h 窗口 accepted 参数变更上限
 MAX_RULES_PER_24H = 2     #: 24h 窗口自优化规则净入库上限
+
+# P1-卫 (2026-10-17)【首航事故三条卫生规则】：10-17 首航实证——旧 watch
+# 进程（旧代码+史前内存状态）每 5 分钟把内存态回写磁盘，踩掉手术解锁、
+# 踩掉新挂单（「旧内存踩盘」）。三条防线：
+#   Rule A 单写者检查：state 记录 owner（boot_id+pid+start_time），
+#     save 时验 owner 存活——owner 已死（陈旧磁盘态）则拒绝覆盖。
+#   Rule B 状态文件锁：flock 临界区覆盖 load-modify-save 全链。
+#   Rule C 启动一致性校验：发现活着的他者 owner → 拒绝启动（单写者铁律）。
+#: owner 文件后缀（与状态文件同目录：daemon_state.json.owner）
+STATE_OWNER_SUFFIX = ".owner"
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    """P1-卫：原子 JSON 写（tmp + os.replace，崩溃不留半截文件）。"""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+@contextlib.contextmanager
+def _state_lock(lock_path: Path):
+    """P1-卫 Rule B：flock 独占锁临界区（覆盖 load-modify-save 全链）。"""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as lf:
+        fcntl.flock(lf, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+
+
+def _process_alive(pid: int, start_time: str | None) -> bool:
+    """Rule A 辅助：pid 存活且与 start_time 吻合（防 pid 复用误判）。"""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # 存在但不可见信号=他人进程=活着
+    if start_time is None:
+        return True  # 无 start_time 记录的旧 owner 文件：进程在即认为活
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        # /proc/pid/stat: comm 可含空格/括号，取最后一个 ')' 之后第 20 字段=starttime
+        tail = stat.rsplit(")", 1)[1].split()
+        boot_relative_ticks = int(tail[19])
+        btime = float(Path("/proc/stat").read_text().split("btime ")[1].split()[0])
+        hz = os.sysconf("SC_CLK_TCK")
+        actual = btime + boot_relative_ticks / hz
+        return abs(actual - float(start_time)) < 2.0
+    except (OSError, ValueError, IndexError):
+        return True  # 读取失败保守判活（宁误拒写不误踩盘）
+
+
+def _read_owner(path: Path) -> dict[str, Any] | None:
+    """Rule A：读 owner 文件（损坏/缺失 → None）。"""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict) and raw.get("pid"):
+            return raw
+    except (OSError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def _current_owner_id() -> dict[str, Any]:
+    """Rule A：当前进程的 owner 身份（boot_id 防跨启动 pid 复用）。"""
+    start_time: str | None = None
+    try:
+        stat = Path(f"/proc/{os.getpid()}/stat").read_text(encoding="utf-8")
+        tail = stat.rsplit(")", 1)[1].split()
+        btime = float(Path("/proc/stat").read_text().split("btime ")[1].split()[0])
+        hz = os.sysconf("SC_CLK_TCK")
+        start_time = str(btime + int(tail[19]) / hz)
+    except (OSError, ValueError, IndexError):
+        pass
+    boot_id = ""
+    try:
+        boot_id = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        pass
+    return {
+        "pid": os.getpid(),
+        "start_time": start_time,
+        "boot_id": boot_id,
+        "cmdline": " ".join(sys.argv[:2]),
+    }
 
 # P1-4 (2026-10-17)【RSI 阶段一-4】: 观察期回退阈值——新参数应用后,
 # 本轮周期结束时强制复评基准,得分较应用前回退超此比例(0.98=回退>2%)
@@ -145,43 +237,117 @@ class DaemonState:
     def load(cls, path: Path) -> DaemonState:
         if path.exists():
             try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                return cls(
-                    last_optimization_time=raw.get("last_optimization_time"),
-                    last_metrics=raw.get("last_metrics", {}),
-                    total_cycles=raw.get("total_cycles", 0),
-                    total_improvements=raw.get("total_improvements", 0),
-                    cycles=raw.get("cycles", []),
-                    best_ever_score=raw.get("best_ever_score"),
-                    best_ever_params=raw.get("best_ever_params", {}),
-                    best_ever_cycle_id=raw.get("best_ever_cycle_id"),
-                    best_ever_goal=raw.get("best_ever_goal"),
-                    benchmark_baseline=raw.get("benchmark_baseline"),
-                    stall_count=raw.get("stall_count", 0),
-                    frozen=raw.get("frozen", False),
-                    frozen_since_cycle=raw.get("frozen_since_cycle"),
-                    frozen_params=raw.get("frozen_params", {}),
-                    frozen_reason=raw.get("frozen_reason", ""),
-                    frozen_skipped=raw.get("frozen_skipped", 0),
-                    strategy_weights=raw.get("strategy_weights"),
-                    # P1-4 (2026-10-17): 首航实证修复——此前 load 白名单漏
-                    # observing：挂单存盘后跨进程全失忆，观察期结算永远
-                    # 不会发生（unit 测试同进程内未暴露）。
-                    observing=raw.get("observing"),
-                )
-            except (json.JSONDecodeError, KeyError):
+                raw_bytes = path.read_bytes()
+                raw = json.loads(raw_bytes.decode("utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("状态文件顶层不是对象")
+                # P1-卫根治 (2026-10-17)：反射全字段往返——dataclasses.fields
+                # 逐字段从盘上取值，缺省用 dataclass 默认。此后**新增字段自动
+                # 持久化/恢复**，结构性消灭「load 白名单漏字段」bug 类
+                # （首航实证：P1-4 加 observing 只改 dataclass 未进白名单 →
+                # 挂单跨进程失忆；同进程 unit 测试无法暴露）。
+                import dataclasses
+
+                kwargs = {
+                    f.name: raw[f.name]
+                    for f in dataclasses.fields(cls)
+                    if f.name in raw
+                }
+                inst = cls(**kwargs)
+                # P1-卫 Rule A：记录加载时盘上指纹——save 时盘 ≠ 此指纹
+                # 且 ≠ 本进程上次写入 → 说明他人改过盘 → 拒写防踩。
+                try:
+                    inst._last_known_sha = hashlib.sha256(raw_bytes).hexdigest()
+                except AttributeError:
+                    pass
+                return inst
+            except (json.JSONDecodeError, TypeError, ValueError):
                 logger.warning("状态文件损坏，使用默认状态")
         return cls()
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path) -> bool:
+        """P1-卫 (2026-10-17)：原子写 + flock + Rule A 单写者/陈旧检查。
+
+        返回 False = **拒写**，两种触发：
+        1) 磁盘 owner 是存活他者进程（单写者铁律——先停对方再接管）；
+        2) 盘上内容 ≠ 本进程最后已知来源（加载时指纹或上次成功写入），
+           且无存活 writer——说明有人绕过本进程直改了盘（CLI reset、
+           手工编辑），陈旧内存覆盖之即「旧内存踩盘」。
+        防线后内存态仍自洽，重载后下轮 save 可成功。
+        """
+        import dataclasses
+
         resolved = path.resolve()
         if not resolved.is_relative_to(Path.cwd()):
             resolved = (Path.cwd() / path).resolve()
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(
-            json.dumps(asdict(self), indent=2, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
+        lock_path = resolved.with_name(resolved.name + ".lock")
+        owner_path = resolved.with_name(resolved.name + STATE_OWNER_SUFFIX)
+        me = _current_owner_id()
+        with _state_lock(lock_path):
+            disk_owner = _read_owner(owner_path)
+            if disk_owner is not None:
+                mine = (
+                    int(disk_owner.get("pid", -1)) == me["pid"]
+                    and disk_owner.get("boot_id", "") == me["boot_id"]
+                )
+                if not mine:
+                    cross_boot = disk_owner.get("boot_id") != me["boot_id"]
+                    foreign_alive = (
+                        not cross_boot
+                        and _process_alive(
+                            int(disk_owner["pid"]),
+                            disk_owner.get("start_time"),
+                        )
+                    )
+                    if foreign_alive:
+                        logger.error(
+                            "[Rule A] 状态文件由存活进程 pid=%s (cmd=%s) 持有，"
+                            "拒绝写入（防旧内存踩盘）；如需接管请先停掉对方",
+                            disk_owner.get("pid"),
+                            disk_owner.get("cmdline", "?"),
+                        )
+                        return False
+            if resolved.exists():
+                try:
+                    disk_sha = hashlib.sha256(resolved.read_bytes()).hexdigest()
+                except OSError:
+                    disk_sha = None
+                last_known = getattr(self, "_last_known_sha", None)
+                if disk_sha is not None and last_known is not None \
+                        and disk_sha != last_known:
+                    logger.error(
+                        "[Rule A] 状态文件在本进程加载/上次写入后已被他人修改"
+                        "（指纹不符，无存活 writer）→ 拒写防覆盖；"
+                        "请 reload_state_from_disk 后重试"
+                    )
+                    return False
+            # 所有权接管（原子写 state + owner）
+            payload = json.dumps(
+                dataclasses.asdict(self),
+                indent=2,
+                ensure_ascii=False,
+                default=str,
+            )
+            tmp = resolved.with_name(resolved.name + ".tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, resolved)
+            self._last_known_sha = hashlib.sha256(
+                payload.encode("utf-8")
+            ).hexdigest()
+            _write_json_atomic(
+                owner_path, {**me, "ts": datetime.now().isoformat()}
+            )
+        return True
+
+    def validate_observing(self) -> bool:
+        """P1-卫 Rule C 辅助：挂单结构校验（缺关键字段=脏单 → 上层清除）。"""
+        if self.observing is None:
+            return True
+        if not isinstance(self.observing, dict):
+            return False
+        required = ("exp_id", "applied_at", "before_score", "params")
+        return all(k in self.observing for k in required)
 
 
 class OptimizationDaemon:
@@ -1079,7 +1245,96 @@ class OptimizationDaemon:
             self._watch_interval *= 6
             self.state.stall_count = 0
 
+    def _state_disk_sha(self) -> str | None:
+        """P1-卫：当前状态文件指纹（save 时比对防陈旧覆盖）。"""
+        try:
+            return hashlib.sha256(self.state_path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    def reload_state_from_disk(self) -> None:
+        """P1-卫 Rule C (2026-10-17)：从盘重载状态（watch 周期前调用）。
+
+        防线一（陈旧内存）：watch 长驻进程若不重载，任何人（人工 CLI
+        reset/rollback、他进程）改盘后，本进程内存态即成史前快照，下次
+        save 必踩盘——首航事故（旧 watch 10-12 内存踩掉 10-17 手术解锁
+        与新挂单）的直接根源。
+        防线二（脏挂单）：重载后跑结构校验，不完整挂单清除+登记
+        （P1-4 挂单由 apply 路径原子挂账，半截单无意义）。
+        重载只覆盖可安全合并的字段；基准分内存镜像同步刷新。
+        """
+        disk = DaemonState.load(self.state_path)
+        self.state = disk
+        if disk.benchmark_baseline is not None:
+            self._last_benchmark_score = disk.benchmark_baseline
+        if not self.state.validate_observing():
+            logger.warning(
+                "[Rule C] 磁盘挂单结构不完整（缺 exp_id/applied_at/"
+                "before_score/params 之一）→ 清除（脏单无结算意义）"
+            )
+            self.state.observing = None
+        if self.state.observing is not None:
+            logger.info(
+                "[Rule C] 从盘恢复挂单 exp=%s（观察期跨周期延续）",
+                self.state.observing.get("exp_id"),
+            )
+
+    def check_startup_consistency(self) -> bool:
+        """P1-卫 Rule C (2026-10-17)：启动一致性校验。
+
+        返回 False = 拒绝启动：
+        1) 存活的他者 owner（单写者铁律——两个 daemon 同时跑=互踩状态）；
+        2) 磁盘状态不可解析（半截文件——此刻接管会把损坏合法化）。
+        owner 文件缺失/陈旧死者/损坏 owner 视为无主（放行）。
+        """
+        owner_path = self.state_path.with_name(
+            self.state_path.name + STATE_OWNER_SUFFIX
+        )
+        me = _current_owner_id()
+        disk_owner = _read_owner(owner_path)
+        if disk_owner is not None:
+            mine = (
+                int(disk_owner.get("pid", -1)) == me["pid"]
+                and disk_owner.get("boot_id", "") == me["boot_id"]
+            )
+            if not mine:
+                cross_boot = disk_owner.get("boot_id") != me["boot_id"]
+                alive = (
+                    not cross_boot
+                    and _process_alive(
+                        int(disk_owner["pid"]), disk_owner.get("start_time")
+                    )
+                )
+                if alive:
+                    logger.error(
+                        "[Rule C] 检测到存活 daemon pid=%s (cmd=%s) 持有状态"
+                        "文件 → 拒绝启动（单写者铁律）。接管前先停对方。",
+                        disk_owner.get("pid"),
+                        disk_owner.get("cmdline", "?"),
+                    )
+                    return False
+        if self.state_path.exists():
+            try:
+                raw = json.loads(self.state_path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    raise ValueError("顶层非对象")
+            except (OSError, json.JSONDecodeError, ValueError):
+                logger.error(
+                    "[Rule C] 状态文件不可解析（半截/损坏）→ 拒绝启动"
+                    "（接管会把损坏合法化）。请人工处理 %s",
+                    self.state_path,
+                )
+                return False
+        return True
+
     def run_watch(self, interval_seconds: int = 300) -> None:
+        # P1-卫 Rule C (2026-10-17)：启动一致性校验——存活他者 owner 或
+        # 状态文件损坏 → 拒绝启动（不进入循环，防双写互踩）。
+        if not self.check_startup_consistency():
+            logger.error("自由化框架启动被拒（一致性校验未过，见上方日志）")
+            return
+        # Rule C-2：成为登记在册的 owner（此后 save 走 mine 分支）。
+        self.state.save(self.state_path)
         # R10-4: 可变间隔——behavior 停滞降频 x6 由 _maybe_rotate_goal 调整
         self._watch_interval = interval_seconds
         logger.info(
@@ -1090,6 +1345,13 @@ class OptimizationDaemon:
         logger.info("按 Ctrl+C 停止")
         try:
             while True:
+                # P1-卫 Rule C-3：周期前从盘重载——人工 reset/rollback、
+                # CLI 单轮 run 等盘上变更对长驻进程可见，防陈旧内存踩盘。
+                try:
+                    self.reload_state_from_disk()
+                    self._disk_sha = self._state_disk_sha()
+                except Exception:  # noqa: BLE001
+                    logger.exception("[Rule C] 周期前重载异常（本轮用内存态）")
                 cycle_result = self.run_cycle()
                 if cycle_result.is_ok and cycle_result.data is not None:
                     cycle = cycle_result.data

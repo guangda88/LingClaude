@@ -512,8 +512,17 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
         interval = args.interval or 300
         daemon.run_watch(interval_seconds=interval)
     elif args.daemon_action == "reset":
+        # P1-卫 Rule C：reset 前一致性校验——存活他者 daemon 在跑时禁重置
+        # （重置会被对方内存态覆盖，白重置）。
+        if not daemon.check_startup_consistency():
+            print("错误: [Rule C] 有存活的 daemon 进程持有状态文件，拒绝重置"
+                  "（先停 watch 服务再重置）")
+            return 1
+        daemon.reload_state_from_disk()  # 以磁盘现值为基础重置（防陈旧内存）
         daemon.state = DaemonState()
-        daemon.state.save(daemon.state_path)
+        if not daemon.state.save(daemon.state_path):
+            print("错误: [Rule A] 状态写入被拒（他者改盘或存活 owner）")
+            return 1
         print_success("状态已重置")
     elif args.daemon_action == "rollback":
         # A1 (2026-10-17) 人工应急回滚：列表/预览/执行三段式

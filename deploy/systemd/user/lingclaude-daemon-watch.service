@@ -1,18 +1,21 @@
 [Unit]
 Description=lingclaude self-optimization daemon watch
-After=network-online.target
-Wants=network-online.target
+# P1-卫: 开机顺序跟主会话目录挂载无关, 保守去掉网络等待(纯本地回放无需外网)
+After=local-fs.target
 
 [Service]
 Type=simple
 WorkingDirectory=/home/ai/lingclaude
 ExecStart=/home/ai/.local/bin/lingclaude daemon watch --interval 300
-Restart=always
+Restart=on-failure
 RestartSec=30s
+# P1-卫(2026-10-17): 5min 内崩 3 次即停止重拉, 防崩溃循环反复写坏状态
 StartLimitIntervalSec=300
-StartLimitBurst=5
+StartLimitBurst=3
 Nice=10
 OOMScoreAdjust=-500
+# P1-卫 Rule A 配套: 单写者由应用层 check_startup_consistency 强制, 崩溃重启
+# 后新进程会因「自己上一世的 owner 文件」跨 boot/死 pid 判定放行接管, 逻辑安全。
 
 [Install]
 WantedBy=default.target
