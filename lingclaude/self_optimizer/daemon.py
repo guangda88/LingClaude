@@ -1143,7 +1143,6 @@ class OptimizationDaemon:
         同单的观察挂单/待结实验，同步结算 rolled_back（原 pending 语义
         天然兼容——只覆盖 pending 行）。
         """
-        target = self._behavior_policy_path()
         try:
             meta = self.artifacts._find_meta(snapshot_id)
         except Exception:
@@ -1152,6 +1151,7 @@ class OptimizationDaemon:
             return Result.fail(
                 f"快照不存在: {snapshot_id}", code="SNAPSHOT_NOT_FOUND"
             )
+        target = str(Path(meta.path).expanduser())  # 恢复实际落点=快照元数据记录的原始路径
         ok, msg = self.artifacts.restore(
             snapshot_id, reason="manual_rollback"
         )
