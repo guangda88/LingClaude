@@ -104,12 +104,25 @@ def _make_flywheel(tmp_path: Path, rows: list[tuple]) -> Path:
     return db
 
 
+def _recent_times() -> tuple[str, str, str]:
+    """P2 修复（2026-10-17）：夹具时间改相对 now——原硬编码 2026-09-28
+    滑出 analyzer 的 7 天窗口（时间炸弹，阶段〇已实证 HEAD 上同红）。"""
+    from datetime import datetime, timedelta
+    base = datetime.now() - timedelta(hours=3)
+    return (
+        base.isoformat(timespec="seconds"),
+        (base + timedelta(minutes=1)).isoformat(timespec="seconds"),
+        (base + timedelta(minutes=2)).isoformat(timespec="seconds"),
+    )
+
+
 def test_cluster_requires_min_sessions(tmp_path):
     # 同型失败但只在 1 个会话 → 不可行动（min_sessions=2）
+    _t0, _t1, _t2 = _recent_times()
     db = _make_flywheel(tmp_path, [
-        ("bash", "real timeout error", "s1", "2026-09-28T10:00:00"),
-        ("bash", "real timeout error", "s1", "2026-09-28T10:01:00"),
-        ("bash", "real timeout error", "s1", "2026-09-28T10:02:00"),
+        ("bash", "real timeout error", "s1", _t0),
+        ("bash", "real timeout error", "s1", _t1),
+        ("bash", "real timeout error", "s1", _t2),
     ])
     a = FailureClusterAnalyzer(db, min_occurrences=3, min_sessions=2)
     r = a.analyze(write=False)
@@ -118,10 +131,11 @@ def test_cluster_requires_min_sessions(tmp_path):
 
 
 def test_cluster_actionable_across_sessions(tmp_path):
+    _t0, _t1, _t2 = _recent_times()
     db = _make_flywheel(tmp_path, [
-        ("bash", "real timeout error", "s1", "2026-09-28T10:00:00"),
-        ("bash", "real timeout error", "s2", "2026-09-28T10:01:00"),
-        ("bash", "real timeout error", "s3", "2026-09-28T10:02:00"),
+        ("bash", "real timeout error", "s1", _t0),
+        ("bash", "real timeout error", "s2", _t1),
+        ("bash", "real timeout error", "s3", _t2),
     ])
     a = FailureClusterAnalyzer(db, min_occurrences=3, min_sessions=2)
     r = a.analyze(write=False)
@@ -136,10 +150,11 @@ def test_cluster_actionable_across_sessions(tmp_path):
 
 def test_cluster_merges_same_signature(tmp_path):
     # JSON 后缀差异的同型错误应合并为单簇
+    _t0, _t1, _t2 = _recent_times()
     db = _make_flywheel(tmp_path, [
-        ("read", '{"error": "\'NoneType\' x \'execute_tool\'"}', "s1", "2026-09-28T10:00:00"),
-        ("read", '{"error": "\'NoneType\' x \'execute_tool\'", "error_code": "E"}', "s2", "2026-09-28T10:01:00"),
-        ("read", '{"error": "\'NoneType\' x \'execute_tool\'"}', "s3", "2026-09-28T10:02:00"),
+        ("read", '{"error": "\'NoneType\' x \'execute_tool\'"}', "s1", _t0),
+        ("read", '{"error": "\'NoneType\' x \'execute_tool\'", "error_code": "E"}', "s2", _t1),
+        ("read", '{"error": "\'NoneType\' x \'execute_tool\'"}', "s3", _t2),
     ])
     a = FailureClusterAnalyzer(db, min_occurrences=2, min_sessions=2)
     r = a.analyze(write=False)
@@ -159,10 +174,11 @@ def test_cluster_missing_db(tmp_path):
 
 def test_analyze_write_idempotent(tmp_path, monkeypatch):
     """同型失败复扫：rule id 稳定，add_rule 同名合并不翻倍。"""
+    _t0, _t1, _t2 = _recent_times()
     db = _make_flywheel(tmp_path, [
-        ("bash", "timeout error real", "s1", "2026-09-28T10:00:00"),
-        ("bash", "timeout error real", "s2", "2026-09-28T10:01:00"),
-        ("bash", "timeout error real", "s3", "2026-09-28T10:02:00"),
+        ("bash", "timeout error real", "s1", _t0),
+        ("bash", "timeout error real", "s2", _t1),
+        ("bash", "timeout error real", "s3", _t2),
     ])
     backlog = tmp_path / "backlog.jsonl"
     a = FailureClusterAnalyzer(db, backlog, min_occurrences=3, min_sessions=2)

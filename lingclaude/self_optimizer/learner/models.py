@@ -85,6 +85,11 @@ class LearnedRule:
     quality_score: float = 0.0
     status: str = "draft"
     created_at: datetime | None = None
+    # P2-11 (2026-10-17)【RSI 阶段二-件11】: 经验三属性打标——
+    # legality（来源合法性）/ difficulty（适用难度）/ persistent_gain
+    # （7 天窗实测收益，verifier 回写）。论文第 6 章「经验三属性」：
+    # 三者不全 → 不得升 active（铁律 6 强化版）；metadata_json 落库。
+    attrs: dict[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.created_at is None:

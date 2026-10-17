@@ -126,6 +126,13 @@ class ExperimentLedger:
             ALTER TABLE experiments ADD COLUMN origin TEXT NOT NULL DEFAULT ''
             """
         ) if not self._has_column("experiments", "origin") else None
+        # P2-9b (2026-10-17)【RSI 阶段二-件9】：搜索策略列——meta-optimizer
+        # 权重表的数据源（按策略聚合 accepted 率，调整「搜哪里」的先验）。
+        conn.execute(
+            """
+            ALTER TABLE experiments ADD COLUMN strategy TEXT NOT NULL DEFAULT ''
+            """
+        ) if not self._has_column("experiments", "strategy") else None
         conn.commit()
 
     def _has_column(self, table: str, column: str) -> bool:
@@ -154,10 +161,13 @@ class ExperimentLedger:
         cycle_id: int | None,
         params: dict,
         score_before: float | None,
+        *,
+        strategy: str = "",
     ) -> str | None:
         """开一张 pending 实验单，返回 experiment_id；失败返回 None。
 
         S0-3: 开单即盖评估器指纹（记录「用哪把尺子量的」）。
+        P2-9b: 记录本轮搜索策略（meta-optimizer 权重表数据源）。
         """
         try:
             from lingclaude.self_optimizer.evaluator_meta import evaluator_meta
@@ -170,8 +180,9 @@ class ExperimentLedger:
                 INSERT INTO experiments
                     (experiment_id, cycle_id, params_json, score_before,
                      verdict, reason, created_at,
-                     evaluator_version, evaluator_fingerprint, origin)
-                VALUES (?, ?, ?, ?, 'pending', '', ?, ?, ?, 'self')
+                     evaluator_version, evaluator_fingerprint, origin,
+                     strategy)
+                VALUES (?, ?, ?, ?, 'pending', '', ?, ?, ?, 'self', ?)
                 """,
                 (
                     exp_id,
@@ -181,6 +192,7 @@ class ExperimentLedger:
                     _now(),
                     meta["evaluator_version"],
                     meta["evaluator_fingerprint"],
+                    strategy,
                 ),
             )
             conn.commit()
@@ -188,6 +200,37 @@ class ExperimentLedger:
         except Exception:
             logger.warning("[F2] 实验开单失败（降级为无台账）", exc_info=True)
             return None
+
+    def strategy_stats(self, *, limit_cycles: int = 30) -> dict[str, dict[str, int]]:
+        """P2-9b【RSI 阶段二-件9】：按策略聚合近 N 轮的 accepted 率。
+
+        meta-optimizer 权重表的数据源。返回 {strategy: {accepted: n, total: m}}。
+        只统计 verdict 已决（accepted/rejected/rolled_back）的单，pending 不计。
+        """
+        try:
+            conn = self._get_connection()
+            cur = conn.execute(
+                """
+                SELECT strategy, verdict, COUNT(*) FROM experiments
+                WHERE strategy != ''
+                  AND verdict IN ('accepted', 'rejected', 'rolled_back')
+                  AND cycle_id IS NOT NULL
+                GROUP BY strategy, verdict
+                ORDER BY cycle_id DESC
+                LIMIT ?
+                """,
+                (limit_cycles * 8,),  # 粗界：每轮最多 8 条已决单
+            )
+            stats: dict[str, dict[str, int]] = {}
+            for strat, verdict, n in cur.fetchall():
+                bucket = stats.setdefault(strat, {"accepted": 0, "total": 0})
+                bucket["total"] += n
+                if verdict == "accepted":
+                    bucket["accepted"] += n
+            return stats
+        except Exception:
+            logger.warning("[P2-9b] strategy_stats 聚合失败（fail-soft）", exc_info=True)
+            return {}
 
     def settle(
         self,

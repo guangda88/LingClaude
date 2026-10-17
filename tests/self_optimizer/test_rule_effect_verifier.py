@@ -40,6 +40,11 @@ def _make_rule(rule_id: str, sig: str, tool: str = "bash",
         frequency=5,
         confidence=conf,
         status=status,
+        # P2-11 (2026-10-17): 三属性默认补齐——新契约下三属性不全会拦截
+        # 晋升（draft 永不得升 active）。需要测「属性不全拦截」的用例
+        # 在 test_rsi_p2_strategy_meta.py 已有专测；存量回放分支测试关注
+        # 的是 verdict 语义，统一给完整属性避免全体晋升被闸。
+        attrs={"legality": "auto", "difficulty": "low", "persistent_gain": 0.5},
     )
 
 

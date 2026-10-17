@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import random
 
 from lingclaude.core.types import Result
 from lingclaude.core.config import lingclaudeConfig, load_config
@@ -31,6 +32,20 @@ MAX_RULES_PER_24H = 2     #: 24h 窗口自优化规则净入库上限
 P1_OBSERVE_REGRESSION_RATIO = 0.98
 #: 观察单时效（小时，A2-1 兜底）：超时未结算 → 恢复快照 + obs_stale 终态
 P1_OBSERVING_TTL_HOURS = 48.0
+
+# P2-9 (2026-10-17)【RSI 阶段二-件9】：Strategy 入 Target。
+# lingminopt 合法策略白名单（lingminopt/core/strategy.py:_STRATEGY_REGISTRY
+# 实测五值）——权重表键只认白名单，防状态文件被手改后注入非法策略名。
+P2_STRATEGY_WHITELIST = ("random", "grid", "bayesian", "annealing", "tpe")
+#: 每策略启动权重（无台账证据时的均匀先验）
+P2_STRATEGY_DEFAULT_WEIGHT = 0.2
+#: meta-optimizer 调权周期：每 N 个周期聚合一次台账调整权重表
+P2_META_ADJUST_EVERY = 10
+#: 单策略证据门槛：台账已决单 < 此数不动该策略权重（防小样本过拟合）
+P2_META_MIN_SAMPLES = 3
+#: 权重上下限：胜者封顶防一家独大饿死探索，败者保底防彻底出局
+P2_META_WEIGHT_MIN = 0.1
+P2_META_WEIGHT_MAX = 0.6
 
 from lingclaude.self_optimizer.optimizer import (
     OptimizationRequest,
@@ -82,6 +97,9 @@ class OptimizationCycle:
     # P1-7 (2026-10-17)【RSI 阶段一-7】: 台账串联合——活动台账与审计
     # 事件流靠它贯通 start→settle→快照。默认 None=旧构造点兼容。
     experiment_id: str | None = None
+    # P2-9a (2026-10-17)【RSI 阶段二-件9】: 本轮使用的搜索策略（台账
+    # 串联 strategy 字段同源）；None=旧构造点/降级路径兼容。
+    strategy: str | None = None
 
 
 @dataclass
@@ -111,6 +129,12 @@ class DaemonState:
     frozen_params: dict[str, Any] = field(default_factory=dict)
     frozen_reason: str = ""
     frozen_skipped: int = 0  #: 冻结期间已跳过的轮数（退避计数用）
+    # P2-9 (2026-10-17)【RSI 阶段二-件9】：Strategy 入 Target——搜索策略
+    # 权重表 {strategy: weight}。七要素中 Strategy 从「写死的常量」升格为
+    # 可改进对象：meta-optimizer 按台账 accepted 率周期性调整（件9b），
+    # daemon 每轮按权重随机选策略。asdict 整体落盘，旧状态文件无此字段
+    # → load 后补默认（None 哨兵）。
+    strategy_weights: dict[str, float] | None = None
     # P1-4 (2026-10-17)【RSI 阶段一-4】: 观察期挂单——新参数应用后的
     # 观察窗起点（本字段在窗内非空）。观察期内基准复评回退 → 恢复
     # last-known-good 快照并结算 rolled_back（可停）。旧状态文件无字段
@@ -139,6 +163,7 @@ class DaemonState:
                     frozen_params=raw.get("frozen_params", {}),
                     frozen_reason=raw.get("frozen_reason", ""),
                     frozen_skipped=raw.get("frozen_skipped", 0),
+                    strategy_weights=raw.get("strategy_weights"),
                 )
             except (json.JSONDecodeError, KeyError):
                 logger.warning("状态文件损坏，使用默认状态")
@@ -565,11 +590,19 @@ class OptimizationDaemon:
         score_before: float | None = None if is_behavior else float(violations_before)
         start = time.monotonic()
 
+        # P2-9a: Strategy 入 Target——本轮策略由权重表选出，seed 按 cycle
+        # 序号派生（同轮可复现，跨轮新采样）。
+        p2_strategy = self._pick_strategy()
+        p2_seed = 42 + (self.state.total_cycles + 1) * 1009
         request = OptimizationRequest(
             target=self.target,
             goal=self._current_goal(),  # R10-4: 运行时 goal（轮换后≠config 档）
             params={},
-            config={"max_experiments": self.config.optimizer.max_trials},
+            config={
+                "max_experiments": self.config.optimizer.max_trials,
+                "strategy": p2_strategy,
+                "seed": p2_seed,
+            },
         )
         result = self.optimizer.optimize(request)
         duration = time.monotonic() - start
@@ -689,7 +722,8 @@ class OptimizationDaemon:
                 # F2 归因链：本轮 best_params 被门禁拒绝 → 结算 rejected。
                 # score_before 取行为基准分（门禁语义，与 score_after 可比）。
                 exp_id = self.experiments.start(
-                    self.state.total_cycles + 1, result.best_params, bench_before.score
+                    self.state.total_cycles + 1, result.best_params, bench_before.score,
+                    strategy=p2_strategy,
                 )
                 logger.warning(
                     "[P0门禁] 参数联动复测回退 %.1f → %.1f，本轮 best_params 拒绝应用"
@@ -735,6 +769,7 @@ class OptimizationDaemon:
         exp_id = self.experiments.start(
             self.state.total_cycles + 1, result.best_params,
             score_before if score_before is not None else violations_before,
+            strategy=p2_strategy,
         )
         best_ever = self.state.best_ever_score
         # S0-2 速率闸（参数侧）：24h accepted 计数达上限 → 本轮只评估不应用。
@@ -772,6 +807,8 @@ class OptimizationDaemon:
                 ),
                 violations_after=violations_after,
                 report_path="",
+                experiment_id=exp_id,
+                strategy=p2_strategy,
             )
             self._record_cycle(cycle)
             return Result.ok(cycle)
@@ -818,6 +855,7 @@ class OptimizationDaemon:
                     ),
                     violations_after=violations_after,
                     report_path=str(report_path),
+                    strategy=p2_strategy,
                 )
                 self._record_cycle(cycle)
                 return Result.ok(cycle)
@@ -898,6 +936,7 @@ class OptimizationDaemon:
             violations_after=int(violations_after),
             report_path=str(report_path),
             experiment_id=exp_id,
+            strategy=p2_strategy,
         )
 
         self._record_cycle(cycle)
@@ -920,6 +959,74 @@ class OptimizationDaemon:
         return self._runtime_goal or getattr(
             self.config.optimizer, "goal", "structure"
         )
+
+    # ------------------------------------------------------------------ #
+    # P2-9 (2026-10-17)【RSI 阶段二-件9】: Strategy 入 Target
+    # ------------------------------------------------------------------ #
+    def _pick_strategy(self) -> str:
+        """按权重表随机选本轮搜索策略（权重随机≠拍脑袋：等价于 Thompson 采样的先验形式）。
+
+        权重表为空/键非法时回退白名单均匀先验；cycle 序号派生 seed 保证
+        同轮可复现、跨轮有差异。
+        """
+        weights = self.state.strategy_weights or {}
+        clean = {
+            s: float(w)
+            for s, w in weights.items()
+            if s in P2_STRATEGY_WHITELIST and w > 0
+        }
+        if not clean:
+            clean = {s: P2_STRATEGY_DEFAULT_WEIGHT for s in P2_STRATEGY_WHITELIST}
+        total = sum(clean.values())
+        r = random.random() * total
+        acc = 0.0
+        for strat, w in clean.items():
+            acc += w
+            if r <= acc:
+                return strat
+        return next(iter(clean))  # 浮点边界兜底
+
+    def _maybe_adjust_strategy_weights(self) -> None:
+        """件9b：meta-optimizer——每 N 周期聚合台账，按策略 accepted 率调权重。
+
+        纪律（对齐阶段〇精神）：证据不足不动（MIN_SAMPLES）、更新有界
+        （[0.1, 0.6]）、全部 fail-soft 不阻断主流程。被调对象是「搜哪里」
+        的先验，不是评估器/闸门——治理不变量不受影响。
+        """
+        try:
+            if self.state.total_cycles <= 0 or (
+                self.state.total_cycles % P2_META_ADJUST_EVERY != 0
+            ):
+                return
+            stats = self.experiments.strategy_stats()
+            if not stats:
+                return
+            updated: dict[str, float] = {}
+            for strat in P2_STRATEGY_WHITELIST:
+                b = stats.get(strat) or {}
+                if b.get("total", 0) < P2_META_MIN_SAMPLES:
+                    continue  # 证据不足：维持现权重（不进更新集）
+                rate = b["accepted"] / max(b["total"], 1)
+                updated[strat] = min(
+                    P2_META_WEIGHT_MAX, max(P2_META_WEIGHT_MIN, rate * 1.5)
+                )
+            if not updated:
+                return
+            old = self.state.strategy_weights or {}
+            # 未进更新集的策略：保留旧权重（有则），否则均匀先验
+            merged = {
+                s: updated.get(s, old.get(s, P2_STRATEGY_DEFAULT_WEIGHT))
+                for s in P2_STRATEGY_WHITELIST
+            }
+            self.state.strategy_weights = merged
+            self.state.save(self.state_path)
+            logger.warning(
+                "[P2-9b] meta-optimizer 权重表更新（第 %d 周期）：%s",
+                self.state.total_cycles,
+                merged,
+            )
+        except Exception:
+            logger.warning("[P2-9b] 权重调整失败（fail-soft）", exc_info=True)
 
     def _maybe_rotate_goal(self) -> None:
         """R10-4 (2026-09-23): 停滞轮换——目标饱和时不再空耗预算。
@@ -1465,12 +1572,18 @@ class OptimizationDaemon:
                 "violations_before": cycle.violations_before,
                 "violations_after": cycle.violations_after,
                 "report_path": cycle.report_path,
+                # P2-9a: 台账串联合——strategy 与 experiment_id 同源记录
+                "strategy": cycle.strategy,
+                "experiment_id": cycle.experiment_id,
             }
         )
         if len(self.state.cycles) > 100:
             self.state.cycles = self.state.cycles[-100:]
         self.state.save(self.state_path)
         self._record_quality_to_metrics(cycle)
+        # P2-9b: meta-optimizer——每 N 周期聚合台账调权重表（Strategy 成为
+        # 可改进对象）。fail-soft，位置在 total_cycles 递增后（以新计数判齐）。
+        self._maybe_adjust_strategy_weights()
         # P1-7 (2026-10-17)【RSI 阶段一-7】: 改进活动台账——每周期一行
         # append（jsonl，与 verify_log 同构），带 origin 归因位。
         # 观测件：写失败不阻塞主循环。
@@ -1506,6 +1619,7 @@ class OptimizationDaemon:
             "trigger_type": cycle.trigger_type,
             "goal": self._current_goal(),
             "origin": origin,
+            "strategy": cycle.strategy,  # P2-9a: 本轮搜索策略
             "best_score": cycle.best_score,
             "v_before": cycle.violations_before,
             "v_after": cycle.violations_after,

@@ -60,6 +60,10 @@ class RuleVerdict:
     new_confidence: float | None = None
     new_status: str | None = None
     note: str = ""
+    # P2-11【RSI 阶段二-件11】: 三属性不全标记（晋升闸依据）+
+    # 本轮回放实测收益（(before-after)/before，回写进 attrs）。
+    attrs_incomplete: bool = False
+    measured_gain: float | None = None
 
 
 @dataclass
@@ -122,6 +126,7 @@ class RuleEffectVerifier:
         只回放 failure_cluster_*（断点③产物，pattern 里有 error_signature 可匹配
         error_log）。其他类别规则（best_practice/audit 等）没有可归因的失败签名，
         跳过（verdict=skipped 不计入）。
+        P2-11: 附带 attrs（三属性晋升闸的输入）。
         """
         res = kb.get_all_rules(limit=10000)
         if not res.is_ok or not res.data:
@@ -141,7 +146,7 @@ class RuleEffectVerifier:
                 sig = kws[-1] if len(kws) > 1 else ""
             if not sig:
                 continue
-            out.append((r.id, sig, tool, r.status, float(r.confidence)))
+            out.append((r.id, sig, tool, r.status, float(r.confidence), dict(r.attrs)))
         return out
 
     # ------------------------------------------------------------------ #
@@ -184,8 +189,20 @@ class RuleEffectVerifier:
         tool_name: str,
         status: str,
         confidence: float,
+        attrs: dict | None = None,
     ) -> RuleVerdict:
         v = RuleVerdict(rule_id=rule_id, signature=signature, tool_name=tool_name)
+        attrs = attrs or {}
+        # P2-11【RSI 阶段二-件11】: 三属性晋升闸——legality（来源合法）
+        # / difficulty（适用难度）/ persistent_gain（实测收益）三者不全
+        # → 不得升 active（铁律 6 强化版：即使回放改善也只持 draft，待
+        # 属性补全的下一轮再放行）。
+        attrs_complete = all(
+            attrs.get(k) not in (None, "")
+            for k in ("legality", "difficulty", "persistent_gain")
+        )
+        if not attrs_complete and status == "draft":
+            v.attrs_incomplete = True
 
         first = kb.get_first_injection_time(rule_id)
         if not first.is_ok or not first.data:
@@ -231,13 +248,22 @@ class RuleEffectVerifier:
             return v
 
         v.delta_ratio = (v.before_density - v.after_density) / v.before_density
+        v.measured_gain = v.delta_ratio  # P2-11: 实测收益（回写 attrs 用）
 
         if v.delta_ratio >= IMPROVE_THRESHOLD:
             v.verdict = "improved"
             v.new_confidence = min(CONF_CAP, confidence + CONF_STEP_UP)
             # 铁律 6：验证通过才升 active
-            v.new_status = "active" if status == "draft" else None
-            v.note = f"同类失败密度下降 {v.delta_ratio:.0%}（{v.before_density:.2f}→{v.after_density:.2f}/会话）"
+            # P2-11 强化：三属性不全 → 即便回放改善也持 draft（闸拦截）
+            if v.attrs_incomplete:
+                v.new_status = None
+                v.note = (
+                    f"同类失败密度下降 {v.delta_ratio:.0%}，但三属性不全"
+                    "（legality/difficulty/persistent_gain）→ 暂持 draft"
+                )
+            else:
+                v.new_status = "active" if status == "draft" else None
+                v.note = f"同类失败密度下降 {v.delta_ratio:.0%}（{v.before_density:.2f}→{v.after_density:.2f}/会话）"
         elif v.delta_ratio <= -IMPROVE_THRESHOLD:
             # 注入后同类失败反而显著上升 → 规则可能误导（harmful）
             v.verdict = "harmful"
@@ -265,6 +291,47 @@ class RuleEffectVerifier:
     # ------------------------------------------------------------------ #
     # 主入口
     # ------------------------------------------------------------------ #
+    #: active 规则无收益降级时限（天，P2-11 终案-件11）
+    STALE_ACTIVE_DAYS = 90
+
+    def _demote_stale_active(self, kb) -> int:
+        """P2-11: active 规则 90 天无实测收益 → 降回 draft。
+
+        判据（二者同时满足才降，保守）：
+        1. last_verified_at 距今 > 90 天（长期未被回放）或回放早已完成
+        2. persistent_gain ≤ 0 或缺失（从未证明有收益）
+
+        返回降级条数（供日志/测试）。只动 active，不碰 draft/active 之外
+        的状态（deprecated 不复活、harmful 已由回放链处理）。
+        """
+        demoted = 0
+        res = kb.get_all_rules(status="active", limit=10000)
+        if not res.is_ok or not res.data:
+            return 0
+        cutoff = datetime.now() - timedelta(days=self.STALE_ACTIVE_DAYS)
+        for r in res.data:
+            attrs = r.attrs or {}
+            gain = attrs.get("persistent_gain")
+            verified_at = attrs.get("last_verified_at")
+            # 收益证据：从未回放（无 gain）或实测 ≤ 0 都算「无收益」
+            no_gain = gain is None or (isinstance(gain, (int, float)) and gain <= 0)
+            # 时间证据：从未回放或最近回放距今超限
+            stale = True
+            if verified_at:
+                try:
+                    stale = datetime.fromisoformat(str(verified_at)) < cutoff
+                except ValueError:
+                    stale = True  # 时间格式异常按最旧处理
+            if no_gain and stale:
+                out = kb.update_rule_status(r.id, "draft")
+                if out.is_ok:
+                    demoted += 1
+                    logger.info(
+                        "[P2-11] active 规则 %s 天无收益降级 draft（gain=%r）",
+                        r.id, gain,
+                    )
+        return demoted
+
     def verify(self, *, write: bool = True) -> VerifyResult:
         """跑一轮规则行为回放验证。fail-soft，不抛异常。"""
         result = VerifyResult()
@@ -282,17 +349,46 @@ class RuleEffectVerifier:
                 else KnowledgeBase()
             )
             conn = self._connect_flywheel()
+            # P2-11: 90 天无收益降级——active 规则若 last_verified_at
+            # 距今超 90 天且 persistent_gain ≤ 0（或从未回放过 gain），
+            # 降回 draft（退出注入热路，等价「停止续约」而非删除）。
+            # 终案-件11：三属性打标的生命线——长期无收益的 active 不得
+            # 永久占据注入位。
+            if write:
+                try:
+                    self._demote_stale_active(kb)
+                except Exception:  # noqa: BLE001 — 降级失败不阻断主验证
+                    logger.debug("90天降级扫描失败（fail-soft）", exc_info=True)
             candidates = self._candidate_rules(kb)
             result.examined = len(candidates)
 
-            for rule_id, sig, tool, status, conf in candidates:
+            for rule_id, sig, tool, status, conf, attrs in candidates:
                 try:
-                    v = self._verify_one(conn, kb, rule_id, sig, tool, status, conf)
+                    v = self._verify_one(
+                        conn, kb, rule_id, sig, tool, status, conf, attrs=attrs
+                    )
                 except Exception as e:  # noqa: BLE001 — 单条失败不阻断整轮
                     logger.warning("规则回放异常 %s: %s", rule_id, e)
                     continue
                 result.verdicts.append(v)
                 setattr(result, v.verdict, getattr(result, v.verdict, 0) + 1)
+
+                # P2-11: persistent_gain 回写——每轮实测收益记入 attrs
+                #（三属性之一由此闭环；属性不全的 draft 也记，为下轮
+                # 晋升闸放行攒证据）。
+                if write and v.measured_gain is not None:
+                    try:
+                        kb.update_rule_attrs(
+                            rule_id,
+                            {
+                                "persistent_gain": round(v.measured_gain, 4),
+                                "last_verified_at": datetime.now().isoformat(
+                                    timespec="seconds"
+                                ),
+                            },
+                        )
+                    except Exception:  # noqa: BLE001 — 回写失败不阻断
+                        logger.debug("gain 回写失败 %s", rule_id)
 
                 if write and (v.new_confidence is not None or v.new_status):
                     if v.new_confidence is not None:

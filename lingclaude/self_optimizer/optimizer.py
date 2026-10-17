@@ -193,12 +193,16 @@ class SynchronousOptimizer:
                 time_budget=300.0,
             )
 
+            # P2-9a (2026-10-17)【RSI 阶段二-件9】：seed 不再硬编码——
+            # 由 daemon 按 cycle 序号派生传入（可复现实验：同 seed 同结果，
+            # 换 seed 才是新采样）。缺省回退 42 保持旧行为兼容。
+            seed = int(request.config.get("seed", 42))
             opt = MinimalOptimizer(
                 evaluate=evaluator.evaluate,
                 search_space=space,
                 config=experiment_config,
                 search_strategy=strategy,
-                seed=42,
+                seed=seed,
             )
 
             lm_result = opt.run()

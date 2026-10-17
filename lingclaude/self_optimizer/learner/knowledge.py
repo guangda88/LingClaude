@@ -126,6 +126,9 @@ class KnowledgeBase:
             row = cursor.fetchone()
             if row is not None:
                 # 同 id：upsert（先删后插，等价旧 INSERT OR REPLACE）
+                # P2-11: 先读旧 attrs——DELETE+INSERT 会冲掉 metadata_json
+                # 里 verifier 回写的 persistent_gain（attrs 合并保留）。
+                existing_attrs = self._load_attrs(conn, rule.id)
                 cursor.execute("DELETE FROM rules WHERE id = ?", (rule.id,))
             else:
                 # 异 id 同名：合并（F3-1 核心——不再新增行）
@@ -181,7 +184,16 @@ class KnowledgeBase:
                     rule.status,
                     rule.created_at.isoformat() if rule.created_at else now,
                     now,
-                    json.dumps({}),
+                    # P2-11: attrs 三属性落 metadata_json——与已有值合并
+                    # 保留（upsert/重扫不冲掉 verifier 回写的 persistent_gain）
+                    json.dumps(
+                        {
+                            **(existing_attrs if row is not None else {}),
+                            **self._load_attrs(conn, rule.id),
+                            **(rule.attrs or {}),
+                        },
+                        ensure_ascii=False,
+                    ),
                 ),
             )
             safe_commit(conn)
@@ -189,6 +201,20 @@ class KnowledgeBase:
         except Exception as e:
             logger.warning("添加规则失败: %s", rule.id, exc_info=True)
             return Result.fail(f"Failed to add rule: {e}", code="DB_ERROR")
+
+    def _load_attrs(self, conn: sqlite3.Connection, rule_id: str) -> dict:
+        """读既有 metadata_json（P2-11 attrs 合并写入用）。缺失/损坏 → 空。"""
+        try:
+            cur = conn.execute(
+                "SELECT metadata_json FROM rules WHERE id = ?", (rule_id,)
+            )
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return {}
+            data = json.loads(row[0])
+            return data if isinstance(data, dict) else {}
+        except Exception:  # noqa: BLE001 — 属性读取失败不阻塞入库
+            return {}
 
     def add_rules_batch(self, rules: list[LearnedRule]) -> Result[int]:
         count = 0
@@ -272,6 +298,26 @@ class KnowledgeBase:
         except Exception as e:
             logger.warning("更新规则状态失败: %s", rule_id, exc_info=True)
             return Result.fail(f"Failed to update rule status: {e}", code="DB_ERROR")
+
+    def update_rule_attrs(self, rule_id: str, attrs: dict) -> Result[bool]:
+        """P2-11: 合并更新规则属性（metadata_json），verifier 回写 gain 用。"""
+        try:
+            conn = self._get_connection()
+            existing = self._load_attrs(conn, rule_id)
+            merged = {**existing, **(attrs or {})}
+            conn.execute(
+                "UPDATE rules SET metadata_json = ?, updated_at = ? WHERE id = ?",
+                (
+                    json.dumps(merged, ensure_ascii=False),
+                    datetime.now().isoformat(),
+                    rule_id,
+                ),
+            )
+            safe_commit(conn)
+            return Result.ok(True)
+        except Exception as e:
+            logger.warning("更新规则属性失败: %s", rule_id, exc_info=True)
+            return Result.fail(f"Failed to update attrs: {e}", code="DB_ERROR")
 
     def update_rule_confidence(self, rule_id: str, confidence: float) -> Result[bool]:
         """更新规则置信度（断点②行为回放验证的降权/升权入口）。"""
@@ -381,6 +427,14 @@ class KnowledgeBase:
             severity_distribution=pattern_data.get("severity_distribution", {}),
             tool_support=tuple(pattern_data.get("tool_support", [])),
         )
+        # P2-11: 三属性从 metadata_json 读回（历史行无/损坏 → 空表，属
+        # 「属性不全」态，自然被晋升闸拦截）
+        try:
+            attrs = json.loads(row["metadata_json"] or "{}")
+            if not isinstance(attrs, dict):
+                attrs = {}
+        except (json.JSONDecodeError, TypeError):
+            attrs = {}
 
         return LearnedRule(
             id=row["id"],
@@ -394,6 +448,7 @@ class KnowledgeBase:
             quality_score=row["quality_score"],
             status=row["status"],
             created_at=datetime.fromisoformat(row["created_at"]),
+            attrs=attrs,
         )
 
 

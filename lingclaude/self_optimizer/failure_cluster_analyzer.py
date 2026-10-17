@@ -95,6 +95,12 @@ class FailureCluster:
     sample_message: str = ""         # 一条原始样本（供人工复核）
     hypothesis: str = ""             # 根因假设（启发式生成）
     fix_suggestion: str = ""         # 修复建议（进 backlog）
+    # P2-10 (2026-10-17)【RSI 阶段二-件10】: 跨组件诊断三元组——
+    # component=归因组件（data/context/tool_api/model/harness）、
+    # intervention=干预假设 dict（target/expected_metric/disprove_if）。
+    # 每次只改一个因素受控对比（终案-件10 纪律）。
+    component: str = ""
+    intervention: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -161,6 +167,73 @@ def _hypothesize(tool: str, sig: str) -> tuple[str, str]:
         f"工具 {tool} 反复同型失败（签名: {sig[:60]}）——需人工深挖根因",
         "对该聚类取样本人工复核，确认是可自动修复的系统性问题还是环境噪声",
     )
+
+
+# ---------------------------------------------------------------------- #
+# P2-10 (2026-10-17)【RSI 阶段二-件10】: 跨组件诊断插片
+# ---------------------------------------------------------------------- #
+#: 合法组件维度（干预假设的归因对象枚举）
+COMPONENTS = ("data", "context", "tool_api", "model", "harness")
+
+
+def _classify_component(tool: str, sig: str) -> str:
+    """错误签名 → 组件归因（规则化首版，可解释优先；误归因可由反证条件纠偏）。
+
+    维度语义：data=输入数据 / context=上下文与检索 / tool_api=工具契约
+    与实现 / model=模型侧（配额·网络·生成质量） / harness=宿主框架缺陷。
+    """
+    t = (tool or "").lower()
+    if "proxy" in t or "provider" in t or "model" in t or "llm" in t:
+        return "model"
+    if "retriev" in t or "memory" in t or "context" in t or "search" in t:
+        return "context"
+    # 签名侧：网络/配额类失败归 model（与工具无关的传输层故障）
+    if "connection" in sig or "429" in sig or "timeout" in sig or "timed out" in sig:
+        return "model"
+    # 权限/不存在类多为 harness 配置或路径基准问题
+    if "permission" in sig or "blocked" in sig or "sandbox" in sig:
+        return "harness"
+    if "no such file" in sig or "not found" in sig:
+        return "data"
+    # 兜底：报错发生在具体工具上 → 工具契约/实现
+    return "tool_api"
+
+
+def _intervention(component: str, sig: str) -> dict[str, str]:
+    """组件归因 → 干预假设三元组（干预对象/预期指标/反证条件）。
+
+    终案-件10 纪律：每次只改一个因素受控对比——反证条件给「假设错了
+    怎么发现」留门（干预后指标不降反升/无变化且样本充足 → 假设证伪）。
+    """
+    base = {
+        "data": {
+            "target": "输入数据源（样本质量/路径基准/编码）",
+            "expected_metric": "该签名失败密度（/会话）下降 ≥30%",
+            "disprove_if": "干预后密度未降且样本 ≥4 会话 → data 归因证伪，转查 context",
+        },
+        "context": {
+            "target": "上下文装配链（检索关键词/注入顺序/窗口预算）",
+            "expected_metric": "该签名失败密度（/会话）下降 ≥30%",
+            "disprove_if": "干预后密度未降且样本 ≥4 会话 → context 归因证伪，转查 tool_api",
+        },
+        "tool_api": {
+            "target": "工具实现（入参契约/错误返回/重试语义）",
+            "expected_metric": "该签名失败密度（/会话）下降 ≥30%",
+            "disprove_if": "干预后密度未降且样本 ≥4 会话 → tool_api 归因证伪，转查 harness",
+        },
+        "model": {
+            "target": "模型侧（provider 预检/429 熔断切换/重试退避）",
+            "expected_metric": "该签名失败密度（/会话）下降 ≥30%",
+            "disprove_if": "provider 健康而失败仍在且样本 ≥4 会话 → model 归因证伪，转查 data",
+        },
+        "harness": {
+            "target": "宿主框架（权限配置/sandbox 规则/路径解析）",
+            "expected_metric": "该签名失败密度（/会话）下降 ≥30%",
+            "disprove_if": "干预后密度未降且样本 ≥4 会话 → harness 归因证伪，人工深挖",
+        },
+    }[component]
+    return dict(base)
+
 
 
 class FailureClusterAnalyzer:
@@ -237,6 +310,8 @@ class FailureClusterAnalyzer:
             if b["count"] < self.min_occurrences:
                 continue
             hypo, fix = _hypothesize(tool, sig)
+            # P2-10: 组件归因 + 干预假设（受控对比三元组）
+            comp = _classify_component(tool, sig.lower())
             clusters.append(FailureCluster(
                 cluster_key=f"{tool}::{sig[:80]}",
                 tool_name=tool,
@@ -248,6 +323,8 @@ class FailureClusterAnalyzer:
                 sample_message=(b["sample"] or "")[:200],
                 hypothesis=hypo,
                 fix_suggestion=fix,
+                component=comp,
+                intervention=_intervention(comp, sig.lower()),
             ))
         # 按跨会话数 × 频次排序，最可归因的在前
         clusters.sort(key=lambda c: (c.distinct_sessions, c.occurrences), reverse=True)
@@ -343,6 +420,12 @@ class FailureClusterAnalyzer:
                         "hypothesis": c.hypothesis,
                         "fix_suggestion": c.fix_suggestion,
                         "sample": c.sample_message,
+                        # P2-10: 受控对比三元组——组件归因 + 干预对象 +
+                        # 预期指标 + 反证条件（每次只改一个因素）
+                        "component": c.component,
+                        "intervention_target": c.intervention.get("target", ""),
+                        "expected_metric": c.intervention.get("expected_metric", ""),
+                        "disprove_if": c.intervention.get("disprove_if", ""),
                     }, ensure_ascii=False) + "\n")
                     result.backlog_appended += 1
             if not new_items and actionable:
