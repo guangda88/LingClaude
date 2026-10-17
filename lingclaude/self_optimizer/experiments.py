@@ -117,6 +117,15 @@ class ExperimentLedger:
             ALTER TABLE experiments ADD COLUMN evaluator_fingerprint TEXT NOT NULL DEFAULT ''
             """
         ) if not self._has_column("experiments", "evaluator_fingerprint") else None
+        # P1-7 (2026-10-17): artifact_origin 归因列（ac-P2-1 提前合并）——
+        # 每条变更记录「谁改的」：self=自优化回路 / human=人工 / external=
+        # 外部工具。当前回路写入恒为 self；人工改 behavior_policy.yaml
+        # 不经本台账（未来可由 startup_watch 指纹漂移检测补录 external）。
+        conn.execute(
+            """
+            ALTER TABLE experiments ADD COLUMN origin TEXT NOT NULL DEFAULT ''
+            """
+        ) if not self._has_column("experiments", "origin") else None
         conn.commit()
 
     def _has_column(self, table: str, column: str) -> bool:
@@ -161,8 +170,8 @@ class ExperimentLedger:
                 INSERT INTO experiments
                     (experiment_id, cycle_id, params_json, score_before,
                      verdict, reason, created_at,
-                     evaluator_version, evaluator_fingerprint)
-                VALUES (?, ?, ?, ?, 'pending', '', ?, ?, ?)
+                     evaluator_version, evaluator_fingerprint, origin)
+                VALUES (?, ?, ?, ?, 'pending', '', ?, ?, ?, 'self')
                 """,
                 (
                     exp_id,
@@ -278,6 +287,32 @@ class ExperimentLedger:
     # 阈值执行在 daemon.run_cycle 入口；本方法只负责诚实计数（失败降级 0，
     # 注意降级语义 = 放行：台账不可用时不阻塞优化循环，与 F2 纪律一致）。
     # ------------------------------------------------------------------ #
+    def rolled_back_rate(self, days: float = 30.0) -> float | None:
+        """近 N 天已结算单中 rolled_back 占比（P1-6 复发分量数据源）。
+
+        无已结算单 → None（分量弃权，不造假数据）。
+        """
+        try:
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat(
+                timespec="seconds"
+            )
+            conn = self._get_connection()
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN verdict = 'rolled_back' THEN 1 ELSE 0 END) AS rb
+                FROM experiments
+                WHERE decided_at IS NOT NULL AND decided_at >= ?
+                """,
+                (cutoff,),
+            ).fetchone()
+            total = int(row["total"] or 0)
+            if total == 0:
+                return None
+            return float(row["rb"] or 0) / total
+        except Exception:
+            return None
+
     def accepted_in_window(self, hours: float = 24.0) -> int:
         try:
             # 边界必须与 _now()/decided_at 同基准（本地无时区，timespec=秒）——
@@ -329,6 +364,19 @@ class ExperimentLedger:
         except Exception:
             logger.warning("[F7] 回滚查询失败", exc_info=True)
             return []
+
+    def get(self, experiment_id: str) -> dict | None:
+        """按 id 取单（P1-7 断链检测用）。无/故障 → None。"""
+        try:
+            conn = self._get_connection()
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM experiments WHERE experiment_id = ?",
+                (experiment_id,),
+            ).fetchone()
+            return dict(row) if row else None
+        except Exception:
+            return None
 
     def rollback_streak(self, params: dict, reason: str) -> int:
         """同参数组合+同因 rolled_back 的**连续**条数（新→旧遇到第一条

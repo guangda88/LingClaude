@@ -63,12 +63,17 @@ class SessionTrace:
 def load_traces(
     db_path: str | Path,
     max_sessions: int = 2000,
+    since: str | None = None,
 ) -> list[SessionTrace]:
     """从 data_flywheel.db 读双边事件，按 session 聚合成回放轨迹。
 
     F6 (2026-09-23): 优先读 tool_events 双边表（成功+失败完整时序），
     表空/缺失时回退 error_log 单边语料（纯失败序列，success 全 False）。
     只读；库不存在时返回空表（调用方回退默认参数评分，graceful）。
+
+    P1-5 (2026-10-17): since 非空时仅取 occurred_at >= since 的事件
+    （ISO 字符串字典序比较，与 occurred_at 同源同格式）——继承反向
+    配对用「近期语料」重验旧基线，防「赢在历史、输在现在」。
     """
 
     path = Path(db_path).expanduser()
@@ -81,12 +86,20 @@ def load_traces(
             "AND name='tool_events'"
         ).fetchone()[0]
         if n and conn.execute("SELECT COUNT(*) FROM tool_events").fetchone()[0]:
+            _sql = (
+                "SELECT session_id, tool_name, success FROM tool_events "
+                "ORDER BY occurred_at"
+            )
+            _args: tuple = ()
+            if since:
+                _sql = (
+                    "SELECT session_id, tool_name, success FROM tool_events "
+                    "WHERE occurred_at >= ? ORDER BY occurred_at"
+                )
+                _args = (since,)
             rows = [
                 (sid, tool, "", bool(succ))
-                for sid, tool, succ in conn.execute(
-                    "SELECT session_id, tool_name, success FROM tool_events "
-                    "ORDER BY occurred_at"
-                ).fetchall()
+                for sid, tool, succ in conn.execute(_sql, _args).fetchall()
             ]
         else:
             # 回退：单边失败语料（F1 原始路径）

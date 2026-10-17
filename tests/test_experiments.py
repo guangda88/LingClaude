@@ -309,12 +309,89 @@ class TestDaemonSettlement:
             )()
             result = daemon.run_cycle(user_triggered=True)
         assert result.is_ok
-        # best_score=1.0 无归档最优 → 走 accepted 分支
+        # P1-4 新契约（2026-10-17）：apply 后不再立即 accepted——挂观察单
+        # （verdict 保持 pending），结算移至下轮周期 _settle_observation。
         assert mock_apply.called
         rows = daemon.experiments.list_recent()
         assert len(rows) == 1
+        assert rows[0]["verdict"] == "pending"
+        assert daemon.state.observing is not None
+        assert daemon.state.observing["exp_id"] == rows[0]["experiment_id"]
+        assert daemon.state.observing["snapshot_id"]
+
+    def test_observation_pass_settles_accepted(self, tmp_path: Path):
+        """P1-4 观察期通过：基准未回退 → 结算 accepted（观察单消化）。"""
+        pytest.importorskip("yaml")
+        daemon = self._daemon(tmp_path)
+        daemon.state.observing = {
+            "exp_id": daemon.experiments.start(
+                1, {"tool_repeat_limit": 3}, 100.0
+            ),
+            "snapshot_id": "snap_test",
+            "score_before": 100.0,
+            "applied_at": "2026-10-17T00:00:00",
+            "goal": "behavior",
+            "params": {"tool_repeat_limit": 3},
+        }
+        with patch.object(daemon.benchmark, "run") as mock_bench:
+            mock_bench.return_value = type(
+                "B", (), {"score": 100.0, "passed": 10, "total": 10}
+            )()
+            daemon._settle_observation(daemon.state.observing)
+        rows = daemon.experiments.list_recent()
         assert rows[0]["verdict"] == "accepted"
         assert rows[0]["reason"] == "applied"
+
+    def test_observation_regress_restores_snapshot(self, tmp_path: Path):
+        """P1-4 观察期回退：恢复快照 + rolled_back（可退可停）。"""
+        pytest.importorskip("yaml")
+        daemon = self._daemon(tmp_path)
+        daemon.state.observing = {
+            "exp_id": daemon.experiments.start(
+                1, {"tool_repeat_limit": 3}, 100.0
+            ),
+            "snapshot_id": "snap_test",
+            "score_before": 100.0,
+            "applied_at": "2026-10-17T00:00:00",
+            "goal": "behavior",
+            "params": {"tool_repeat_limit": 3},
+        }
+        with patch.object(daemon.benchmark, "run") as mock_bench, \
+                patch.object(daemon.artifacts, "restore") as mock_restore, \
+                patch.object(daemon, "_check_frozen_zone") as mock_fz:
+            mock_bench.return_value = type(
+                "B", (), {"score": 50.0, "passed": 5, "total": 10}
+            )()
+            mock_restore.return_value = (True, "restored_verified")
+            daemon._settle_observation(daemon.state.observing)
+        assert mock_restore.called
+        mock_fz.assert_called_once()
+        rows = daemon.experiments.list_recent()
+        assert rows[0]["verdict"] == "rolled_back"
+        assert rows[0]["reason"] == "applied:obs_regress"
+
+    def test_snapshot_failure_rejects_apply(self, tmp_path: Path):
+        """P1-4 快照门禁：不可退 → 拒绝应用（可退优先于可进）。"""
+        pytest.importorskip("yaml")
+        daemon = self._daemon(tmp_path)
+        with self._trigger(daemon), self._opt_result(daemon, best_score=1.0), \
+                patch.object(
+                    daemon, "collect_metrics",
+                    return_value=Result.ok({"cycles": 1}),
+                ), \
+                patch.object(daemon.benchmark, "run") as mock_bench, \
+                patch.object(daemon.artifacts, "snapshot") as mock_snap, \
+                patch.object(daemon, "_apply_params") as mock_apply:
+            mock_bench.return_value = type(
+                "B", (), {"score": 80.0, "passed": 8, "total": 10}
+            )()
+            mock_snap.return_value = None
+            result = daemon.run_cycle(user_triggered=True)
+        assert result.is_ok
+        assert not mock_apply.called
+        rows = daemon.experiments.list_recent()
+        assert rows[0]["verdict"] == "rejected"
+        assert rows[0]["reason"] == "snapshot_unavailable_no_rollback_path"
 
     def test_run_cycle_rolls_back_and_settles(self, tmp_path: Path):
         pytest.importorskip("yaml")

@@ -269,6 +269,14 @@ class OptimizationTrigger:
 
     def _check_time(self, context: dict[str, Any]) -> TriggerInfo | None:
         last_opt_time = context.get("last_optimization_time")
+        # ---- P1-6 headroom 闸（RSI 阶段一-6，2026-10-17）----
+        # 纯定时触发前先问「还有没有值得花的改进空间」：headroom 向量
+        # 已知分量全低 → 不触发（省下空转预算）。人工单跑走
+        # user_triggered 分支不经过这里；向量缺失/全未知 → 不设闸
+        # （防首轮死锁，退化=旧定时行为）。
+        hv = context.get("headroom")
+        if hv is not None and not hv.marginal_benefit_positive():
+            return None
         if last_opt_time:
             if isinstance(last_opt_time, str):
                 last_opt_time = datetime.fromisoformat(last_opt_time)

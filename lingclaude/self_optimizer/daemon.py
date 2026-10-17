@@ -25,6 +25,11 @@ from lingclaude.self_optimizer.experiments import (
 MAX_ACCEPTED_PER_24H = 3  #: 24h 窗口 accepted 参数变更上限
 MAX_RULES_PER_24H = 2     #: 24h 窗口自优化规则净入库上限
 
+# P1-4 (2026-10-17)【RSI 阶段一-4】: 观察期回退阈值——新参数应用后,
+# 本轮周期结束时强制复评基准,得分较应用前回退超此比例(0.98=回退>2%)
+# 即恢复 last-known-good 快照(可退)。
+P1_OBSERVE_REGRESSION_RATIO = 0.98
+
 from lingclaude.self_optimizer.optimizer import (
     OptimizationRequest,
     SynchronousOptimizer,
@@ -72,6 +77,9 @@ class OptimizationCycle:
     violations_before: int
     violations_after: int
     report_path: str | None
+    # P1-7 (2026-10-17)【RSI 阶段一-7】: 台账串联合——活动台账与审计
+    # 事件流靠它贯通 start→settle→快照。默认 None=旧构造点兼容。
+    experiment_id: str | None = None
 
 
 @dataclass
@@ -101,6 +109,11 @@ class DaemonState:
     frozen_params: dict[str, Any] = field(default_factory=dict)
     frozen_reason: str = ""
     frozen_skipped: int = 0  #: 冻结期间已跳过的轮数（退避计数用）
+    # P1-4 (2026-10-17)【RSI 阶段一-4】: 观察期挂单——新参数应用后的
+    # 观察窗起点（本字段在窗内非空）。观察期内基准复评回退 → 恢复
+    # last-known-good 快照并结算 rolled_back（可停）。旧状态文件无字段
+    # → 默认 None（向后兼容，重活第一轮观察即恢复挂单机制）。
+    observing: dict[str, Any] | None = None
 
     @classmethod
     def load(cls, path: Path) -> DaemonState:
@@ -172,6 +185,12 @@ class OptimizationDaemon:
         # 三级节流 + 报告强制出口（category=audit → F0 取数面），
         # 审计权限边界不变：发现 → 入册 → 等待，值守不自动改码。
         self.audit_watch = AuditWatch(state_dir=self.state_dir)
+        # P1-4 (2026-10-17)【RSI 阶段一-4/5】: artifact 守卫——应用前
+        # 原子快照目标文件(可退),观察期回退自动恢复(可停),继承反向
+        # 配对重验旧基线(防赢在历史输在现在)。库随 state_dir 测试隔离。
+        from lingclaude.self_optimizer.artifact_guard import ArtifactGuard
+
+        self.artifacts = ArtifactGuard(snapshot_dir=self.state_dir / "artifacts")
         self.state = DaemonState.load(self.state_path)
         # R10-4 (2026-09-23): 实例级 goal 覆盖——stall 轮换只改运行时实例，
         # 不回写 frozen config（多进程共享配置时避免暗中突变全局语义）。
@@ -265,6 +284,20 @@ class OptimizationDaemon:
                     break
             ctx["last_failure_error"] = last.get("error_key")
             ctx["same_failure_streak"] = same_streak
+        # ---- P1-6 headroom 装配（RSI 阶段一-6，2026-10-17）----
+        # 三分量向量：pass(基准分空间) / recurrence(30d 回滚率) / cost(未接
+        # 入恒弃权)。人工单跑不受闸（人明确要跑）。全未知 → 表决 True
+        # （防首轮死锁，退化=旧定时行为）。
+        try:
+            from lingclaude.self_optimizer.headroom import compute_headroom
+
+            hv = compute_headroom(
+                benchmark_score=self._last_benchmark_score,
+                rollback_rate_30d=self.experiments.rolled_back_rate(30.0),
+            )
+            ctx["headroom"] = hv
+        except Exception:  # noqa: BLE001 — 判据故障退回旧行为（全未知→True）
+            logger.exception("[P1-6headroom] 装配异常（本轮弃权表决）")
         # 遗留项2（2026-09-17）：高置信经验反哺——从知识库取高置信自优化
         # 规则（conf>=0.7 且 active），把"哪类触发→历史上是否有效"喂进
         # 优化上下文，供优化器/触发器决策参考（AgentEvolver Self-Navigating）。
@@ -475,6 +508,21 @@ class OptimizationDaemon:
             if frozen_skip:
                 return Result.ok(None)
 
+        # ---- P1-4 观察期结算（RSI 阶段一-4，2026-10-17）----
+        # 新参数应用后的第一个周期强制复评基准：得分较应用前回退超
+        # P1_OBSERVE_REGRESSION_RATIO → 恢复 last-known-good 快照
+        # （可退），实验单结算 rolled_back（可停：连击走既有 F7 熔断）。
+        # 挂单数据：score_before=应用前基准, exp_id, snapshot_id。
+        obs = self.state.observing
+        if obs:
+            try:
+                self._settle_observation(obs)
+            except Exception:  # noqa: BLE001 — 观察故障不阻塞主循环
+                logger.exception("[P1-4观察] 结算异常（本轮跳过，挂单保留）")
+            finally:
+                self.state.observing = None  # 只观察一轮（结算或故障都不挂起）
+                self.state.save(self.state_path)
+
         should_trigger, trigger_info = self.trigger.check_all_conditions(context)
         if not should_trigger:
             logger.info("无触发条件，跳过本轮")
@@ -491,6 +539,19 @@ class OptimizationDaemon:
             trigger_info.reason,
             trigger_info.priority,
         )
+
+        # ---- P1-8 fail-closed（RSI 阶段一-8，2026-10-17）----
+        # 真实应用开启（LINGCLAUDE_DAEMON_APPLY=1）时，实验台账不可用
+        # → 拒绝本轮（变更可证性优先于变更本身）。report-only 模式
+        # 不受影响（无变更发生，观测件故障降级即可）。
+        if (
+            os.environ.get("LINGCLAUDE_DAEMON_APPLY") == "1"
+            and self.experiments is None
+        ):
+            logger.error(
+                "[P1-8] APPLY=1 但实验台账不可用 → fail-closed 拒绝本轮"
+            )
+            return Result.ok(None)
 
         violations_before = metrics.get("structure_violations", 0)
         # F5 (2026-09-23): score_before 同语义化——improvements 判据
@@ -714,6 +775,56 @@ class OptimizationDaemon:
             self._record_cycle(cycle)
             return Result.ok(cycle)
         if best_ever is not None and result.best_score > best_ever:
+            # ---- P1-5 继承反向配对（RSI 阶段一-5，2026-10-17）----
+            # 旧基线（best_ever_params）回滚/再应用前先在近 K 天语料上
+            # 与当前参数配对重验：旧基线近期劣化 → 不回滚，只归档重置
+            # （防「赢在历史、输在现在」）。
+            pair = self.artifacts.reverse_pair_check(
+                old_params=self.state.best_ever_params,
+                cur_params=result.best_params,
+            )
+            if pair.block:
+                logger.warning(
+                    "[P1-5反向配对] 旧基线近期劣化(old=%.2f cur=%.2f, %s)"
+                    "→ 不回滚只重置归档（%s）",
+                    pair.old_score, pair.cur_score, pair.reason,
+                    result.best_params,
+                )
+                self.state.best_ever_score = None
+                self.state.best_ever_params = {}
+                self.state.best_ever_cycle_id = None
+                self.experiments.settle(
+                    exp_id, "rejected",
+                    score_after=result.best_score,
+                    reason="p5_reverse_pair_baseline_reset",
+                )
+                cycle = OptimizationCycle(
+                    cycle_id=self.state.total_cycles + 1,
+                    triggered_at=datetime.now().isoformat(),
+                    trigger_reason=(
+                        f"{trigger_info.reason} | p5:{pair.reason}"
+                        "(old_baseline_worse,archived_reset)"
+                    ),
+                    trigger_type=trigger_info.type,
+                    trigger_priority=trigger_info.priority,
+                    best_score=result.best_score,
+                    best_params=result.best_params,
+                    experiments=result.experiments,
+                    duration_seconds=round(duration, 2),
+                    violations_before=(
+                        int(round(score_before))
+                        if score_before is not None else violations_before
+                    ),
+                    violations_after=violations_after,
+                    report_path=str(report_path),
+                )
+                self._record_cycle(cycle)
+                return Result.ok(cycle)
+            logger.info(
+                "[P1-5反向配对] 旧基线近期仍优(old=%.2f cur=%.2f)→ 按原"
+                "择优回滚执行（%s）",
+                pair.old_score, pair.cur_score, pair.reason,
+            )
             logger.warning(
                 "[P1回滚] 本轮 best_score=%.2f 劣于归档最优 %.2f（cycle #%s），"
                 "回滚应用历史最优参数",
@@ -731,17 +842,39 @@ class OptimizationDaemon:
             # 熔断闸）——同参数+同因回滚连击达阈值即冻结优化循环。
             self._check_frozen_zone(result.best_params, "p1_worse_than_best_ever")
         else:
-            self._apply_params(result.best_params)
-            self.experiments.settle(
-                exp_id, "accepted", score_after=result.best_score, reason="applied"
-            )
-            # 更新归档最优（violations 越低越好）
-            if best_ever is None or result.best_score < best_ever:
-                self.state.best_ever_score = float(result.best_score)
-                self.state.best_ever_params = dict(result.best_params)
-                self.state.best_ever_cycle_id = self.state.total_cycles + 1
-                # F5: 归档时盖 goal 印——下轮加载时卫兵据此识别跨语义基线
-                self.state.best_ever_goal = self._current_goal()
+            # ---- P1-4 快照门禁 + 观察期挂单（RSI 阶段一-4，2026-10-17）----
+            # 应用前原子快照被控文件：快照失败 → 不可退 → 拒绝应用
+            # （可退优先于可进）。应用后不立即 accepted：挂观察单
+            # state.observing，下轮周期 _settle_observation 复评——
+            # 回退超阈值 → 恢复快照 + rolled_back；未回退 → accepted。
+            _target = self._behavior_policy_path()
+            _snap_meta = self.artifacts.snapshot(_target, exp_id or "unknown")
+            if _snap_meta is None:
+                logger.warning(
+                    "[P1-4快照门禁] 目标文件快照失败 → 本轮拒绝应用（可退优先）"
+                )
+                self.experiments.settle(
+                    exp_id, "rejected",
+                    score_after=result.best_score,
+                    reason="snapshot_unavailable_no_rollback_path",
+                )
+            else:
+                self._apply_params(result.best_params)
+                self.state.observing = {
+                    "exp_id": exp_id,
+                    "snapshot_id": _snap_meta.snapshot_id,
+                    "score_before": score_before,
+                    "applied_at": datetime.now().isoformat(timespec="seconds"),
+                    "goal": self._current_goal(),
+                    "params": dict(result.best_params),
+                }
+                # 更新归档最优（violations 越低越好）
+                if best_ever is None or result.best_score < best_ever:
+                    self.state.best_ever_score = float(result.best_score)
+                    self.state.best_ever_params = dict(result.best_params)
+                    self.state.best_ever_cycle_id = self.state.total_cycles + 1
+                    # F5: 归档时盖 goal 印——下轮加载时卫兵据此识别跨语义基线
+                    self.state.best_ever_goal = self._current_goal()
 
         cycle = OptimizationCycle(
             cycle_id=self.state.total_cycles + 1,
@@ -763,6 +896,7 @@ class OptimizationDaemon:
             ),
             violations_after=int(violations_after),
             report_path=str(report_path),
+            experiment_id=exp_id,
         )
 
         self._record_cycle(cycle)
@@ -885,6 +1019,65 @@ class OptimizationDaemon:
         if cycle_result.is_ok and cycle_result.data is not None:
             self._write_cycle_to_knowledge(cycle_result.data)
         return cycle_result
+
+    # ---- P1-4/6（RSI 阶段一，2026-10-17）新增方法 ----
+    def _behavior_policy_path(self) -> Path:
+        """被控文件绝对路径（P1-4 快照目标——单源，快照/恢复同走此路）。"""
+        from lingclaude.core.policy_loader import policies_dir
+
+        return policies_dir() / "behavior_policy.yaml"
+
+    def _settle_observation(self, obs: dict[str, Any]) -> None:
+        """观察期结算：复评基准，回退超阈值 → 恢复快照 + rolled_back。
+
+        可证：同尺子复评（benchmark.run()）；可退：restore 校验 sha256；
+        可停：回滚入台账，连击走既有 F7 熔断闸（same-params same-reason
+        streak 语义天然覆盖观察期回滚）。
+        """
+        exp_id = obs.get("exp_id")
+        snap_id = obs.get("snapshot_id")
+        score_before = obs.get("score_before")
+        applied_params = obs.get("params") or {}
+        # 同尺子纪律：复用 daemon 自持的 benchmark 实例（与 P0 门禁、
+        # 参数联动复测同一对象）——新建实例会绕开测试/配置注入。
+        try:
+            bench = self.benchmark.run()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[P1-4观察] 基准复评失败：%s（保守放行，留观察单原因）", exc)
+            self.experiments.settle(
+                exp_id, "accepted", score_after=None, reason="applied:obs_bench_error"
+            )
+            return
+        prev = (
+            float(score_before)
+            if score_before is not None
+            else float(self.state.benchmark_baseline or bench.score)
+        )
+        ratio = (bench.score / prev) if prev > 0 else 1.0
+        if ratio < P1_OBSERVE_REGRESSION_RATIO:
+            ok, msg = self.artifacts.restore(snap_id, reason=f"obs_regress ratio={ratio:.3f}")
+            logger.warning(
+                "[P1-4观察] 回退 %.4f→%.4f (ratio=%.3f < %.2f) → 恢复快照=%s msg=%s",
+                prev, bench.score, ratio, P1_OBSERVE_REGRESSION_RATIO, ok, msg,
+            )
+            self.experiments.settle(
+                exp_id, "rolled_back",
+                score_after=float(bench.score),
+                reason="applied:obs_regress" if ok else "applied:obs_regress_restore_failed",
+            )
+            # 观察期回滚计入熔断判据（same-params same-reason 连击）
+            try:
+                self._check_frozen_zone(applied_params, "obs_regress")
+            except Exception:  # noqa: BLE001
+                logger.exception("[P1-4观察] 熔断判定异常（不阻塞）")
+            return
+        logger.info(
+            "[P1-4观察] 未回退（%.4f→%.4f, ratio=%.3f）→ 结算 accepted",
+            prev, bench.score, ratio,
+        )
+        self.experiments.settle(
+            exp_id, "accepted", score_after=float(bench.score), reason="applied"
+        )
 
     def _apply_params(self, params: dict[str, Any]) -> None:
         """把优化参数写入 config.yaml — 执行器限幅版（R2，系统论融入）。
@@ -1191,6 +1384,49 @@ class OptimizationDaemon:
             self.state.cycles = self.state.cycles[-100:]
         self.state.save(self.state_path)
         self._record_quality_to_metrics(cycle)
+        # P1-7 (2026-10-17)【RSI 阶段一-7】: 改进活动台账——每周期一行
+        # append（jsonl，与 verify_log 同构），带 origin 归因位。
+        # 观测件：写失败不阻塞主循环。
+        try:
+            self._append_activity(cycle)
+        except Exception:  # noqa: BLE001
+            logger.exception("[P1-7活动台账] 写入异常（不阻塞主循环）")
+
+    def _append_activity(self, cycle: OptimizationCycle) -> None:
+        """activity.jsonl 追加一行（近 7/30 天聚合由读取方现算）。
+
+        链路完整性诊断（codex-P0-3 单机版）：experiment_id 非空而台账
+        查无此单 → 断链告警（audit_log），不阻塞。
+        """
+        origin = "self"  # 本路径全部由自优化回路产生
+        broken = False
+        if cycle.experiment_id:
+            try:
+                row = self.experiments.get(cycle.experiment_id)
+                broken = row is None
+            except Exception:
+                broken = False  # 台账不可读不算断链（fail-open 观测）
+        rec = {
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "cycle_id": cycle.cycle_id,
+            "experiment_id": cycle.experiment_id,
+            "trigger_type": cycle.trigger_type,
+            "goal": self._current_goal(),
+            "origin": origin,
+            "best_score": cycle.best_score,
+            "v_before": cycle.violations_before,
+            "v_after": cycle.violations_after,
+            "report": cycle.report_path,
+            "chain_broken": broken,
+        }
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.state_dir / "activity.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        if broken:
+            logger.warning(
+                "[P1-7断链] experiment_id=%s 在台账查无此单（审计事件流断链）",
+                cycle.experiment_id,
+            )
 
     def _write_cycle_to_knowledge(self, cycle: OptimizationCycle) -> None:
         try:
