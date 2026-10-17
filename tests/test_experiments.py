@@ -303,7 +303,9 @@ class TestDaemonSettlement:
                     return_value=Result.ok({"cycles": 1}),
                 ), \
                 patch.object(daemon.benchmark, "run") as mock_bench, \
-                patch.object(daemon, "_apply_params") as mock_apply:
+                patch.object(
+                    daemon, "_apply_behavior_params", return_value=True
+                ) as mock_apply:
             mock_bench.return_value = type(
                 "B", (), {"score": 80.0, "passed": 8, "total": 10}
             )()
@@ -311,6 +313,8 @@ class TestDaemonSettlement:
         assert result.is_ok
         # P1-4 新契约（2026-10-17）：apply 后不再立即 accepted——挂观察单
         # （verdict 保持 pending），结算移至下轮周期 _settle_observation。
+        # 首航修复（2026-10-17）：直调 _apply_behavior_params 取 bool 返回值
+        # （经 _apply_params 委托会丢「是否真实落盘」信号）。
         assert mock_apply.called
         rows = daemon.experiments.list_recent()
         assert len(rows) == 1
@@ -318,6 +322,53 @@ class TestDaemonSettlement:
         assert daemon.state.observing is not None
         assert daemon.state.observing["exp_id"] == rows[0]["experiment_id"]
         assert daemon.state.observing["snapshot_id"]
+
+    # ---- 首航实证修复（2026-10-17）：无有效变更不挂幻影观察单 ----
+    def test_no_effective_change_no_observing(self, tmp_path: Path):
+        pytest.importorskip("yaml")
+        daemon = self._daemon(tmp_path)
+        with self._trigger(daemon), self._opt_result(daemon, best_score=1.0), \
+                patch.object(
+                    daemon, "collect_metrics",
+                    return_value=Result.ok({"cycles": 1}),
+                ), \
+                patch.object(daemon.benchmark, "run") as mock_bench, \
+                patch.object(
+                    daemon, "_apply_behavior_params", return_value=False
+                ):
+            mock_bench.return_value = type(
+                "B", (), {"score": 80.0, "passed": 8, "total": 10}
+            )()
+            result = daemon.run_cycle(user_triggered=True)
+        assert result.is_ok
+        rows = daemon.experiments.list_recent()
+        assert len(rows) == 1
+        assert rows[0]["verdict"] == "rejected"
+        assert rows[0]["reason"] == "no_effective_change"
+        assert daemon.state.observing is None  # 无真实落盘 → 无观察单
+
+    def test_observing_survives_process_restart(self, tmp_path: Path):
+        """跨进程持久化契约：挂单 save→load 后必须原样在。
+
+        首航实证：load 白名单漏 observing → 挂单跨进程失忆，
+        观察期结算永不发生（同进程 unit 测试抓不到）。
+        """
+        daemon = self._daemon(tmp_path)
+        daemon.state.observing = {
+            "exp_id": "exp_x",
+            "snapshot_id": "exp_x",
+            "score_before": 10.0,
+            "applied_at": "2026-10-17T19:00:00",
+            "goal": "behavior",
+            "params": {"tool_repeat_limit": 6},
+        }
+        daemon.state.save(daemon.state_path)
+        from lingclaude.self_optimizer.daemon import DaemonState
+
+        reloaded = DaemonState.load(daemon.state_path)
+        assert reloaded.observing is not None
+        assert reloaded.observing["exp_id"] == "exp_x"
+        assert reloaded.observing["params"] == {"tool_repeat_limit": 6}
 
     def test_observation_pass_settles_accepted(self, tmp_path: Path):
         """P1-4 观察期通过：基准未回退 → 结算 accepted（观察单消化）。"""

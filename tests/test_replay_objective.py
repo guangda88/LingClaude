@@ -334,10 +334,15 @@ class TestApplyBehaviorParams:
 
         首航 cycle#1130 实证：sorted 恒先 cfl（建议值=现值2），
         tool_repeat_limit 3→6 永不落盘（apply 幻影）。
+        夹具内容显式固定（不随生产文件漂移）。
         """
         monkeypatch.setenv("LINGCLAUDE_DAEMON_APPLY", "1")
         d = self._daemon(tmp_path)
         policy = self._policy_path(monkeypatch, tmp_path)
+        policy.write_text(
+            "consecutive_fail_limit: 2\ntool_repeat_limit: 3\n",
+            encoding="utf-8",
+        )
         with patch(
             "lingclaude.core.permissions.PermissionContext.check_action",
             return_value=(True, ""),
@@ -352,10 +357,17 @@ class TestApplyBehaviorParams:
         assert data["consecutive_fail_limit"] == 2  # 同值键未被碰
 
     def test_all_same_values_no_write(self, tmp_path, monkeypatch):
-        """全部合法键建议值==现值 → 不写盘（mtime 不变，不烧速率闸）。"""
+        """全部合法键建议值==现值 → 不写盘（mtime 不变，不烧速率闸）。
+
+        夹具内容显式固定（生产文件已随真实周期漂移，不能依赖其现值）。
+        """
         monkeypatch.setenv("LINGCLAUDE_DAEMON_APPLY", "1")
         d = self._daemon(tmp_path)
         policy = self._policy_path(monkeypatch, tmp_path)
+        policy.write_text(
+            "consecutive_fail_limit: 2\ntool_repeat_limit: 3\n",
+            encoding="utf-8",
+        )
         before = policy.read_text(encoding="utf-8")
         stat_before = policy.stat().st_mtime_ns
         d._apply_behavior_params(

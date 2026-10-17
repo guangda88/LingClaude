@@ -164,6 +164,10 @@ class DaemonState:
                     frozen_reason=raw.get("frozen_reason", ""),
                     frozen_skipped=raw.get("frozen_skipped", 0),
                     strategy_weights=raw.get("strategy_weights"),
+                    # P1-4 (2026-10-17): 首航实证修复——此前 load 白名单漏
+                    # observing：挂单存盘后跨进程全失忆，观察期结算永远
+                    # 不会发生（unit 测试同进程内未暴露）。
+                    observing=raw.get("observing"),
                 )
             except (json.JSONDecodeError, KeyError):
                 logger.warning("状态文件损坏，使用默认状态")
@@ -898,22 +902,34 @@ class OptimizationDaemon:
                     reason="snapshot_unavailable_no_rollback_path",
                 )
             else:
-                self._apply_params(result.best_params)
-                self.state.observing = {
-                    "exp_id": exp_id,
-                    "snapshot_id": _snap_meta.snapshot_id,
-                    "score_before": score_before,
-                    "applied_at": datetime.now().isoformat(timespec="seconds"),
-                    "goal": self._current_goal(),
-                    "params": dict(result.best_params),
-                }
-                # 更新归档最优（violations 越低越好）
-                if best_ever is None or result.best_score < best_ever:
-                    self.state.best_ever_score = float(result.best_score)
-                    self.state.best_ever_params = dict(result.best_params)
-                    self.state.best_ever_cycle_id = self.state.total_cycles + 1
-                    # F5: 归档时盖 goal 印——下轮加载时卫兵据此识别跨语义基线
-                    self.state.best_ever_goal = self._current_goal()
+                # 直接调 behavior 写入器取返回值（原经 _apply_params 委托
+                # 会丢 bool）。False=未落盘（全同值/审批拒/写失败）→
+                # 幻影观察单防线（首航实证 2026-10-17）：不挂观察单，
+                # 诚实结算 rejected/no_effective_change 并回收快照（审计行保留）。
+                applied = self._apply_behavior_params(result.best_params)
+                if not applied:
+                    self.experiments.settle(
+                        exp_id, "rejected",
+                        score_after=result.best_score,
+                        reason="no_effective_change",
+                    )
+                    self.artifacts._unlink_snap(_snap_meta.snapshot_id)
+                else:
+                    self.state.observing = {
+                        "exp_id": exp_id,
+                        "snapshot_id": _snap_meta.snapshot_id,
+                        "score_before": score_before,
+                        "applied_at": datetime.now().isoformat(timespec="seconds"),
+                        "goal": self._current_goal(),
+                        "params": dict(result.best_params),
+                    }
+                    # 更新归档最优（violations 越低越好）
+                    if best_ever is None or result.best_score < best_ever:
+                        self.state.best_ever_score = float(result.best_score)
+                        self.state.best_ever_params = dict(result.best_params)
+                        self.state.best_ever_cycle_id = self.state.total_cycles + 1
+                        # F5: 归档时盖 goal 印——下轮加载时卫兵据此识别跨语义基线
+                        self.state.best_ever_goal = self._current_goal()
 
         cycle = OptimizationCycle(
             cycle_id=self.state.total_cycles + 1,
@@ -1142,6 +1158,12 @@ class OptimizationDaemon:
         （误改/脏数据/规则闯祸）由此人工触发。诚实台账：若存在与本快照
         同单的观察挂单/待结实验，同步结算 rolled_back（原 pending 语义
         天然兼容——只覆盖 pending 行）。
+
+        已知部署语义缺口（首航实证 2026-10-17，待专项）：「apply 前快照」
+        捕获的是上一轮 apply 后的状态——若目标文件已离开安全基线多轮，
+        单步回滚只回退一跳；回到任意验证态需沿 snapshots.jsonl 审计链
+        逐跳回滚（或用 git 管理的策略文件历史兜底）。首航原点恢复即
+        用了 cycle#1130 的原始快照（trl 6→3）。
         """
         try:
             meta = self.artifacts._find_meta(snapshot_id)
@@ -1447,16 +1469,18 @@ class OptimizationDaemon:
         2. 单参数限幅：每周期最多写 1 个键（归因窗口）；选「真正发生
            变化的合法键」，全同值不写盘不烧速率闸（S0-2 配额留给真变更）。
         3. 合法键白名单 + int 强制，防搜索空间外的值写进策略文件。
+        返回：True=真实落盘；False=report-only/审批拒/无合法键/全同值
+        （首航实证：调用方需据此决定是否挂观察单——没写盘就不该有观察单）。
         """
 
         if not params:
-            return
+            return False
         if os.environ.get("LINGCLAUDE_DAEMON_APPLY") != "1":
             logger.info(
                 "[report-only] 行为参数建议（未应用；设 LINGCLAUDE_DAEMON_APPLY=1 开启）: %s",
                 params,
             )
-            return
+            return False
 
         allowed = {"consecutive_fail_limit", "tool_repeat_limit"}
 
@@ -1492,7 +1516,7 @@ class OptimizationDaemon:
                 "（不写盘不烧速率闸）: %s",
                 {k: params[k] for k in sorted(params) if k in allowed},
             )
-            return
+            return False
         lock_cm = None
         try:
             from lingclaude.core.permissions import (
