@@ -29,6 +29,8 @@ MAX_RULES_PER_24H = 2     #: 24h 窗口自优化规则净入库上限
 # 本轮周期结束时强制复评基准,得分较应用前回退超此比例(0.98=回退>2%)
 # 即恢复 last-known-good 快照(可退)。
 P1_OBSERVE_REGRESSION_RATIO = 0.98
+#: 观察单时效（小时，A2-1 兜底）：超时未结算 → 恢复快照 + obs_stale 终态
+P1_OBSERVING_TTL_HOURS = 48.0
 
 from lingclaude.self_optimizer.optimizer import (
     OptimizationRequest,
@@ -495,6 +497,20 @@ class OptimizationDaemon:
         return True
 
     def run_cycle(self, user_triggered: bool = False) -> Result[OptimizationCycle | None]:
+        # ---- P1-4 观察期结算（A2-2 前移 2026-10-17）----
+        # 挂单结算必须先于一切早退路径（frozen 熔断跳轮/触发判定失败/
+        # 指标收集失败），否则 frozen 期间挂单永久悬置、归档永不闭环。
+        # 结算自身异常被捕获（不阻塞主循环），挂单只观察一轮。
+        obs = self.state.observing
+        if obs:
+            try:
+                self._settle_observation(obs)
+            except Exception:  # noqa: BLE001 — 观察故障不阻塞主循环
+                logger.exception("[P1-4观察] 结算异常（本轮跳过，挂单保留）")
+            finally:
+                self.state.observing = None  # 只观察一轮（结算或故障都不挂起）
+                self.state.save(self.state_path)
+
         metrics_result = self.collect_metrics()
         if metrics_result.is_error:
             return metrics_result  # type: ignore[return-value]
@@ -507,21 +523,6 @@ class OptimizationDaemon:
             frozen_skip = self._frozen_zone_skip()
             if frozen_skip:
                 return Result.ok(None)
-
-        # ---- P1-4 观察期结算（RSI 阶段一-4，2026-10-17）----
-        # 新参数应用后的第一个周期强制复评基准：得分较应用前回退超
-        # P1_OBSERVE_REGRESSION_RATIO → 恢复 last-known-good 快照
-        # （可退），实验单结算 rolled_back（可停：连击走既有 F7 熔断）。
-        # 挂单数据：score_before=应用前基准, exp_id, snapshot_id。
-        obs = self.state.observing
-        if obs:
-            try:
-                self._settle_observation(obs)
-            except Exception:  # noqa: BLE001 — 观察故障不阻塞主循环
-                logger.exception("[P1-4观察] 结算异常（本轮跳过，挂单保留）")
-            finally:
-                self.state.observing = None  # 只观察一轮（结算或故障都不挂起）
-                self.state.save(self.state_path)
 
         should_trigger, trigger_info = self.trigger.check_all_conditions(context)
         if not should_trigger:
@@ -1027,6 +1028,60 @@ class OptimizationDaemon:
 
         return policies_dir() / "behavior_policy.yaml"
 
+    def manual_rollback(self, snapshot_id: str) -> Result[dict[str, Any]]:
+        """A1 人工回滚（2026-10-17）：CLI rollback --to 的执行核心。
+
+        应急通道：观察期自动回滚只覆盖「分数回退」失败模式；其余失败
+        （误改/脏数据/规则闯祸）由此人工触发。诚实台账：若存在与本快照
+        同单的观察挂单/待结实验，同步结算 rolled_back（原 pending 语义
+        天然兼容——只覆盖 pending 行）。
+        """
+        target = self._behavior_policy_path()
+        try:
+            meta = self.artifacts._find_meta(snapshot_id)
+        except Exception:
+            meta = None
+        if meta is None:
+            return Result.fail(
+                f"快照不存在: {snapshot_id}", code="SNAPSHOT_NOT_FOUND"
+            )
+        ok, msg = self.artifacts.restore(
+            snapshot_id, reason="manual_rollback"
+        )
+        if not ok:
+            return Result.fail(
+                f"恢复失败: {msg}", code="RESTORE_FAILED"
+            )
+        settled = False
+        try:
+            if self.experiments is not None:
+                exp_id = (self.state.observing or {}).get("exp_id")
+                snap_exp = snapshot_id
+                if exp_id or snap_exp:
+                    self.experiments.settle(
+                        exp_id or snap_exp,
+                        "rolled_back",
+                        score_after=None,
+                        reason="manual_rollback",
+                    )
+                    settled = True
+                self.state.observing = None
+                self.state.save(self.state_path)
+        except Exception:  # noqa: BLE001 — 台账失败不影响文件已回滚的事实
+            logger.exception("[A1人工回滚] 台账结算失败（文件已回滚）")
+        logger.warning(
+            "[A1人工回滚] %s ← 快照=%s msg=%s 台账结算=%s",
+            target, snapshot_id, msg, settled,
+        )
+        return Result.ok(
+            {
+                "snapshot_id": snapshot_id,
+                "target": str(target),
+                "restore": msg,
+                "ledger_settled": settled,
+            }
+        )
+
     def _settle_observation(self, obs: dict[str, Any]) -> None:
         """观察期结算：复评基准，回退超阈值 → 恢复快照 + rolled_back。
 
@@ -1034,6 +1089,38 @@ class OptimizationDaemon:
         可停：回滚入台账，连击走既有 F7 熔断闸（same-params same-reason
         streak 语义天然覆盖观察期回滚）。
         """
+        # ---- A2-1 兜底（2026-10-17）：挂单超时强制终态 ----
+        # 正常挂单下一轮即结算；超 TTL 仍悬置（如基准持续故障两日）=
+        # 变更效果无法证实 → 按「不可证即退」纪律默认回滚。
+        applied_at = obs.get("applied_at")
+        if applied_at:
+            try:
+                then = datetime.fromisoformat(str(applied_at))
+                now = (
+                    datetime.now(timezone.utc) if then.tzinfo else datetime.now()
+                )
+                age_h = (now - then).total_seconds() / 3600.0
+            except (ValueError, TypeError):
+                age_h = 0.0
+            if age_h > P1_OBSERVING_TTL_HOURS:
+                snap_id = obs.get("snapshot_id")
+                ok, msg = False, "no_snapshot_id"
+                if snap_id:
+                    ok, msg = self.artifacts.restore(
+                        snap_id, reason=f"obs_stale ttl={age_h:.0f}h"
+                    )
+                logger.warning(
+                    "[P1-4观察] 挂单超时 %.0fh>TTL%.0fh → 强制回滚"
+                    " restore=%s msg=%s（不可证即退）",
+                    age_h, P1_OBSERVING_TTL_HOURS, ok, msg,
+                )
+                self.experiments.settle(
+                    obs.get("exp_id"),
+                    "rolled_back",
+                    score_after=None,
+                    reason="applied:obs_stale_ttl",
+                )
+                return
         exp_id = obs.get("exp_id")
         snap_id = obs.get("snapshot_id")
         score_before = obs.get("score_before")
@@ -1391,6 +1478,12 @@ class OptimizationDaemon:
             self._append_activity(cycle)
         except Exception:  # noqa: BLE001
             logger.exception("[P1-7活动台账] 写入异常（不阻塞主循环）")
+        # A2-3 (2026-10-17) 快照保留策略：周期收尾顺带清理（最佳努力），
+        # 每目标文件保留最近 DEFAULT_KEEP_SNAPSHOTS 份未恢复快照。
+        try:
+            self.artifacts.prune_snapshots()
+        except Exception:  # noqa: BLE001
+            logger.exception("[A2-3快照清理] 异常（不阻塞主循环）")
 
     def _append_activity(self, cycle: OptimizationCycle) -> None:
         """activity.jsonl 追加一行（近 7/30 天聚合由读取方现算）。

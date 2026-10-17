@@ -37,6 +37,8 @@ from typing import Any
 
 #: 继承反向配对默认窗口（近 K 天语料）
 RGP_WINDOW_DAYS = 7.0
+#: 快照保留策略（A2-3）：每目标文件保留的最近未恢复快照份数
+DEFAULT_KEEP_SNAPSHOTS = 10
 #: 近期语料最少轨迹数——低于此值数据不足，配对判「不拦截」（证据不足
 #: 不行动原则：没有近期证据证明旧基线劣化，就不阻止回滚）
 RGP_MIN_TRACES = 3
@@ -193,6 +195,78 @@ class ArtifactGuard:
             )
         except Exception:
             return None
+
+    def prune_snapshots(
+        self, keep: int = DEFAULT_KEEP_SNAPSHOTS
+    ) -> int:
+        """A2-3 保留策略（2026-10-17）：每目标文件只留最近 keep 份快照。
+
+        快照「永不覆盖」（不变量）但允许清理：已恢复的快照即时删文件
+        （last-known-good 语义已耗尽，恢复行仍留在 jsonl 供取证）；
+        未恢复的按 created_at 保新删旧。只删本 guard 目录内的 .snap，
+        越界路径不碰。返回删除的份数。
+        """
+        removed = 0
+        try:
+            latest_by_id: dict[str, SnapshotMeta] = {}
+            for m in self._read_meta():
+                latest_by_id[m.snapshot_id] = m  # 最后一行为最终状态
+            by_path: dict[str, list[SnapshotMeta]] = {}
+            for m in latest_by_id.values():
+                if m.path:
+                    by_path.setdefault(m.path, []).append(m)
+            for metas in by_path.values():
+                keep_rows: list[SnapshotMeta] = []
+                for m in metas:
+                    if m.restored_at is not None:
+                        # 已恢复：last-known-good 语义耗尽，可删
+                        if self._unlink_snap(m.snapshot_id):
+                            removed += 1
+                    else:
+                        keep_rows.append(m)
+                keep_rows.sort(key=lambda m: m.created_at)
+                for m in keep_rows[: -keep] if keep > 0 else keep_rows:
+                    if self._unlink_snap(m.snapshot_id):
+                        removed += 1
+        except Exception:
+            pass  # 清理是最佳努力，失败不影响主流程
+        return removed
+
+    def _unlink_snap(self, snapshot_id: str) -> bool:
+        try:
+            f = self.snapshot_dir / f"{snapshot_id}.snap"
+            if f.exists():
+                f.unlink()
+                return True
+        except OSError:
+            pass
+        return False
+
+    def list_snapshots(self, path: str | Path | None = None) -> list[dict[str, Any]]:
+        """快照列表（A1 CLI 人工回滚的候选展示）。新→旧排列。
+
+        返回字典行（含 snapshot_id/path/created_at/restored_at/restore_reason/
+        snapshot_file_exists），path 为 None 时列全部目标文件。
+        """
+        try:
+            rows = [m.__dict__ for m in self._read_meta()]
+        except Exception:
+            return []
+        latest_by_id: dict[str, dict[str, Any]] = {}
+        for r in rows:
+            if path is not None and r.get("path") != str(Path(path).expanduser()):
+                continue
+            latest_by_id[r["snapshot_id"]] = r
+        out = sorted(
+            latest_by_id.values(),
+            key=lambda r: r.get("created_at") or "",
+            reverse=True,
+        )
+        for r in out:
+            r["snapshot_file_exists"] = (
+                (self.snapshot_dir / f"{r['snapshot_id']}.snap").exists()
+            )
+        return out
 
     # ------------------------------------------------------------------ #
     # P1-5: 继承反向配对

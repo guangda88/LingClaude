@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -168,3 +169,160 @@ class TestLedgerP1:
         led.settle(a, "accepted", reason="applied")
         led.settle(b, "rolled_back", reason="x")
         assert led.rolled_back_rate(30.0) == pytest.approx(0.5)
+
+
+class TestPruneSnapshots:
+    """A2-3: 快照保留策略（已恢复即删 + 未恢复保新删旧）。"""
+
+    def _guard(self, tmp_path: Path) -> ArtifactGuard:
+        return ArtifactGuard(
+            snapshot_dir=tmp_path / "artifacts",
+            replay_db_path=tmp_path / "noflywheel.db",
+        )
+
+    def test_prune_keeps_latest_unrestored(self, tmp_path: Path):
+        target = tmp_path / "p.yaml"
+        target.write_text("a: 1\n", encoding="utf-8")
+        guard = self._guard(tmp_path)
+        for i in range(12):
+            target.write_text(f"a: {i}\n", encoding="utf-8")
+            assert guard.snapshot(target, f"exp_{i}") is not None
+        removed = guard.prune_snapshots(keep=10)
+        assert removed == 2
+        remain = [
+            r for r in guard.list_snapshots(target) if r["snapshot_file_exists"]
+        ]
+        assert len(remain) == 10
+
+    def test_prune_deletes_restored_immediately(self, tmp_path: Path):
+        target = tmp_path / "p.yaml"
+        target.write_text("a: 1\n", encoding="utf-8")
+        guard = self._guard(tmp_path)
+        guard.snapshot(target, "exp_a")
+        guard.restore("exp_a", reason="test")
+        removed = guard.prune_snapshots()
+        assert removed == 1
+        # jsonl 行保留（取证链不断），文件已删
+        rows = guard.list_snapshots(target)
+        assert rows and not rows[0]["snapshot_file_exists"]
+
+    def test_prune_failure_safe(self, tmp_path: Path):
+        guard = self._guard(tmp_path)
+        assert guard.prune_snapshots() == 0  # 空库/无文件不炸
+
+
+class TestManualRollback:
+    """A1: 人工应急回滚核心（CLI rollback --to 的 daemon 层契约）。"""
+
+    def _daemon(self, tmp_path: Path):
+        from lingclaude.self_optimizer.daemon import OptimizationDaemon
+
+        return OptimizationDaemon(target=".", state_dir=tmp_path)
+
+    def test_manual_rollback_restores_file(self, tmp_path: Path):
+        pytest.importorskip("yaml")
+        daemon = self._daemon(tmp_path)
+        target = daemon._behavior_policy_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("tool_repeat_limit: 3\n", encoding="utf-8")
+        meta = daemon.artifacts.snapshot(target, "exp_manual1")
+        assert meta is not None
+        target.write_text("tool_repeat_limit: 9\n", encoding="utf-8")
+        result = daemon.manual_rollback("exp_manual1")
+        assert result.is_ok
+        assert target.read_text(encoding="utf-8") == "tool_repeat_limit: 3\n"
+        assert result.data["restore"] == "restored_verified"
+
+    def test_manual_rollback_unknown_snapshot(self, tmp_path: Path):
+        pytest.importorskip("yaml")
+        daemon = self._daemon(tmp_path)
+        result = daemon.manual_rollback("ghost_snap")
+        assert result.is_error
+        assert result.code == "SNAPSHOT_NOT_FOUND"
+
+
+class TestObservingTTL:
+    """A2-1: 观察单超时兜底——不可证即退。"""
+
+    def _daemon(self, tmp_path: Path):
+        from lingclaude.self_optimizer.daemon import OptimizationDaemon
+
+        return OptimizationDaemon(target=".", state_dir=tmp_path)
+
+    def test_stale_observation_force_rollback(self, tmp_path: Path):
+        pytest.importorskip("yaml")
+        from datetime import datetime, timedelta
+
+        daemon = self._daemon(tmp_path)
+        exp_id = daemon.experiments.start(1, {"x": 1}, 100.0)
+        stale_time = (
+            datetime.now() - timedelta(hours=72)
+        ).isoformat(timespec="seconds")
+        obs = {
+            "exp_id": exp_id,
+            "snapshot_id": "snap_stale",
+            "score_before": 100.0,
+            "applied_at": stale_time,
+            "goal": "behavior",
+            "params": {"x": 1},
+        }
+        with patch.object(daemon.artifacts, "restore") as mock_restore, \
+                patch.object(daemon.benchmark, "run") as mock_bench:
+            # 超时应直接恢复快照，不再跑基准复评
+            mock_restore.return_value = (True, "restored_verified")
+            daemon._settle_observation(obs)
+        assert mock_restore.called
+        mock_bench.assert_not_called()
+        row = daemon.experiments.get(exp_id)
+        assert row["verdict"] == "rolled_back"
+        assert row["reason"] == "applied:obs_stale_ttl"
+
+    def test_fresh_observation_not_ttl_rolled(self, tmp_path: Path):
+        pytest.importorskip("yaml")
+        from datetime import datetime
+
+        daemon = self._daemon(tmp_path)
+        exp_id = daemon.experiments.start(1, {"x": 1}, 100.0)
+        obs = {
+            "exp_id": exp_id,
+            "snapshot_id": "snap_fresh",
+            "score_before": 100.0,
+            "applied_at": datetime.now().isoformat(timespec="seconds"),
+            "goal": "behavior",
+            "params": {"x": 1},
+        }
+        with patch.object(daemon.artifacts, "restore") as mock_restore, \
+                patch.object(daemon.benchmark, "run") as mock_bench:
+            mock_bench.return_value = type(
+                "B", (), {"score": 100.0, "passed": 10, "total": 10}
+            )()
+            daemon._settle_observation(obs)
+        assert not mock_restore.called  # 新鲜挂单走正常结算
+        assert daemon.experiments.get(exp_id)["verdict"] == "accepted"
+
+
+class TestSettleBeforeFrozen:
+    """A2-2: 结算前移——frozen 熔断跳轮时观察单仍须结算（归档闭环）。"""
+
+    def test_settlement_runs_before_frozen_skip(self, tmp_path: Path):
+        pytest.importorskip("yaml")
+        from lingclaude.core.types import Result
+        from lingclaude.self_optimizer.daemon import OptimizationDaemon
+
+        daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
+        daemon.state.frozen = True  # 熔断冻结期
+        daemon.state.observing = {
+            "exp_id": daemon.experiments.start(1, {"x": 1}, 100.0),
+            "snapshot_id": "snap_frozen",
+            "score_before": 100.0,
+            "applied_at": "2026-10-17T00:00:00",
+            "goal": "behavior",
+            "params": {"x": 1},
+        }
+        with patch.object(daemon, "collect_metrics",
+                          return_value=Result.ok({"cycles": 1})), \
+                patch.object(daemon, "_settle_observation") as mock_settle:
+            result = daemon.run_cycle(user_triggered=False)
+        assert result.is_ok
+        assert mock_settle.called  # frozen 早退前结算已发生
+        assert daemon.state.observing is None  # 挂单消化，不再悬置

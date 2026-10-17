@@ -515,6 +515,47 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
         daemon.state = DaemonState()
         daemon.state.save(daemon.state_path)
         print_success("状态已重置")
+    elif args.daemon_action == "rollback":
+        # A1 (2026-10-17) 人工应急回滚：列表/预览/执行三段式
+        rows = daemon.artifacts.list_snapshots(daemon._behavior_policy_path())
+        if not getattr(args, "rollback_to", None):
+            if not rows:
+                print_info("无快照记录（尚未有参数应用过）")
+                return 0
+            print_header("可用快照（新→旧）")
+            for r in rows[:20]:
+                flag = "已恢复" if r.get("restored_at") else "可用"
+                missing = "" if r.get("snapshot_file_exists") else " [文件缺失]"
+                print_kv(
+                    str(r.get("snapshot_id"))[:24],
+                    f"{r.get('created_at') or ''} {flag}{missing}",
+                )
+            print_info("回滚: lingclaude daemon rollback --to <snapshot_id> --yes")
+            return 0
+        target_id = args.rollback_to
+        cand = [r for r in rows if r.get("snapshot_id") == target_id]
+        if not cand:
+            print(f"错误: 快照不存在: {target_id}")
+            return 1
+        if not cand[0].get("snapshot_file_exists"):
+            print(f"错误: 快照文件缺失（可能已被清理）: {target_id}")
+            return 1
+        if not getattr(args, "rollback_yes", False):
+            print_kv("目标", str(cand[0].get("path") or ""))
+            print_kv("快照时间", str(cand[0].get("created_at") or ""))
+            print_kv("快照ID", target_id)
+            print_info("预览模式：加 --yes 执行恢复（当前 behavior_policy.yaml 将被覆盖）")
+            return 0
+        result = daemon.manual_rollback(target_id)
+        if result.is_error:
+            print(f"错误: {result.error}")
+            return 1
+        d = result.data or {}
+        print_success(f"已回滚: {d.get('target')}")
+        print_kv("快照", str(d.get("snapshot_id") or ""))
+        print_kv("校验", str(d.get("restore") or ""))
+        print_kv("台账结算", "是" if d.get("ledger_settled") else "无待结实验")
+        return 0
     return 0
 
 
@@ -1270,8 +1311,17 @@ def main() -> int:
     daemon_parser = subparsers.add_parser("daemon", help="Self-optimization daemon")
     daemon_parser.add_argument(
         "daemon_action",
-        choices=["status", "run", "watch", "reset"],
+        choices=["status", "run", "watch", "reset", "rollback"],
         help="Daemon action",
+    )
+    daemon_parser.add_argument(
+        "--to", dest="rollback_to", help="rollback: target snapshot id"
+    )
+    daemon_parser.add_argument(
+        "--yes",
+        dest="rollback_yes",
+        action="store_true",
+        help="rollback: execute (skip preview)",
     )
     daemon_parser.add_argument("--target", "-t", help="Target path")
     daemon_parser.add_argument(
