@@ -172,26 +172,15 @@ class TestOptimizationDaemon:
             os.chdir(tmp_path)
             # R2:写 config.yaml 是受控执行器，须显式授权
             os.environ["LINGCLAUDE_DAEMON_APPLY"] = "1"
-            daemon._apply_params({"max_complexity": 20})
             import yaml
+            daemon._apply_params({"max_complexity": 20})
+            # S0-1 (2026-10-17)【RSI 阶段〇止血】：structure 参数写 config.yaml
+            # 的执行端已下线（评估器只许人工升级）。新契约：无论授权与否，
+            # 传 structure 键一律不得改写配置。
             raw = yaml.safe_load(config_path.read_text())
-            assert raw["self_optimizer"]["triggers"]["max_complexity"] == 20
-            # P0-N5: 写成功路径补审计留痕 — guard_pending.jsonl 出现已执行记录
-            import json
-            pending_path = Path(".lingclaude") / "guard_pending.jsonl"
-            assert pending_path.exists(), "写配置成功应产生 guard_pending 留痕"
-            recs = [
-                json.loads(line)
-                for line in pending_path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-            assert any(
-                r["action"] == "optimize_write"
-                and r["state"] == "approved_by_daemon"
-                and r["params"]["applied_key"] == "max_complexity"
-                and r["params"]["applied_value"] == 20
-                for r in recs
-            ), "成功写入后应有 state=approved_by_daemon 的闭环留痕"
+            assert "self_optimizer" not in raw or not raw.get(
+                "self_optimizer"
+            ), "S0-1 冻结失效：structure 参数写入了 config.yaml（自调量具执行端复活）"
         finally:
             os.chdir(original_cwd)
             os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)
@@ -213,11 +202,12 @@ class TestOptimizationDaemon:
             os.chdir(original_cwd)
 
     def test_apply_params_single_param_cap(self, tmp_path):
-        """R2:开启应用后每周期最多写 1 个参数（纠错幅度限幅，保归因与复测窗口）。"""
+        """S0-1 (2026-10-17) 改写：structure 执行端冻结后，传多个 structure
+        键也不得写入任何参数（原「单参数限幅」契约被「全量拒绝」取代；
+        behavior 路径的单键限幅契约由 _apply_behavior_params 专项测试组覆盖）。"""
         config_path = tmp_path / "config.yaml"
         config_path.write_text("model:\n  provider: openai\n")
         daemon = OptimizationDaemon(target=".", state_dir=tmp_path)
-        # F1: OptimizerConfig 冻结，用 replace 重建；本用例测 legacy config.yaml 写路径，钉 goal=structure
         from dataclasses import replace as _dc_replace
         from lingclaude.core.config import load_config as _load_cfg
         _cfg = _load_cfg()
@@ -227,14 +217,12 @@ class TestOptimizationDaemon:
             import os
             os.chdir(tmp_path)
             os.environ["LINGCLAUDE_DAEMON_APPLY"] = "1"
-            daemon._apply_params({"max_complexity": 20, "coupling_limit": 7, "max_nesting_depth": 9})
             import yaml
+            daemon._apply_params({"max_complexity": 20, "coupling_limit": 7, "max_nesting_depth": 9})
             raw = yaml.safe_load(config_path.read_text())
-            opt = raw["self_optimizer"]["optimization"]
-            trg = raw["self_optimizer"]["triggers"]
-            applied = [k for k, v in {**trg, **opt}.items()
-                       if (k, v) in [("max_complexity", 20), ("coupling_limit", 7), ("max_nesting_depth", 9)]]
-            assert len(applied) == 1, f"限幅失败，应用了 {len(applied)} 个参数"
+            assert "self_optimizer" not in raw or not raw.get(
+                "self_optimizer"
+            ), "S0-1 冻结失效：structure 参数（含限幅路径）写入了 config.yaml"
         finally:
             os.chdir(original_cwd)
             os.environ.pop("LINGCLAUDE_DAEMON_APPLY", None)

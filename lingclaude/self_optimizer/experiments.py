@@ -104,7 +104,29 @@ class ExperimentLedger:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_exp_verdict ON experiments(verdict)"
         )
+        # S0-3 (2026-10-17): 评估器冻结+指纹化——每条实验单记录开单时的
+        # 评估器版本与源码指纹，跨轮比较仅同指纹有效（指纹变更 →
+        # incomparable，防「换了尺子还当同一把尺子读数」）。
+        conn.execute(
+            """
+            ALTER TABLE experiments ADD COLUMN evaluator_version TEXT NOT NULL DEFAULT ''
+            """
+        ) if not self._has_column("experiments", "evaluator_version") else None
+        conn.execute(
+            """
+            ALTER TABLE experiments ADD COLUMN evaluator_fingerprint TEXT NOT NULL DEFAULT ''
+            """
+        ) if not self._has_column("experiments", "evaluator_fingerprint") else None
         conn.commit()
+
+    def _has_column(self, table: str, column: str) -> bool:
+        try:
+            rows = self._get_connection().execute(
+                f"PRAGMA table_info({table})"
+            ).fetchall()
+            return any(r["name"] == column for r in rows)
+        except Exception:
+            return True  # 判定失败按「已有」处理，跳过 ALTER（安全侧）
 
     def _get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -124,16 +146,23 @@ class ExperimentLedger:
         params: dict,
         score_before: float | None,
     ) -> str | None:
-        """开一张 pending 实验单，返回 experiment_id；失败返回 None。"""
+        """开一张 pending 实验单，返回 experiment_id；失败返回 None。
+
+        S0-3: 开单即盖评估器指纹（记录「用哪把尺子量的」）。
+        """
         try:
+            from lingclaude.self_optimizer.evaluator_meta import evaluator_meta
+
+            meta = evaluator_meta()
             exp_id = f"exp_{uuid.uuid4().hex[:12]}"
             conn = self._get_connection()
             conn.execute(
                 """
                 INSERT INTO experiments
                     (experiment_id, cycle_id, params_json, score_before,
-                     verdict, reason, created_at)
-                VALUES (?, ?, ?, ?, 'pending', '', ?)
+                     verdict, reason, created_at,
+                     evaluator_version, evaluator_fingerprint)
+                VALUES (?, ?, ?, ?, 'pending', '', ?, ?, ?)
                 """,
                 (
                     exp_id,
@@ -141,6 +170,8 @@ class ExperimentLedger:
                     json.dumps(params, ensure_ascii=False, sort_keys=True),
                     score_before,
                     _now(),
+                    meta["evaluator_version"],
+                    meta["evaluator_fingerprint"],
                 ),
             )
             conn.commit()
@@ -240,6 +271,31 @@ class ExperimentLedger:
         except Exception:
             logger.warning("[F2] 台账计数失败", exc_info=True)
             return {v: 0 for v in ("pending", *VERDICTS)}
+
+    # ------------------------------------------------------------------ #
+    # S0-2 (2026-10-17): 变更速率总闸——24h 窗口 accepted 计数。
+    # 数据源即本表（verdict='accepted' 的实验单 = 一次实际生效的参数变更），
+    # 阈值执行在 daemon.run_cycle 入口；本方法只负责诚实计数（失败降级 0，
+    # 注意降级语义 = 放行：台账不可用时不阻塞优化循环，与 F2 纪律一致）。
+    # ------------------------------------------------------------------ #
+    def accepted_in_window(self, hours: float = 24.0) -> int:
+        try:
+            # 边界必须与 _now()/decided_at 同基准（本地无时区，timespec=秒）——
+            # 混用 utc ISO 串会因字典序错位偏差整个时区。
+            since = (
+                datetime.now() - timedelta(hours=hours)
+            ).isoformat(timespec="seconds")
+            row = self._get_connection().execute(
+                """
+                SELECT COUNT(*) AS n FROM experiments
+                 WHERE verdict = 'accepted' AND decided_at >= ?
+                """,
+                (since,),
+            ).fetchone()
+            return int(row["n"])
+        except Exception:
+            logger.warning("[S0-2] 速率窗口查询失败，按 0 计（放行）", exc_info=True)
+            return 0
 
     def list_recent(self, limit: int = 20) -> list[dict]:
         try:

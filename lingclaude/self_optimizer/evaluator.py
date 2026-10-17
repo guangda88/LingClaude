@@ -47,9 +47,16 @@ class StructureEvaluator:
         return float(metrics.violations)
 
     def _analyze_structure(self, params: dict[str, Any]) -> StructureMetrics:
-        max_class_size = params.get("max_class_size", 200)
-        max_method_count = params.get("max_method_count", 15)
-        max_complexity = params.get("max_complexity", 10)
+        # S0-3 (2026-10-17)【RSI 阶段〇-3，评估器冻结】：结构阈值固化为
+        # 模块常量，不再从 params 流入（原活动默认 200/15/10 与
+        # get_current_metrics 的 500/25/20 双轨不一致，一并统一）。
+        # 治理不变量：评估器只许人工升级——修改本三值即「升级评估器」，
+        # 须人工进行且 evaluator_meta.EVALUATOR_VERSION 显式 +1。
+        # 签名兼容：params 形参保留（旧调用方/测试传 {}），内容忽略。
+        _ = params
+        max_class_size = 500
+        max_method_count = 25
+        max_complexity = 20
 
         total_classes = 0
         large_classes = 0

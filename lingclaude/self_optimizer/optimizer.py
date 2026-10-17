@@ -26,7 +26,10 @@ except ImportError:
     ExperimentConfig = None
     LMOptResult = None
 import itertools
+import logging
 import time as _t
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -54,12 +57,21 @@ def _build_search_space(goal: str):
     space = SearchSpace()
 
     if goal == "structure":
-        space.add_discrete("max_class_size", [100, 200, 300, 500])
-        space.add_discrete("max_method_count", [10, 15, 20, 25])
-        space.add_discrete("max_complexity", [5, 10, 15, 20])
-        space.add_discrete("max_nesting_depth", [3, 4, 5, 6])
-        space.add_continuous("coupling_limit", 5.0, 15.0)
-    elif goal == "performance":
+        # S0-1 (2026-10-17) RSI round1 阶段〇止血【cc-P0-1，用户已批】：
+        # 停用 structure 自调量具回路。原分支把评估量具（max_class_size 等
+        # 结构阈值）当搜索旋钮，且经 benchmark._PARAM_TO_CHECK 直通题集判定
+        # 阈值——学生自改评分标准，Goodhart 空转（2352→2351 三连实证）。
+        # 治理不变量：评估器只许人工升级。返回 None → optimize 管线按
+        # 「无搜索空间」跳过本轮（success=False，daemon 失败入档不重试）。
+        # 恢复条件：仅当评估器与被搜索对象解耦（终案阶段一 artifact 状态机
+        # + 留出集）后经人工评审重启，注释保留以防误判为遗漏。
+        logger.warning(
+            "[S0-1] goal=structure 自调量具回路已停用（RSI 阶段〇止血）；"
+            "本轮不优化。结构阈值现为固定常量，只许人工修改。"
+        )
+        return None
+    space = SearchSpace()
+    if goal == "performance":
         space.add_discrete("cache_size", [10, 50, 100, 500])
         space.add_discrete("parallelism", [1, 2, 4])
         space.add_discrete("timeout", [5, 10, 30, 60])
@@ -117,6 +129,22 @@ class SynchronousOptimizer:
 
                 evaluator = StructureEvaluator(request.target)
             space = _build_search_space(request.goal)
+
+            # S0-1: structure 已停用（或 lingminopt 未装且非 behavior）→
+            # 显式失败短路，不进 MinimalOptimizer 炸 TypeError。
+            # daemon 侧走 result.success=False → 失败入档 + 优雅跳轮。
+            if space is None and request.goal != "behavior":
+                return OptimizationResult(
+                    success=False,
+                    best_params={},
+                    best_score=0,
+                    experiments=0,
+                    duration=time.monotonic() - start,
+                    error=(
+                        "[S0-1] goal=%s 无可用搜索空间（structure 自调量具回路"
+                        "已于 2026-10-17 停用；评估器只许人工升级）" % request.goal
+                    ),
+                )
 
             # F1: goal=behavior 走本地穷举——回放目标函数确定性、纯本地
             # 无 LLM；小离散空间(6×4)随机+早停会漏真最优（2026-09-22

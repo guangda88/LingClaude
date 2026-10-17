@@ -18,6 +18,13 @@ from lingclaude.self_optimizer.experiments import (
     FROZEN_MAX_BACKOFF_CYCLES,
     FROZEN_ROLLBACK_STREAK_THRESHOLD,
 )
+
+# S0-2 (2026-10-17)【RSI 阶段〇-2】：变更速率总闸阈值。
+# 语义与依据见 runbook/FINAL_synthesis 阶段〇-2；调大须人工（治理不变量：
+# 任何自动路径不得放宽对自身变更速率的限制）。
+MAX_ACCEPTED_PER_24H = 3  #: 24h 窗口 accepted 参数变更上限
+MAX_RULES_PER_24H = 2     #: 24h 窗口自优化规则净入库上限
+
 from lingclaude.self_optimizer.optimizer import (
     OptimizationRequest,
     SynchronousOptimizer,
@@ -26,7 +33,7 @@ from lingclaude.self_optimizer.trigger import OptimizationTrigger
 from lingclaude.core.session import SessionManager
 from pathlib import Path as P
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -352,6 +359,56 @@ class OptimizationDaemon:
         self.state.save(self.state_path)
         return True, streak
 
+    # ------------------------------------------------------------------ #
+    # S0-2 (2026-10-17)【RSI 阶段〇-2，变更速率总闸】：单机版「能力增速
+    # 限制」（论文 2609.36054 三支柱 Steer & Constrain 的落点）。
+    # 24h 窗口内 accepted 参数变更 ≤ MAX_ACCEPTED_PER_24H、自入库规则
+    # ≤ MAX_RULES_PER_24H。超限轮只评估不落盘（dry-run 进台账 rejected，
+    # reason=s0_rate_limited）；自优化周期规则（opt_cycle_*/failure_cluster_*）
+    # 仅刷新既有 id（upsert 不净增）不计窗。
+    # ------------------------------------------------------------------ #
+    def _rule_injection_count_24h(self) -> int:
+        """24h 窗口自优化回路规则净入库计数。
+
+        归因口径：id 前缀 opt_cycle_* / failure_cluster_* 由自优化回路
+        写入；经 add_rule 同 id upsert 刷新（频次/置信度）不产生新行，
+        故按 created_at 计数即净新增。失败降级 0（放行，台账是观测件）。
+        """
+        try:
+            from lingclaude.self_optimizer.learner.knowledge import KnowledgeBase
+
+            kb = KnowledgeBase()
+            try:
+                since = (
+                    datetime.now() - timedelta(hours=24)
+                ).isoformat(timespec="seconds")
+                row = kb._get_connection().execute(
+                    """
+                    SELECT COUNT(*) AS n FROM rules
+                     WHERE created_at >= ?
+                       AND (id LIKE 'opt_cycle_%' OR id LIKE 'failure_cluster_%')
+                    """,
+                    (since,),
+                ).fetchone()
+                return int(row["n"]) if row else 0
+            finally:
+                kb.close()
+        except Exception:  # noqa: BLE001 — 计数失败不阻塞优化主循环
+            logger.warning("[S0-2] 规则速率计数失败，按 0 计（放行）", exc_info=True)
+            return 0
+
+    def _rule_rate_limited(self) -> bool:
+        """规则侧速率闸：24h 净新增 ≥ 上限即本轮跳过规则入库（dry-run）。"""
+        count = self._rule_injection_count_24h()
+        if count < MAX_RULES_PER_24H:
+            return False
+        logger.warning(
+            "[S0-2速率闸] 24h 自优化规则净入库 %d ≥ 上限 %d → 本轮规则只分析"
+            "不落库（dry-run）",
+            count, MAX_RULES_PER_24H,
+        )
+        return True
+
     def _frozen_zone_skip(self) -> bool | None:
         """frozen zone 期间的跳轮+退避。返回 True 表示本轮跳过，None 表示未冻结/已退出。
 
@@ -459,17 +516,21 @@ class OptimizationDaemon:
         # 每轮优化后扫 error_log，同型失败跨会话聚类 → 产 LearnedRule(draft)
         # + backlog 修复建议。把「13 连败人工查 journal」机制化为 daemon 自动
         # 发现。fail-soft：聚类失败不阻断优化主流程（节流每轮一次，量级亚秒）。
+        # S0-2 (2026-10-17)：规则侧速率闸——24h 净入库达上限时 write=False
+        # （dry-run：只分析、可观测、不落库），防规则流水线自我灌水。
         try:
             from lingclaude.self_optimizer.failure_cluster_analyzer import (
                 FailureClusterAnalyzer,
             )
+            fca_write = not self._rule_rate_limited()
             fca = FailureClusterAnalyzer(min_occurrences=3, min_sessions=2)
-            fca_result = fca.analyze(write=True)
+            fca_result = fca.analyze(write=fca_write)
             if fca_result.actionable:
                 logger.info(
-                    "[断点③] 失败聚类归因：可行动 %d 簇，入库规则 %d，backlog +%d",
+                    "[断点③] 失败聚类归因：可行动 %d 簇，入库规则 %d，backlog +%d%s",
                     fca_result.actionable, fca_result.rules_written,
                     fca_result.backlog_appended,
+                    "" if fca_write else "（S0-2 速率闸 dry-run，未落库）",
                 )
         except Exception as _fca_err:  # noqa: BLE001 — 归因失败不阻断优化
             logger.debug("[断点③] 失败聚类分析跳过（fail-soft）: %s", _fca_err)
@@ -614,6 +675,44 @@ class OptimizationDaemon:
             score_before if score_before is not None else violations_before,
         )
         best_ever = self.state.best_ever_score
+        # S0-2 速率闸（参数侧）：24h accepted 计数达上限 → 本轮只评估不应用。
+        # 拒绝理由显式落台账（reason=s0_rate_limited），与 F5 门禁拒绝同构。
+        try:
+            accepted_24h = self.experiments.accepted_in_window(24.0)
+        except Exception:  # noqa: BLE001 — 闸故障不阻塞主循环（fail-open）
+            accepted_24h = 0
+        if accepted_24h >= MAX_ACCEPTED_PER_24H:
+            logger.warning(
+                "[S0-2速率闸] 24h accepted=%d ≥ 上限 %d → 本轮参数只评估"
+                "不应用（dry-run）",
+                accepted_24h, MAX_ACCEPTED_PER_24H,
+            )
+            self.experiments.settle(
+                exp_id, "rejected",
+                score_after=result.best_score,
+                reason="s0_rate_limited",
+            )
+            # 与正常分支同构构造 cycle（但 report-only：report_path 未生成）
+            violations_after = int(result.best_score)
+            cycle = OptimizationCycle(
+                cycle_id=self.state.total_cycles + 1,
+                triggered_at=datetime.now().isoformat(),
+                trigger_reason=trigger_info.reason,
+                trigger_type=trigger_info.type,
+                trigger_priority=trigger_info.priority,
+                best_score=result.best_score,
+                best_params=result.best_params,
+                experiments=result.experiments,
+                duration_seconds=round(duration, 2),
+                violations_before=(
+                    int(round(score_before))
+                    if score_before is not None else violations_before
+                ),
+                violations_after=violations_after,
+                report_path="",
+            )
+            self._record_cycle(cycle)
+            return Result.ok(cycle)
         if best_ever is not None and result.best_score > best_ever:
             logger.warning(
                 "[P1回滚] 本轮 best_score=%.2f 劣于归档最优 %.2f（cycle #%s），"
@@ -861,13 +960,17 @@ class OptimizationDaemon:
                 "triggers", {}
             )
 
-            param_map = {
-                "max_class_size": ("triggers", "max_class_lines"),
-                "max_method_count": ("triggers", "max_method_count"),
-                "max_complexity": ("triggers", "max_complexity"),
-                "max_nesting_depth": ("optimization", "max_nesting_depth"),
-                "coupling_limit": ("optimization", "coupling_limit"),
-            }
+            # S0-1 (2026-10-17)【RSI 阶段〇止血】：structure param_map 已下线。
+            # 原 map 把搜索参数（max_class_size 等）写入 config.yaml triggers ——
+            # 即「优化器改量具」的执行端。评估器只许人工升级，故此路径清空。
+            # behavior goal 的写入走 _apply_behavior_params（被控对象是
+            # behavior_policy.yaml，非评估器），不在本路径，不受影响。
+            param_map: dict[str, tuple[str, str]] = {}
+            if params:
+                logger.warning(
+                    "[S0-1] structure 参数写入已停用（评估器只许人工升级），"
+                    "丢弃参数: %s", sorted(params),
+                )
 
             # 单参数限幅：按 param_map 顺序取第一个可应用项，其余记为待复测建议
             pending = [
@@ -1152,6 +1255,16 @@ class OptimizationDaemon:
                 quality_score=cycle.best_score / 100 if cycle.best_score > 0 else 0.5,
                 status="active" if improved else "draft",
             )
+            # S0-2 规则侧速率闸：本条是每轮新 id（opt_cycle_NNNN）= 净增长，
+            # 24h 窗口净入库达上限即跳过（周期经验已在 state.cycles 留档，
+            # 不丢信息；P2 强化分支是同 id upsert 不计窗、保持放行）。
+            if self._rule_rate_limited():
+                logger.info(
+                    "[S0-2速率闸] 周期规则 %s 跳过入库（dry-run，已在 state.cycles 留档）",
+                    rule_id,
+                )
+                kb.close()
+                return
             kb.add_rule(rule)
             logger.info("已写入知识库: %s", rule_id)
             kb.close()

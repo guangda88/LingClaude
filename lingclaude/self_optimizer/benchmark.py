@@ -188,31 +188,21 @@ class BenchmarkEvaluator:
 
     # best_params 键 → (题集 id, 新阈值)。打通 参数→判定阈值 耦合通道：
     # 未列出的参数键不影响分数（保持既定阈值）。
-    _PARAM_TO_CHECK: dict[str, tuple[str, str]] = {
-        "max_class_size": ("b01", "max_class_lines<={:.0f}"),
-        "max_method_count": ("b02", "max_method_count<={:.0f}"),
-        "max_complexity": ("b03", "avg_complexity<={:.0f}"),
-        "coupling_limit": ("b04", "complex_ratio<={:.4f}"),
-    }
+    #
+    # S0-1 (2026-10-17)【RSI 阶段〇止血，用户已批】：量具接线已冻结为空映射。
+    # 原 map 把搜索参数直通题集判定阈值（b01-b04）——「学生自改评分标准」
+    # 的接线端。恢复此映射 = 重启自调量具回路，须人工评审（且 evaluator_meta
+    # 版本 +1），严禁优化器自动恢复。
+    _PARAM_TO_CHECK: dict[str, tuple[str, str]] = {}
 
     def adopt_params(self, params: dict) -> None:
-        """把优化器候选参数映射进题集判定阈值（b01-b04）。
+        """【已冻结，2026-10-17】参数→题集判定阈值通道。
 
-        这是 benchmark 模块 docstring 声称的「参数变化 → 行为分变化」
-        可测通道的实际接线（2026-09-17）：此前阈值硬编码，_apply_params
-        只写 config.yaml，分数与参数零耦合 → daemon P0 门禁恒等分死门。
-        max_complexity 额外驱动 _scan 的「复杂方法」判定线（原硬编码 15）。
+        S0-1: 一律 no-op（保持幂等兼容，旧调用方传 structure 键不再产生
+        任何效果）。防回归见 tests/test_benchmark_gate.py。
         """
-        for key, value in params.items():
-            mapping = self._PARAM_TO_CHECK.get(key)
-            if mapping is not None:
-                check_id, tmpl = mapping
-                for chk in self._checks:
-                    if chk.get("id") == check_id:
-                        chk["check"] = tmpl.format(float(value))
-                        break
-            if key == "max_complexity":
-                self._complex_threshold = float(value)
+        _ = params
+        return None
 
     def run(self) -> BenchmarkResult:
         m = self._scan()
