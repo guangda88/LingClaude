@@ -328,6 +328,42 @@ class TestApplyBehaviorParams:
         assert "tool_repeat_limit" in data  # 其余键完整
         assert "edit_tools" in data
 
+    # ---- 首航实测修复（2026-10-17）：选键必须选「真正变化的键」----
+    def test_picks_changed_key_not_first_sorted(self, tmp_path, monkeypatch):
+        """多键参数：sorted 首键同值、次键真变 → 必须落盘次键。
+
+        首航 cycle#1130 实证：sorted 恒先 cfl（建议值=现值2），
+        tool_repeat_limit 3→6 永不落盘（apply 幻影）。
+        """
+        monkeypatch.setenv("LINGCLAUDE_DAEMON_APPLY", "1")
+        d = self._daemon(tmp_path)
+        policy = self._policy_path(monkeypatch, tmp_path)
+        with patch(
+            "lingclaude.core.permissions.PermissionContext.check_action",
+            return_value=(True, ""),
+        ):
+            d._apply_behavior_params(
+                {"consecutive_fail_limit": 2, "tool_repeat_limit": 6}
+            )
+        import yaml as _yaml
+
+        data = _yaml.safe_load(policy.read_text(encoding="utf-8"))
+        assert data["tool_repeat_limit"] == 6  # 变化键落盘
+        assert data["consecutive_fail_limit"] == 2  # 同值键未被碰
+
+    def test_all_same_values_no_write(self, tmp_path, monkeypatch):
+        """全部合法键建议值==现值 → 不写盘（mtime 不变，不烧速率闸）。"""
+        monkeypatch.setenv("LINGCLAUDE_DAEMON_APPLY", "1")
+        d = self._daemon(tmp_path)
+        policy = self._policy_path(monkeypatch, tmp_path)
+        before = policy.read_text(encoding="utf-8")
+        stat_before = policy.stat().st_mtime_ns
+        d._apply_behavior_params(
+            {"consecutive_fail_limit": 2, "tool_repeat_limit": 3}
+        )
+        assert policy.read_text(encoding="utf-8") == before
+        assert policy.stat().st_mtime_ns == stat_before  # 盘未动
+
 
 # ---------- 5. 热加载契约 ----------
 

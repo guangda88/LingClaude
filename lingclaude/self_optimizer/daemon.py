@@ -1444,7 +1444,8 @@ class OptimizationDaemon:
 
         纪律（沿用 _apply_params 语义）：
         1. 默认 report-only（LINGCLAUDE_DAEMON_APPLY=1 才真正落盘）。
-        2. 单参数限幅：每周期最多写 1 个键（归因窗口）。
+        2. 单参数限幅：每周期最多写 1 个键（归因窗口）；选「真正发生
+           变化的合法键」，全同值不写盘不烧速率闸（S0-2 配额留给真变更）。
         3. 合法键白名单 + int 强制，防搜索空间外的值写进策略文件。
         """
 
@@ -1458,19 +1459,40 @@ class OptimizationDaemon:
             return
 
         allowed = {"consecutive_fail_limit", "tool_repeat_limit"}
-        picked = None
-        for key in sorted(params):  # sorted → 归因窗口确定论
-            if key in allowed:
-                picked = (key, max(1, int(params[key])))
-                break
-        if picked is None:
-            logger.warning("[behavior] 无合法键可应用: %s", list(params))
-            return
-        key, value = picked
 
         from lingclaude.core.policy_loader import policies_dir
 
         policy_path = policies_dir() / "behavior_policy.yaml"
+        # 首航实测修复（2026-10-17）：原实现 sorted(params) 取第一个合法键，
+        # 字母序恒先 consecutive_fail_limit——若其建议值恰等于现值，本轮
+        # 「写了个寂寞」，真正变化的键（tool_repeat_limit）永不落盘。
+        # 现判据：第一个「建议值≠现值」的合法键；全同值 → 无变更不应用。
+        try:
+            import yaml as _yaml
+
+            current = (
+                _yaml.safe_load(policy_path.read_text(encoding="utf-8"))
+                if policy_path.exists()
+                else {}
+            ) or {}
+        except Exception:
+            current = {}
+        key: str | None = None
+        value: int | None = None
+        for k in sorted(params):  # sorted → 归因窗口确定论
+            if k not in allowed:
+                continue
+            v = max(1, int(params[k]))
+            if current.get(k) != v:
+                key, value = k, v
+                break
+        if key is None:
+            logger.info(
+                "[behavior] 合法键建议值均与现值一致，无可应用变更"
+                "（不写盘不烧速率闸）: %s",
+                {k: params[k] for k in sorted(params) if k in allowed},
+            )
+            return
         lock_cm = None
         try:
             from lingclaude.core.permissions import (
