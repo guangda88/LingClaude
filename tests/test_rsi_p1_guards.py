@@ -222,13 +222,23 @@ class TestManualRollback:
     def test_manual_rollback_restores_file(self, tmp_path: Path):
         pytest.importorskip("yaml")
         daemon = self._daemon(tmp_path)
-        target = daemon._behavior_policy_path()
+        # 测试隔离（2026-10-17 事故复盘）：_behavior_policy_path 解析到
+        # 生产策略文件，直写曾把 lingclaude/core/policies/behavior_policy.yaml
+        # 剥成一行——测试目标一律指向 tmp，绝不触碰真实策略文件。
+        target = tmp_path / "fake_policy" / "behavior_policy.yaml"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("tool_repeat_limit: 3\n", encoding="utf-8")
-        meta = daemon.artifacts.snapshot(target, "exp_manual1")
-        assert meta is not None
-        target.write_text("tool_repeat_limit: 9\n", encoding="utf-8")
-        result = daemon.manual_rollback("exp_manual1")
+        daemon.artifacts = ArtifactGuard(
+            snapshot_dir=tmp_path / "artifacts",
+            replay_db_path=tmp_path / "noflywheel.db",
+        )
+        with patch.object(
+            daemon, "_behavior_policy_path", return_value=target
+        ):
+            meta = daemon.artifacts.snapshot(target, "exp_manual1")
+            assert meta is not None
+            target.write_text("tool_repeat_limit: 9\n", encoding="utf-8")
+            result = daemon.manual_rollback("exp_manual1")
         assert result.is_ok
         assert target.read_text(encoding="utf-8") == "tool_repeat_limit: 3\n"
         assert result.data["restore"] == "restored_verified"
