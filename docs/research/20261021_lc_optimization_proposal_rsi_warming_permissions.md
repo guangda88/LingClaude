@@ -13,6 +13,15 @@
 
 ## 结论速览
 
+> **执行状态 (2026-10-22)**: B 项已实施——`check_optimizer_write` 落地
+> （`core/permissions.py` + `core/policies/optimizer_write_policy.yaml` + daemon 两漏斗口接线，
+> 测试 `tests/test_optimizer_write_policy.py` 20 绿）。查证修正三处: ①当前 `guard.approval_mode: auto`
+> →P0-1 闸门实际全放，B 项痛点比本文评估更真实 ②B.4 示例中 `core/policies/config.yaml` 系笔误
+> （实际被写对象=CWD 相对 `config.yaml` 与 `core/policies/behavior_policy.yaml`）③`PolicyLoader`
+> 实为模块级函数 `policy_loader.get()` 非类。A 三探针已完成 1+3（2 未做）: **cached_pct 实测
+> 84.5-98.4%**，warming 判不可实施，结论落 `data/selfopt/a_probe_cache_20261022.json`。
+> R1/R2/R3 未动工。
+
 | # | 建议 | 判定 | 优先级 | 依据强度 |
 |---|------|------|--------|----------|
 | R1 | **RSI：DGM 式谱系 archive**（StateStore 加备选谱系保留+隔代回采） | 值得做 | P2 | ✅ DGM 20%→50% 实证 |

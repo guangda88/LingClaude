@@ -1631,7 +1631,38 @@ class OptimizationDaemon:
         # 2026-09-05 事故（会话执行 rm -rf .lingclaude）证明缺少此闸的风险。
         # 2026-09-06 fix：消除上游混合缩进造成的 SyntaxError，确保 daemon 可启动。
         # H1 (2026-09-15): 统一动作闸门 — 由 ApprovalGuard 改为 PermissionContext.check_action。
-        from lingclaude.core.permissions import PermissionContext, load_approval_mode
+        # B项 (2026-10-22): 对象级 path-scoped 规则闸前置（第五重，声明式，
+        #   根锚 evaluator/规则文件自身永拒；只叠加不替换既有四重）。
+        from lingclaude.core.permissions import (
+            PermissionContext,
+            check_optimizer_write,
+            load_approval_mode,
+        )
+
+        wd = check_optimizer_write(
+            "self_optimizer", Path("config.yaml")
+        )
+        if wd.decision == "deny":
+            logger.error(
+                "[write-policy] 写 %s 被声明式规则拒绝（%s），丢弃参数: %s",
+                "config.yaml", wd.rule_id, sorted(params),
+            )
+            return
+        if wd.decision == "ask":
+            from lingclaude.core.permissions import log_pending_action
+
+            log_pending_action(
+                "optimizer_write_policy_ask",
+                {"actor": "self_optimizer", "path": "config.yaml",
+                 "rule_id": wd.rule_id, "proposed": params},
+                mode="ask",
+            )
+            logger.warning(
+                "[write-policy] 写 config.yaml 规则外路径（%s），待审批未应用: %s",
+                wd.rule_id, params,
+            )
+            return
+        # allow → 落入下方既有四重护栏（P0-1 / APPLY / 限幅 / 锁）
 
         lock_cm = None  # 提前 return 路径（未持锁）时 finally 需判空
         guard_mode = load_approval_mode(Path("config.yaml"))
@@ -1789,6 +1820,34 @@ class OptimizationDaemon:
             )
             return False
 
+        # B项 (2026-10-22): path-scoped 规则闸前置（第五重护栏，声明式）。
+        # 根锚 evaluator/规则文件自身永拒；规则外路径默认 ask 落审批不应用。
+        from lingclaude.core.permissions import check_optimizer_write
+
+        _policy_rel = "core/policies/behavior_policy.yaml"
+        wd = check_optimizer_write("self_optimizer", _policy_rel)
+        if wd.decision == "deny":
+            logger.error(
+                "[write-policy] 写 %s 被声明式规则拒绝（%s），丢弃参数: %s",
+                _policy_rel, wd.rule_id, sorted(params),
+            )
+            return False
+        if wd.decision == "ask":
+            from lingclaude.core.permissions import log_pending_action
+
+            log_pending_action(
+                "optimizer_write_policy_ask",
+                {"actor": "self_optimizer", "path": _policy_rel,
+                 "rule_id": wd.rule_id, "proposed": params},
+                mode="ask",
+            )
+            logger.warning(
+                "[write-policy] 写 %s 规则外路径（%s），待审批未应用: %s",
+                _policy_rel, wd.rule_id, params,
+            )
+            return False
+        # allow → 落入下方既有四重护栏（合法键白名单 / P0-1 / APPLY / 锁）
+
         allowed = {"consecutive_fail_limit", "tool_repeat_limit"}
 
         from lingclaude.core.policy_loader import policies_dir
@@ -1848,7 +1907,7 @@ class OptimizationDaemon:
                     "[guard] 行为参数待审批（mode=%s, reason=%s），未应用: %s=%s",
                     guard.mode, reason, key, value,
                 )
-                return
+                return False
 
             lock_cm = file_edit_lock(policy_path, owner="self_optimizer")
             lock_cm.__enter__()

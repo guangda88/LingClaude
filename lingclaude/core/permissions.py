@@ -544,3 +544,139 @@ def reset_permission_stores() -> None:
 # 直接引用 load_approval_mode（本行之前已定义）。原位置（函数定义后立即
 # 调用）使兜底成为死代码，config.yaml 的 guard.approval_mode 从不生效。
 _load_persisted()
+
+# ═══════════════════════════════════════════════════════════════════════════
+# B项 (2026-10-22): 自优化器 path-scoped 写权限规则引擎
+# 依据: docs/research/20261021_lc_optimization_proposal_rsi_warming_permissions.md §三
+#
+# 设计要点（B.2/B.3 全采纳）:
+#   1. 有序规则、last-match-wins —— 可读/可 diff/可 review；
+#   2. 白名单外默认 ask —— 新路径类型自动落审批，fail-closed 于"静默放行"；
+#   3. 只叠加不替换 —— report-only / 单参限幅 / P0-1 审批 / S0-1 四重护栏原样保留，
+#      本引擎只新增 actor×path 维度；
+#   4. 根信任锚硬编码（唯一允许的一处）: evaluator 源码 + 规则文件自身永拒——
+#      若规则文件可被优化器改写，声明式边界纯属剧场（B.3-1 自指陷阱）。
+# 热载: 复用 PolicyLoader mtime watch（改规则即时生效，无需重启 daemon）。
+# ═══════════════════════════════════════════════════════════════════════════
+
+OPTIMIZER_WRITE_POLICY_NAME = "optimizer_write_policy"
+
+# ── 根信任锚（硬编码，规则文件不可达）─────────────────────────────────────
+# 命中即 (deny, root_anchor)，先于一切规则、连 APPLY=1 也拒。
+_OPTIMIZER_ROOT_ANCHOR_PREFIXES: tuple[str, ...] = (
+    "lingclaude/self_optimizer/evaluator.py",
+    "lingclaude/self_optimizer/evaluator_meta.py",
+    "lingclaude/core/policies/optimizer_write_policy.yaml",
+)
+# cwd≠repo 根时仓库相对归一化可能失败，后缀兜底保证根锚 cwd 无关（过拒安全方向）
+_OPTIMIZER_ROOT_ANCHOR_SUFFIXES: tuple[str, ...] = (
+    "self_optimizer/evaluator.py",
+    "self_optimizer/evaluator_meta.py",
+    "core/policies/optimizer_write_policy.yaml",
+)
+
+# 规则动作 → 统一四值（deny/allow/ask），根锚另计
+_VALID_POLICY_ACTIONS = frozenset({"deny", "allow", "ask"})
+
+
+def _normalize_repo_path(path: str | Path) -> str:
+    """归一化为仓库相对 POSIX 路径（拒绝目录穿越）。
+
+    接受绝对路径（repo 内）或相对路径；`..` 逃逸 → 返回原文交由 deny 判定外
+    的 ask（新形态进审批流，不硬拒——但根锚前缀匹配仍生效）。
+    """
+    p = Path(path)
+    try:
+        if p.is_absolute():
+            resolved = p.resolve()
+            repo_root = Path.cwd()
+            try:
+                rel = resolved.relative_to(repo_root)
+            except ValueError:
+                return str(path)
+            return rel.as_posix()
+        norm = p.as_posix()
+        if ".." in norm.split("/"):
+            return str(path)
+        return norm
+    except Exception:  # noqa: BLE001 — 归一化失败按原文处理（ask 兜底）
+        return str(path)
+
+
+def _path_matches(pattern: str, path: str) -> bool:
+    """极简 glob: 尾部 `*` = 前缀匹配；内嵌 `*` = fnmatch。"""
+    if pattern.endswith("*"):
+        return path.startswith(pattern[:-1])
+    if "*" in pattern:
+        import fnmatch
+
+        return fnmatch.fnmatch(path, pattern)
+    return path == pattern
+
+
+@dataclass(frozen=True)
+class OptimizerWriteDecision:
+    """check_optimizer_write 的裁决结果（含命中的规则 id，供审计落账）。"""
+
+    decision: str  # "allow" | "deny" | "ask"
+    rule_id: str   # "root_anchor" | "default_no_match" | "rule[i]" | "malformed_policy"
+
+
+def check_optimizer_write(actor: str, path: str | Path) -> OptimizerWriteDecision:
+    """自优化器写对象前过此闸：actor×path 声明式规则裁决。
+
+    裁决序:
+      1. 根信任锚（硬编码永拒）—— evaluator 源码 + 本规则文件自身；
+      2. 有序规则 last-match-wins（PolicyLoader 热载）；
+      3. 无任何命中 → ask（默认落审批，fail-closed 于静默放行）。
+    规则文件缺失/损坏 → ask（不 deny 不 allow，异常态交人判）。
+
+    返回 OptimizerWriteDecision(decision, rule_id)；本函数只裁决不落盘，
+    pending 落盘仍由调用方走 log_pending_action 既有链路。
+    """
+    norm = _normalize_repo_path(path)
+
+    # 1) 根信任锚: 连规则文件自身写动作也拒（自指陷阱，B.3-1）
+    #    前缀（repo 相对规范形）+ 后缀（cwd 无关兜底）双判据，命中即永拒
+    for anchor in _OPTIMIZER_ROOT_ANCHOR_PREFIXES:
+        if norm == anchor or norm.startswith(anchor):
+            return OptimizerWriteDecision("deny", "root_anchor")
+    for suffix in _OPTIMIZER_ROOT_ANCHOR_SUFFIXES:
+        if norm.endswith(suffix):
+            return OptimizerWriteDecision("deny", "root_anchor")
+
+    # 2) 读规则（PolicyLoader mtime 热载 + graceful degrade）
+    try:
+        from lingclaude.core import policy_loader
+
+        data = policy_loader.get(OPTIMIZER_WRITE_POLICY_NAME)
+    except Exception:  # noqa: BLE001 — 加载器异常按空策略处理
+        data = {}
+    rules = data.get("rules") if isinstance(data, dict) else None
+    if not isinstance(rules, list):
+        # 文件缺失/损坏/非 dict → ask（fail-closed 于放行，不硬拒——异常态交人）
+        return OptimizerWriteDecision("ask", "malformed_policy")
+
+    # 3) 有序规则 last-match-wins
+    matched: str | None = None
+    verdict: str | None = None
+    for i, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        m = rule.get("match")
+        if not isinstance(m, dict):
+            continue
+        r_actor = m.get("actor")
+        r_path = m.get("path")
+        if r_actor is not None and str(r_actor) != str(actor):
+            continue
+        if r_path is None or not _path_matches(str(r_path), norm):
+            continue
+        action = rule.get("action")
+        if action not in _VALID_POLICY_ACTIONS:
+            continue
+        matched, verdict = f"rule[{i}]", str(action)
+
+    if verdict is not None:
+        return OptimizerWriteDecision(verdict, matched)  # type: ignore[arg-type]
+    return OptimizerWriteDecision("ask", "default_no_match")

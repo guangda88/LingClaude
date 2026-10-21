@@ -1,0 +1,36 @@
+# 自优化器写权限规则表（B项 2026-10-22）
+# 依据: docs/research/20261021_lc_optimization_proposal_rsi_warming_permissions.md §三
+#
+# 语义（B.2 三点全采纳）:
+#   - 有序规则，**最后匹配生效**（last-match-wins）——改边界=改本文件+git diff 可审；
+#   - action 四值: allow / deny / ask；
+#   - **白名单外默认 ask**（引擎内置，无需写默认规则）——新路径类型自动落审批；
+#   - match.actor 省略 = 对任意 actor 生效；match.path 支持 glob（尾 `*`=前缀）。
+#
+# 根信任锚（硬编码于 core/permissions.py，本文件不可覆盖）:
+#   lingclaude/self_optimizer/evaluator*.py 与 本文件自身 → 永拒（连 allow 规则也压不过）。
+#
+# 热载: PolicyLoader mtime watch（改本文件即时生效，无需重启 daemon）。
+# 护栏叠加声明: 本表之上仍有 report-only(APPLY 开关) / 单参限幅 / P0-1 审批闸 /
+#   S0-1 评估器冻结四重护栏，各自独立生效（只叠加不替换，B.3-2）。
+#
+# 注意: 本表初始只放行两类既有写入漏斗的真实被写对象（实测路径）:
+#   - _apply_params          → config.yaml（CWD 相对，即仓库根 config.yaml）
+#   - _apply_behavior_params → core/policies/behavior_policy.yaml
+# 其余一切默认 ask。
+
+rules:
+  # ── 既有两个写入漏斗的合法对象 ────────────────────────────────────────
+  - match: {actor: self_optimizer, path: "config.yaml"}
+    action: allow            # 写前仍过 P0-1 审批闸 + APPLY 开关 + 单参限幅
+    note: "主配置优化参数（S0-1 已令 structure 写入清空，现仅占位）"
+  - match: {actor: self_optimizer, path: "core/policies/behavior_policy.yaml"}
+    action: allow            # 同上四重护栏叠加生效
+    note: "behavior 阈值（consecutive_fail_limit/tool_repeat_limit 白名单内）"
+
+  # ── 明示 deny 示例：扩展受限对象时在此追加（无需改代码）────────────────
+  # - match: {actor: self_optimizer, path: "lingclaude/self_optimizer/*"}
+  #   action: deny
+  #   note: "示例: 优化器自身源码禁写（当前由 S0-1+根锚覆盖评估器，其余默认 ask）"
+
+  # ── 白名单外一切默认 ask（引擎内置语义，此处留注释即文档）──────────────
