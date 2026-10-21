@@ -4,6 +4,7 @@ import fcntl  # P1-卫 (2026-10-17): flock 状态文件锁
 import contextlib
 import hashlib
 import json
+from collections import Counter
 import logging
 import os
 import sys
@@ -29,6 +30,15 @@ from lingclaude.self_optimizer.experiments import (
 # 语义与依据见 runbook/FINAL_synthesis 阶段〇-2；调大须人工（治理不变量：
 # 任何自动路径不得放宽对自身变更速率的限制）。
 MAX_ACCEPTED_PER_24H = 3  #: 24h 窗口 accepted 参数变更上限
+
+# F6 尺度漂移卫兵（2026-10-21，首航实证 best_ever=27.6 旧语料尺度 vs 当前
+# ~775 → 6297 轮假回滚空转+永久冻结的复发防线）。同 goal 尺子也会因语料
+# 分布漂移而整体移位（旧尺度/新尺度），与 F5 跨 goal 卫兵互补。
+# 机制：连续 N 轮「当前参数在当前语料的实测（score_before，F2 同尺）劣于
+# best_ever 达 M 倍」→ 判定基线属旧尺度，一次性归档重置（P1-5 人工解锁
+# 的自动化版）。连续计数防单轮噪声；M 阈值远大于「真变差」幅度。
+BASELINE_DRIFT_RATIO = 2.0   #: score_before ≥ DRIFT_RATIO × best_ever 视为异尺
+BASELINE_DRIFT_STREAK = 3    #: 连续 N 轮才重置（防噪声）
 MAX_RULES_PER_24H = 2     #: 24h 窗口自优化规则净入库上限
 
 # P1-卫 (2026-10-17)【首航事故三条卫生规则】：10-17 首航实证——旧 watch
@@ -208,6 +218,8 @@ class DaemonState:
     best_ever_params: dict[str, Any] = field(default_factory=dict)
     best_ever_cycle_id: int | None = None
     best_ever_goal: str | None = None  # F5: best_ever 所属 goal 语义（防跨尺子比较）
+    # F6: 尺度漂移连续命中计数（≥BASELINE_DRIFT_STREAK 触发归档重置）
+    baseline_drift_streak: int = 0
     benchmark_baseline: float | None = None  # P0 基线持久化（跨进程）
     # R10-4 (2026-09-23): 停滞轮换——连续零改进圈数（goal=structure 收敛后
     # 自动切 behavior；behavior 停滞则降频省预算）。None = 旧状态文件无字段。
@@ -942,6 +954,37 @@ class OptimizationDaemon:
             strategy=p2_strategy,
         )
         best_ever = self.state.best_ever_score
+        # F6 尺度漂移卫兵（2026-10-21）：同 goal 尺子也会因语料漂移整体移位。
+        # 判据=score_before（本轮当前参数在当前语料的实测，F2 已同尺化）——
+        # 若连占 best_ever 达 M 倍，说明历史最优属旧尺度（27.6 vs ~775 型），
+        # 而非「优化变差」。连续 N 轮确认防噪声，达阈一次性归档重置并放行。
+        if (
+            best_ever is not None
+            and best_ever > 0
+            and score_before is not None
+            and score_before >= BASELINE_DRIFT_RATIO * best_ever
+        ):
+            self.state.baseline_drift_streak = (
+                int(getattr(self.state, "baseline_drift_streak", 0) or 0) + 1
+            )
+            if self.state.baseline_drift_streak >= BASELINE_DRIFT_STREAK:
+                logger.warning(
+                    "[F6尺度漂移] 连续 %d 轮 score_before(%.1f) ≥ %.1f×"
+                    "best_ever(%.1f@cycle#%s) → 基线属旧语料尺度，归档重置",
+                    self.state.baseline_drift_streak, score_before,
+                    BASELINE_DRIFT_RATIO, best_ever,
+                    self.state.best_ever_cycle_id,
+                )
+                self.state.best_ever_score = None
+                self.state.best_ever_params = {}
+                self.state.best_ever_cycle_id = None
+                self.state.best_ever_goal = None
+                self.state.baseline_drift_streak = 0
+                best_ever = None  # 本轮按无基线放行（不进择优回滚分支）
+        else:
+            # 未命中漂移（或暂无基线）→ 清计数
+            self.state.baseline_drift_streak = 0
+        best_ever = self.state.best_ever_score
         # S0-2 速率闸（参数侧）：24h accepted 计数达上限 → 本轮只评估不应用。
         # 拒绝理由显式落台账（reason=s0_rate_limited），与 F5 门禁拒绝同构。
         try:
@@ -1006,6 +1049,7 @@ class OptimizationDaemon:
                     score_after=result.best_score,
                     reason="p5_reverse_pair_baseline_reset",
                 )
+                self.state.baseline_drift_streak = 0  # F6: 基线已重置清计数
                 cycle = OptimizationCycle(
                     cycle_id=self.state.total_cycles + 1,
                     triggered_at=datetime.now().isoformat(),
@@ -1942,6 +1986,81 @@ class OptimizationDaemon:
                 "[P1-7断链] experiment_id=%s 在台账查无此单（审计事件流断链）",
                 cycle.experiment_id,
             )
+
+    def activity_report(
+        self, days: float = 7.0, limit: int = 20,
+    ) -> dict[str, Any]:
+        """P1-7 消费方（2026-10-21）：activity.jsonl 近 N 天聚合报告。
+
+        activity 行本身不含 verdict（应用轮的最终裁决在下一轮观察期
+        结算时才产生，写入时不可知）→ 本方法与台账联表补全 verdict。
+        只读两库，不写盘，watch 在跑时可用。
+        """
+        path = self.state_dir / "activity.jsonl"
+        out: dict[str, Any] = {
+            "path": str(path), "total_lines": 0, "window_days": days,
+            "window_cycles": 0, "cycle_span": None, "verdicts": {},
+            "strategies": {}, "trigger_types": {}, "goals": {},
+            "chain_broken": 0, "recent": [],
+        }
+        if not path.exists():
+            return out
+        cutoff = (
+            datetime.now() - timedelta(days=days)
+        ).isoformat(timespec="seconds")
+        verdicts: Counter[str] = Counter()
+        strategies: Counter[str] = Counter()
+        triggers: Counter[str] = Counter()
+        goals: Counter[str] = Counter()
+        total = window = broken = 0
+        rows: list[dict[str, Any]] = []
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except Exception:
+                        continue
+                    total += 1
+                    if str(rec.get("ts", "")) < cutoff:
+                        continue
+                    window += 1
+                    rows.append(rec)
+                    strategies[str(rec.get("strategy", "?"))] += 1
+                    triggers[str(rec.get("trigger_type", "?"))] += 1
+                    goals[str(rec.get("goal", "?"))] += 1
+                    if rec.get("chain_broken"):
+                        broken += 1
+                    # 联表补 verdict（台账查无=断链/回滚后清理 → 标记）
+                    exp_id = rec.get("experiment_id")
+                    verdict = "no_experiment"
+                    if exp_id:
+                        try:
+                            er = self.experiments.get(exp_id)
+                            verdict = (
+                                er.get("verdict", "unknown")
+                                if isinstance(er, dict) else "unknown"
+                            )
+                        except Exception:
+                            verdict = "ledger_unreadable"
+                    verdicts[verdict] += 1
+                    rec = dict(rec)
+                    rec["verdict"] = verdict
+                    rows[-1] = rec
+        except OSError:
+            return out
+        if rows:
+            out["cycle_span"] = [rows[0].get("cycle_id"), rows[-1].get("cycle_id")]
+        out.update(
+            total_lines=total, window_cycles=window,
+            verdicts=dict(verdicts), strategies=dict(strategies),
+            trigger_types=dict(triggers), goals=dict(goals),
+            chain_broken=broken, recent=rows[-limit:],
+        )
+        return out
 
     def _write_cycle_to_knowledge(self, cycle: OptimizationCycle) -> None:
         try:

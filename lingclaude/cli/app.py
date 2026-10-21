@@ -524,6 +524,28 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
             print("错误: [Rule A] 状态写入被拒（他者改盘或存活 owner）")
             return 1
         print_success("状态已重置")
+    elif args.daemon_action == "activity":
+        # P1-7 消费方（2026-10-21）：activity.jsonl 近 N 天聚合报告
+        rep = daemon.activity_report(days=float(getattr(args, "activity_days", 7.0)))
+        print_info(
+            f"近 {rep['window_days']} 天: {rep['window_cycles']} 周期"
+            f"（台账总 {rep['total_lines']} 行, span={rep['cycle_span']}）"
+        )
+        if rep["verdicts"]:
+            print_kv("裁决分布", json.dumps(rep["verdicts"], ensure_ascii=False))
+        if rep["strategies"]:
+            print_kv("策略分布", json.dumps(rep["strategies"], ensure_ascii=False))
+        if rep["trigger_types"]:
+            print_kv("触发分布", json.dumps(rep["trigger_types"], ensure_ascii=False))
+        if rep["chain_broken"]:
+            print_kv("⚠ 断链", str(rep["chain_broken"]))
+        for r in rep["recent"][-10:]:
+            print_kv(
+                f"#{r.get('cycle_id')}",
+                f"{r.get('ts')} {r.get('trigger_type')} strategy="
+                f"{r.get('strategy')} verdict={r.get('verdict')} "
+                f"score={r.get('best_score')}",
+            )
     elif args.daemon_action == "rollback":
         # A1 (2026-10-17) 人工应急回滚：列表/预览/执行三段式
         rows = daemon.artifacts.list_snapshots(daemon._behavior_policy_path())
@@ -1320,11 +1342,15 @@ def main() -> int:
     daemon_parser = subparsers.add_parser("daemon", help="Self-optimization daemon")
     daemon_parser.add_argument(
         "daemon_action",
-        choices=["status", "run", "watch", "reset", "rollback"],
+        choices=["status", "run", "watch", "reset", "rollback", "activity"],
         help="Daemon action",
     )
     daemon_parser.add_argument(
         "--to", dest="rollback_to", help="rollback: target snapshot id"
+    )
+    daemon_parser.add_argument(
+        "--days", dest="activity_days", type=float, default=7.0,
+        help="activity: report window in days (default 7)",
     )
     daemon_parser.add_argument(
         "--yes",
