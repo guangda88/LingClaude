@@ -502,6 +502,7 @@ class OptimizationDaemon:
 
             hv = compute_headroom(
                 benchmark_score=self._last_benchmark_score,
+                best_ever_score=self.state.best_ever_score,
                 rollback_rate_30d=self.experiments.rolled_back_rate(30.0),
             )
             ctx["headroom"] = hv

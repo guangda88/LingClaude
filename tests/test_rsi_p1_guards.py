@@ -131,7 +131,14 @@ class TestHeadroom:
         assert hv.marginal_benefit_positive() is True
 
     def test_low_headroom_blocks(self):
-        hv = compute_headroom(benchmark_score=99.5, rollback_rate_30d=0.05)
+        # 2026-10-22 代价型语义修正：分数小=好（违规数/回放代价），故
+        # 「低空间」应取低劣化+低回滚率；旧值 99.5 在新语义下是高劣化
+        # （相对 best_ever 或 80/100 绝对口径均高），语义反了。
+        hv = compute_headroom(
+            benchmark_score=80.0,
+            best_ever_score=80.0,  # 追平最优 → pass=0
+            rollback_rate_30d=0.05,  # < 30% 阈值
+        )
         assert hv.marginal_benefit_positive() is False
 
     def test_all_unknown_defaults_to_true(self):

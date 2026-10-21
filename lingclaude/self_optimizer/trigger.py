@@ -39,6 +39,17 @@ class OptimizationTrigger:
 
         triggers_found: list[TriggerInfo] = []
 
+        # ---- 触发器口收敛（2026-10-22）----
+        # headroom 闸从 _check_time 单点提升为**全部自动触发的统一层**。
+        # 实证（activity 消费方 2026-10-21）：watch 四天 1015/1020 轮走
+        # structure 触发——其输入是代码库静态属性（复杂度/大类数），watch
+        # 不改代码 → 恒真 → 每轮必触发且完全绕过装在 _check_time 上的闸，
+        # 纯空转烧算力。user_triggered 已在上方 return（人工明确要跑不受
+        # 闸）；向量缺失/全未知 → 不设闸（防首轮死锁，退化=旧行为）。
+        hv = context.get("headroom")
+        if hv is not None and not hv.marginal_benefit_positive():
+            return False, None
+
         checks = [
             self._check_quality,
             self._check_behavior,

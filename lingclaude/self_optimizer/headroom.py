@@ -76,12 +76,26 @@ def compute_headroom(
     *,
     benchmark_score: float | None = None,
     benchmark_total: float = 100.0,
+    best_ever_score: float | None = None,
     rollback_rate_30d: float | None = None,
 ) -> HeadroomVector:
-    """从廉价输入装配向量。零 IO——取数责任在调用方（daemon）。"""
+    """从廉价输入装配向量。零 IO——取数责任在调用方（daemon）。
+
+    pass_headroom 语义（2026-10-22 触发器口收敛时修正）：lc benchmark
+    分数在所有 goal 下均为**代价型**（越小越好：回放代价/违规数）。
+    有 best_ever → space = max(0, score/best_ever - 1)（当前比历史最优
+    差多少比例——劣化越多空间越大；追平/优于最优 → 0 空间，不烧预算）。
+    best_ever 缺失 → 回退绝对口径 min(1, score/total)（违规占满量程比）。
+
+    历史教训：最初实现误套奖励型 1 - score/total，在真实尺度 ~775 上
+    结构性恒 0；本版若再套 1 - score/best 会把「劣化一倍」误判为无空间。
+    """
     pass_headroom: float | None = None
-    if benchmark_score is not None and benchmark_total > 0:
-        pass_headroom = max(0.0, 1.0 - benchmark_score / benchmark_total)
+    if benchmark_score is not None:
+        if best_ever_score is not None and best_ever_score > 0:
+            pass_headroom = max(0.0, benchmark_score / best_ever_score - 1.0)
+        elif benchmark_total > 0:
+            pass_headroom = min(1.0, max(0.0, benchmark_score / benchmark_total))
     return HeadroomVector(
         pass_headroom=pass_headroom,
         recurrence_headroom=rollback_rate_30d,
@@ -89,6 +103,7 @@ def compute_headroom(
         details={
             "benchmark_score": benchmark_score,
             "benchmark_total": benchmark_total,
+            "best_ever_score": best_ever_score,
             "rollback_rate_30d": rollback_rate_30d,
         },
     )
