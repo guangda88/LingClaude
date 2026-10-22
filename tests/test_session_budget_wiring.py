@@ -165,8 +165,16 @@ def test_learn_project_memory_trigger_and_mute(tmp_path, monkeypatch):
     assert "天气" not in content
 
 
-def test_learn_project_memory_fail_soft():
+def test_learn_project_memory_fail_soft(tmp_path, monkeypatch):
+    from lingclaude.core import project_memory as pm
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(pm, "memory_path", lambda d=None: tmp_path / "nonexistent_dir" / "pm.md")
     from lingclaude.core.query_engine_turn_mixin import QueryEngineTurnMixin
     mixin = QueryEngineTurnMixin.__new__(QueryEngineTurnMixin)
-    # 坏路径 → append 内部失败 → hook 吞掉不抛
+    # 坏路径 → append 内部失败 → hook 吞掉不抛（fail-soft 语义）
     mixin._learn_project_memory("记住：x", "y")
+    # 陷阱注记(2026-10-22): 本测试旧版无隔离，实盘路径可写时 append 意外成功，
+    # 垃圾条目写穿到真实 project_memory.md（当日全量回归触发实锤）。
+    # 修复=chdir 隔离+显式坏路径，写入即使意外成功也只落沙箱。
+    assert not (tmp_path / "pm.md").exists() or "记住" in (tmp_path / "pm.md").read_text()

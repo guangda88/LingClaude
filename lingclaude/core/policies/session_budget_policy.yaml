@@ -19,6 +19,15 @@
 #   - 生命周期 = 进程内会话（跨重启不续算，诚实边界见 session_budget.py docstring）
 #
 # 热更: 经 PolicyLoader mtime watch，改本文件下个 evaluate 生效，不重启。
+#
+# 跨会话全局额度（P3，2026-10-22）:
+#   daily_token_cap = 宿主当日所有会话合计 token 上限（UTC 日分桶，共享账本
+#   .lingclaude/global_budget.json，flock 原子入账）。0/缺省=不限（默认关）。
+#   超限动作: 所有接入会话的模型调用增量被拒（会话计数冻结 → L2 PAUSE
+#   挂起等裁决）——「宁可停等人，不可循环烧钱」的跨会话版。
+#   启用示例（取消注释并改值）:
+# global_budget:
+#   daily_token_cap: 20000000
 
 enabled: true
 

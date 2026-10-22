@@ -83,15 +83,34 @@ def record_model_call(input_tokens: int, output_tokens: int, cached_tokens: int 
 
     口径与 D3 record_turn_usage 同源（_finalize_turn 的 total_input/total_output），
     不在此重复估算；cached 不计费入分项（口径注释见 session_budget.yaml）。
+
+    P3 跨会话全局账本（2026-10-22）：增量同步入共享日桶（多会话合计口径）。
+    全局日额度超限 → 会话侧计数冻结（拒绝增量，等效超支，L2 PAUSE 语义
+    接管挂起等裁决）——这是「宿主今天所有会话合计上限」的唯一闸口。
     """
+    _in = max(0, int(input_tokens))
+    _out = max(0, int(output_tokens))
     try:
         from lingclaude.core.session_budget import BudgetDelta
 
         with _lock:
+            # 全局闸先行：额度尽 → 冻结会话侧计数（不丢已记账目）
+            try:
+                from lingclaude.core import global_budget as _gb
+
+                allowed, day_total = _gb.add_tokens(_in + _out)
+                if not allowed:
+                    _relay_state["global_frozen"] = True
+                    logger.warning(
+                        "全局预算日额度已超，会话计数冻结（day_total=%s）", day_total
+                    )
+                    return
+            except Exception:  # noqa: BLE001 — 全局账本故障不反噬会话记账
+                logger.debug("global_budget 接线失败（fail-open）", exc_info=True)
             t = get_tracker()
             t.record(BudgetDelta("model_calls", 1))
-            t.record(BudgetDelta("input_tokens", max(0, int(input_tokens))))
-            t.record(BudgetDelta("output_tokens", max(0, int(output_tokens))))
+            t.record(BudgetDelta("input_tokens", _in))
+            t.record(BudgetDelta("output_tokens", _out))
     except Exception:  # noqa: BLE001
         logger.debug("budget record_model_call failed", exc_info=True)
 

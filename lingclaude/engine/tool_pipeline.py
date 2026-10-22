@@ -40,6 +40,48 @@ _TOOL_EVENT_MAX = 200
 from lingclaude.core import policy_loader  # noqa: E402 — 常量区后统一 import
 
 
+# ---------------------------------------------------------------------------
+# M2 (2026-10-22): write_scoped 工具编辑锁
+# ---------------------------------------------------------------------------
+#: 编辑锁持有时长预算（秒）——远大于工具 dispatch 超时（optimizer.timeout_seconds
+#: 默认 120），临界区时长由 dispatch 超时兜底，此值只防极端悬挂。
+_EDIT_LOCK_TIMEOUT_SECONDS = 180.0
+
+
+def _write_target_path(args: dict[str, Any]) -> str | None:
+    """从写工具 args 提取目标文件路径（与 pipeline 既有取法一致）。"""
+    p = args.get("path") or args.get("file_path")
+    return str(p) if p else None
+
+
+def _acquire_edit_lock(tool_name: str, args: dict[str, Any]):
+    """M2: write_scoped 工具取目标文件排他编辑锁。
+
+    返回 release callable；取锁失败返回 str 拒绝消息（fail-closed）。
+    Path-like/Blob 目标（无 path/file_path 参数）跳过锁——它们的写入
+    目标不由路径寻址，多会话踩踏面不存在。
+    """
+    from lingclaude.core.file_lock import file_edit_lock
+
+    target = _write_target_path(args)
+    if target is None:
+        # M2: 路径寻址写工具缺目标路径 → fail-closed 拒绝（与守卫语义一致）
+        return f"[edit-lock] 写工具 {tool_name} 缺目标路径（path/file_path），fail-closed 拒绝"
+    owner = f"pipeline:{tool_name}"
+    try:
+        cm = file_edit_lock(target, owner=owner, timeout=_EDIT_LOCK_TIMEOUT_SECONDS)
+        cm.__enter__()
+
+        def _release() -> None:
+            cm.__exit__(None, None, None)
+
+        return _release
+    except TimeoutError as e:
+        return f"[edit-lock] 目标文件编辑锁获取超时（另一会话/agent 正在编辑）: {e}"
+    except Exception as e:  # noqa: BLE001 — 取锁异常等同拒绝，不裸写
+        return f"[edit-lock] 编辑锁获取异常（fail-closed 拒绝）: {e}"
+
+
 def record_tool_event(event: dict[str, Any]) -> None:
     """记录一条工具执行增量事件（tool_start / tool_result / state）。"""
     with _TOOL_EVENT_LOCK:
@@ -273,93 +315,111 @@ class ToolPipeline:
                 self._snapshot_callback(name, args)
             except Exception as e:  # noqa: BLE001 — 快照失败不反噬工具执行
                 logger.warning("snapshot_callback raised (fail-open): %s", e)
-        ctx.metrics["start_ts"] = time.time()
-        # A3: tool_start 增量事件（webUI /live 实时同步）
-        record_tool_event({
-            "seq": len(_TOOL_EVENT_BUFFER) + 1,
-            "type": "tool_start",
-            "name": name,
-            "ts": time.time(),
-        })
+        # M2 (2026-10-22): 多会话编辑锁——write_scoped 工具从「即将写入」到
+        # 「写后校验（含自动回滚）完成」全程持有目标文件 file_edit_lock 排他锁，
+        # 跨会话/跨 agent 互斥（09-06 三方互踩事故的机制化根治：锁从可选纪律
+        # 变为工具层默认基础设施）。fail-closed：缺目标路径、取锁超时/异常
+        # 一律拒绝——误拦可重试，误放（无锁并发写）不可逆，与 guard 同理。
+        _release_lock = None
+        if name in self._write_scoped:
+            _release_lock = _acquire_edit_lock(name, args)
+            if isinstance(_release_lock, str):  # str = fail-closed 拒绝消息
+                return self._error(_release_lock, ToolErrorCode.GUARD_DENIED)
         try:
-            res = self._dispatch_with_timeout(tool_def, args)
-            if res.is_error:
-                ctx.is_error = True
-                ctx.error_msg = str(res.error)
-                ctx.raw_result = None
-            else:
-                # J1 全链路强制（2026-09-16）：handler 返回 ToolResult 时，
-                # _dispatch_with_timeout 已包 Result.ok(ToolResult)，此处解包语义：
-                # 内层 is_error → 置错；内层 ok → raw_result = data（不再包 {"result": ToolResult}）。
-                # 仅剥一层 ToolResult（handler 直接返回 ToolResult 的场景），
-                # 普通 dict/list 不受影响（走 else 原样）。
-                _raw = res.data
-                if isinstance(_raw, ToolResult):
-                    if _raw.is_error:
-                        assert _raw.error is not None
-                        ctx.is_error = True
-                        ctx.error_msg = _raw.error.message
-                        ctx.raw_result = None
-                    else:
-                        ctx.raw_result = _raw.data
-                else:
-                    ctx.raw_result = _raw
-        except Exception as e:
-            ctx.is_error = True
-            ctx.error_msg = f"Tool execution failed: {e}"
-            logger.exception("dispatch failed for %s", name)
-        ctx.metrics["end_ts"] = time.time()
-        ctx.metrics["duration"] = ctx.metrics["end_ts"] - ctx.metrics["start_ts"]
-        # A3: tool_result 增量事件（含成败 + 耗时）
-        record_tool_event({
-            "seq": len(_TOOL_EVENT_BUFFER) + 1,
-            "type": "tool_result",
-            "name": name,
-            "success": not ctx.is_error,
-            "duration_ms": int(ctx.metrics["duration"] * 1000),
-            "ts": time.time(),
-        })
-
-        if ctx.is_error:
-            # T0-7: 触发错误监听器（query_engine 接 ON_ERROR hook）
-            self._notify_error(name, ctx.error_msg)
-            # P1① AFTER_TOOL hook（2026-10-02）：失败路径也通知观察者——
-            # 审计/学习类 hook 需要看到失败事件；advisory 语义，不改裁决。
-            self._run_after_tool_hooks(name, args, ctx)
-            return self._error(ctx.error_msg, ToolErrorCode.EXECUTION_ERROR)
-
-        # === 4. post-execute waterfall ===
-        for fn in self._post_listeners:
+            ctx.metrics["start_ts"] = time.time()
+            # A3: tool_start 增量事件（webUI /live 实时同步）
+            record_tool_event({
+                "seq": len(_TOOL_EVENT_BUFFER) + 1,
+                "type": "tool_start",
+                "name": name,
+                "ts": time.time(),
+            })
             try:
-                fn(ctx)
-                if ctx.aborted:
-                    return self._error(ctx.abort_reason or "post-listener aborted")
+                res = self._dispatch_with_timeout(tool_def, args)
+                if res.is_error:
+                    ctx.is_error = True
+                    ctx.error_msg = str(res.error)
+                    ctx.raw_result = None
+                else:
+                    # J1 全链路强制（2026-09-16）：handler 返回 ToolResult 时，
+                    # _dispatch_with_timeout 已包 Result.ok(ToolResult)，此处解包语义：
+                    # 内层 is_error → 置错；内层 ok → raw_result = data（不再包 {"result": ToolResult}）。
+                    # 仅剥一层 ToolResult（handler 直接返回 ToolResult 的场景），
+                    # 普通 dict/list 不受影响（走 else 原样）。
+                    _raw = res.data
+                    if isinstance(_raw, ToolResult):
+                        if _raw.is_error:
+                            assert _raw.error is not None
+                            ctx.is_error = True
+                            ctx.error_msg = _raw.error.message
+                            ctx.raw_result = None
+                        else:
+                            ctx.raw_result = _raw.data
+                    else:
+                        ctx.raw_result = _raw
             except Exception as e:
-                logger.warning("post-listener raised: %s", e)
+                ctx.is_error = True
+                ctx.error_msg = f"Tool execution failed: {e}"
+                logger.exception("dispatch failed for %s", name)
+            ctx.metrics["end_ts"] = time.time()
+            ctx.metrics["duration"] = ctx.metrics["end_ts"] - ctx.metrics["start_ts"]
+            # A3: tool_result 增量事件（含成败 + 耗时）
+            record_tool_event({
+                "seq": len(_TOOL_EVENT_BUFFER) + 1,
+                "type": "tool_result",
+                "name": name,
+                "success": not ctx.is_error,
+                "duration_ms": int(ctx.metrics["duration"] * 1000),
+                "ts": time.time(),
+            })
 
-        # P1① AFTER_TOOL hook（2026-10-02）：成功路径通知，advisory 语义
-        # （不改结果/不 abort——与 post-listener 的 abort 权限有意区分，
-        #  hook_registry.run_hooks 本身也只收集 annotate，异常 fail-open）。
-        self._run_after_tool_hooks(name, args, ctx)
+            if ctx.is_error:
+                # T0-7: 触发错误监听器（query_engine 接 ON_ERROR hook）
+                self._notify_error(name, ctx.error_msg)
+                # P1① AFTER_TOOL hook（2026-10-02）：失败路径也通知观察者——
+                # 审计/学习类 hook 需要看到失败事件；advisory 语义，不改裁决。
+                self._run_after_tool_hooks(name, args, ctx)
+                return self._error(ctx.error_msg, ToolErrorCode.EXECUTION_ERROR)
 
-        # 写后 verify
-        if name in self._write_scoped and post_write_verify is not None:
-            file_path = args.get("path") or args.get("file_path")
-            passed, err = post_write_verify(file_path)
-            if not passed:
-                ctx.aborted = True
-                ctx.abort_reason = f"[verify-post] {err}"
-                # P1-2 (2026-09-12): post-write 失败自动回滚 — 调用方传入
-                # rollback_callback 时执行 undo，避免残留脏文件；回滚结果附在错误里。
-                rollback_note = ""
-                if rollback_callback is not None:
-                    try:
-                        rb = rollback_callback(name, args)
-                        rollback_note = "已回滚" if rb is None else f"回滚失败: {rb}"
-                    except Exception as e:  # noqa: BLE001 — 回滚异常不掩盖主错误
-                        rollback_note = f"回滚异常: {e}"
-                    ctx.abort_reason += f" | {rollback_note}"
-                return self._error(ctx.abort_reason, ToolErrorCode.VERIFY_POST_FAILED)
+            # === 4. post-execute waterfall ===
+            for fn in self._post_listeners:
+                try:
+                    fn(ctx)
+                    if ctx.aborted:
+                        return self._error(ctx.abort_reason or "post-listener aborted")
+                except Exception as e:
+                    logger.warning("post-listener raised: %s", e)
+
+            # P1① AFTER_TOOL hook（2026-10-02）：成功路径通知，advisory 语义
+            # （不改结果/不 abort——与 post-listener 的 abort 权限有意区分，
+            #  hook_registry.run_hooks 本身也只收集 annotate，异常 fail-open）。
+            self._run_after_tool_hooks(name, args, ctx)
+
+            # 写后 verify
+            if name in self._write_scoped and post_write_verify is not None:
+                file_path = args.get("path") or args.get("file_path")
+                passed, err = post_write_verify(file_path)
+                if not passed:
+                    ctx.aborted = True
+                    ctx.abort_reason = f"[verify-post] {err}"
+                    # P1-2 (2026-09-12): post-write 失败自动回滚 — 调用方传入
+                    # rollback_callback 时执行 undo，避免残留脏文件；回滚结果附在错误里。
+                    rollback_note = ""
+                    if rollback_callback is not None:
+                        try:
+                            rb = rollback_callback(name, args)
+                            rollback_note = "已回滚" if rb is None else f"回滚失败: {rb}"
+                        except Exception as e:  # noqa: BLE001 — 回滚异常不掩盖主错误
+                            rollback_note = f"回滚异常: {e}"
+                        ctx.abort_reason += f" | {rollback_note}"
+                    return self._error(ctx.abort_reason, ToolErrorCode.VERIFY_POST_FAILED)
+        finally:
+            # M2: 锁释放覆盖所有出口（成功/错误/异常），临界区=写入至写后校验完成
+            if _release_lock is not None:
+                try:
+                    _release_lock()
+                except Exception:  # noqa: BLE001 — 释放失败不掩盖主流程结果
+                    logger.warning("edit-lock release raised for %s", name)
 
         # === P0-2: output size pruning (tool result spill) ===
         # 防止大输出（如 large grep / long ls）爆上下文

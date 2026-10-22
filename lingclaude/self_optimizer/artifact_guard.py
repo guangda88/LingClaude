@@ -177,6 +177,90 @@ class ArtifactGuard:
         except Exception as exc:  # noqa: BLE001
             return False, f"restore_error:{exc}"
 
+    def rollback_multi(
+        self, target_snapshot_id: str, reason: str = "", max_hops: int = 50
+    ) -> dict[str, Any]:
+        """多跳回滚（2026-10-22 专项）：沿审计链逐跳恢复到 target_snapshot_id。
+
+        语义：目标文件从当前态回退，经过中间每一份快照的**内容态**都无意义——
+        逐跳仅是安全策略（每跳 sha256 验证 + 中断即停），最终态=目标快照内容。
+        链序：list_snapshots 新→旧中截取 [target..最新已恢复/当前] 的补集，
+        从最近一跳往回逐跳 restore；任一跳失败立即停止（fail-stop，不半途
+        换路），返回已完成跳数与最终态，调用方（daemon）负责台账结算。
+
+        返回: {"ok": bool, "hops_done": int, "final_state": str,
+               "restored": [snapshot_id...], "error": str|None}
+        """
+        result: dict[str, Any] = {
+            "ok": False, "hops_done": 0, "final_state": "",
+            "restored": [], "error": None,
+        }
+        try:
+            target_meta = self._find_meta(target_snapshot_id)
+            if target_meta is None:
+                result["error"] = f"snapshot_not_found:{target_snapshot_id}"
+                return result
+            # 链序确定性：created_at 秒级可能撞钟，排序会退化——
+            # 用 jsonl 追加序反转（后写=新），对撞钟免疫
+            target_path = str(Path(target_meta.path).expanduser())
+            ordered_ids: list[str] = []
+            for m in self._read_meta():
+                if m.path == target_path and m.snapshot_id not in ordered_ids:
+                    ordered_ids.append(m.snapshot_id)
+            chain = [
+                sid for sid in reversed(ordered_ids)
+                if (self.snapshot_dir / f"{sid}.snap").exists()
+            ]
+            if target_snapshot_id not in chain:
+                result["error"] = "target_snapshot_file_missing"
+                return result
+            # 回退序列：比 target 新的、已恢复过的跳过（已不在当前态），
+            # 未恢复的从新到旧逐跳回退；元数据缺失的跳过（防 NameError/脏行）
+            to_restore: list[str] = []
+            for sid in chain:
+                if sid == target_snapshot_id:
+                    continue
+                meta = self._find_meta(sid)
+                if meta is not None and meta.restored_at is None:
+                    to_restore.append(sid)
+            if len(to_restore) > max_hops:
+                # 跳数预算不足即拒（fail-closed）：宁可让操作者加大 steps，
+                # 不可静默跳过审计跳——链不完整=回退过程不可追溯
+                result["error"] = (
+                    f"hops_budget_exceeded: 需要 {len(to_restore)} 跳 > "
+                    f"预算 {max_hops}，请加大 steps"
+                )
+                return result
+            for sid in to_restore:
+                ok, msg = self.restore(sid, reason=reason or "rollback_multi")
+                result["hops_done"] += 1
+                if not ok:
+                    result["error"] = f"hop_failed:{sid}:{msg}"
+                    result["final_state"] = f"stopped_after_{result['hops_done']}_hops"
+                    return result
+                result["restored"].append(sid)
+            # 终跳：恢复目标快照本体
+            ok, msg = self.restore(
+                target_snapshot_id, reason=reason or "rollback_multi_final"
+            )
+            result["hops_done"] += 1
+            if not ok:
+                result["error"] = f"final_hop_failed:{msg}"
+                result["final_state"] = "final_hop_failed"
+                return result
+            result["restored"].append(target_snapshot_id)
+            # 终态指纹校验
+            dst = Path(target_meta.path).expanduser()
+            hash_ok = dst.exists() and sha256_file(dst) == target_meta.sha256
+            result["ok"] = hash_ok
+            result["final_state"] = (
+                "restored_verified" if hash_ok else "restored_hash_mismatch"
+            )
+            return result
+        except Exception as exc:  # noqa: BLE001
+            result["error"] = f"rollback_multi_error:{exc}"
+            return result
+
     def latest_good(self, path: str | Path) -> SnapshotMeta | None:
         """指定目标文件最近一份未恢复的快照（startup_watch 核验数据源）。
 

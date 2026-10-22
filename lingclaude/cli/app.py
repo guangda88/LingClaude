@@ -622,12 +622,19 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
             print_kv("快照ID", target_id)
             print_info("预览模式：加 --yes 执行恢复（当前 behavior_policy.yaml 将被覆盖）")
             return 0
-        result = daemon.manual_rollback(target_id)
+        result = (
+            daemon.manual_rollback(target_id, steps=getattr(args, "rollback_steps", 1) or 1)
+            if (getattr(args, "rollback_steps", 1) or 1) >= 2
+            else daemon.manual_rollback(target_id)
+        )
         if result.is_error:
             print(f"错误: {result.error}")
             return 1
         d = result.data or {}
         print_success(f"已回滚: {d.get('target')}")
+        if d.get("mode"):
+            print_kv("模式", f"多跳 x{args.rollback_steps} hops={d.get('hops_done')}")
+            print_kv("终态", str(d.get("final_state") or ""))
         print_kv("快照", str(d.get("snapshot_id") or ""))
         print_kv("校验", str(d.get("restore") or ""))
         print_kv("台账结算", "是" if d.get("ledger_settled") else "无待结实验")
@@ -1395,6 +1402,10 @@ def main() -> int:
     )
     daemon_parser.add_argument(
         "--to", dest="rollback_to", help="rollback: target snapshot id"
+    )
+    daemon_parser.add_argument(
+        "--steps", dest="rollback_steps", type=int, default=1,
+        help="rollback: >=2 时多跳回滚（沿审计链逐跳回退到目标快照）",
     )
     daemon_parser.add_argument(
         "--proposal", dest="meta_proposal",

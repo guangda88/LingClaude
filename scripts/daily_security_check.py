@@ -506,8 +506,12 @@ def main() -> int:
     print(report)
     print(f"\n报告已保存: {report_file}")
 
-    fail_count = sum(1 for r in results if r.status == "FAIL")
-    return 1 if fail_count > 0 else 0
+    # 退出码语义修正（2026-10-22）：巡检发现风险 = 报告内容（有人看），
+    # 不是服务失败（无人管）。此前 FAIL>0 → exit 1，导致 systemd 把
+    # 「正常完成巡检并如实报告」判成 failed（01:06 实证：报告落盘、
+    # 消耗 6.5min CPU，仍被记 failed）——告警噪音淹没真故障。脚本自身
+    # 崩溃（未捕获异常）仍自然 exit 1，服务失败语义不变。
+    return 0
 
 
 if __name__ == "__main__":

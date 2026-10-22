@@ -1555,7 +1555,7 @@ class OptimizationDaemon:
 
         return policies_dir() / "behavior_policy.yaml"
 
-    def manual_rollback(self, snapshot_id: str) -> Result[dict[str, Any]]:
+    def manual_rollback(self, snapshot_id: str, steps: int = 1) -> Result[dict[str, Any]]:
         """A1 人工回滚（2026-10-17）：CLI rollback --to 的执行核心。
 
         应急通道：观察期自动回滚只覆盖「分数回退」失败模式；其余失败
@@ -1568,7 +1568,13 @@ class OptimizationDaemon:
         单步回滚只回退一跳；回到任意验证态需沿 snapshots.jsonl 审计链
         逐跳回滚（或用 git 管理的策略文件历史兜底）。首航原点恢复即
         用了 cycle#1130 的原始快照（trl 6→3）。
+
+        多跳（2026-10-22 专项）：steps≥2 时走 _manual_rollback_multi——
+        沿审计链逐跳回退到目标快照（每跳指纹校验+中断即停）。
         """
+        steps = max(1, int(steps or 1))
+        if steps >= 2:
+            return self._manual_rollback_multi(snapshot_id, steps)
         try:
             meta = self.artifacts._find_meta(snapshot_id)
         except Exception:
@@ -1612,6 +1618,62 @@ class OptimizationDaemon:
                 "snapshot_id": snapshot_id,
                 "target": str(target),
                 "restore": msg,
+                "ledger_settled": settled,
+            }
+        )
+
+    def _manual_rollback_multi(
+        self, snapshot_id: str, steps: int
+    ) -> Result[dict[str, Any]]:
+        """多跳回滚执行核心（2026-10-22 专项，承接 10-17 部署语义缺口）。
+
+        artifacts.rollback_multi 逐跳回退 + 诚实台账（观察挂单 rolled_back
+        + 一句话归因）。跳数上限=steps 的语义：允许的中间跳数上限，
+        链自然收束于目标快照。
+        """
+        try:
+            multi = self.artifacts.rollback_multi(
+                snapshot_id, reason=f"manual_rollback_x{steps}", max_hops=steps
+            )
+        except Exception as exc:  # noqa: BLE001
+            return Result.fail(f"多跳回滚异常: {exc}", code="ROLLBACK_MULTI_ERROR")
+        if not multi.get("ok"):
+            return Result.fail(
+                f"多跳回滚未达终态: {multi.get('error')} "
+                f"(hops_done={multi.get('hops_done')})",
+                code="ROLLBACK_MULTI_INCOMPLETE",
+            )
+        settled = False
+        try:
+            if self.experiments is not None:
+                exp_id = (self.state.observing or {}).get("exp_id")
+                if exp_id:
+                    self.experiments.settle(
+                        exp_id,
+                        "rolled_back",
+                        score_after=None,
+                        reason=f"manual_rollback_x{steps}",
+                        feedback_text=(
+                            f"人工多跳回滚 x{steps}: hops={multi.get('hops_done')} "
+                            f"final={multi.get('final_state')}"
+                        ),
+                    )
+                    settled = True
+                self.state.observing = None
+                self.state.save(self.state_path)
+        except Exception:  # noqa: BLE001 — 台账失败不影响文件已回滚的事实
+            logger.exception("[A1多跳回滚] 台账结算失败（文件已回滚）")
+        logger.warning(
+            "[A1多跳回滚] x%s hops=%s final=%s 台账结算=%s",
+            steps, multi.get("hops_done"), multi.get("final_state"), settled,
+        )
+        return Result.ok(
+            {
+                "snapshot_id": snapshot_id,
+                "mode": f"multi_x{steps}",
+                "hops_done": multi.get("hops_done"),
+                "final_state": multi.get("final_state"),
+                "restored": multi.get("restored"),
                 "ledger_settled": settled,
             }
         )

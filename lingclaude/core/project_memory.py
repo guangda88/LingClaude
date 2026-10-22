@@ -29,6 +29,18 @@ MEMORY_FILENAME = "project_memory.md"
 DEFAULT_MAX_CHARS = 4000
 #: 环境变量：显式指定记忆文件路径；设为 "off"/"0" 禁用注入。
 ENV_OVERRIDE = "LINGCLAUDE_PROJECT_MEMORY"
+# ---------------------------------------------------------------------------
+# 记忆分层（2026-10-22，P4）：根治「超限截断=尾部新条目丢失」。
+# 主文件超阈值时，把注入不可见的溢出尾部（DEFAULT_MAX_CHARS 之后）搬入
+# 归档文件 + 主文件留指针标记——注入语义完全不变（那部分本就不可见），
+# 信息零丢失（静默截断 → 可查档案）。写路径自愈，读路径不产生副作用。
+# ---------------------------------------------------------------------------
+ARCHIVE_FILENAME = "project_memory_archive.md"
+#: 触发分层的主文件字符阈值（= 注入上限+缓冲：阈值过高会留下
+#: 「已截断注入却未归档」的不可见窗口，过低则每次追加都触发自愈）
+AUTO_ARCHIVE_THRESHOLD = 4500
+#: 指针标记+新条目的字符预算——保留量须给它们留位，否则标记被注入截断
+_MARKER_BUDGET_CHARS = 600
 
 
 def memory_path(project_dir: str | os.PathLike | None = None) -> Path:
@@ -93,7 +105,58 @@ def append_project_memory(
             return False
         with path.open("a", encoding="utf-8") as f:
             f.write(f"- [{stamp}] {clean[:300]}\n")
+        _auto_archive_if_oversized(path)
         return True
     except Exception:  # noqa: BLE001
         logger.debug("project_memory 追加失败", exc_info=True)
+        return False
+
+
+def _auto_archive_if_oversized(
+    path: Path,
+    threshold: int = AUTO_ARCHIVE_THRESHOLD,
+    keep_chars: int = DEFAULT_MAX_CHARS - _MARKER_BUDGET_CHARS,
+) -> bool:
+    """写路径自愈：主文件超阈值时把**最旧头部**搬入归档（fail-soft）。
+
+    设计要点(2026-10-22 狗粮实测修正)：条目按尾部追加，**头部=最旧、尾部=最新**。
+    注入保头部截断，若按"保头切尾"会把最新进展切进归档（下会话恰好看不见）——
+    方向必须反过来：保尾(新)切头(旧)，旧条目归档可寻回，注入始终看到最新状态。
+    归档统一锚定 `.lingclaude/`（与指针标记一致，无论记忆文件在哪层），
+    追加式成时间线，主文件原子替换。
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if len(text) <= threshold:
+            return True
+        cut = len(text) - keep_chars
+        # 条目对齐：切口向后吸附到下一个条目起点（"\n- ["），避免把条目劈成两半
+        nxt = text.find("\n- [", cut)
+        if nxt != -1 and nxt - cut <= 2000:
+            cut = nxt + 1
+        overflow = text[:cut]  # 最旧头部 → 归档
+        kept = text[cut:].lstrip()  # 最新尾部 → 留守注入
+        if path.parent.name == ".lingclaude":
+            archive = path.parent / ARCHIVE_FILENAME
+        else:
+            archive = path.parent / ".lingclaude" / ARCHIVE_FILENAME
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        with archive.open("a", encoding="utf-8") as f:
+            f.write(f"\n## 归档于 {stamp}（{len(overflow)} chars）\n{overflow}\n")
+        marker = (
+            f"\n\n> ⚠ 主文件曾超限（{threshold} chars），头部 {len(overflow)} chars 旧条目"
+            f"已归档至 .lingclaude/{ARCHIVE_FILENAME}（注入不可见但可查）。"
+            f"请精简合并活跃条目。\n"
+        )
+        tmp = path.with_suffix(".md.tmp")
+        tmp.write_text(marker.strip() + "\n" + kept, encoding="utf-8")
+        os.replace(tmp, path)
+        logger.info(
+            "project_memory 自动分层: 头部 %s chars 归档（主文件保尾部 %s）",
+            len(overflow), len(kept),
+        )
+        return True
+    except Exception:  # noqa: BLE001 — 自愈失败不影响记忆已追加的事实
+        logger.debug("project_memory 分层失败", exc_info=True)
         return False
