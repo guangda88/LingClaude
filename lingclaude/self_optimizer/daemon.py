@@ -30,6 +30,9 @@ from lingclaude.self_optimizer.experiments import (
 # 语义与依据见 runbook/FINAL_synthesis 阶段〇-2；调大须人工（治理不变量：
 # 任何自动路径不得放宽对自身变更速率的限制）。
 MAX_ACCEPTED_PER_24H = 3  #: 24h 窗口 accepted 参数变更上限
+# R1 (2026-10-22)【DGM 式谱系 archive】: 隔代回采节流——每 N 轮至多
+# 从备选池回采一次（采样率低，DGM 语义是补充来源不是主力搜索）。
+LINEAGE_RECALL_EVERY = 10
 
 # F6 尺度漂移卫兵（2026-10-21，首航实证 best_ever=27.6 旧语料尺度 vs 当前
 # ~775 → 6297 轮假回滚空转+永久冻结的复发防线）。同 goal 尺子也会因语料
@@ -151,6 +154,7 @@ P2_META_WEIGHT_MAX = 0.6
 
 from lingclaude.self_optimizer.optimizer import (
     OptimizationRequest,
+    OptimizationResult,
     SynchronousOptimizer,
 )
 from lingclaude.self_optimizer.trigger import OptimizationTrigger
@@ -244,6 +248,10 @@ class DaemonState:
     # last-known-good 快照并结算 rolled_back（可停）。旧状态文件无字段
     # → 默认 None（向后兼容，重活第一轮观察即恢复挂单机制）。
     observing: dict[str, Any] | None = None
+    # R1 (2026-10-22)【DGM 式谱系 archive】: 上次备选池回采发生的周期号。
+    # 节流基准（每 LINEAGE_RECALL_EVERY 轮至多回采一次）。None=从未回采。
+    # 反射 load 自动持久化（P1-卫根治后的新增字段免登记）。
+    lineage_last_recall_cycle: int | None = None
 
     @classmethod
     def load(cls, path: Path) -> DaemonState:
@@ -789,6 +797,56 @@ class OptimizationDaemon:
         )
         result = self.optimizer.optimize(request)
         duration = time.monotonic() - start
+        # R1: 周期级回采标记复位（上轮 True 不得泄漏到本轮）
+        self._lineage_recalled_this_cycle = False
+
+        # ---- R1 谱系隔代回采（2026-10-22，DGM 式 archive）----
+        # 低频（每 LINEAGE_RECALL_EVERY 轮至多一次）从备选池取一块
+        # 踏脚石，作为**本轮候选来源**注入 optimizer 结果位（不绕任何
+        # 护栏）：仅当常规搜索无果（result.success=False）时替换候选，
+        # 后续 P0 门禁复测 / P1 择优 / 观察窗 / 快照 / 权限闸全部照走。
+        # 回采复测通过与否都让候选出池，防同块踏脚石反复回采。
+        if (
+            isinstance(result, OptimizationResult)
+            and not result.success
+            and self.experiments is not None
+            and self._current_goal() == "behavior"
+        ):
+            try:
+                _due = (
+                    self.state.lineage_last_recall_cycle is None
+                    or self.state.total_cycles + 1
+                    - int(self.state.lineage_last_recall_cycle)
+                    >= LINEAGE_RECALL_EVERY
+                )
+                _cand = self.experiments.pool_sample() if _due else None
+                if _cand and _cand.get("params"):
+                    result = OptimizationResult(
+                        success=True,
+                        best_params=dict(_cand["params"]),
+                        best_score=float(_cand.get("score") or 0.0),
+                        experiments=1,
+                        duration=duration,
+                        error=None,
+                        history=(),
+                    )
+                    p2_strategy = "lineage_recall"
+                    self.state.lineage_last_recall_cycle = (
+                        self.state.total_cycles + 1
+                    )
+                    # 回采轮标记：本轮候选已被复测裁决，无论过否不再回池
+                    #（防「回采→拒绝→立刻回池」死循环污染备选池）。
+                    self._lineage_recalled_this_cycle = True
+                    logger.info(
+                        "[R1回采] 候选=%s score=%s（cycle#%s）→ 走全护栏复测",
+                        _cand.get("exp_id"), _cand.get("score"),
+                        self.state.total_cycles + 1,
+                    )
+                    self.experiments.pool_remove(str(_cand["exp_id"]))
+                elif _cand is not None:
+                    self.experiments.pool_remove(str(_cand["exp_id"]))
+            except Exception:  # noqa: BLE001 — archive 增强件故障不阻塞主循环
+                logger.exception("[R1回采] 异常（本轮跳过，不阻塞）")
 
         # ---- 断点③（2026-09-28）：失败聚类自动归因 ------------------------
         # 每轮优化后扫 error_log，同型失败跨会话聚类 → 产 LearnedRule(draft)
@@ -918,6 +976,10 @@ class OptimizationDaemon:
                     "rejected",
                     score_after=bench_after.score,
                     reason="p0_gate_regression",
+                    feedback_text=(
+                        f"参数联动复测回退 {bench_before.score:.1f}→"
+                        f"{bench_after.score:.1f}，候选会拉低行为分被拒"
+                    ),
                 )
                 return Result.ok(None)
             if bench_after.score > bench_before.score:
@@ -1002,6 +1064,10 @@ class OptimizationDaemon:
                 exp_id, "rejected",
                 score_after=result.best_score,
                 reason="s0_rate_limited",
+                feedback_text=(
+                    "24h accepted 达速率上限，本轮只评估不应用"
+                    "（建议待窗口重置后重提）"
+                ),
             )
             # 与正常分支同构构造 cycle（但 report-only：report_path 未生成）
             violations_after = int(result.best_score)
@@ -1049,6 +1115,10 @@ class OptimizationDaemon:
                     exp_id, "rejected",
                     score_after=result.best_score,
                     reason="p5_reverse_pair_baseline_reset",
+                    feedback_text=(
+                        "旧基线在近 K 天语料配对重验中劣化，不回滚只重置"
+                        "归档（候选未过门禁但基线已失效）"
+                    ),
                 )
                 self.state.baseline_drift_streak = 0  # F6: 基线已重置清计数
                 cycle = OptimizationCycle(
@@ -1091,10 +1161,29 @@ class OptimizationDaemon:
                 "rolled_back",
                 score_after=result.best_score,
                 reason="p1_worse_than_best_ever",
+                feedback_text=(
+                    f"本轮 {result.best_score:.1f} 未胜归档最优 "
+                    f"{best_ever:.1f}，已回滚应用历史最优参数"
+                ),
             )
             # F7 (2026-09-25): 回滚结算后判定是否进入 frozen zone（死循环
             # 熔断闸）——同参数+同因回滚连击达阈值即冻结优化循环。
             self._check_frozen_zone(result.best_params, "p1_worse_than_best_ever")
+            # R1 谱系 archive：本轮真改进过回放分但输给归档最优——
+            # DGM 教训的「踏脚石」，入备选池不丢弃，供隔代回采。
+            # 例外：回采轮的候选刚被完整护栏复测拒绝 → 不回池
+            #（_lineage_recalled_this_cycle 标记，防拒绝者反复回采）。
+            if not getattr(self, "_lineage_recalled_this_cycle", False):
+                try:
+                    self.experiments.pool_candidate(
+                        cycle_id=self.state.total_cycles + 1,
+                        params=dict(result.best_params),
+                        score=float(result.best_score),
+                        exp_id=exp_id,
+                        note=f"p1_worse_but_locally_good(vs_best={best_ever:.1f})",
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("[R1] 备选池入池异常（不阻塞）")
         else:
             # ---- P1-4 快照门禁 + 观察期挂单（RSI 阶段一-4，2026-10-17）----
             # 应用前原子快照被控文件：快照失败 → 不可退 → 拒绝应用
@@ -1111,6 +1200,10 @@ class OptimizationDaemon:
                     exp_id, "rejected",
                     score_after=result.best_score,
                     reason="snapshot_unavailable_no_rollback_path",
+                    feedback_text=(
+                        "被控文件快照失败（不可退）→ 拒绝应用，"
+                        "建议检查磁盘/权限后重试"
+                    ),
                 )
             else:
                 # 直接调 behavior 写入器取返回值（原经 _apply_params 委托
@@ -1123,6 +1216,10 @@ class OptimizationDaemon:
                         exp_id, "rejected",
                         score_after=result.best_score,
                         reason="no_effective_change",
+                        feedback_text=(
+                            "参数全同值/审批拒/写失败，未落盘"
+                            "（全同值不入 lineage 池：与现行无异无回采价值）"
+                        ),
                     )
                     self.artifacts._unlink_snap(_snap_meta.snapshot_id)
                 else:
@@ -1499,6 +1596,7 @@ class OptimizationDaemon:
                         "rolled_back",
                         score_after=None,
                         reason="manual_rollback",
+                        feedback_text="人工应急回滚（daemon rollback CLI 触发）",
                     )
                     settled = True
                 self.state.observing = None
@@ -1555,6 +1653,10 @@ class OptimizationDaemon:
                     "rolled_back",
                     score_after=None,
                     reason="applied:obs_stale_ttl",
+                    feedback_text=(
+                        "挂单超 TTL 仍无法复评（基准持续故障类）→ "
+                        "按「不可证即退」强制回滚"
+                    ),
                 )
                 return
         exp_id = obs.get("exp_id")
@@ -1568,7 +1670,12 @@ class OptimizationDaemon:
         except Exception as exc:  # noqa: BLE001
             logger.warning("[P1-4观察] 基准复评失败：%s（保守放行，留观察单原因）", exc)
             self.experiments.settle(
-                exp_id, "accepted", score_after=None, reason="applied:obs_bench_error"
+                exp_id, "accepted", score_after=None,
+                reason="applied:obs_bench_error",
+                feedback_text=(
+                    "复评基准故障，保守放行为 accepted"
+                    "（无法证实回退≠证实改进，建议下轮复核）"
+                ),
             )
             return
         prev = (
@@ -1587,6 +1694,11 @@ class OptimizationDaemon:
                 exp_id, "rolled_back",
                 score_after=float(bench.score),
                 reason="applied:obs_regress" if ok else "applied:obs_regress_restore_failed",
+                feedback_text=(
+                    f"观察窗复评回退 {prev:.1f}→{bench.score:.1f}"
+                    f"（ratio={ratio:.3f}<{P1_OBSERVE_REGRESSION_RATIO}）"
+                    + ("，快照恢复成功" if ok else "，快照恢复失败需人工介入")
+                ),
             )
             # 观察期回滚计入熔断判据（same-params same-reason 连击）
             try:
@@ -1599,7 +1711,11 @@ class OptimizationDaemon:
             prev, bench.score, ratio,
         )
         self.experiments.settle(
-            exp_id, "accepted", score_after=float(bench.score), reason="applied"
+            exp_id, "accepted", score_after=float(bench.score), reason="applied",
+            feedback_text=(
+                f"观察窗复评未回退（{prev:.1f}→{bench.score:.1f}, "
+                f"ratio={ratio:.3f}）→ 正式收编"
+            ),
         )
 
     def _apply_params(self, params: dict[str, Any]) -> None:

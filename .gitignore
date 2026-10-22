@@ -26,6 +26,7 @@ archive/
 .lingclaude/handoff.md
 .lingclaude/knowledge.db
 .lingclaude/data_flywheel.db
+.lingclaude/meta_upgrade_reports/
 .lingclaude/metrics.db
 data/*
 # 例外：架构台账（豁免/债务/M6快照/铁律修订史）是架构账目本体，

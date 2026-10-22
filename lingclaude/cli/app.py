@@ -524,6 +524,51 @@ def _cmd_daemon(args: argparse.Namespace) -> int:
             print("错误: [Rule A] 状态写入被拒（他者改盘或存活 owner）")
             return 1
         print_success("状态已重置")
+    elif args.daemon_action == "meta-upgrade":
+        # R3 (2026-10-22)：元层改进双任务金丝雀验证（低频人工触发）。
+        # 只产裁决+台账入账，不写被控配置（S0-1 解冻升级永远人工执行）。
+        from lingclaude.self_optimizer.meta_upgrade import MetaUpgradeVerifier
+
+        proposal = getattr(args, "meta_proposal", "") or ""
+        if not proposal:
+            print("错误: --proposal 必填（一句话描述元层改进提案）")
+            return 1
+        weights = {}
+        if getattr(args, "meta_heal_loss", None) is not None:
+            weights["heal_loss"] = args.meta_heal_loss
+        if getattr(args, "meta_nudge_cost", None) is not None:
+            weights["nudge_cost"] = args.meta_nudge_cost
+        thresholds = None
+        if getattr(args, "meta_bench_thresholds", None):
+            try:
+                thresholds = json.loads(args.meta_bench_thresholds)
+            except (TypeError, ValueError) as exc:
+                print(f"错误: --bench-thresholds 非法 JSON: {exc}")
+                return 1
+        cand_params = None
+        if getattr(args, "meta_params", None):
+            try:
+                cand_params = json.loads(args.meta_params)
+            except (TypeError, ValueError) as exc:
+                print(f"错误: --params 非法 JSON: {exc}")
+                return 1
+        verifier = MetaUpgradeVerifier(target=target)
+        report = verifier.verify(
+            proposal,
+            replay_weights=weights or None,
+            bench_thresholds=thresholds,
+            candidate_params=cand_params,
+        )
+        icon = "✅ 可收编（人工执行 S0-1 解冻升级）" if report.overall == "adoptable" \
+            else "⛔ 拒绝收编（fail-closed）"
+        print(f"裁决: {report.overall} — {icon}")
+        for r in report.results:
+            print_kv(
+                r.task,
+                f"{r.verdict} {r.baseline:.2f}→{r.candidate:.2f} "
+                f"({r.delta_pct:+.2f}%) {r.detail}",
+            )
+        return 0 if report.overall == "adoptable" else 2
     elif args.daemon_action == "activity":
         # P1-7 消费方（2026-10-21）：activity.jsonl 近 N 天聚合报告
         rep = daemon.activity_report(days=float(getattr(args, "activity_days", 7.0)))
@@ -1342,11 +1387,34 @@ def main() -> int:
     daemon_parser = subparsers.add_parser("daemon", help="Self-optimization daemon")
     daemon_parser.add_argument(
         "daemon_action",
-        choices=["status", "run", "watch", "reset", "rollback", "activity"],
+        choices=[
+            "status", "run", "watch", "reset", "rollback", "activity",
+            "meta-upgrade",
+        ],
         help="Daemon action",
     )
     daemon_parser.add_argument(
         "--to", dest="rollback_to", help="rollback: target snapshot id"
+    )
+    daemon_parser.add_argument(
+        "--proposal", dest="meta_proposal",
+        help="meta-upgrade: 提案一句话描述（必填）",
+    )
+    daemon_parser.add_argument(
+        "--replay-heal-loss", dest="meta_heal_loss", type=float, default=None,
+        help="meta-upgrade: 回放 heal_loss 覆盖（评估器侧提案）",
+    )
+    daemon_parser.add_argument(
+        "--replay-nudge-cost", dest="meta_nudge_cost", type=float, default=None,
+        help="meta-upgrade: 回放 nudge_cost 覆盖（评估器侧提案）",
+    )
+    daemon_parser.add_argument(
+        "--bench-thresholds", dest="meta_bench_thresholds",
+        help="meta-upgrade: 基准阈值覆盖 JSON，如 '{\"max_complexity\": 12}'",
+    )
+    daemon_parser.add_argument(
+        "--params", dest="meta_params",
+        help="meta-upgrade: 候选被控参数 JSON，如 '{\"tool_repeat_limit\": 4}'",
     )
     daemon_parser.add_argument(
         "--days", dest="activity_days", type=float, default=7.0,

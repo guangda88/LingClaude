@@ -40,6 +40,8 @@ lc 自优化器 = L3 层 + 治理护栏，与外部最强同层方案的差距�
 
 ### R1. DGM 式谱系 archive —— 防"单链贪心丢踏脚石"
 
+> **执行状态（2026-10-22）: 已落地**。实现位置=`self_optimizer/experiments.py` `pool_candidate/pool_sample/pool_remove` + `daemon.py` 周期回采（`LINEAGE_RECALL_EVERY=10` 节流，拒绝侧局部占优自动入池）。与本文档做法的偏差：数据位未用 `FlywheelRecordType`（StateStore），落在了 experiments 台账 `lineage` 列——台账才是结算真源，候选行 verdict='candidate' 不占正常语义。护栏承诺兑现：回采候选走 P0 门禁复测/P1 择优/观察窗/快照/权限闸全程，不绕任何护栏；复测后无论过否出池防反复回采。17 项测试 `tests/test_rsi_r1r2r3.py` 全绿。
+
 - **现状**: 飞轮固化器为单链采纳（`self_optimizer/daemon.py` `_apply_params` 单参数限幅写入），
   StateStore 已有 `FlywheelRecordType` 数据位。
 - **借鉴**: DGM 的 archive 多谱系保留是提升来源之一——单链贪心会丢掉"这次没赢但后续有用"的踏脚石
@@ -52,6 +54,8 @@ lc 自优化器 = L3 层 + 治理护栏，与外部最强同层方案的差距�
 
 ### R2. GEPA 式文本反馈入账 —— 反射提案器带自然语言归因
 
+> **执行状态（2026-10-22）: 已落地**。experiments 表新增 `feedback_text` 列（含旧库 ALTER 迁移），daemon 6 处结算点（快照不可退/无实效/人工回滚/观察窗超时回滚/复评回退/复评收编）附一句话归因；消费接口=`hypothesis_feedback_digest()`（按 reason+文本聚类，已测但**尚无生产消费方**——Phase 1 假说生成器未开工，属预备接口）。边界兑现：归因文本只入账不驱动写入。
+
 - **现状**: 飞轮 Phase 1 假说生成器**待落**；datalog 已有结构化字段 `cost.{in,out,cached}`、
   `latency_ms`、`model`、`path`，但缺"这轮为什么失败/低效"的文本归因。
 - **借鉴**: GEPA 核心是 `Prediction(score, feedback)` 双通道——**文本反馈比标量分高效 35×**
@@ -63,6 +67,8 @@ lc 自优化器 = L3 层 + 治理护栏，与外部最强同层方案的差距�
 - **边界**: 归因文本只作提案依据，**不直接驱动写入**——固化判定仍以量具为准（H17 纪律：账目与检查器冲突以检查器为准）。
 
 ### R3. 元层改进须跨任务迁移验证 —— 防"只在当轮任务上有利"
+
+> **执行状态（2026-10-22）: 已落地**。`self_optimizer/meta_upgrade.py` `MetaUpgradeVerifier`：任务A=behavior_replay（ReplayObjective，越低越好）+ 任务B=structure_bench（BenchmarkEvaluator，越高越好），容忍带 1%，两域均不劣化→adoptable / 任一劣化或量具无效→rejected（fail-closed）。报告落 `.lingclaude/meta_upgrade_reports/`（已 gitignore）+ 验证台账入账。CLI=`lingclaude daemon meta-upgrade --proposal ...`。S0-1 冻结维持默认关，adoptable 只产裁决，解冻升级仍人工执行。
 
 - **现状**: 优化器自身的改动（如结构参数、评估器相关）已被 S0-1 冻结为"评估器只许人工升级"
   （`daemon.py:1641`）——**方向对，但缺"验证后可收编"的正门**。

@@ -133,6 +133,23 @@ class ExperimentLedger:
             ALTER TABLE experiments ADD COLUMN strategy TEXT NOT NULL DEFAULT ''
             """
         ) if not self._has_column("experiments", "strategy") else None
+        # R2 (2026-10-22)【GEPA 式文本反馈入账】：一句话自然语言归因列。
+        # reason 是机器短语（结算法哨兵用），feedback_text 是给人/假说
+        # 生成器读的归因（如「观察窗复评回退 8% 触发快照回滚」）。
+        # 边界：归因文本只作提案依据，不直接驱动写入（H17 纪律）。
+        conn.execute(
+            """
+            ALTER TABLE experiments ADD COLUMN feedback_text TEXT NOT NULL DEFAULT ''
+            """
+        ) if not self._has_column("experiments", "feedback_text") else None
+        # R1 (2026-10-22)【DGM 式谱系 archive】：备选池标记列——
+        # archive_candidate=1 的行进入 lineage 备选池（复测未过但局部占优）。
+        # 入池/回采由 daemon 侧方法管理，本列只是台账数据位。
+        conn.execute(
+            """
+            ALTER TABLE experiments ADD COLUMN lineage TEXT NOT NULL DEFAULT ''
+            """
+        ) if not self._has_column("experiments", "lineage") else None
         conn.commit()
 
     def _has_column(self, table: str, column: str) -> bool:
@@ -238,11 +255,14 @@ class ExperimentLedger:
         verdict: str,
         score_after: float | None = None,
         reason: str = "",
+        feedback_text: str = "",
     ) -> bool:
         """结算。幂等：已终态的行二次 settle 返回 False（不覆盖）。
 
         缺失 experiment_id（台账开单失败场景）静默返回 False——
         「无台账」本身是合法降级态，不刷警告。
+        R2 (2026-10-22): feedback_text 一句话自然语言归因（GEPA 式
+        双通道的文本侧），供 Phase 1 假说生成器按文案聚类归因。
         """
         if not experiment_id:
             return False
@@ -254,10 +274,12 @@ class ExperimentLedger:
             cur = conn.execute(
                 """
                 UPDATE experiments
-                   SET verdict = ?, score_after = ?, reason = ?, decided_at = ?
+                   SET verdict = ?, score_after = ?, reason = ?, decided_at = ?,
+                       feedback_text = ?
                  WHERE experiment_id = ? AND verdict = 'pending'
                 """,
-                (verdict, score_after, reason, _now(), experiment_id),
+                (verdict, score_after, reason, _now(), feedback_text,
+                 experiment_id),
             )
             conn.commit()
             return cur.rowcount > 0
@@ -298,7 +320,8 @@ class ExperimentLedger:
                 UPDATE experiments
                    SET verdict = 'rolled_back',
                        reason = 'stale_pending_expired',
-                       decided_at = ?
+                       decided_at = ?,
+                       feedback_text = '挂单超 PENDING_TTL 未结算（崩溃残留类）→ 清扫为回滚'
                  WHERE verdict = 'pending' AND created_at < ?
                 """,
                 (_now(), cutoff),
@@ -457,3 +480,159 @@ class ExperimentLedger:
         except Exception:
             logger.warning("[F7] 最新结算查询失败", exc_info=True)
             return 0
+
+    # ------------------------------------------------------------------ #
+    # R2 (2026-10-22)【GEPA 式文本反馈入账】—— 假说生成器取数面
+    # ------------------------------------------------------------------ #
+    def hypothesis_feedback_digest(
+        self,
+        *,
+        limit: int = 30,
+        window_hours: float = 24 * 14,
+    ) -> list[dict]:
+        """近期失败归因汇总（Phase 1 假说生成器的文本输入面）。
+
+        取窗口内非 accepted 且带 feedback_text 的单，按 (reason,
+        feedback_text) 聚合计数——GEPA 的洞见：文本反馈比标量分
+        高效。归因文本只作提案依据，不直接驱动写入（H17 纪律）。
+        返回 [{'reason','feedback_text','n','last_decided_at'}] 按 n 降序。
+        """
+        cutoff = (
+            datetime.now() - timedelta(hours=window_hours)
+        ).isoformat(timespec="seconds")
+        try:
+            rows = self._get_connection().execute(
+                """
+                SELECT reason, feedback_text, COUNT(*) AS n,
+                       MAX(decided_at) AS last_decided_at
+                  FROM experiments
+                 WHERE decided_at >= ?
+                   AND verdict != 'accepted'
+                   AND feedback_text != ''
+                 GROUP BY reason, feedback_text
+                 ORDER BY n DESC
+                 LIMIT ?
+                """,
+                (cutoff, int(limit)),
+            ).fetchall()
+            return [
+                {
+                    "reason": r["reason"],
+                    "feedback_text": r["feedback_text"],
+                    "n": int(r["n"]),
+                    "last_decided_at": r["last_decided_at"],
+                }
+                for r in rows
+            ]
+        except Exception:
+            logger.warning("[R2] 归因汇总查询失败", exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------ #
+    # R1 (2026-10-22)【DGM 式谱系 archive】—— 备选池 + 隔代回采
+    # ------------------------------------------------------------------ #
+    def pool_candidate(
+        self,
+        *,
+        cycle_id: int | None,
+        params: dict,
+        score: float,
+        exp_id: str | None,
+        note: str,
+    ) -> bool:
+        """参数组入 lineage 备选池（复测未过但曾局部占优的踏脚石）。
+
+        实现为 lineage 列打标 + 建专用候选行（verdict=candidate，不占
+        正常 verdict 语义；回采复测开新正常单，通过后照常走全护栏）。
+        写失败只告警返回 False（archive 是增强件，不阻塞主循环）。
+        """
+        try:
+            conn = self._get_connection()
+            cand_id = f"cand_{uuid.uuid4().hex[:12]}"
+            conn.execute(
+                """
+                INSERT INTO experiments
+                    (experiment_id, cycle_id, params_json, score_before,
+                     score_after, verdict, reason, created_at, decided_at,
+                     feedback_text, lineage)
+                    VALUES (?, ?, ?, ?, ?, 'candidate', ?, ?, ?, ?, 'pool')
+                """,
+                (
+                    cand_id, cycle_id, json.dumps(params, ensure_ascii=False,
+                                                  sort_keys=True),
+                    None, float(score), note,
+                    _now(), _now(),
+                    f"lineage_pool: {note}" + (f" (src={exp_id})" if exp_id else ""),
+                ),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            logger.warning("[R1] 备选池入池失败", exc_info=True)
+            return False
+
+    def pool_size(self) -> int:
+        """备选池现存量（verdict=candidate 且 lineage='pool'）。"""
+        try:
+            row = self._get_connection().execute(
+                """
+                SELECT COUNT(*) AS n FROM experiments
+                 WHERE verdict = 'candidate' AND lineage = 'pool'
+                """
+            ).fetchone()
+            return int(row["n"]) if row else 0
+        except Exception:
+            return 0
+
+    def pool_sample(self) -> dict | None:
+        """隔代回采：从备选池随机取一个候选（无则 None）。
+
+        返回 {'exp_id','cycle_id','params','score','note'}；采样本身
+        无副作用——回采是否真应用由 daemon 侧护栏决定（P0-1 审批 +
+        P0 门禁复测 + 单参限幅 + 权限闸，archive 只扩候选来源）。
+        """
+        try:
+            row = self._get_connection().execute(
+                """
+                SELECT experiment_id, cycle_id, params_json, score_after,
+                       reason
+                  FROM experiments
+                 WHERE verdict = 'candidate' AND lineage = 'pool'
+                 ORDER BY RANDOM() LIMIT 1
+                """
+            ).fetchone()
+            if row is None:
+                return None
+            try:
+                params = json.loads(row["params_json"] or "{}")
+            except (TypeError, ValueError):
+                params = {}
+            return {
+                "exp_id": row["experiment_id"],
+                "cycle_id": row["cycle_id"],
+                "params": params,
+                "score": row["score_after"],
+                "note": row["reason"],
+            }
+        except Exception:
+            logger.warning("[R1] 备选池采样失败", exc_info=True)
+            return None
+
+    def pool_remove(self, cand_exp_id: str) -> bool:
+        """候选被回采复测（无论过否）后出池，防同块踏脚石反复回采。"""
+        try:
+            conn = self._get_connection()
+            conn.execute(
+                """
+                UPDATE experiments
+                   SET lineage = 'consumed'
+                 WHERE experiment_id = ? AND verdict = 'candidate'
+                """,
+                (cand_exp_id,),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            logger.warning("[R1] 备选池出池失败 cand=%s", cand_exp_id,
+                           exc_info=True)
+            return False
