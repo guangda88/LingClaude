@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="500" viewBox="0 0 880 500" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="880" height="500" fill="#fbfbf9"/>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图4 · 一百天运行总账（experiments.db 实测，截至 10-22）</text>
+
+  <!-- 总量 -->
+  <rect x="60" y="70" width="760" height="90" rx="10" fill="#fff" stroke="#1a5276" stroke-width="2"/>
+  <text x="110" y="112" font-size="15" fill="#666">累计实验</text>
+  <text x="110" y="145" font-size="30" font-weight="bold" fill="#1a5276">1,543</text>
+  <text x="290" y="112" font-size="15" fill="#666">时间跨度</text>
+  <text x="290" y="145" font-size="20" font-weight="bold" fill="#1a5276">09-23 → 10-22</text>
+  <text x="560" y="112" font-size="15" fill="#666">运行周期</text>
+  <text x="560" y="145" font-size="20" font-weight="bold" fill="#1a5276">1,088 轮</text>
+
+  <!-- 横向堆叠条 -->
+  <text x="60" y="200" font-size="15" fill="#333" font-weight="bold">判决分布（每一条都有评估器指纹与理由）</text>
+
+  <!-- rejected 1082 -->
+  <rect x="60" y="215" width="562" height="52" fill="#95a5a6"/>
+  <text x="80" y="247" font-size="14" fill="#fff" font-weight="bold">rejected 1,082（70.1%）—— 未达证据线，不许上盘</text>
+  <!-- rolled_back 328 -->
+  <rect x="622" y="215" width="170" height="52" fill="#e67e22"/>
+  <text x="630" y="238" font-size="13" fill="#fff" font-weight="bold">rolled_back 328</text>
+  <text x="630" y="256" font-size="13" fill="#fff" font-weight="bold">（21.3%）</text>
+  <!-- accepted 133 -->
+  <rect x="792" y="215" width="68" height="52" fill="#1e8449"/>
+  <text x="796" y="238" font-size="12" fill="#fff" font-weight="bold">accepted</text>
+  <text x="796" y="256" font-size="12" fill="#fff" font-weight="bold">133</text>
+  <text x="796" y="272" font-size="10" fill="#fff">(8.6%)</text>
+
+  <!-- 解读 -->
+  <g>
+    <rect x="60" y="295" width="760" height="170" rx="10" fill="#fff" stroke="#d5dbdb" stroke-width="1"/>
+    <text x="84" y="325" font-size="15" font-weight="bold" fill="#1a5276">怎么读这张图：接受率 8.6% 不是低效，是纪律</text>
+    <text x="84" y="353" font-size="13" fill="#333">• 70.1% 被拒 = 证据线拦住了绝大多数平庸变更（「没有证据就别动生产」）</text>
+    <text x="84" y="377" font-size="13" fill="#333">• 21.3% 回滚 = 观察期兑现承诺：改坏真的会被撤（包括自动回滚 ×2 的实弹战绩）</text>
+    <text x="84" y="401" font-size="13" fill="#333">• 8.6% 接受 = 幸存者全是过了择优回滚 + 48h 观察双关的真改进</text>
+    <text x="84" y="437" font-size="13" fill="#c0392b" font-weight="bold">对照：野蛮生长的自动调参没有这道闸——它的 100% 就是事故率</text>
+  </g>
+</svg>

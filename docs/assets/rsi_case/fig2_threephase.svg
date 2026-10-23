@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="430" viewBox="0 0 880 430" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="880" height="430" fill="#fbfbf9"/>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图2 · 三阶段路线：先止血，再可证可退可停，最后才谈智能</text>
+
+  <!-- 主轴 -->
+  <line x1="60" y1="90" x2="820" y2="90" stroke="#1a5276" stroke-width="3"/>
+  <circle cx="150" cy="90" r="8" fill="#c0392b"/>
+  <circle cx="440" cy="90" r="8" fill="#e67e22"/>
+  <circle cx="730" cy="90" r="8" fill="#1e8449"/>
+
+  <!-- 阶段0 -->
+  <g>
+    <rect x="70" y="120" width="220" height="240" rx="10" fill="#fff" stroke="#c0392b" stroke-width="2"/>
+    <rect x="70" y="120" width="220" height="44" rx="10" fill="#c0392b"/>
+    <text x="180" y="148" text-anchor="middle" font-size="16" font-weight="bold" fill="#fff">阶段〇 · 止血</text>
+    <text x="180" y="190" text-anchor="middle" font-size="13" fill="#666">停掉最危险的部分</text>
+    <text x="90" y="220" font-size="13" fill="#333">• 停自调量具回路</text>
+    <text x="90" y="248" font-size="13" fill="#333">• 评估器冻结+指纹化</text>
+    <text x="90" y="276" font-size="13" fill="#333">• 变更速率总闸 24h≤2</text>
+    <text x="90" y="310" font-size="12" fill="#c0392b" font-weight="bold">原则：先保证不添乱</text>
+  </g>
+
+  <!-- 阶段1 -->
+  <g>
+    <rect x="330" y="120" width="220" height="240" rx="10" fill="#fff" stroke="#e67e22" stroke-width="2"/>
+    <rect x="330" y="120" width="220" height="44" rx="10" fill="#e67e22"/>
+    <text x="440" y="148" text-anchor="middle" font-size="16" font-weight="bold" fill="#fff">阶段一 · 机制</text>
+    <text x="440" y="190" text-anchor="middle" font-size="13" fill="#666">可证 · 可退 · 可停</text>
+    <text x="350" y="220" font-size="13" fill="#333">• 应用前强制快照</text>
+    <text x="350" y="248" font-size="13" fill="#333">• 观察期 48h 兜底回滚</text>
+    <text x="350" y="276" font-size="13" fill="#333">• 回退超 2% 自动撤销</text>
+    <text x="350" y="304" font-size="13" fill="#333">• 人工回滚 CLI</text>
+    <text x="350" y="338" font-size="12" fill="#e67e22" font-weight="bold">原则：改坏必能退</text>
+  </g>
+
+  <!-- 阶段2 -->
+  <g>
+    <rect x="590" y="120" width="220" height="240" rx="10" fill="#fff" stroke="#1e8449" stroke-width="2"/>
+    <rect x="590" y="120" width="220" height="44" rx="10" fill="#1e8449"/>
+    <text x="700" y="148" text-anchor="middle" font-size="16" font-weight="bold" fill="#fff">阶段二 · 智能</text>
+    <text x="700" y="190" text-anchor="middle" font-size="13" fill="#666">让战绩说话</text>
+    <text x="610" y="220" font-size="13" fill="#333">• 加权随机选策略</text>
+    <text x="610" y="248" font-size="13" fill="#333">• 每 10 周期按战绩调权</text>
+    <text x="610" y="276" font-size="13" fill="#333">• 权重夹 [0.1,0.6] 防独大</text>
+    <text x="610" y="304" font-size="13" fill="#333">• 经验三属性打标晋升</text>
+    <text x="610" y="338" font-size="12" fill="#1e8449" font-weight="bold">原则：证据不足不加权</text>
+  </g>
+
+  <!-- 时间标注 -->
+  <text x="150" y="80" text-anchor="middle" font-size="13" fill="#c0392b" font-weight="bold">2026-10-16 前</text>
+  <text x="440" y="80" text-anchor="middle" font-size="13" fill="#e67e22" font-weight="bold">10-16 落地</text>
+  <text x="730" y="80" text-anchor="middle" font-size="13" fill="#1e8449" font-weight="bold">10-17 落地</text>
+
+  <text x="440" y="398" text-anchor="middle" font-size="14" fill="#1a5276" font-weight="bold">顺序不能反：护栏是自主性的前提，不是绊脚石</text>
+  <text x="440" y="420" text-anchor="middle" font-size="12" fill="#7f8c8d">护栏装好之后，一周内参数迭代十几个周期，零事故</text>
+</svg>

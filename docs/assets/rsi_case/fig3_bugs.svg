@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="460" viewBox="0 0 880 460" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="880" height="460" fill="#fbfbf9"/>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图3 · 首航 90 分钟抓到的三个真缺陷（全是测试矩阵盲区）</text>
+
+  <!-- bug1 -->
+  <g>
+    <rect x="40" y="70" width="800" height="108" rx="10" fill="#fff" stroke="#c0392b" stroke-width="2"/>
+    <rect x="40" y="70" width="110" height="108" rx="10" fill="#c0392b"/>
+    <text x="95" y="115" text-anchor="middle" font-size="26" font-weight="bold" fill="#fff">bug①</text>
+    <text x="95" y="140" text-anchor="middle" font-size="12" fill="#fff">18:47</text>
+    <text x="170" y="98" font-size="15" font-weight="bold" fill="#c0392b">「写了个寂寞」——字母序选键缺陷</text>
+    <text x="170" y="122" font-size="13" fill="#333">apply 逻辑恒取 sorted(params) 字母序第一键，若其建议值=现值则不产生任何写入，</text>
+    <text x="170" y="142" font-size="13" fill="#333">真正该变的键永不落盘；台账却记了双键幻影（观测说改了，现实纹丝未动）</text>
+    <text x="170" y="164" font-size="12" fill="#1e8449">修复 e4b22ff：选「真正变化的键」；全同值不写盘、不烧速率闸配额</text>
+  </g>
+
+  <!-- bug2 -->
+  <g>
+    <rect x="40" y="194" width="800" height="108" rx="10" fill="#fff" stroke="#e67e22" stroke-width="2"/>
+    <rect x="40" y="194" width="110" height="108" rx="10" fill="#e67e22"/>
+    <text x="95" y="239" text-anchor="middle" font-size="26" font-weight="bold" fill="#fff">bug②</text>
+    <text x="95" y="264" text-anchor="middle" font-size="12" fill="#fff">19:02</text>
+    <text x="170" y="222" font-size="15" font-weight="bold" fill="#e67e22">跨进程失忆——挂单状态加载白名单漏字段</text>
+    <text x="170" y="246" font-size="13" fill="#333">观察期挂单存在 JSON 里，DaemonState.load 白名单漏了 observing 字段，</text>
+    <text x="170" y="266" font-size="13" fill="#333">重启进程后挂单失忆，观察期结算永远不会发生（同进程单测跑百遍都是绿的）</text>
+    <text x="170" y="288" font-size="12" fill="#1e8449">修复 d1158b3：反射全字段往返 + 跨进程持久化契约测试</text>
+  </g>
+
+  <!-- bug3 -->
+  <g>
+    <rect x="40" y="318" width="800" height="108" rx="10" fill="#fff" stroke="#8e44ad" stroke-width="2"/>
+    <rect x="40" y="318" width="110" height="108" rx="10" fill="#8e44ad"/>
+    <text x="95" y="363" text-anchor="middle" font-size="26" font-weight="bold" fill="#fff">bug③</text>
+    <text x="95" y="388" text-anchor="middle" font-size="12" fill="#fff">19:35</text>
+    <text x="170" y="346" font-size="15" font-weight="bold" fill="#8e44ad">快照只能退一跳——多轮漂移回不去原点</text>
+    <text x="170" y="370" font-size="13" fill="#333">「apply 前快照」捕获的是上一轮 apply 之后的状态，N 轮漂移后原点已不在任何最新快照里，</text>
+    <text x="170" y="390" font-size="13" fill="#333">沿审计链逐跳才能回到安全基线（缺口已文档化，多跳回滚专项随后落地 rollback_multi）</text>
+    <text x="170" y="412" font-size="12" fill="#1e8449">后续 P5 批次落地 rollback_multi：链式恢复+每跳指纹校验+中断即停</text>
+  </g>
+
+  <text x="440" y="448" text-anchor="middle" font-size="13" fill="#7f8c8d">三个盲区共同点：都不在任何测试矩阵里——「unit 测试绿 ≠ 系统对」</text>
+</svg>

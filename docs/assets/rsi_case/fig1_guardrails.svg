@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="560" viewBox="0 0 880 560" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1a5276"/>
+    </marker>
+  </defs>
+  <rect width="880" height="560" fill="#fbfbf9"/>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图1 · 一次参数变更要闯的四道闸（全部实战开火过）</text>
+
+  <!-- 变更入口 -->
+  <rect x="310" y="62" width="260" height="40" rx="20" fill="#1a5276"/>
+  <text x="440" y="88" text-anchor="middle" font-size="16" fill="#fff">自优化守护进程提出变更</text>
+
+  <!-- 闸1 -->
+  <line x1="440" y1="102" x2="440" y2="126" stroke="#1a5276" stroke-width="2" marker-end="url(#ar)"/>
+  <g>
+    <rect x="140" y="128" width="600" height="76" rx="8" fill="#fff" stroke="#1a5276" stroke-width="2"/>
+    <rect x="140" y="128" width="8" height="76" fill="#1a5276"/>
+    <text x="164" y="156" font-size="16" font-weight="bold" fill="#1a5276">闸1 · S0-2 变更速率总闸</text>
+    <text x="164" y="176" font-size="13" fill="#444">24 小时净入库变更 ≤ 2 条，超额自动转 dry-run——配额留给真变更</text>
+    <text x="164" y="194" font-size="12" fill="#1e8449">实战：首航每轮真拦（净入库 9 ≥ 2 → 拦下）</text>
+  </g>
+
+  <!-- 闸2 -->
+  <line x1="440" y1="204" x2="440" y2="228" stroke="#1a5276" stroke-width="2" marker-end="url(#ar)"/>
+  <g>
+    <rect x="140" y="230" width="600" height="76" rx="8" fill="#fff" stroke="#1a5276" stroke-width="2"/>
+    <rect x="140" y="230" width="8" height="76" fill="#1a5276"/>
+    <text x="164" y="258" font-size="16" font-weight="bold" fill="#1a5276">闸2 · P1 择优回滚</text>
+    <text x="164" y="278" font-size="13" fill="#444">建议参数先试算评分，劣于历史最优即拒绝应用</text>
+    <text x="164" y="296" font-size="12" fill="#c0392b">实战：劣化必拒；其触发还揪出了「旧语料尺度死锁」事故</text>
+  </g>
+
+  <!-- 闸3 -->
+  <line x1="440" y1="306" x2="440" y2="330" stroke="#1a5276" stroke-width="2" marker-end="url(#ar)"/>
+  <g>
+    <rect x="140" y="332" width="600" height="76" rx="8" fill="#fff" stroke="#1a5276" stroke-width="2"/>
+    <rect x="140" y="332" width="8" height="76" fill="#1a5276"/>
+    <text x="164" y="360" font-size="16" font-weight="bold" fill="#1a5276">闸3 · P1-4 快照门禁 + 观察期</text>
+    <text x="164" y="380" font-size="13" fill="#444">应用前强制拍快照；挂观察单监控 48h，指标回退超 2% 自动回滚</text>
+    <text x="164" y="398" font-size="12" fill="#1e8449">实战：6 张快照全链可审计；systemd 进程自动回滚 ×2 实弹验证</text>
+  </g>
+
+  <!-- 闸4 -->
+  <line x1="440" y1="408" x2="440" y2="432" stroke="#1a5276" stroke-width="2" marker-end="url(#ar)"/>
+  <g>
+    <rect x="140" y="434" width="600" height="76" rx="8" fill="#fff" stroke="#1e8449" stroke-width="2"/>
+    <rect x="140" y="434" width="8" height="76" fill="#1e8449"/>
+    <text x="164" y="462" font-size="16" font-weight="bold" fill="#1e8449">落地 · 台账诚实结算</text>
+    <text x="164" y="482" font-size="13" fill="#444">无论 accepted / rolled_back / rejected，全部入 SQLite 台账，含评估器指纹</text>
+    <text x="164" y="500" font-size="12" fill="#1e8449">总账：1543 次实验，每一次都有判决与理由</text>
+  </g>
+
+  <text x="440" y="540" text-anchor="middle" font-size="13" fill="#7f8c8d">F7 熔断器横跨全程：异常即停，人工随时可停服 —— 「可停」永远优先于「跑得快」</text>
+</svg>

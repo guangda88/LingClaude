@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="420" viewBox="0 0 880 420" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="880" height="420" fill="#fbfbf9"/>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图5 · 五策略近均匀分布 = 「防一家独大」设计的实证</text>
+  <text x="440" y="66" text-anchor="middle" font-size="13" fill="#7f8c8d">strategy 列实测（experiments.db）；阶段二机制：加权随机选策略，每 10 周期按战绩调权，权重夹 [0.1, 0.6]</text>
+
+  <!-- tpe -->
+  <text x="60" y="120" font-size="15" fill="#333" font-weight="bold">tpe</text>
+  <rect x="120" y="104" width="494" height="30" fill="#1a5276"/>
+  <text x="624" y="125" font-size="14" fill="#1a5276" font-weight="bold">247</text>
+  <!-- random -->
+  <text x="60" y="170" font-size="15" fill="#333" font-weight="bold">random</text>
+  <rect x="120" y="154" width="442" height="30" fill="#2e86c1"/>
+  <text x="572" y="175" font-size="14" fill="#2e86c1" font-weight="bold">221</text>
+  <!-- annealing -->
+  <text x="60" y="220" font-size="15" fill="#333" font-weight="bold">annealing</text>
+  <rect x="120" y="204" width="428" height="30" fill="#1e8449"/>
+  <text x="558" y="225" font-size="14" fill="#1e8449" font-weight="bold">214</text>
+  <!-- grid -->
+  <text x="60" y="270" font-size="15" fill="#333" font-weight="bold">grid</text>
+  <rect x="120" y="254" width="410" height="30" fill="#b9770e"/>
+  <text x="540" y="275" font-size="14" fill="#b9770e" font-weight="bold">205</text>
+  <!-- bayesian -->
+  <text x="60" y="320" font-size="15" fill="#333" font-weight="bold">bayesian</text>
+  <rect x="120" y="304" width="410" height="30" fill="#8e44ad"/>
+  <text x="540" y="325" font-size="14" fill="#8e44ad" font-weight="bold">205</text>
+
+  <!-- 均匀线 -->
+  <line x1="530" y1="96" x2="530" y2="342" stroke="#c0392b" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="536" y="345" font-size="12" fill="#c0392b">← 理论均匀线</text>
+
+  <text x="440" y="385" text-anchor="middle" font-size="14" fill="#1a5276" font-weight="bold">五路策略咬得极紧（205–247），说明权重机制既给了战绩奖励，又没让任何一家垄断探索权</text>
+</svg>

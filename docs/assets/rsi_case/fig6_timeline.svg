@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="640" viewBox="0 0 880 640" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif">
+  <rect width="880" height="640" fill="#fbfbf9"/>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图6 · 2026-10-17 首航时间线：90 分钟，护栏 4/4 实战开火，抓出 3 个真缺陷</text>
+
+  <!-- 主轴 -->
+  <line x1="100" y1="80" x2="100" y2="590" stroke="#1a5276" stroke-width="3"/>
+
+  <!-- 18:38 -->
+  <circle cx="100" cy="100" r="7" fill="#1a5276"/>
+  <text x="88" y="105" text-anchor="end" font-size="14" font-weight="bold" fill="#1a5276">18:38</text>
+  <rect x="130" y="82" width="700" height="38" rx="6" fill="#fff" stroke="#d5dbdb"/>
+  <text x="146" y="106" font-size="13" fill="#333">cycle#1130(1) 首轮真实 APPLY：四护栏齐开火（速率闸拦 9≥2 / 择优回滚拒应用 / 熔断待命）——并暴露「旧语料尺度死锁」</text>
+
+  <!-- 18:44 -->
+  <circle cx="100" cy="150" r="7" fill="#1e8449"/>
+  <text x="88" y="155" text-anchor="end" font-size="14" font-weight="bold" fill="#1e8449">18:44</text>
+  <rect x="130" y="132" width="700" height="38" rx="6" fill="#fff" stroke="#d5dbdb"/>
+  <text x="146" y="156" font-size="13" fill="#333">观察单首挂 exp_0cbc1336aba8：快照 + 台账 + activity 全链真实数据（手术解锁尺度死锁后）</text>
+
+  <!-- 18:47 -->
+  <circle cx="100" cy="200" r="7" fill="#c0392b"/>
+  <text x="88" y="205" text-anchor="end" font-size="14" font-weight="bold" fill="#c0392b">18:47</text>
+  <rect x="130" y="182" width="700" height="38" rx="6" fill="#fdebd0" stroke="#c0392b"/>
+  <text x="146" y="206" font-size="13" fill="#333">抓到 bug①「写了个寂寞」：字母序选键致变化键永不落盘 → 修复 e4b22ff</text>
+
+  <!-- 18:50 -->
+  <circle cx="100" cy="250" r="7" fill="#1e8449"/>
+  <text x="88" y="255" text-anchor="end" font-size="14" font-weight="bold" fill="#1e8449">18:50</text>
+  <rect x="130" y="232" width="700" height="38" rx="6" fill="#fff" stroke="#d5dbdb"/>
+  <text x="146" y="256" font-size="13" fill="#333">人工回滚 CLI 首秀：rollback --to exp_0cbc → restored_verified + 台账诚实结算 rolled_back</text>
+
+  <!-- 18:55 -->
+  <circle cx="100" cy="300" r="7" fill="#c0392b"/>
+  <text x="88" y="305" text-anchor="end" font-size="14" font-weight="bold" fill="#c0392b">18:55</text>
+  <rect x="130" y="282" width="700" height="38" rx="6" fill="#fdebd0" stroke="#c0392b"/>
+  <text x="146" y="306" font-size="13" fill="#333">揪出「双写者」：10-12 部署的 watch 守护进程持史前内存状态，每 5 分钟写盘踩掉一切变更 → kill</text>
+
+  <!-- 19:00 -->
+  <circle cx="100" cy="350" r="7" fill="#e67e22"/>
+  <text x="88" y="355" text-anchor="end" font-size="14" font-weight="bold" fill="#e67e22">19:02</text>
+  <rect x="130" y="332" width="700" height="38" rx="6" fill="#fdebd0" stroke="#e67e22"/>
+  <text x="146" y="356" font-size="13" fill="#333">抓到 bug②跨进程失忆：DaemonState.load 白名单漏 observing → 观察期结算永不发生 → 修复 d1158b3 + 契约测试</text>
+
+  <!-- 19:00:59 -->
+  <circle cx="100" cy="400" r="7" fill="#1e8449"/>
+  <text x="88" y="405" text-anchor="end" font-size="14" font-weight="bold" fill="#1e8449">19:01</text>
+  <rect x="130" y="382" width="700" height="38" rx="6" fill="#eafaf1" stroke="#1e8449"/>
+  <text x="146" y="406" font-size="13" fill="#333">戏剧性反转：被 kill 的 watch 是 systemd 用户单元（Restart=always），30 秒后带新代码满血归来，自己跑通观察期自动回滚 ×2</text>
+
+  <!-- 19:33 -->
+  <circle cx="100" cy="450" r="7" fill="#1a5276"/>
+  <text x="88" y="455" text-anchor="end" font-size="14" font-weight="bold" fill="#1a5276">19:33</text>
+  <rect x="130" y="432" width="700" height="38" rx="6" fill="#fff" stroke="#d5dbdb"/>
+  <text x="146" y="456" font-size="13" fill="#333">watch stop+disable（防干扰受控首航）；幻影挂单经诚实结算了结</text>
+
+  <!-- 19:35 -->
+  <circle cx="100" cy="500" r="7" fill="#8e44ad"/>
+  <text x="88" y="505" text-anchor="end" font-size="14" font-weight="bold" fill="#8e44ad">19:35</text>
+  <rect x="130" y="482" width="700" height="38" rx="6" fill="#f4ecf7" stroke="#8e44ad"/>
+  <text x="146" y="506" font-size="13" fill="#333">发现缺陷③：快照只能退一跳，多轮漂移回不去原点 → 沿审计链恢复安全基线，缺口文档化（后续 rollback_multi 落地）</text>
+
+  <!-- 收尾 -->
+  <circle cx="100" cy="550" r="7" fill="#1a5276"/>
+  <text x="88" y="555" text-anchor="end" font-size="14" font-weight="bold" fill="#1a5276">19:36</text>
+  <rect x="130" y="532" width="700" height="42" rx="6" fill="#eaf2f8" stroke="#1a5276" stroke-width="2"/>
+  <text x="146" y="550" font-size="13" fill="#1a5276" font-weight="bold">首航观察报告入库（365a326）。当天全仓 14 个提交。</text>
+  <text x="146" y="568" font-size="12" fill="#555">RSI 核心承诺——可证（指纹/台账/审计链）、可退（快照/回滚×5 实战）、可停（熔断/速率闸/人工停服）——全部变成「今日发生的记录」</text>
+
+  <text x="440" y="612" text-anchor="middle" font-size="13" fill="#7f8c8d">详情：docs/selfopt/FIRST_VOYAGE_REPORT_20261017.md</text>
+</svg>
