@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="420" viewBox="0 0 880 420" font-family="'WenQuanYi Micro Hei','WenQuanYi Zen Hei',sans-serif">
   <rect width="880" height="420" fill="#fbfbf9"/>
-  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图5 · 五策略近均匀分布 = 「防一家独大」设计的实证</text>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图6 · 五策略近均匀分布 = 「防一家独大」设计的实证</text>
   <text x="440" y="66" text-anchor="middle" font-size="13" fill="#7f8c8d">strategy 列实测（experiments.db）；阶段二机制：加权随机选策略，每 10 周期按战绩调权，权重夹 [0.1, 0.6]</text>
 
   <!-- tpe -->

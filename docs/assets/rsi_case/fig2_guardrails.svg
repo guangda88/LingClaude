@@ -5,7 +5,7 @@
     </marker>
   </defs>
   <rect width="880" height="560" fill="#fbfbf9"/>
-  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图1 · 一次参数变更要闯的四道闸（全部实战开火过）</text>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图2 · 一次参数变更要闯的四道闸（全部实战开火过）</text>
 
   <!-- 变更入口 -->
   <rect x="310" y="62" width="260" height="40" rx="20" fill="#1a5276"/>

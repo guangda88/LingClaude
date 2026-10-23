@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="460" viewBox="0 0 880 460" font-family="'WenQuanYi Micro Hei','WenQuanYi Zen Hei',sans-serif">
   <rect width="880" height="460" fill="#fbfbf9"/>
-  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图3 · 首航 90 分钟抓到的三个真缺陷（全是测试矩阵盲区）</text>
+  <text x="440" y="40" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a5276">图4 · 首航 90 分钟抓到的三个真缺陷（全是测试矩阵盲区）</text>
 
   <!-- bug1 -->
   <g>
