@@ -607,6 +607,9 @@ class CodingRuntime(
                 return GuardDecision(decision="abstain")
             from lingclaude.engine.risk_gate import classify_command_risk
             from lingclaude.core.permissions import get_permission_mode
+            from lingclaude.core.decision_log import (
+                record_decision, DOMAIN_RISK, VERDICT_ALLOW, VERDICT_DENY,
+            )
             mode = get_permission_mode()
             verdict = classify_command_risk(
                 command, permission_mode=mode, tool_name=tool_def.name)
@@ -618,8 +621,22 @@ class CodingRuntime(
         # 处置映射：allow→放行；ask→ask 模式下询问（strict 由门控已判 deny）；
         # deny→拒绝。只读/放行一律 abstain（不打扰）；破坏性/生产敏感触发处置。
         if verdict.action == "allow":
+            record_decision(
+                DOMAIN_RISK, tool_def.name, VERDICT_ALLOW,
+                reason=verdict.reason, p=None,
+                session_id=getattr(self, "session_id", "") or "",
+                meta={"risk_level": verdict.risk_level,
+                      "risk_label": verdict.risk_label, "source": verdict.source},
+            )
             return GuardDecision(decision="abstain")
         if verdict.action == "deny":
+            record_decision(
+                DOMAIN_RISK, tool_def.name, VERDICT_DENY,
+                reason=verdict.reason, p=None,
+                session_id=getattr(self, "session_id", "") or "",
+                meta={"risk_level": verdict.risk_level,
+                      "risk_label": verdict.risk_label, "source": verdict.source},
+            )
             return GuardDecision(
                 decision="deny",
                 reason=(

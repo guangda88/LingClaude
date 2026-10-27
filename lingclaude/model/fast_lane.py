@@ -45,6 +45,11 @@ NOT_GOOD_AT_PATTERNS = ("```", "def ", "class ", "diff --git")
 _MIN_CONFIDENCE = 0.1          # B2-R：放宽试点（内置兜底值）
 _WEAK_DOMAINS = ("factual_lookup",)
 
+# NanoJev 契约消费层：路由判定入统一决策流（fail-open，2026-10-27）
+from lingclaude.core.decision_log import (  # noqa: E402
+    record_decision, DOMAIN_ROUTE, VERDICT_ALLOW, VERDICT_GRAY,
+)
+
 # B2-R：策略文件门控参数（hot-update；读取失败用内置默认）
 _B2_GATE_KEYS = ("fast_lane_min_confidence", "fast_lane_weak_domains",
                  "fan_out_speculative_min_difficulty")
@@ -141,19 +146,36 @@ def _gate_verdict(result: dict[str, Any]) -> dict[str, Any] | None:
         return None
     answers = result.get("answers")
     if not isinstance(answers, dict):
+        record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_GRAY,
+                        reason="answers missing/not-dict", meta={"outcome": "fallback"})
         return None
     dom_ans = answers.get("domain")
     if not isinstance(dom_ans, dict):
+        record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_GRAY,
+                        reason="domain answer missing/not-dict",
+                        meta={"outcome": "fallback"})
         return None
     confidence = dom_ans.get("confidence")
     if not isinstance(confidence, (int, float)):
         # confidence 缺失（异常输出形态）→ 保守回退，不冒险采信
+        record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_GRAY,
+                        reason="confidence missing/not-numeric",
+                        meta={"outcome": "fallback"})
         return None
     if confidence < min_conf:
+        record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_GRAY,
+                        reason=f"confidence {confidence} < min {min_conf}",
+                        p=float(confidence), meta={"outcome": "fallback"})
         return None
     got_domain = str(dom_ans.get("choice", "")).lower()
     if got_domain in weak:
+        record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_GRAY,
+                        reason=f"weak domain hit: {got_domain}",
+                        p=float(confidence), meta={"outcome": "fallback"})
         return None
+    record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_ALLOW,
+                    reason=f"accepted domain={got_domain}",
+                    p=float(confidence), meta={"outcome": "accepted"})
     return result
 
 

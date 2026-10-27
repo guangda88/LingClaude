@@ -64,6 +64,25 @@ class SubagentToolsMixin:
             self._subagent_manager = manager
         result = manager.run(request, ctx)
 
+        # NanoJev 契约消费层（2026-10-27 扩展位点种）：执行权接力入
+        # next_worker 域——sub_agent 派单即「Worker 接力」的最小事件。
+        # fail-open。
+        try:
+            from lingclaude.core.decision_log import (
+                record_decision, DOMAIN_NEXT_WORKER,
+                VERDICT_ALLOW, VERDICT_GRAY,
+            )
+            record_decision(
+                DOMAIN_NEXT_WORKER, "delegate", VERDICT_ALLOW if result.success else VERDICT_GRAY,
+                reason=(f"sub_agent rounds={result.rounds} "
+                        f"provider={result.provider or 'inprocess'}"),
+                meta={"outcome": "delegated" if result.success else "delegated_failed",
+                      "rounds": result.rounds,
+                      "provider": result.provider or "inprocess"},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
         # TUI 过程可见性：结束状态行（成功✅/失败❌ + 轮次 + 耗时摘要）
         try:
             from lingclaude.cli.render_facade import render

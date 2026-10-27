@@ -538,6 +538,21 @@ class ToolPipeline:
             # spill 文件无法读回。显式锁 utf-8 + errors=replace 双保险。
             with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
                 f.write(text)
+            # NanoJev 契约消费层（2026-10-27 扩展位点种）：spill 决策入
+            # relevance 域——「输出超限降级为 locator」即相关性裁决的最小
+            # 事件（高频不过限路径零噪音，不记 allow）。fail-open。
+            try:
+                from lingclaude.core.decision_log import (
+                    record_decision, DOMAIN_RELEVANCE, VERDICT_GRAY,
+                )
+                record_decision(
+                    DOMAIN_RELEVANCE, tool_name, VERDICT_GRAY,
+                    reason=f"output {len(text)} chars > limit, spilled to locator",
+                    meta={"size_bytes": len(text), "locator": path,
+                          "outcome": "spilled"},
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return {
                 "_spilled": True,
                 "tool": tool_name,
@@ -558,6 +573,17 @@ class ToolPipeline:
         except Exception:
             # spill 失败时降级：不丢弃结果，原样返回
             logger.warning("output spill failed, returning original result")
+            try:
+                from lingclaude.core.decision_log import (
+                    record_decision, DOMAIN_RELEVANCE, VERDICT_GRAY,
+                )
+                record_decision(
+                    DOMAIN_RELEVANCE, tool_name, VERDICT_GRAY,
+                    reason="spill failed, returning original output",
+                    meta={"size_bytes": len(text), "outcome": "spill_failed"},
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return result
 
     def _error(self, msg: str, code: str = ToolErrorCode.EXECUTION_ERROR) -> dict[str, Any]:

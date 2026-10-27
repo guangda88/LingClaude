@@ -168,7 +168,25 @@ class ToolExecutor:
                 # fail-soft：门控异常不影响工具结果本身（不挂字段，保持原结果）。
                 try:
                     from lingclaude.core.success_gate import gate_success
-                    result_dict["success_verdict"] = gate_success(name, result_dict).to_dict()
+                    from lingclaude.core.decision_log import (
+                        record_decision, DOMAIN_SUCCESS,
+                        VERDICT_ALLOW, VERDICT_DENY, VERDICT_GRAY,
+                    )
+                    _sg = gate_success(name, result_dict)
+                    result_dict["success_verdict"] = _sg.to_dict()
+                    # NanoJev 契约消费层：成功判定入统一决策流（fail-open，
+                    # 2026-10-27）——is_success 三态映射 allow/deny/gray。
+                    _dv = VERDICT_GRAY
+                    if _sg.is_success is True:
+                        _dv = VERDICT_ALLOW
+                    elif _sg.is_success is False:
+                        _dv = VERDICT_DENY
+                    record_decision(
+                        DOMAIN_SUCCESS, name, _dv,
+                        reason=_sg.evidence, p=_sg.p_success,
+                        session_id=getattr(self._engine, "session_id", "") or "",
+                        meta={"source": _sg.source},
+                    )
                 except Exception:  # noqa: BLE001 — 门控故障 fail-soft，保持原结果
                     logger.debug("success_gate fail-soft（不挂 success_verdict）", exc_info=True)
                 return ToolResult.ok(result_dict)

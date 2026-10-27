@@ -100,6 +100,29 @@ def _isolate_persistence_files(monkeypatch: pytest.MonkeyPatch, tmp_path) -> Non
 
 
 @pytest.fixture(autouse=True)
+def _isolate_decision_ledger(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """NanoJev 决策流写点测试隔离（2026-10-27）。
+
+    事故：decision_log 单例默认 root 相对 CWD（data/arch_ledger），裸调
+    _prune_output / record_decision 的测试（如 test_truncation_guard 的
+    spill 用例、sub_agent 派单用例）会把 relevance/next_worker 判定写进
+    生产台账 data/arch_ledger/decisions_YYYYMM.jsonl（2026-10-27 全量
+    回归巡检实锤，同型前科：2026-09-23 approvals / 10-22 project_memory）。
+
+    本 fixture 对齐 _isolate_persistence_files 惯例：把尚未创建的单例
+    预构建为 root=tmp_path/arch_ledger 的实例——所有写点落 tmp，teardown
+    恢复原单例，生产台账全程免疫。测试内显式注入 root / chdir 隔离/
+    set_session_provider 均不受影响（栈式恢复）。
+    """
+    import lingclaude.core.decision_log as _dl
+
+    monkeypatch.setattr(
+        _dl, "_DEFAULT_LOG",
+        _dl.DecisionLog(root=tmp_path / "arch_ledger"),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _isolate_git_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
     """测试仓库不继承用户全局 core.hooksPath（~/.git-hooks 的 post-commit
     会撤销无审计记录的提交，干扰测试夹具仓库）。通过 GIT_CONFIG_* 环境变量

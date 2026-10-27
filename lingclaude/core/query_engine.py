@@ -154,6 +154,14 @@ class QueryEngine(
         self.config = config or QueryEngineConfig()
         self.session_manager = session_manager or SessionManager()
         self.session_id: str = uuid4().hex[:16]
+        # NanoJev 决策流（2026-10-27）：本 engine 即会话身份单源，注册进程级
+        # provider 后全进程各门控判定自动携带会话归因（/resume 等换 id 场景
+        # 经 sync_session_id 动态跟随）。fail-soft：注册故障不影响装配。
+        try:
+            from lingclaude.core.decision_log import set_session_provider
+            set_session_provider(lambda: self.session_id)
+        except Exception:  # noqa: BLE001
+            pass
         ctx = WiringContext(
             engine=self,
             session_manager=self.session_manager,
