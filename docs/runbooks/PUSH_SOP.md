@@ -42,9 +42,11 @@ git -c core.sshCommand="ssh -o StrictHostKeyChecking=accept-new" push github mas
 
 ```
 0. git_push_preflight（工具）→ 未推清单 / dirty / gate 状态
+   ※ 门禁 v2.0（10-28）已有已知失败基线豁免（§三.5）：「历史失败挡门」不再
+     构成旁路理由——先后台跑一次 GATE_NO_CACHE=1 全量门禁，豁免即落缓存。
 1. origin 腿：
    a. 门禁健康 且 MemAvailable >= 4G  → 钩子开启 + timeout 7200 正常推
-   b. 门禁缺陷未修回归 / 资源紧张     → §三 旁路纪律
+   b. 门禁本体缺陷 / 超时环境病 / 资源紧张 → §三 旁路纪律
 2. github 腿：单独推；失败先查 clash 7890 存活，再查宿主 DNS，勿在沙箱内诊断
 3. 每次推送后：git ls-remote 比对 本地 HEAD == 远端头，回填台账清债记录
 ```
@@ -58,6 +60,37 @@ git -c core.sshCommand="ssh -o StrictHostKeyChecking=accept-new" push github mas
 - **现状（2026-09-24）**：`push-gate-xdist-spin` 已改判（真根因=宿主资源峰值 +
   取证沙箱 1GB 污染，非门禁本体缺陷）；门禁补一套"资源预检 + 大 timeout"缓解并
   回归之前，正式 push 按本节执行。
+
+## 三.5、已知失败基线豁免（2026-10-28 门禁 v2.0，本节为机制权威说明）
+
+**背景**：10-09 后 HEAD 积累历史测试债（10-27 W3 甄别闭环：16 条确定性红，全部
+HEAD worktree 实测同挂），v1 门禁「全绿才放行+缓存按 HEAD 键」结构性必红 →
+缓存从未绿过 → push 被挡 18 天，10-27 被迫走 §三 旁路（摘钩子推 71 提交）。
+v2.0 把「已甄别、有诊断的历史失败」机制化为门禁内豁免，旁路降为极端兜底。
+
+**机制**（四件套）：
+- 判定器 `scripts/gate_exemption_check.py`：RC=1 时以 pytest cacheprovider
+  `lastfailed`（门禁专属 `--cache-dir=.audit/pytest_gate_cache`，与开发态隔离）
+  与基线比对。退出码：0=子集豁免放行 / 1=新红拒绝 / 2=数据异常回退严格 /
+  3=RC=1 无失败记录（疑收集错误）不可豁免。test_id 精确全等，无模糊匹配。
+- 基线 `data/arch_ledger/test_baselines/push_gate_known_failures.json`：
+  **入库跟踪**（worktree/其他会话同视），每条必带 reason（含实测断言行）+
+  verified_head。**棘轮只缩不放**：修好一条必须删一条；新红不得无诊断入册。
+- 门禁 `scripts/pre_push_gate.sh` v2.0：仅 RC=1 参与豁免；**124/137（预算超时
+  被杀）不豁免**（超时=环境病，无失败集可判）。豁免放行按 HEAD 缓存
+  （exempted=true），同 HEAD 第二远程秒过（双远程不再跑两次全量）。
+  `GATE_BASELINE=""` 可显式禁用豁免（回 v1 严格语义，含拒绝豁免缓存复用）。
+- 单测 `tests/test_gate_exemption_check.py`（9 用例：子集/新红/数据异常/
+  精确匹配/入库基线健全性）。
+
+**基线维护纪律**：
+1. 修复基线内任一失败 → 同 PR 删除对应 entry（只缩不放）；
+2. 出现新红 → 先修复或诊断后带 reason+verified_head 入册，禁止"跑不绿就塞基线"；
+3. 每条 entry 的 verified_head 记录实测 HEAD，批量大清理时刷新 verified_method；
+4. 基线归零（entries=[]）是理想态——届时 v2.0 自动退化为 v1 行为。
+
+**与 §三 的关系**：本节生效后，§三 旁路仅适用于：门禁本体缺陷 / 超时环境病
+（预算内跑不完）/ 数据面异常三类；「历史失败挡门」不再构成旁路理由。
 
 ## 五、git_push 工具已知缺陷（2026-09-24 实测补注）
 
