@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from datetime import datetime, timedelta
 
 
 # --------------------------------------------------------------------- #
@@ -179,7 +180,11 @@ class TestActivityReport:
         daemon = _make_daemon(tmp_path)
         (daemon.state_dir / "activity.jsonl").write_text(
             json.dumps({
-                "ts": "2026-10-21T00:00:00", "cycle_id": 9,
+                # 动态时间戳：now-1天，永在 7 天窗口内（写死 2026-10-21 的
+                # 日期炸弹于 10-28 零点到期翻红——daemon.activity_report 用
+                # now()-days 做字符串 cutoff，绝对日期必随时间腐烂）
+                "ts": (datetime.now() - timedelta(days=1)).isoformat(
+                    timespec="seconds"), "cycle_id": 9,
                 "experiment_id": None, "trigger_type": "user",
                 "goal": "behavior", "origin": "self", "strategy": "grid",
                 "best_score": 3.0, "v_before": 3, "v_after": 3,
