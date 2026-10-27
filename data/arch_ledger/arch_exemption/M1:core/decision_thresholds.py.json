@@ -1,0 +1,9 @@
+{
+  "guard": "M1",
+  "file": "core/decision_thresholds.py",
+  "reason": "NanoJev W2 rules 层阈值读口（2026-10-27 aca9cc8）：session/policy 键为决策放行阈值表的固有功能键名，非概念泄漏。行级豁免 4 行，新增命中仍被 M1 抓到（只缩不放）。",
+  "granted": "2026-10-28",
+  "state": "active",
+  "lines": [1, 21, 28, 38],
+  "review_due": "2026-11-27"
+}

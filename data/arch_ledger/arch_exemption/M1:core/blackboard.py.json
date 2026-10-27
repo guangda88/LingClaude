@@ -1,0 +1,9 @@
+{
+  "guard": "M1",
+  "file": "core/blackboard.py",
+  "reason": "NanoJev W2 全局黑板（2026-10-27 5cc81c0）：docstring 的任务/会话语义 + Goal 状态字段词为四类状态面（Goal/Worker/Constraint/Evidence）的固有功能数据，非概念泄漏。行级豁免 4 行，新增命中仍被 M1 抓到（只缩不放）。",
+  "granted": "2026-10-28",
+  "state": "active",
+  "lines": [1, 43, 81, 98],
+  "review_due": "2026-11-27"
+}

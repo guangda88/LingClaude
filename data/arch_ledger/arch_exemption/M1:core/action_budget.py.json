@@ -1,0 +1,9 @@
+{
+  "guard": "M1",
+  "file": "core/action_budget.py",
+  "reason": "NanoJev W2 rules 层步数硬闸内核（2026-10-27 aca9cc8）：会话(session)预算计数、provider 阈值读口、tool 动作语义为步数门控的固有功能词汇，非概念泄漏。行级豁免 16 行，新增命中仍被 M1 抓到（只缩不放）。",
+  "granted": "2026-10-28",
+  "state": "active",
+  "lines": [1, 29, 44, 53, 57, 58, 63, 65, 68, 70, 71, 74, 75, 81, 83, 88],
+  "review_due": "2026-11-27"
+}
