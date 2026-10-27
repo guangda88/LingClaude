@@ -118,9 +118,12 @@ def gate_success(
         gray = "mixed success+failure signals"
         return _gray_gate(p, gray, text, tool_name)
 
-    # 4. 无强信号（灰区）
+    # 4. 无强信号（灰区）—— 基准置信度表驱动（policies/decision_thresholds.yaml
+    #    success.gray_base，热更； NanoJev rules 层 2026-10-27）
     gray_hint = next((rx.pattern for rx in _GRAY_HINT_RES if rx.search(text)), "no strong signal")
-    p_base = 0.5
+    from lingclaude.core.decision_thresholds import get_value
+
+    p_base = get_value("success", "gray_base")
     return _gray_gate(p_base, gray_hint, text, tool_name)
 
 

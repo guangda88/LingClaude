@@ -1,0 +1,13 @@
+# NanoJev rules 层：决策放行阈值表（hard_rules/thresholds 对应物）
+# 消费口: core/decision_thresholds.py（PolicyLoader mtime 热更, 30s 节流）
+# 语义: 改此文件不重启进程, 下个调用生效; 读失败/缺键回退代码内缺省(fail-open)
+success:
+  gray_base: 0.5        # 灰区判定基准置信度（success_gate._gray_gate 消费）
+route:
+  fast_min: 0.5         # fast_lane 接单下限（预留位, 本轮未接线）
+risk:
+  # 说明: 风险分级仍由 risk_gate._decide 三原语硬编码(level 1-5), 暂不表驱动;
+  # 此处仅占位, 后续若需要 permission_mode 门槛热调再启用
+limits:
+  max_actions_per_session: 500   # 步数硬闸上限（core/action_budget.py 消费）
+  warn_ratio: 0.9                # 达上限该比例时记 gray 预警入决策流

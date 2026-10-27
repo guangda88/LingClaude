@@ -344,6 +344,15 @@ class CodingRuntime(
         # 敏感路径门之后——只读放行零打扰、破坏性/生产敏感按权限模式询问/拒绝。
         # fail-open：门控故障 → abstain（交既有 sensitive_path_guard/权限链处理）。
         self.tool_pipeline.add_guard(self._risk_guard)
+        # NanoJev rules 层（2026-10-27）：会话级动作步数硬闸（hard_rules 对应物）。
+        # 默认上限 500 步（policies/decision_thresholds.yaml 热更），烧尽即 GUARD_DENIED
+        # 强制停机（fail-closed 保险丝）；warn 比例处记 gray 入决策流；guard 自身
+        # 异常 fail-open 不炸流水线。挂在 sensitive_path/risk 之后（同位 monotonic 段）。
+        from lingclaude.core.action_budget import make_step_budget_guard
+
+        self.tool_pipeline.add_guard(
+            make_step_budget_guard(lambda: str(self.session_id or "unknown"))
+        )
 
     def _stt_handler(
         self,
