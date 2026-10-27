@@ -132,14 +132,18 @@ class TestWithAllowDenyPreserveMode:
             ctx = PermissionContext(mode=m)
             assert ctx.with_deny("bash").mode == m, f"with_deny 丢失 mode={m}"
 
-    def test_record_approval_no_mode_downgrade(self) -> None:
+    def test_record_approval_no_mode_downgrade(self, monkeypatch) -> None:
         """审批回灌（PermissionStore.record_approval）不得静默降级全局 mode。"""
-        import pytest as _pytest
+        import pathlib
 
         from lingclaude.core import permissions as perms
 
-        _pytest.MonkeyPatch().setenv("HOME", "/tmp/fake-home-verify")
-        perms._PERSIST_PATH = __import__("pathlib").Path("/tmp/fake-home-verify/.lingclaude/no approvals.json")
+        # 2026-10-27 修复：原实现用裸 MonkeyPatch() 改 HOME 且不恢复，
+        # HOME 泄漏给同进程后续测试的子进程（l7_hook 的 pre_tool_use.py
+        # 在陌生 HOME 下丢 user site-packages，role 检查静默失效）。
+        # 改 fixture 管理的 monkeypatch，测试后自动还原。
+        monkeypatch.setenv("HOME", "/tmp/fake-home-verify")
+        perms._PERSIST_PATH = pathlib.Path("/tmp/fake-home-verify/.lingclaude/no approvals.json")
         perms.reset_permission_stores()
         store = perms.get_permission_store("verify-mode")
         from lingclaude.core.permissions import PermissionContext
