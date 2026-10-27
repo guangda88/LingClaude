@@ -7,7 +7,11 @@ from lingclaude.core.datalog import log_l5_audit, log_t0_behavior, log_degradati
 
 
 def _read_latest_datalog() -> list[dict]:
-    datalog_dir = Path.home() / ".lingclaude" / "datalog"
+    # 经模块常量动态解析（conftest autouse fixture 会把 DATALOG_DIR
+    # patch 到 tmp），勿写死 Path.home()——否则断言读到的是生产 datalog。
+    datalog_dir = Path(
+        __import__("lingclaude.core.datalog", fromlist=["DATALOG_DIR"]).DATALOG_DIR
+    )
     files = sorted(datalog_dir.glob("*.jsonl"))
     if not files:
         return []

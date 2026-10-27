@@ -123,6 +123,27 @@ def _isolate_decision_ledger(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_datalog(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """datalog 写点测试隔离（2026-10-27）。
+
+    事故：datalog 写路径是模块级常量 DATALOG_DIR = Path.home()/...（chdir
+    对 Path.home() 无效，chdir 隔离开不了这个口），test_datalog.py 裸调
+    log_l5_audit/log_t0_behavior/log_degradation_alert 零隔离，样例数据
+    （session_id="test-sess", model="glm-5.2@zai"）写穿生产 datalog
+    ~/.lingclaude/datalog/YYYY-MM-DD.jsonl（当日巡检实锤 11 条假事件，
+    曾误导 1211 错误溯源；同型前科：2026-09-23 approvals / 10-22
+    project_memory / 10-27 decisions 台账）。
+
+    对齐 _isolate_persistence_files 惯例 patch 模块属性（栈式恢复）。
+    测试内读取请用 lingclaude.core.datalog.DATALOG_DIR（动态解析模块
+    属性），勿再写死 Path.home()——见 test_datalog._read_latest_datalog。
+    """
+    import lingclaude.core.datalog as _dlog
+
+    monkeypatch.setattr(_dlog, "DATALOG_DIR", tmp_path / "datalog")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_git_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
     """测试仓库不继承用户全局 core.hooksPath（~/.git-hooks 的 post-commit
     会撤销无审计记录的提交，干扰测试夹具仓库）。通过 GIT_CONFIG_* 环境变量
