@@ -1,129 +1,154 @@
 {
-  "version": 1,
-  "created": "2026-10-28",
-  "mechanism": "push 门禁已知失败基线（PUSH_SOP §三豁免判定器 scripts/gate_exemption_check.py 的数据面）。全量 pytest RC=1 时，失败集必须为本文件 test_id 的子集方可豁免放行；新红一律拒绝（棘轮只缩不放）。ratchet 规则：测试修复后必须从 entries 移除该条（PR 缩基线），新增红不得无诊断入册。",
-  "verified_head": "e347663",
-  "verified_method": "2026-10-28 逐文件实测复现（pytest --tb=line，全部 AssertionError/AttributeError 确定性红；rsi_debt_cleanup 超时掐死型非确定性红不收录）；历史定性=2026-10-27 W3 HEAD worktree 对照（git show 时间线判非本轮引入）",
-  "entries": [
-    {
-      "test_id": "tests/test_t0_wiring.py::TestApprovalLoop::test_deny_decision_blocks_tool",
-      "reason": "t0_wiring.py:151 assert 'blocked by permissions' in ''——审批环 deny 决策未回传 block 消息（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_t0_wiring.py::TestApprovalLoop::test_always_allow_overrides_config_deny",
-      "reason": "t0_wiring.py:170 同上 deny 回传缺失族（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_t0_wiring.py::TestSensitivePathGateWiring::test_approval_escape_hatch",
-      "reason": "t0_wiring.py:128 敏感路径 gate 审批放行后 'sensitive_path_gate' 残留决策串，逃生口语义未收敛（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_mcp_proxy.py::TestInitFromLingflowRegistry::test_init",
-      "reason": "mcp_proxy.py:196 assert None is not None——lingflow 注册表 init 返回 None（环境/注册表态依赖，10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_mcp_proxy.py::TestInitFromLingflowRegistry::test_stats_after_init",
-      "reason": "mcp_proxy.py:209 assert 11 >= 12——注册工具计数 11<12 漂移（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_mcp_proxy.py::TestInitFromLingflowRegistry::test_find_tool_across_servers",
-      "reason": "mcp_proxy.py:227 AttributeError NoneType .key——跨服务器查找对象未建（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_experiments.py::TestDaemonSettlement::test_observation_pass_settles_accepted",
-      "reason": "experiments.py:393 assert 'rolled_back' == 'accepted'——观察窗通过后结算落 rollback 分支（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_experiments.py::TestDaemonSettlement::test_observation_regress_restores_snapshot",
-      "reason": "experiments.py:467 assert 'rejected' == 'rolled_back'——回归快照恢复路径状态机不符（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_experiments.py::TestDaemonSettlement::test_run_cycle_rolls_back_and_settles",
-      "reason": "mock.py:923 Expected '_check_frozen_zone' called once, called 0——冻结区检查未被 run_cycle 触发（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_rsi_p1_guards.py::TestReversePairCheck::test_old_baseline_worse_gets_blocked",
-      "reason": "rsi_p1_guards.py:102 assert 0 >= 3——反向对守卫期望触发 3 次实际 0 次（守卫判定路径未接通，10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_slash_completer.py::TestArgCompletions::test_coverage_every_command_with_param_semantics",
-      "reason": "slash_completer.py:359 /handover 参数语境零候选——补全覆盖面漏登（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_strict.py::TestOptimizerEdgeCases::test_grid_search_returns_valid_result",
-      "reason": "strict.py:289 assert False——grid_search 边界用例（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_p04_arch_guards.py::test_g15_self_optimizer_no_source_writes",
-      "reason": "G15 违规：self_optimizer/artifact_guard.py:124 与 meta_upgrade.py:250 白名单外写点——10-22 遗留（自动改码须接 worktree 沙箱，结构性修复未做）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_render_facade_stepb.py::TestStepCAcceptance::test_no_direct_display_render_import",
-      "reason": "cli/repl.py 直接 import cli.display 的 format_queue_hint——渲染门面收口未完成的历史欠账（10-22 甄别 HEAD 同挂）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_iron_law_guards.py::test_debts_not_expired",
-      "reason": "到期债务：arch-guard-gate-commit-latency(due 2026-10-24, commit 门守卫耗时) + dual-session-staging-race(due 2026-10-15, 双会话暂存区竞争)——债务到期自动红属守卫本职，清债后本条须移除",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_iron_law_guards.py::test_exemptions_not_past_review",
-      "reason": "历史豁免复审到期未处理（M1:core/__init__.py 2026-10-17 / approval_matrix.py 2026-10-21 / audit_collector.py 2026-10-17 等）——复审或延期后本条须移除",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_gray_zone.py::TestExecuteToolGrayZone::test_deny_action_not_escalated",
-      "reason": "gray_zone deny 动作未升级队列——HEAD 基线单独实测 0.39s 确定性红；兼为顺序污染源（其后运行 t0_wiring TestSandboxPolicyWiring 两例被污染，见该两条 entry）。本条修复时应连带排查污染机制",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_guard_wiring.py::TestDaemonApplyGate::test_auto_mode_writes_config",
-      "reason": "历史已知失败——10-27 W3 甄别 worktree/工作区双组负对照均挂；10-28 HEAD 基线单跑复现。config 写入路径断言",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_p02_denial_circuit_breaker.py::TestP02DenialCircuitBreaker::test_breaker_signal_not_leaked_after_allow",
-      "reason": "P02 拒绝熔断器——allow 后 deny 信号应复位仍泄漏；10-28 HEAD 基线对照单跑复现（确定性红）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_p02_denial_circuit_breaker.py::TestP02DenialCircuitBreaker::test_second_denial_trips_breaker_and_is_model_visible",
-      "reason": "P02 拒绝熔断器同族——二次拒绝未跳闸/模型不可见；10-28 HEAD 基线对照单跑复现（确定性红）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_p0_p2_roadmap.py::TestDaemonPatchRecord::test_apply_writes_patch_and_backup",
-      "reason": "DaemonPatchRecord.apply 应写 patch+backup 而未写；10-28 HEAD 基线对照单跑复现（确定性红）",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_rsi_debt_cleanup.py::TestBaselineDriftGuard::test_drift_streak_resets_old_scale_baseline",
-      "reason": "drift streak 旧基线重置断言——10-28 HEAD 基线单独 43s 实测失败（同 commit 同红；主仓全量耗时被大 data/ 树放大）。同类 TestBaselineDriftGuard 其余 3 例全过，仅此例",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_t0_wiring.py::TestSandboxPolicyWiring::test_no_policy_degrades_with_warning",
-      "reason": "顺序污染 flake（10-28 完整甄别）：HEAD 单独跑 0.17s 通过；gray_zone::test_deny_action_not_escalated 先跑即被污染失败。测试本体确定性，移除条件=修复 gray_zone 污染源或本用例加隔离，届时须删本条",
-      "verified_head": "e347663"
-    },
-    {
-      "test_id": "tests/test_t0_wiring.py::TestSandboxPolicyWiring::test_strict_policy_fails_closed_without_bwrap",
-      "reason": "顺序污染 flake（10-28 完整甄别）：同上，HEAD 单独通过、gray_zone 先跑污染。移除条件同上",
-      "verified_head": "e347663"
-    }
-  ]
+ "version": 1,
+ "created": "2026-10-28",
+ "mechanism": "push 门禁已知失败基线（PUSH_SOP §三豁免判定器 scripts/gate_exemption_check.py 的数据面）。全量 pytest RC=1 时，失败集必须为本文件 test_id 的子集方可豁免放行；新红一律拒绝（棘轮只缩不放）。ratchet 规则：测试修复后必须从 entries 移除该条（PR 缩基线），新增红不得无诊断入册。",
+ "verified_head": "350c097",
+ "verified_method": "2026-10-28 逐文件实测复现（pytest --tb=line，全部 AssertionError/AttributeError 确定性红；rsi_debt_cleanup 超时掐死型非确定性红不收录）；历史定性=2026-10-27 W3 HEAD worktree 对照（git show 时间线判非本轮引入）",
+ "entries": [
+  {
+   "test_id": "tests/test_t0_wiring.py::TestApprovalLoop::test_deny_decision_blocks_tool",
+   "reason": "t0_wiring.py:151 assert 'blocked by permissions' in ''——审批环 deny 决策未回传 block 消息（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_t0_wiring.py::TestApprovalLoop::test_always_allow_overrides_config_deny",
+   "reason": "t0_wiring.py:170 同上 deny 回传缺失族（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_t0_wiring.py::TestSensitivePathGateWiring::test_approval_escape_hatch",
+   "reason": "t0_wiring.py:128 敏感路径 gate 审批放行后 'sensitive_path_gate' 残留决策串，逃生口语义未收敛（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_mcp_proxy.py::TestInitFromLingflowRegistry::test_init",
+   "reason": "mcp_proxy.py:196 assert None is not None——lingflow 注册表 init 返回 None（环境/注册表态依赖，10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_mcp_proxy.py::TestInitFromLingflowRegistry::test_stats_after_init",
+   "reason": "mcp_proxy.py:209 assert 11 >= 12——注册工具计数 11<12 漂移（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_mcp_proxy.py::TestInitFromLingflowRegistry::test_find_tool_across_servers",
+   "reason": "mcp_proxy.py:227 AttributeError NoneType .key——跨服务器查找对象未建（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_experiments.py::TestDaemonSettlement::test_observation_pass_settles_accepted",
+   "reason": "experiments.py:393 assert 'rolled_back' == 'accepted'——观察窗通过后结算落 rollback 分支（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_experiments.py::TestDaemonSettlement::test_observation_regress_restores_snapshot",
+   "reason": "experiments.py:467 assert 'rejected' == 'rolled_back'——回归快照恢复路径状态机不符（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_experiments.py::TestDaemonSettlement::test_run_cycle_rolls_back_and_settles",
+   "reason": "mock.py:923 Expected '_check_frozen_zone' called once, called 0——冻结区检查未被 run_cycle 触发（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_rsi_p1_guards.py::TestReversePairCheck::test_old_baseline_worse_gets_blocked",
+   "reason": "rsi_p1_guards.py:102 assert 0 >= 3——反向对守卫期望触发 3 次实际 0 次（守卫判定路径未接通，10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_slash_completer.py::TestArgCompletions::test_coverage_every_command_with_param_semantics",
+   "reason": "slash_completer.py:359 /handover 参数语境零候选——补全覆盖面漏登（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_strict.py::TestOptimizerEdgeCases::test_grid_search_returns_valid_result",
+   "reason": "strict.py:289 assert False——grid_search 边界用例（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_p04_arch_guards.py::test_g15_self_optimizer_no_source_writes",
+   "reason": "G15 违规：self_optimizer/artifact_guard.py:124 与 meta_upgrade.py:250 白名单外写点——10-22 遗留（自动改码须接 worktree 沙箱，结构性修复未做）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_render_facade_stepb.py::TestStepCAcceptance::test_no_direct_display_render_import",
+   "reason": "cli/repl.py 直接 import cli.display 的 format_queue_hint——渲染门面收口未完成的历史欠账（10-22 甄别 HEAD 同挂）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_iron_law_guards.py::test_debts_not_expired",
+   "reason": "到期债务：arch-guard-gate-commit-latency(due 2026-10-24, commit 门守卫耗时) + dual-session-staging-race(due 2026-10-15, 双会话暂存区竞争)——债务到期自动红属守卫本职，清债后本条须移除",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_iron_law_guards.py::test_exemptions_not_past_review",
+   "reason": "历史豁免复审到期未处理（M1:core/__init__.py 2026-10-17 / approval_matrix.py 2026-10-21 / audit_collector.py 2026-10-17 等）——复审或延期后本条须移除",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_gray_zone.py::TestExecuteToolGrayZone::test_deny_action_not_escalated",
+   "reason": "gray_zone deny 动作未升级队列——HEAD 基线单独实测 0.39s 确定性红；兼为顺序污染源（其后运行 t0_wiring TestSandboxPolicyWiring 两例被污染，见该两条 entry）。本条修复时应连带排查污染机制",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_guard_wiring.py::TestDaemonApplyGate::test_auto_mode_writes_config",
+   "reason": "历史已知失败——10-27 W3 甄别 worktree/工作区双组负对照均挂；10-28 HEAD 基线单跑复现。config 写入路径断言",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_p02_denial_circuit_breaker.py::TestP02DenialCircuitBreaker::test_breaker_signal_not_leaked_after_allow",
+   "reason": "P02 拒绝熔断器——allow 后 deny 信号应复位仍泄漏；10-28 HEAD 基线对照单跑复现（确定性红）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_p02_denial_circuit_breaker.py::TestP02DenialCircuitBreaker::test_second_denial_trips_breaker_and_is_model_visible",
+   "reason": "P02 拒绝熔断器同族——二次拒绝未跳闸/模型不可见；10-28 HEAD 基线对照单跑复现（确定性红）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_p0_p2_roadmap.py::TestDaemonPatchRecord::test_apply_writes_patch_and_backup",
+   "reason": "DaemonPatchRecord.apply 应写 patch+backup 而未写；10-28 HEAD 基线对照单跑复现（确定性红）",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_rsi_debt_cleanup.py::TestBaselineDriftGuard::test_drift_streak_resets_old_scale_baseline",
+   "reason": "drift streak 旧基线重置断言——10-28 HEAD 基线单独 43s 实测失败（同 commit 同红；主仓全量耗时被大 data/ 树放大）。同类 TestBaselineDriftGuard 其余 3 例全过，仅此例",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_t0_wiring.py::TestSandboxPolicyWiring::test_no_policy_degrades_with_warning",
+   "reason": "顺序污染 flake（10-28 完整甄别）：HEAD 单独跑 0.17s 通过；gray_zone::test_deny_action_not_escalated 先跑即被污染失败。测试本体确定性，移除条件=修复 gray_zone 污染源或本用例加隔离，届时须删本条",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_t0_wiring.py::TestSandboxPolicyWiring::test_strict_policy_fails_closed_without_bwrap",
+   "reason": "顺序污染 flake（10-28 完整甄别）：同上，HEAD 单独通过、gray_zone 先跑污染。移除条件同上",
+   "verified_head": "e347663"
+  },
+  {
+   "test_id": "tests/test_background_exit.py::TestExitSafety::test_cancel_before_start_pending",
+   "reason": "flake(-n8并发): pending-cancel轮询窗口竞态; 单测10-28×3绿; 移除条件=worker轮询竞态修复",
+   "verified_head": "350c097"
+  },
+  {
+   "test_id": "tests/test_background_exit.py::TestExitSafety::test_cancel_kills_running_child",
+   "reason": "flake(-n8并发): kill→poll窗口竞态(10-28诊断轮抓到1红assert proc.poll() is not None,×3复跑全绿1.6s); 移除条件=cancel收尾同步化",
+   "verified_head": "350c097"
+  },
+  {
+   "test_id": "tests/test_long_session_stress.py::TestLongSessionStress::test_temperature_reduction_on_dementia",
+   "reason": "flake(-n8负载): 30轮引擎仿真高压下provider.last_config读数不足(assert len(temps)>10); 单测10-28绿; 移除条件=负载隔离/引擎调度修复",
+   "verified_head": "350c097"
+  },
+  {
+   "test_id": "tests/test_long_session_stress.py::TestLongSessionStress::test_hooks_fire_during_long_session",
+   "reason": "慢放大(环境性,同rsi_debt evaluator前科): 单测10-28实测109s险过, -n8并发>300s被timeout杀成ERROR; 移除条件=测试提速或timeout预算分级",
+   "verified_head": "350c097"
+  },
+  {
+   "test_id": "tests/test_rsi_debt_cleanup.py::TestBaselineDriftGuard::test_noise_does_not_accumulate",
+   "reason": "flake(-n8负载): run_cycle全链并发波动; 单测10-28绿(NOISE_RC=0); 移除条件=daemon.run_cycle测试提速",
+   "verified_head": "350c097"
+  }
+ ]
 }
