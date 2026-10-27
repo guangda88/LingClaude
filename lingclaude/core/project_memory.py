@@ -129,13 +129,23 @@ def _auto_archive_if_oversized(
         text = path.read_text(encoding="utf-8", errors="replace")
         if len(text) <= threshold:
             return True
+        # 契约段保护（2026-10-27）：头部 <!-- CONTRACT:BEGIN --> 区块是调度
+        # 契约（稳定语义，非状态流水），永不归档——归档只搬契约段之后的旧
+        # 流水，留守 = 契约段 + 最新尾部（v2：v1 只右移切口护不住头部，狗粮实测抓出）。
+        contract_end = text.find("<!-- CONTRACT:END -->")
+        protected = 0
+        if contract_end != -1:
+            nl = text.find("\n", contract_end)
+            protected = nl + 1 if nl != -1 else contract_end + len("<!-- CONTRACT:END -->")
         cut = len(text) - keep_chars
         # 条目对齐：切口向后吸附到下一个条目起点（"\n- ["），避免把条目劈成两半
         nxt = text.find("\n- [", cut)
         if nxt != -1 and nxt - cut <= 2000:
             cut = nxt + 1
-        overflow = text[:cut]  # 最旧头部 → 归档
-        kept = text[cut:].lstrip()  # 最新尾部 → 留守注入
+        if cut <= protected:
+            return True  # 契约段之后的内容仍在预算内，无需归档
+        overflow = text[protected:cut]  # 契约段之后的旧流水 → 归档
+        kept = text[:protected] + text[cut:].lstrip()  # 契约段 + 最新尾部 → 留守注入
         if path.parent.name == ".lingclaude":
             archive = path.parent / ARCHIVE_FILENAME
         else:
