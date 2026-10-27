@@ -251,6 +251,19 @@ def build_dynamic_system_suffix(
     if meta_text:
         extras.append("\n\n" + meta_text)
 
+    # NanoJev 黑板注入（2026-10-27）：有活跃 Goal 时把四类状态快照渲染进动态
+    # 尾随块，让模型每轮对照「目标-约束-证据」而非靠记忆（对齐 AGENTS.md 契约
+    # 段黑板纪律；遵守前缀缓存纪律——只进动态尾块）。fail-open：黑板缺失/损坏
+    # 绝不反噬主 prompt，与 project_memory 注入同一纪律。
+    try:
+        from lingclaude.core.blackboard import get_blackboard
+
+        _bb_text = get_blackboard().render(max_chars=1200)
+        if _bb_text:
+            extras.append("\n\n" + _bb_text)
+    except Exception as _bb_err:  # noqa: BLE001 — fail-open
+        logger.debug("blackboard 注入失败（fail-open）: %s", _bb_err)
+
     if bm.hallucination_risk > 0.3:
         extras.append(
             "\n⚠ 行为警告: 你近期幻觉风险较高({:.0%})。回答代码问题时必须先调用工具读取文件，绝对不能凭记忆猜测代码内容。一般性问题可以直接回答。".format(bm.hallucination_risk)

@@ -230,6 +230,20 @@ class TestNoDeadModules:
         # 由 slash 命令层按需调用，当前 hook 内嵌消费）。
         "seam.py",
         "tool_auth_hook.py",
+        # 第四批（2026-10-27 NanoJev 控制层批次，同机制豁免，复审随台账）：
+        # action_budget 步数硬闸（bump/current/release_session 被
+        # make_step_budget_guard 内聚自消费，guard 闭包经 coding.py:343
+        # add_guard 装配）；blackboard 黑板（Goal/Worker/Constraint/Evidence
+        # 数据类经 system_prompt_builder:255 渲染注入动态尾块）；decision_log
+        # 决策流（MAX_ENTRIES_PER_DAY_PER_DOMAIN 等常量为五域 record 契约面，
+        # 消费经 record_decision 便捷函数）。import-only 判定粒度覆盖不了
+        # 内聚自消费/常量导出面（2026-10-02 批次同型注记）。
+        # global_budget 为 2026-10-22 P3 遗留同型（宿主级日账本，经
+        # record_model_call 内聚消费），本次一并登记。
+        "action_budget.py",
+        "blackboard.py",
+        "decision_log.py",
+        "global_budget.py",
     }
 
     # Names that are internal implementation details, not "dead code"
