@@ -200,8 +200,13 @@ def _protect_project_lingclaude(request: pytest.FixtureRequest) -> None:
         # 改 os.walk（walk 结果免二次 is_file stat）+ 剪枝排除 worktrees/
         # （灵依自优化 git worktree 堆积，实测 1.8 万+文件；非 rm -rf 事故
         # 要保护的运行时四库——权衡：测试破坏 worktrees 不会被此门捕获）。
+        # 2026-10-28 账：剪枝再排除 backups/——daemon watch 每 6h 备份并轮换
+        # 删除旧目录（00:51/06:51/12:51/18:51），github 轮门禁（18:40→19:13）
+        # 撞上 18:53 轮换：before 快照里的 backups/state/20261025_065057/* 被
+        # 外部进程合法删除 → 5 用例 teardown 误判「删除类破坏」（8/8 单测
+        # 复跑全绿实证）。备份非运行时四库，同 worktrees 权衡不护。
         for root, dirs, files in os.walk(project_rt):
-            dirs[:] = [d for d in dirs if d != "worktrees"]
+            dirs[:] = [d for d in dirs if d not in ("worktrees", "backups")]
             for name in files:
                 fp = os.path.join(root, name)
                 try:

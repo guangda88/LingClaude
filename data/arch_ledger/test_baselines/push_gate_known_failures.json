@@ -149,6 +149,22 @@
    "test_id": "tests/test_rsi_debt_cleanup.py::TestBaselineDriftGuard::test_noise_does_not_accumulate",
    "reason": "flake(-n8负载): run_cycle全链并发波动; 单测10-28绿(NOISE_RC=0); 移除条件=daemon.run_cycle测试提速",
    "verified_head": "350c097"
+  },
+  {
+   "test_id": "tests/test_long_session_stress.py::TestLongSessionStress::test_dementia_index_escalates_with_repeated_reads",
+   "reason": "flake(-n8负载): 30轮仿真重复读读数敏感, origin轮10-28晚红; 单测两轮绿(252s批次+102s验证轮10-28 19:40); 移除条件=stress套件提速或读数断言加容差",
+   "verified_head": "96256bc"
+  },
+  {
+   "test_id": "tests/test_security_sandbox_fixes.py::test_p11_bash_timeout_kills_process_group",
+   "reason": "flake(-n8负载): 子进程组超时杀在8worker高压下时序竞态, origin轮10-28晚红; 单测绿(10-28 19:40批次8/8); 移除条件=超时预算按并发分级",
+   "verified_head": "96256bc"
+  },
+  {
+   "test_id": "tests/seams/test_lingflow_crew.py::test_j4_records",
+   "reason": "flake(-n8负载): github轮10-28晚红, origin轮同代码绿(两轮零交集坐实随机); 单测绿(10-28 19:40批次8/8); 移除条件=seam测试隔离审计",
+   "verified_head": "96256bc"
   }
- ]
+ ],
+ "entries_total_note": "2026-10-28晚第4轮门禁: github轮5个teardown红=daemon备份轮换撞车误报(conftest剪枝backups/根治,不入册); origin轮2+github轮1=负载flake入册"
 }
