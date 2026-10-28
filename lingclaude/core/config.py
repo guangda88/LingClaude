@@ -159,6 +159,22 @@ class lingclaudeConfig:
         opt_raw = raw.get("self_optimizer", {}).get("optimization", {})
         sess_raw = raw.get("session", {})
         model_raw = raw.get("model", {})
+        # @provider 后缀写进 config 的 model 字段是毒药: "@x" 语法仅对 /model 命令与
+        # task_router 路由串合法(那里有 rsplit 解析); 此处的 model 会被原样传给
+        # provider wire(openai_provider.py "model": cfg.model), 带 @ 必报 1211"模型不存在"
+        # (2026-10-28 实锤)。启动时剥离 + 大声告警, 不让错误活过启动。
+        if isinstance(model_raw, dict):
+            _cfg_model = model_raw.get("model")
+            if isinstance(_cfg_model, str) and "@" in _cfg_model:
+                _bare = _cfg_model.rsplit("@", 1)[0]
+                if _bare:
+                    logger.warning(
+                        "config 的 model 字段含 @provider 后缀('%s'), 已剥离为裸名 '%s'"
+                        "（@x 仅对 /model 命令与路由串合法, 写进配置会原样上 wire 报 1211）",
+                        _cfg_model,
+                        _bare,
+                    )
+                    model_raw = {**model_raw, "model": _bare}
         router_raw = raw.get("model_router", {})
 
         intel_raw = raw.get("intel", {})
