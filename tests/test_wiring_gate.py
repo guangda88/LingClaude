@@ -322,6 +322,65 @@ class TestNoDeadModules:
         "SESSIONS_MAX_FILES",
     }
 
+    # ── 豁免到期登记表（2026-10-29 制度修复）────────────────────────────
+    # 背景：EXEMPT 是纯文件名集合，语义是「永久豁免」。但其中一批条目在
+    # 注释里承诺了「生产接线随 arch_debt B 组推进」（2026-09-22 A组清偿③），
+    # 实测 5 周后仍零生产调用——承诺无到期日 = 豁免永续，纪律形同虚设。
+    #
+    # 本表只登记「有明确接线下游承诺」的条目（不是全部豁免——多数条目是
+    # AST 守卫扫不到函数内 import 的固有盲区，永久有效）。登记项到期未接线
+    # → 本文件对应测试变红，强制二选一：实测消费 or 摘除（lc 9-23 纪律原文）。
+    #
+    # 到期日设定依据：按 docs/peer-borrow/20261029_five_way_review.md 执行序列
+    # 第 0-3 批排期（第2批⑦ success_gate 出口 / 第3批⑨ worktree 协议接线）。
+    EXEMPT_DUE: dict[str, str] = {
+        # 2026-09-22 注释原文：「approval_matrix/verify_ledger/worktree 为验证
+        # 台账/审批/worktree 扇出预留面（record_verify 等经测试消费，生产接线
+        # 随 arch_debt B 组推进）」
+        "worktree.py": "2026-11-30",
+        "approval_matrix.py": "2026-11-30",
+        "verify_ledger.py": "2026-11-30",
+        # success_gate.py 同在 2026-10-02 批次豁免内；其 p_success 字段已存在
+        # （success_gate.py:55）但 gate_success 零生产调用，仅测试引用。
+        "success_gate.py": "2026-11-30",
+    }
+
+    def test_exempt_due_entries_are_registered_and_not_expired(self) -> None:
+        """有接线承诺的豁免必须带未到期日（纪律：豁免不得永续）。
+
+        双向校验：
+        1. 登记表里的模块必须仍在 EXEMPT 中（防僵尸登记——模块复活或改名后
+           登记表悄悄失效，守卫形同虚设）；
+        2. 到期日不得早于今天（过期即红，强制接线 or 摘除）。
+        """
+        from datetime import date
+
+        today = date.today()
+        problems: list[str] = []
+
+        for module, due in self.EXEMPT_DUE.items():
+            if module not in self.EXEMPT:
+                problems.append(
+                    f"{module}: 登记了到期日 {due} 但不在 EXEMPT 中"
+                    f"（模块已复活/改名？请清理本表）"
+                )
+                continue
+            try:
+                due_date = date.fromisoformat(due)
+            except ValueError:
+                problems.append(f"{module}: 到期日格式非法 {due!r}（应为 YYYY-MM-DD）")
+                continue
+            if due_date < today:
+                problems.append(
+                    f"{module}: 豁免已于 {due} 到期，但仍在 EXEMPT 中——"
+                    f"请实测生产消费面（有则移除豁免）或摘除模块"
+                )
+
+        assert not problems, (
+            "豁免到期登记表校验失败（豁免永续是纪律违规）：\n"
+            + "\n".join(f"  {p}" for p in problems)
+        )
+
     def test_core_classes_are_imported_somewhere(self) -> None:
         core_py_files = sorted(
             f for f in CORE_DIR.glob("*.py")
