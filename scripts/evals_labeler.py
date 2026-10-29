@@ -197,6 +197,10 @@ def main() -> int:
                 "label": label_of(e),
                 "session_id": e.get("session_id"),
                 "reason": str(e.get("reason"))[:200],
+                # 2026-10-29 扩容第二轴：fast_route 自带 meta.outcome(accepted/fallback)
+                # ——唯一真实 ground truth 种子（atomcode 发现），随打标落账供后续
+                # 正确性核对/ECE 前置分析；其余域 outcome 缺失=诚实留空，不编造。
+                "outcome": (e.get("meta") or {}).get("outcome"),
             }
         )
 
