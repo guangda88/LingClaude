@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,43 @@ NOT_GOOD_AT_PATTERNS = ("```", "def ", "class ", "diff --git")
 _MIN_CONFIDENCE = 0.1          # B2-R：放宽试点（内置兜底值）
 _WEAK_DOMAINS = ("factual_lookup",)
 
+# ── Jev EscalationProvider（2026-10-29 第3批⑧）────────────────────────
+# 成本矩阵（JEV_LAYA_OPTIMIZATION_PLAN.md §P2 不对称模型，Laya 经验值起步）：
+#   P_th = (esc_wrong - act_wrong) / (act_correct - act_wrong + esc_wrong - esc_correct)
+# 默认 policy_off：P_th 门不接线（见 _P_TH_ENABLED），仅作为可校准机制就位。
+# 校准纪律：本地 meta.outcome 是门控自写回声（accepted 复述"过了门"），
+# 不是验证后结果——不得用台账 outcome 反解 act_* 参数（10-29 自我纠错实证）。
+# 真校准数据源 = shadow 对齐样本（task_router 插桩，240h 后人工定谳）。
+@dataclass(frozen=True)
+class DecisionCostMatrix:
+    act_correct: float = 1.0            # 快车道判对且直接行动的收益
+    act_wrong: float = -3.0             # 判错且直接行动的损失
+    escalate_cost_correct: float = -0.5  # 本可行动却升级（打扰/延迟成本）
+    escalate_cost_wrong: float = -0.5    # 判错但升级（止损后仍略有损耗）
+
+    def p_threshold(self) -> float:
+        """升级阈值（不对称 escalate 成本版，PLAN.md:644 原式）。"""
+        denom = (self.act_correct - self.act_wrong
+                 + self.escalate_cost_wrong - self.escalate_cost_correct)
+        if abs(denom) < 1e-9:
+            return 1.0  # 退化矩阵（无区分度）→ 永远升级（保守）
+        p = ((self.escalate_cost_wrong - self.act_wrong) / denom)
+        return min(max(p, 0.0), 1.0)
+
+    def to_dict(self) -> dict[str, float]:
+        return {"act_correct": self.act_correct, "act_wrong": self.act_wrong,
+                "escalate_cost_correct": self.escalate_cost_correct,
+                "escalate_cost_wrong": self.escalate_cost_wrong,
+                "p_threshold": round(self.p_threshold(), 4)}
+
+
+# Laya 经验值（62.5%）；plan 文档明确标注"待本地校准"——现默认不启用（见下）
+_DEFAULT_COST_MATRIX = DecisionCostMatrix()
+# P_th 门启用开关：默认关（循环证据教训）。启用需策略文件显式
+# fast_lane_p_th_enabled=true；启用后生效阈值 = max(min_confidence, P_th)。
+_B2_GATE_KEYS_P_TH = "fast_lane_p_th_enabled"
+
+
 # NanoJev 契约消费层：路由判定入统一决策流（fail-open，2026-10-27）
 from lingclaude.core.decision_log import (  # noqa: E402
     record_decision, DOMAIN_ROUTE, VERDICT_ALLOW, VERDICT_GRAY,
@@ -52,7 +90,8 @@ from lingclaude.core.decision_log import (  # noqa: E402
 
 # B2-R：策略文件门控参数（hot-update；读取失败用内置默认）
 _B2_GATE_KEYS = ("fast_lane_min_confidence", "fast_lane_weak_domains",
-                 "fan_out_speculative_min_difficulty")
+                 "fan_out_speculative_min_difficulty",
+                 "fast_lane_p_th_enabled", "fast_lane_cost_matrix")
 _b2_gate_cache: dict[str, Any] = {"ts": 0.0, "values": None}
 
 
@@ -121,6 +160,31 @@ def _load_questions() -> dict[str, dict[str, Any]] | None:
         return None
 
 
+def _p_th_threshold(params: dict[str, Any]) -> float | None:
+    """⑧ P_th 升级阈值：默认 None（门不接线）；策略显式开启才生效。
+
+    生效值 = max(min_confidence, P_th(cost_matrix))——P_th 只升不降
+    （成本矩阵是收紧器不是放宽器，低置信回退的保底线仍是 min_confidence）。
+    """
+    if not params.get("fast_lane_p_th_enabled"):
+        return None
+    m = _DEFAULT_COST_MATRIX
+    raw = params.get("fast_lane_cost_matrix")
+    if isinstance(raw, dict):
+        try:
+            m = DecisionCostMatrix(
+                act_correct=float(raw.get("act_correct", m.act_correct)),
+                act_wrong=float(raw.get("act_wrong", m.act_wrong)),
+                escalate_cost_correct=float(raw.get("escalate_cost_correct",
+                                                    m.escalate_cost_correct)),
+                escalate_cost_wrong=float(raw.get("escalate_cost_wrong",
+                                                  m.escalate_cost_wrong)),
+            )
+        except (TypeError, ValueError):
+            m = _DEFAULT_COST_MATRIX  # 矩阵配置坏 → 用缺省（fail-open）
+    return m.p_threshold()
+
+
 def _gate_verdict(result: dict[str, Any]) -> dict[str, Any] | None:
     """B2/B2-R：对 Laya 判定结果做 confidence 门控 + 薄弱域回退。
 
@@ -167,6 +231,16 @@ def _gate_verdict(result: dict[str, Any]) -> dict[str, Any] | None:
                         reason=f"confidence {confidence} < min {min_conf}",
                         p=float(confidence), meta={"outcome": "fallback"})
         return None
+    # ── ⑧ EscalationProvider P_th 门（默认关：fast_lane_p_th_enabled=true 启用）──
+    # 启用后生效阈值 = max(min_confidence, P_th(成本矩阵))；矩阵参数可经
+    # defaults.fast_lane_cost_matrix 热更（缺键用 Laya 经验值）。
+    p_th = _p_th_threshold(params)
+    if p_th is not None and confidence < p_th:
+        record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_GRAY,
+                        reason=(f"confidence {confidence} < P_th {p_th:.3f} "
+                                f"(escalation gate)"),
+                        p=float(confidence), meta={"outcome": "fallback"})
+        return None
     got_domain = str(dom_ans.get("choice", "")).lower()
     if got_domain in weak:
         record_decision(DOMAIN_ROUTE, "fast_route", VERDICT_GRAY,
@@ -211,3 +285,39 @@ def reset() -> None:
     global _laya_agent, _laya_failed
     _laya_agent = None
     _laya_failed = False
+
+
+def shadow_compare(verdict: dict[str, Any] | None,
+                   keyword_task_type: Any) -> dict[str, Any] | None:
+    """⑧ shadow 校准插桩（2026-10-29）：fast lane 判定 vs 关键词轨分类的对照记录。
+
+    背景：台账 meta.outcome 是门控自写回声（"accepted"=过了门，非验证结果），
+    不能做阈值校准。本函数零额外模型调用，把两条独立分类轨的
+    对齐/分歧落 route 域（action=shadow_align），未来积累出真实校准样本集：
+      - 对齐样本 = 两轨同判 → P_th 校准可用的高质量数据点
+      - 分歧样本 = 两轨异判 → 人工抽查的优先清单
+    调用方应在 fast lane 判定后、采信/回退分叉前调用；本函数只读不判，
+    异常绝不上抛（fail-open，任何故障不影响路由主链）。
+    """
+    try:
+        if verdict is None:
+            return None  # fast lane 回退样本已有 fallback 记录，不重复记
+        answers = verdict.get("answers") or {}
+        dom = str(answers.get("domain", "")).lower()
+        conf = answers.get("confidence")
+        kw = str(getattr(keyword_task_type, "name", keyword_task_type) or "").lower()
+        # 粗对齐表：laya domain → 关键词轨 TaskType.name（分歧≠错，供人工定谳）
+        agree_map = {"code": "code_generation", "writing": "documentation",
+                     "factual_lookup": "search",
+                     "math_or_logic": "analysis", "data_analysis": "analysis"}
+        aligned = agree_map.get(dom) == kw
+        record_decision(
+            DOMAIN_ROUTE, "shadow_align",
+            VERDICT_ALLOW if aligned else VERDICT_GRAY,
+            reason=f"laya={dom} kw={kw}",
+            p=float(conf) if isinstance(conf, (int, float)) else None,
+            meta={"outcome": "aligned" if aligned else "divergent",
+                  "laya_domain": dom, "keyword_task": kw})
+        return verdict
+    except Exception:  # noqa: BLE001 — shadow 记录绝不影响主链
+        return verdict

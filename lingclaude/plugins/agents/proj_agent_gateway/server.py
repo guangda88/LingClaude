@@ -260,6 +260,50 @@ _QUOTA_PAT = re.compile(
     r"|no payment method|unrecognized_model)", re.I)
 
 
+def _settle_worktrees_impl(ws, wt_tasks: dict, healths: dict[str, str]) -> list[dict[str, object]]:
+    """⑨ 收口状态机（2026-10-29，Orca 借鉴——只有正向证据才允许丢弃）：
+    对每个已注册 worktree 按 agent 健康分级裁定：
+      - failed      → cleanup（保留分支，无产物价值的失败现场不占地）
+      - ok/degraded → 有 diff 则保留（待人工 merge 择优）；零 diff（无产物）才 cleanup
+      - 未知        → 保留（宁可漏清理不可误丢工作——gw-* 残骸 188MB 的教训
+                      是"从不清理"，不是"清理太狠"）
+    单棵失败不影响其余（逐棵兜底）；返回裁定清单供 JSON 透出。
+    """
+    settled: list[dict[str, object]] = []
+    for a, wt in list(wt_tasks.items()):
+        act, note = "keep", ""
+        h = healths.get(a, "")
+        try:
+            dirty = bool(ws.diff(wt).strip())   # 相对 target 的产物证据
+        except Exception:
+            dirty = False
+        if h == "failed":
+            act = "cleanup"
+        elif h in ("ok", "degraded") and not dirty:
+            act = "cleanup"
+            note = "no_diff"
+        elif dirty:
+            act = "keep"
+            note = "has_diff_pending_merge"
+        try:
+            if act == "cleanup":
+                ws.cleanup(wt, remove_branch=False)  # 留分支=最坏可找回
+        except Exception as e:  # noqa: BLE001 — 单棵失败不连坐
+            act, note = "keep", f"cleanup_error:{str(e)[:120]}"
+        settled.append({"agent": a, "action": act, "note": note,
+                        "branch": getattr(wt, "branch", "")})
+        if act == "cleanup":
+            wt_tasks.pop(a, None)
+    return settled
+
+
+def _make_settle_for_test(ws, wt_tasks: dict | None = None):
+    """测试 seam：给定（假）session 与可选任务表，返回可直接调用的收口函数。
+    wt_tasks 由调用方持有（注入初始任务用）。"""
+    tasks: dict[str, object] = wt_tasks if wt_tasks is not None else {}
+    return lambda healths: _settle_worktrees_impl(ws, tasks, healths)
+
+
 def _classify(res: dict) -> str:
     """单次运行结果分级：ok / degraded（exit=0 但 stderr 有配额/模型告警）/ failed。"""
     if res.get("timed_out") or res.get("exit", 0) != 0:
@@ -492,6 +536,7 @@ def agent_batch(agents: list[str], prompt: str,
     # 建树失败 → 降级 scratch（原行为，不崩）。env LINGCLAUDE_AGENT_WORKTREE=0
     # 显式退回关闭（=1/true 旧开法继续兼容）。
     worktree_root: dict[str, object] = {}
+    _wt_tasks: dict[str, object] = {}   # ⑨ settlement：agent → WorktreeTask（收口用，不进 JSON）
     ws = None
     if _worktree_enabled():
         try:
@@ -507,6 +552,7 @@ def agent_batch(agents: list[str], prompt: str,
         if ws is not None:
             try:
                 wt = ws.create(f"gw-{a}")
+                _wt_tasks[a] = wt   # ⑨ 注册到收口表
                 worktree_root[a] = {"path": str(wt.path), "branch": wt.branch,
                                     "task_id": wt.task_id}
                 return wt.path
@@ -515,6 +561,10 @@ def agent_batch(agents: list[str], prompt: str,
         d = dispatch / a
         d.mkdir(parents=True, exist_ok=True)
         return d
+
+    def _settle_worktrees(healths: dict[str, str]) -> list[dict[str, object]]:
+        """⑨ dispatch 内薄封装：委托模块级实现（与测试 seam 共用一份逻辑）。"""
+        return _settle_worktrees_impl(ws, _wt_tasks, healths)
 
     def _one(a: str) -> tuple[str, object]:
         if a not in _AGENTS:
@@ -570,9 +620,17 @@ def agent_batch(agents: list[str], prompt: str,
             results[a] = res
 
     wall = round(time.monotonic() - t0, 1)
+    # ⑨ worktree 收口（只开不关 5 周实证 188MB 泄漏；只有正向证据才允许丢弃）
+    try:
+        _healths = {a: r.get("health", "") for a, r in results.items()
+                    if isinstance(r, dict)}
+        settlement = _settle_worktrees(_healths) if ws is not None else []
+    except Exception:  # noqa: BLE001 — 收口故障不影响结果交付
+        settlement = []
     return json.dumps({"prompt": prompt[:200], "scratch_dir": str(dispatch),
                        "wall_s": wall, "results": results,
                        "worktree": worktree_root or None,
+                       "worktree_settlement": settlement,
                        "worktree_enabled": ws is not None}, ensure_ascii=False)
 
 

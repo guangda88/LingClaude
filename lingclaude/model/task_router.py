@@ -532,6 +532,9 @@ class TaskRouter:
                 from laya.presets import router_questions
 
                 verdict = fast_route(prompt[:500], router_questions())
+                # ⑧ shadow 校准插桩：双轨对照落台账（零额外调用，fail-open）
+                from lingclaude.model.fast_lane import shadow_compare
+                verdict = shadow_compare(verdict, task_type)
                 if verdict is not None and task_type is TaskType.OTHER:
                     # fast lane 命中且关键词分类为 OTHER（关键词轨的盲区）时，
                     # 用 domain 判定修正 task_type（对齐 TaskType 枚举面）
