@@ -64,6 +64,49 @@ class SuccessVerdict:
             "source": self.source,
         }
 
+    def record(
+        self,
+        action: str,
+        *,
+        session_id: str | None = None,
+    ) -> Any:
+        """⑦ 公共出口（2026-10-29）：判定入统一决策流，一次调用完成登记。
+
+        此前调用方需手写三态映射 + record_decision（tool_executor.py:170
+        的消费层是唯一手工样板）。本方法收敛为标准出口：
+        - kind 自动归一：source==noul_fallback → DecisionKind.NOUL_FALLBACK，
+          其余 → LOCAL（evals/校准可按决策形态分组）；
+        - fail-open：台账故障绝不反噬判定本身（返回 self 便于链式）。
+        """
+        try:
+            from lingclaude.core.decision_log import (
+                DecisionKind,
+                DOMAIN_SUCCESS,
+                VERDICT_ALLOW,
+                VERDICT_DENY,
+                VERDICT_GRAY,
+                record_decision,
+            )
+            dv = VERDICT_GRAY
+            if self.is_success is True:
+                dv = VERDICT_ALLOW
+            elif self.is_success is False:
+                dv = VERDICT_DENY
+            kind = (
+                DecisionKind.NOUL_FALLBACK.value
+                if self.source == "noul_fallback"
+                else DecisionKind.LOCAL.value
+            )
+            record_decision(
+                DOMAIN_SUCCESS, action, dv,
+                reason=self.evidence, p=self.p_success,
+                session_id=session_id or "", kind=kind,
+                meta={"source": self.source},
+            )
+        except Exception:  # noqa: BLE001 — 登记故障不影响判定结果
+            pass
+        return self
+
 
 def gate_success(
     tool_name: str,
@@ -80,6 +123,14 @@ def gate_success(
     4. 灰区（仅弱信号）→ spec_decision 兜底（启用时）；未启用 → is_success=None
     """
     rf = result_fields or {}
+    # ⑦ 语义修正（2026-10-29）：「无信号字段」≠「无信号」——read/glob 这类
+    # 内容型工具的结果（content/lines/cache_hit）里出现 "error"/"not found"
+    # 只是文件内容本身（如代码里写着 error 字样的行），拿去跑文本正则必然
+    # 灰区→兜底误判 deny 0.044（10-27~29 台账 4 条全为此形状，实锤）。
+    # 无信号字段 → 直接中性不定论（is_success=None, p=0.5），不进兜底。
+    if not any(k in rf for k in ("stdout", "stderr", "output", "error",
+                                 "exit_code", "exit", "status", "return_code")):
+        return SuccessVerdict(None, 0.5, "no signal fields (content-type result)", "neutral")
     text_bits: list[str] = []
     for k in ("stdout", "stderr", "output", "error"):
         v = rf.get(k)

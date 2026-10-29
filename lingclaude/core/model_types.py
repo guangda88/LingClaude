@@ -37,6 +37,10 @@ class ModelMessage:
     # openai_provider 经 to_dict 透传为 OpenAI image_url content blocks
     # （anthropic_provider 不走 to_dict，暂不消费本字段）。
     image_content: tuple[str, str] | None = None  # (base64_data, mime_type)
+    # ⑥ 置信度槽（2026-10-29）：本地判定（fast_lane 分类/success_verdict 等）
+    # 附带消息时的 P 值 ∈ [0,1]。**不上 wire**（to_dict 不序列化）——这是
+    # lc 内部评估/校准元数据，发送给 provider 无意义。None = 未判定。
+    confidence: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"role": getattr(self.role, "value", self.role)}

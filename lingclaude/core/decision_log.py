@@ -29,11 +29,13 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 __all__ = [
     "DecisionDomain",
+    "DecisionKind",
     "DecisionEntry",
     "DecisionLog",
     "get_decision_log",
@@ -55,6 +57,35 @@ VERDICT_ALLOW = "allow"
 VERDICT_DENY = "deny"
 VERDICT_GRAY = "gray"
 VALID_VERDICTS = frozenset({VERDICT_ALLOW, VERDICT_DENY, VERDICT_GRAY})
+
+
+class DecisionDomain(str, Enum):
+    """决策域——受控词表的类型化形态（2026-10-29 第2批⑥）。
+
+    此前 DecisionDomain 在 __all__ 里悬空（声明未定义，五方评审 claude 实锤），
+    现补为 str Enum 与 DOMAIN_* 字符串常量同值共存：新代码用枚举，旧常量
+    保持兼容（str 子类，.value 相等即可比）。
+    """
+
+    SUCCESS = "success"
+    RISK = "risk"
+    ROUTE = "route"
+    RELEVANCE = "relevance"
+    NEXT_WORKER = "next_worker"
+
+
+class DecisionKind(str, Enum):
+    """决策种类轴——同域内区分决策形态（正交于 domain；advisory 元数据）。
+
+    背景：success 域台账此前无法区分「本地先验判定」和「noul_fallback 兜底」
+    （10-27 实测 4 条全是 noul_fallback，主路径判定缺席）。kind 轴让 evals/
+    校准可按决策形态分组。默认 local 兼容存量数据（无 kind 的行按 local 解读）。
+    """
+
+    LOCAL = "local"            # 本地先验/模式匹配判定（0 token）
+    NOUL_FALLBACK = "noul"     # spec_decision Noul 头兜底
+    MODEL_ROUTE = "model"      # 模型参与的路由判定
+    USER = "user"              # 用户显式裁定
 
 # 每日每域落盘上限：台账是锚点不是数据湖，防失控刷盘（触发即丢弃并计费计数）
 MAX_ENTRIES_PER_DAY_PER_DOMAIN = 2000
@@ -83,6 +114,8 @@ class DecisionEntry:
     reason: str
     session_id: str
     p: Optional[float] = None
+    # kind 轴（2026-10-29 ⑥）：决策形态；存 str 值，默认 local（存量数据零漂移）
+    kind: str = DecisionKind.LOCAL.value
     meta: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -97,6 +130,9 @@ class DecisionEntry:
         }
         if self.p is not None:
             d["p"] = round(float(self.p), 3)
+        # kind 轴：显式登记才写（默认 local 不落盘，存量数据零漂移）
+        if self.kind and self.kind != DecisionKind.LOCAL.value:
+            d["kind"] = self.kind
         if self.meta:
             d["meta"] = self.meta
         return d
@@ -111,6 +147,7 @@ class DecisionEntry:
             reason=str(d.get("reason", "")),
             session_id=str(d.get("session_id", "")),
             p=d.get("p"),
+            kind=str(d.get("kind", DecisionKind.LOCAL.value)),
             meta=dict(d.get("meta") or {}),
         )
 
@@ -142,6 +179,7 @@ class DecisionLog:
         *,
         p: Optional[float] = None,
         session_id: str = "",
+        kind: str = DecisionKind.LOCAL.value,
         meta: Optional[dict[str, Any]] = None,
         dedup: bool = True,
     ) -> DecisionEntry:
@@ -149,7 +187,13 @@ class DecisionLog:
 
         dedup=True 时同指纹（domain+action+verdict+reason+session）在
         _DEDUP_WINDOW_S 内的重复写入直接跳过（返回条目但不落盘）。
+        kind：决策形态轴（DecisionKind），advisory——默认 local 不落盘。
         """
+        # kind 归一：接受枚举或字符串；未知值原样保留（advisory 字段不硬拒）
+        try:
+            kind_val = kind.value if isinstance(kind, DecisionKind) else str(kind)
+        except Exception:  # noqa: BLE001
+            kind_val = DecisionKind.LOCAL.value
         entry = DecisionEntry(
             ts=time.time(),
             domain=domain,
@@ -158,6 +202,7 @@ class DecisionLog:
             reason=reason,
             session_id=_resolve_session_id(session_id),
             p=p,
+            kind=kind_val,
             meta=dict(meta or {}),
         )
         try:
@@ -295,6 +340,7 @@ def record_decision(
     *,
     p: Optional[float] = None,
     session_id: Optional[str] = None,
+    kind: str | DecisionKind = DecisionKind.LOCAL.value,
     meta: Optional[dict[str, Any]] = None,
     dedup: bool = True,
 ) -> DecisionEntry:
@@ -302,7 +348,7 @@ def record_decision(
     try:
         return get_decision_log().record(
             domain, action, verdict, reason,
-            p=p, session_id=session_id, meta=meta, dedup=dedup,
+            p=p, session_id=session_id, kind=kind, meta=meta, dedup=dedup,
         )
     except Exception:  # noqa: BLE001
         try:
