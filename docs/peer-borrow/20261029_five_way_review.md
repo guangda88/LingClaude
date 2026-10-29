@@ -162,6 +162,17 @@
 
 ## 六、执行序列（融合四方，按风险与依赖排序）
 
+> **执行状态收官（2026-10-29 同日落地）**：
+> 第0批 ①②③ ✅（188MB清理 / EXEMPT_DUE守卫 / depth-four-questions skill）
+> 第1批 ④⑤ ✅（session_map 回放器5测+幂等修正 / evals 29→74+outcome轴——**循环证据已被第3批证伪修正**）
+> 第2批 ⑥⑦ ✅（75f38cb：DecisionKind类型化 / SuccessVerdict.record() 公共出口+read语义修正）
+> 第3批 ⑧⑨ ✅（174bd98：P_th门默认关+shadow对照 / worktree收口状态机四裁定）
+> 第4批 ⑩⑪ ✅（ecc_skill_stocktake 一次性对照=无机制级缺口 / session-replay skill 成对交付=⑪d；
+>   ⑪a 熔断键归一裁定不实现=provider级分级熔断已存在且无命令级事故实证，留观察窗；
+>   ⑪b⑪c 已由第1/3批顺带完成）
+> **序列全部收官。后续观察窗：shadow对照数据240h → P_th定谳；evals时间累积。**
+
+
 ### 第 0 批（~0.5 天，零/低风险，先止血）
 
 | # | 事项 | 依据 | 验收 |
@@ -238,3 +249,13 @@
   2. **决策台账有幸存者偏差**：只有被门控看过的样本，缺反事实。Escalation 校准前必须先做 **shadow 记录**（记「本会怎么做」但不执行），否则阈值被选择偏差带跑
   3. **rollout 已有 2318 个文件**却零回放视图——回放的最大价值是补这个观测空洞
 - 它对四问的评级是**高**（与灵克/两家「低-中」分歧）——理由：Altitude/Depth/Range 三维正好补 `blackboard.Goal.done_when` 之前的思考缺口。**裁决**：模式价值高，但落地形态仍应为 **opt-in skill + done_when 契约**（不进每轮主管线，成本约束不因评级改变）
+
+
+## 十、第4批⑩ stocktake 实测结论（2026-10-29）
+
+`scripts/ecc_skill_stocktake.py`（一次性，不导入）对照 ECC 311 skills / 71 agents → lc 六层 GateLayer：
+
+- 关键词可映射仅 **92/311**；unmapped 219 个几乎全是**技术栈专项资产**（django/laravel/flutter/defi 安全等）
+- security_relevant 23 个中无「gate 机制级」条目，唯一留意项：`mcp-dependency-review`（lc 有 MCP 面）
+- **裁定：ECC 与 lc 不在同一层**（静态知识资产 vs 运行时执行点），无机制级缺口；后续若引入 MCP 依赖审查需求，再按 skill 选摘该单条
+- 产物：data/spill/ecc_stocktake_20261029.json（含 note 字段解释为何不构成导入建议）
