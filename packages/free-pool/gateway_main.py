@@ -13,6 +13,7 @@
 """
 
 import json, os, sys, time, uuid, importlib, socket
+from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
@@ -793,3 +794,48 @@ if __name__ == "__main__":
             else:
                 raise
     server.serve_forever()
+
+
+def main():
+    # entrypoint 兼容
+    import socketserver
+    import http.server
+
+    _executor = ThreadPoolExecutor(max_workers=64)
+
+    class PooledHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+        daemon_threads = True
+
+        def process_request(self, request, client_address):
+            self.executor.submit(self._handle_request_safe, request, client_address)
+
+        @property
+        def executor(self):
+            return _executor
+
+        def _handle_request_safe(self, request, client_address):
+            try:
+                self.finish_request(request, client_address)
+            except Exception:
+                self.handle_error(request, client_address)
+            finally:
+                self.shutdown_request(request)
+
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            server = PooledHTTPServer(("0.0.0.0", PORT), ProxyHandler)
+            break
+        except OSError as e:
+            if e.errno == 98 and attempt < max_retries - 1:
+                print(
+                    f"[proxy3] 端口 {PORT} 被占用, 等待重试 ({attempt + 1}/{max_retries})..."
+                )
+                time.sleep(3)
+            else:
+                raise
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

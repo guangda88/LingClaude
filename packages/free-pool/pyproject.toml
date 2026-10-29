@@ -12,5 +12,6 @@ license = {text = "MIT"}
 dependencies = []
 
 [project.scripts]
-free-pool-serve = "free_pool:main"
+free-pool-serve = "gateway_main:main"
 free-pool-sync = "sync_free_models:main"
+free-pool = "cli:main"

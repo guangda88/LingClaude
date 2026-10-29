@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+DIR="/home/ai/lingclaude/packages/free-pool"
+export PYTHONPATH="$DIR:$PYTHONPATH"
+exec python3 "$DIR/cli.py" "$@"
